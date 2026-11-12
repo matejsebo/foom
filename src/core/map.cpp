@@ -463,6 +463,7 @@ void Map::clear()
 		delete part;
 	parts.clear();
 	objects_by_uuid.clear();
+	stale_index_objects.clear();
 	current_part_index = 0;
 	
 	for (auto symbol : symbols)
@@ -2203,6 +2204,39 @@ void Map::unregisterObject(Object* object)
 	auto const existing = objects_by_uuid.constFind(object->uuid());
 	if (existing != objects_by_uuid.constEnd() && *existing == object)
 		objects_by_uuid.erase(existing);
+}
+
+void Map::query(const QRectF& rect_mm, std::vector<Object*>& out, PartFilter filter) const
+{
+	if (filter == CurrentPart)
+	{
+		getCurrentPart()->query(rect_mm, out);
+	}
+	else
+	{
+		for (const MapPart* part : parts)
+			part->query(rect_mm, out);
+	}
+}
+
+void Map::markIndexStale(const Object* object)
+{
+	stale_index_objects.insert(object);
+}
+
+void Map::updateIndexes() const
+{
+	if (stale_index_objects.empty())
+		return;
+	
+	// Re-entering an object may mark objects stale again. Those wait for the next query.
+	auto const objects = std::move(stale_index_objects);
+	stale_index_objects.clear();
+	for (const Object* object : objects)
+	{
+		for (const MapPart* part : parts)
+			part->markIndexStale(object);
+	}
 }
 
 int Map::addObject(Object* object, int part_index)

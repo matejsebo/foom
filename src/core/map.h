@@ -27,6 +27,7 @@
 #include <functional>
 #include <memory>
 #include <set>
+#include <unordered_set>
 #include <vector>
 
 #include <QtGlobal>
@@ -945,6 +946,43 @@ public:
 	 */
 	void unregisterObject(Object* object);
 	
+	
+	// foom: spatial index.
+	// See the design notes, "Spatial index".
+	
+	/**
+	 * Which parts a spatial query covers.
+	 */
+	enum PartFilter
+	{
+		CurrentPart,
+		AllParts
+	};
+	
+	/**
+	 * Returns the objects whose extent may overlap the rectangle (in mm).
+	 * 
+	 * The candidates come from the spatial indexes of the parts. Callers
+	 * refine them with exact geometry tests. No object is returned twice.
+	 */
+	void query(const QRectF& rect_mm, std::vector<Object*>& out, PartFilter filter = CurrentPart) const;
+	
+	/**
+	 * Records that the object's extent may have changed.
+	 * 
+	 * The object is re-entered into the spatial index of its part at the
+	 * next query. This is called by Object::setOutputDirty().
+	 */
+	void markIndexStale(const Object* object);
+	
+	/**
+	 * Hands the objects marked stale since the last call to the spatial
+	 * indexes of the parts.
+	 * 
+	 * This is called by MapPart::query().
+	 */
+	void updateIndexes() const;
+	
 	/**
 	 * Marks the objects as "dirty", i.e. as having unsaved changes.
 	 * Emits hasUnsavedChanged(true) if the map did not have unsaved changes before.
@@ -1645,6 +1683,7 @@ private:
 	int first_front_template = 0;		// index of the first template in templates which should be drawn in front of the map
 	PartVector parts;
 	QHash<QUuid, Object*> objects_by_uuid;  ///< foom: the objects in the parts
+	mutable std::unordered_set<const Object*> stale_index_objects;  ///< foom: to be re-entered into the spatial indexes
 	ObjectSelection object_selection;
 	Object* first_selected_object = nullptr;
 	QScopedPointer<UndoManager> undo_manager;

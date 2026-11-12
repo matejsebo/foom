@@ -540,7 +540,16 @@ void Object::setRotation(qreal new_rotation)
 void Object::forceUpdate() const
 {
 	output_dirty = true;
+	if (map)
+		map->markIndexStale(this);  // foom
 	update();
+}
+
+void Object::setOutputDirty(bool dirty)
+{
+	output_dirty = dirty;
+	if (dirty && map)
+		map->markIndexStale(this);  // foom
 }
 
 bool Object::update() const

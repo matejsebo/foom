@@ -32,6 +32,8 @@
 #include <QRectF>
 #include <QString>
 
+#include "core/spatial_index.h"
+
 class QIODevice;
 class QTransform;
 class QXmlStreamReader;
@@ -208,6 +210,30 @@ public:
 		bool include_hidden_objects, bool include_protected_objects,
 		std::vector<Object*>& out) const;
 	
+	/**
+	 * foom: Returns the objects whose extent may overlap the rectangle (in mm).
+	 * 
+	 * The candidates come from the spatial index, after the stale objects
+	 * have been re-entered. No object is returned twice. Callers refine the
+	 * candidates with exact geometry tests, as findObjectsAt() does.
+	 * 
+	 * See the design notes, "Spatial index".
+	 */
+	void query(const QRectF& rect_mm, std::vector<Object*>& out) const;
+	
+	/**
+	 * foom: Marks an object of this part for re-entry into the spatial index.
+	 * 
+	 * Objects which are not in this part are ignored.
+	 * This is called by Map::updateIndexes().
+	 */
+	void markIndexStale(const Object* object) const;
+	
+	/**
+	 * foom: Returns the spatial index of this part.
+	 */
+	const SpatialIndex& spatialIndex() const;
+	
 	/** 
 	 * @see Map::countObjectsInRect().
 	 */
@@ -269,6 +295,7 @@ private:
 	QString name;
 	ObjectList objects;  ///< @todo This could be a spatial representation optimized for quick access
 	Map* const map;
+	mutable SpatialIndex spatial_index;  ///< foom: maintained lazily, see query()
 };
 
 
@@ -297,6 +324,12 @@ inline
 const Object* MapPart::getObject(int i) const
 {
 	return objects[std::size_t(i)];
+}
+
+inline
+const SpatialIndex& MapPart::spatialIndex() const
+{
+	return spatial_index;
 }
 
 
