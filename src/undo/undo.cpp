@@ -114,6 +114,11 @@ void UndoStep::getModifiedObjects(int, ObjectSet&) const
 	; // nothing
 }
 
+void UndoStep::getAffectedObjects(int part_index, ObjectSet& out) const
+{
+	getModifiedObjects(part_index, out);
+}
+
 // static
 UndoStep* UndoStep::load(QXmlStreamReader& xml, Map* map, SymbolDictionary& symbol_dict)
 {
@@ -194,6 +199,14 @@ void CombinedUndoStep::getModifiedObjects(int part_index, ObjectSet &out) const
 	for (const auto* step : steps)
 	{
 		step->getModifiedObjects(part_index, out);
+	}
+}
+
+void CombinedUndoStep::getAffectedObjects(int part_index, ObjectSet& out) const
+{
+	for (const auto* step : steps)
+	{
+		step->getAffectedObjects(part_index, out);
 	}
 }
 

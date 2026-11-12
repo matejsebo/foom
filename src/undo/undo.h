@@ -155,6 +155,20 @@ public:
 	 */
 	virtual void getModifiedObjects(int part_index, ObjectSet& out) const;
 	
+	/**
+	 * foom: Adds the live objects which the recorded edit changed to the
+	 * container provided by out.
+	 * 
+	 * This is called by UndoManager::push, before the step is undone for the
+	 * first time, in order to stamp the modification time of these objects.
+	 * Unlike getModifiedObjects(), which describes the state after undo(),
+	 * it must resolve to the objects which are in the given part right now.
+	 * Steps which record a creation or a deletion of objects add nothing.
+	 * 
+	 * The default implementation calls getModifiedObjects().
+	 */
+	virtual void getAffectedObjects(int part_index, ObjectSet& out) const;
+	
 	
 	/**
 	 * Loads the undo step from the stream in xml format.
@@ -242,6 +256,11 @@ public:
 	 * Adds the modified objects of all sub steps to the given set.
 	 */
 	void getModifiedObjects(int part_index, ObjectSet& out) const override;
+	
+	/**
+	 * Adds the affected objects of all sub steps to the given set.
+	 */
+	void getAffectedObjects(int part_index, ObjectSet& out) const override;
 	
 	
 	/** 

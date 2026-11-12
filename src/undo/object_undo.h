@@ -105,6 +105,15 @@ public:
 	 */
 	void getModifiedObjects(int part_index, ObjectSet& out) const override;
 	
+	/**
+	 * Adds the objects at the recorded indices to the container provided by out.
+	 * 
+	 * Only adds objects when the given part_index matches this step's part index.
+	 * Subclasses whose recorded indices do not refer to the modified objects
+	 * at the time of the push must override this.
+	 */
+	void getAffectedObjects(int part_index, ObjectSet& out) const override;
+	
 	
 protected:
 	/**
@@ -284,6 +293,9 @@ public:
 	bool getModifiedParts(PartSet& out) const override;
 	
 	void getModifiedObjects(int part_index, ObjectSet& out) const override;
+	
+	/** The recorded objects were created, not modified: adds nothing. */
+	void getAffectedObjects(int part_index, ObjectSet& out) const override;
 };
 
 /**
@@ -311,6 +323,9 @@ public:
 	 */
 	void removeContainedObjects(bool emit_selection_changed);
 	
+	/** The recorded objects were deleted: adds nothing. */
+	void getAffectedObjects(int part_index, ObjectSet& out) const override;
+	
 protected:
 	static bool sortOrder(const std::pair<int, int>& a, const std::pair<int, int>& b);
 	
@@ -335,6 +350,9 @@ public:
 	bool getModifiedParts(PartSet& out) const override;
 	
 	void getModifiedObjects(int part_index, ObjectSet& out) const override;
+	
+	/** Adds the moved objects, which are at the end of the part they were moved to. */
+	void getAffectedObjects(int part_index, ObjectSet& out) const override;
 	
 	UndoStep* undo() override;
 	

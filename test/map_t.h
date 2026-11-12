@@ -61,6 +61,9 @@ private slots:
 	/** foom: Tests uniqueness of object uuids per map. */
 	void objectIdentityTest();
 	
+	/** foom: Tests the modification time stamp from UndoManager::push. */
+	void objectModifiedTimeTest();
+	
 };
 
 #endif

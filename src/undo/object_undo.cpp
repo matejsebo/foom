@@ -98,6 +98,20 @@ void ObjectModifyingUndoStep::getModifiedObjects(int part_index, ObjectSet& out)
 	}
 }
 
+void ObjectModifyingUndoStep::getAffectedObjects(int part_index, ObjectSet& out) const
+{
+	if (part_index == getPartIndex())
+	{
+		MapPart* const map_part = map->getPart(part_index);
+		for (int object_index : modified_objects)
+		{
+			Q_ASSERT(object_index >= 0 && object_index < map_part->getNumObjects());
+			if (object_index >= 0 && object_index < map_part->getNumObjects())
+				out.insert(map_part->getObject(object_index));
+		}
+	}
+}
+
 
 
 void ObjectModifyingUndoStep::saveImpl(QXmlStreamWriter& xml) const
@@ -350,6 +364,11 @@ void DeleteObjectsUndoStep::getModifiedObjects(int, ObjectSet&) const
 	; // nothing
 }
 
+void DeleteObjectsUndoStep::getAffectedObjects(int, ObjectSet&) const
+{
+	; // nothing
+}
+
 
 
 // ### AddObjectsUndoStep ###
@@ -413,6 +432,11 @@ void AddObjectsUndoStep::removeContainedObjects(bool emit_selection_changed)
 		map->emitSelectionChanged();
 }
 
+void AddObjectsUndoStep::getAffectedObjects(int, ObjectSet&) const
+{
+	; // nothing
+}
+
 bool AddObjectsUndoStep::sortOrder(const std::pair< int, int >& a, const std::pair< int, int >& b)
 {
 	return a.second < b.second;
@@ -464,6 +488,29 @@ void SwitchPartUndoStep::getModifiedObjects(int part_index, UndoStep::ObjectSet&
 			Q_ASSERT(object_index > 0);
 			if (auto* object = map_part->getObject(--object_index))
 				out.insert(object);
+		}
+	}
+}
+
+// virtual
+void SwitchPartUndoStep::getAffectedObjects(int part_index, UndoStep::ObjectSet& out) const
+{
+	// The mirror image of getModifiedObjects(): before the step is undone,
+	// the objects are where undo() will take them from.
+	if (reverse)
+	{
+		ObjectModifyingUndoStep::getAffectedObjects(part_index, out);
+	}
+	else if (part_index == source_index)
+	{
+		MapPart* const map_part = map->getPart(source_index);
+		auto object_index = map_part->getNumObjects();
+		for (auto&& counter : modified_objects)
+		{
+			Q_UNUSED(counter)
+			Q_ASSERT(object_index > 0);
+			if (object_index > 0)
+				out.insert(map_part->getObject(--object_index));
 		}
 	}
 }

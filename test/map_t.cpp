@@ -499,4 +499,99 @@ void MapTest::objectIdentityTest()
 }
 	
 	
+void MapTest::objectModifiedTimeTest()
+{
+	// the design notes, "Object identity and timestamps", Accept (3).
+	Map map;
+	auto* symbol = new PointSymbol();
+	map.addSymbol(symbol, 0);
+	auto* part = map.getCurrentPart();
+	
+	// Drawing a new object (cf. DrawPointTool) leaves created == modified.
+	auto* object = new PointObject(symbol);
+	auto const uuid = object->uuid();
+	auto const created = object->createdTime();
+	QCOMPARE(object->modifiedTime(), created);
+	map.addObject(object);
+	auto* draw_step = new DeleteObjectsUndoStep(&map);
+	draw_step->addObject(part->findObjectIndex(object));
+	map.push(draw_step);
+	QCOMPARE(object->modifiedTime(), created);
+	
+	// Make the object look older, so that a stamp is distinguishable within the same second.
+	auto const old_time = created - 100;
+	object->setIdentity(uuid, old_time, old_time);
+	auto* other = new PointObject(symbol);
+	other->setIdentity(other->uuid(), old_time, old_time);
+	map.addObject(other);
+	
+	// An edit pushed as ReplaceObjectsUndoStep stamps the live object, not the undo copy.
+	auto* backup = object->duplicate();
+	object->setPosition(MapCoord(1, 1));
+	auto* replace_step = new ReplaceObjectsUndoStep(&map);
+	replace_step->addObject(object, backup);
+	auto const before = Object::currentTime();
+	map.push(replace_step);
+	auto const after = Object::currentTime();
+	QVERIFY(object->modifiedTime() >= before);
+	QVERIFY(object->modifiedTime() <= after);
+	QCOMPARE(object->createdTime(), old_time);
+	QCOMPARE(object->uuid(), uuid);
+	QCOMPARE(backup->modifiedTime(), old_time);
+	QCOMPARE(other->modifiedTime(), old_time);
+	auto const stamped = object->modifiedTime();
+	
+	// Undo restores the previous value and the same uuid; redo restores the stamped value.
+	map.undoManager().undo();
+	QCOMPARE(part->getObject(0), backup);
+	QCOMPARE(backup->uuid(), uuid);
+	QCOMPARE(backup->modifiedTime(), old_time);
+	map.undoManager().redo();
+	QCOMPARE(part->getObject(0), object);
+	QCOMPARE(object->uuid(), uuid);
+	QCOMPARE(object->modifiedTime(), stamped);
+	
+	// A tags change inside a combined step is stamped (cf. TagsWidget).
+	auto* tags_step = new ObjectTagsUndoStep(&map);
+	tags_step->addObject(part->findObjectIndex(other));
+	other->setTag(QStringLiteral("key"), QStringLiteral("value"));
+	auto* combined_step = new CombinedUndoStep(&map);
+	combined_step->push(tags_step);
+	map.push(combined_step);
+	QVERIFY(other->modifiedTime() >= before);
+	QCOMPARE(object->modifiedTime(), stamped);
+	other->setIdentity(other->uuid(), old_time, old_time);
+	
+	// Deleting an object (cf. MapEditorController::deleteClicked) stamps nothing,
+	// in particular not the object which now has the deleted object's index.
+	object->setIdentity(uuid, old_time, old_time);
+	auto* delete_step = new AddObjectsUndoStep(&map);
+	delete_step->addObject(part->findObjectIndex(object), object);
+	delete_step->removeContainedObjects(false);
+	QCOMPARE(part->getObject(0), other);
+	map.push(delete_step);
+	QCOMPARE(object->modifiedTime(), old_time);
+	QCOMPARE(other->modifiedTime(), old_time);
+	map.undoManager().undo();
+	QCOMPARE(part->getObject(0), object);
+	QCOMPARE(object->modifiedTime(), old_time);
+	
+	// Moving an object to another part (cf. MapEditorController::reassignObjectsToMapPart)
+	// stamps the moved object, which is now at the end of the target part.
+	map.addPart(new MapPart(QStringLiteral("second"), &map), 1);
+	auto* second = map.getPart(1);
+	second->addObject(new PointObject(symbol));
+	second->getObject(0)->setIdentity(second->getObject(0)->uuid(), old_time, old_time);
+	std::vector<int> indices = { 0 };
+	map.reassignObjectsToMapPart(begin(indices), end(indices), 0, 1);
+	auto* switch_step = new SwitchPartUndoStep(&map, 1, 0);
+	switch_step->addObject(0);
+	map.push(switch_step);
+	QCOMPARE(second->getObject(1), object);
+	QVERIFY(object->modifiedTime() >= before);
+	QCOMPARE(second->getObject(0)->modifiedTime(), old_time);
+	QCOMPARE(other->modifiedTime(), old_time);
+}
+	
+	
 QTEST_MAIN(MapTest)

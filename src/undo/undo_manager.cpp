@@ -35,6 +35,7 @@
 #include <QXmlStreamReader>
 
 #include "core/map.h"
+#include "core/objects/object.h"
 #include "undo/undo.h"
 #include "util/xml_stream_util.h"
 
@@ -108,6 +109,18 @@ void UndoManager::push(std::unique_ptr<UndoStep>&& step)
 	Q_ASSERT(step);
 	
 	clearRedoSteps();
+	
+	// foom: stamp the modification time of the objects this edit changed.
+	// See the design notes, "Object identity and timestamps".
+	if (map)
+	{
+		UndoStep::ObjectSet affected_objects;
+		for (int i = 0; i < map->getNumParts(); ++i)
+			step->getAffectedObjects(i, affected_objects);
+		auto const now = Object::currentTime();
+		for (auto* object : affected_objects)
+			object->touch(now);
+	}
 	
 	UndoManager::State const old_state(this);
 	undo_steps.emplace_back(std::move(step));
