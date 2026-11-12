@@ -64,7 +64,10 @@ MapPart::MapPart(const QString& name, Map* map)
 MapPart::~MapPart()
 {
 	for (Object* object : objects)
+	{
+		map->unregisterObject(object);
 		delete object;
+	}
 }
 
 
@@ -113,7 +116,10 @@ MapPart* MapPart::load(QXmlStreamReader& xml, Map& map, SymbolDictionary& symbol
 			while (xml.readNextStartElement())
 			{
 				if (xml.name() == literal::object)
+				{
 					part->objects.push_back(Object::load(xml, &map, symbol_dict));
+					map.registerObject(part->objects.back());
+				}
 				else
 					xml.skipCurrentElement(); // unknown
 			}
@@ -145,11 +151,13 @@ int MapPart::findObjectIndex(const Object* object) const
 
 void MapPart::setObject(Object* object, int pos, bool delete_old)
 {
+	map->unregisterObject(objects[pos]);
 	map->removeRenderablesOfObject(objects[pos], true);
 	if (delete_old)
 		delete objects[pos];
 	
 	objects[pos] = object;
+	map->registerObject(object);
 	object->setMap(map);
 	object->update();
 	map->setObjectsDirty(); // TODO: remove from here, dirty state handling should be separate
@@ -163,6 +171,7 @@ void MapPart::addObject(Object* object)
 void MapPart::addObject(Object* object, int pos)
 {
 	objects.insert(objects.begin() + pos, object);
+	map->registerObject(object);
 	object->setMap(map);
 	object->update();
 	
@@ -188,6 +197,7 @@ Object* MapPart::releaseObject(int pos)
 	map->removeRenderablesOfObject(objects[pos], true);
 	auto object_to_return = objects[pos];
 	objects.erase(objects.begin() + pos);
+	map->unregisterObject(object_to_return);
 	
 	if (objects.empty() && map->getNumObjects() == 0)
 		map->updateAllMapWidgets();
@@ -227,6 +237,7 @@ std::unique_ptr<UndoStep> MapPart::importPart(const MapPart* other, const QHash<
 		new_object->transform(transform);
 		
 		objects.push_back(new_object);
+		map->registerObject(new_object);
 		new_object->setMap(map);
 		new_object->update();
 		

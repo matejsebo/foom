@@ -41,6 +41,7 @@
 #include <QSharedData>
 #include <QString>
 #include <QTransform>
+#include <QUuid>
 
 #include "core/map_coord.h"
 #include "core/map_grid.h"
@@ -916,6 +917,34 @@ public:
 	 */
 	Object* releaseObject(Object* object);
 	
+	
+	// foom: object identity.
+	// See the design notes, "Object identity and timestamps".
+	
+	/**
+	 * Returns the object with the given uuid, or nullptr.
+	 * 
+	 * Only objects in a map part are found, not undo copies or clipboard
+	 * objects.
+	 */
+	Object* findObject(const QUuid& uuid) const;
+	
+	/**
+	 * Registers an object which enters a map part.
+	 * 
+	 * If another object of this map already holds the uuid, the object gets
+	 * a fresh uuid, and its derivedFrom() records the old one.
+	 * This is called by MapPart.
+	 */
+	void registerObject(Object* object);
+	
+	/**
+	 * Unregisters an object which leaves a map part.
+	 * 
+	 * This is called by MapPart.
+	 */
+	void unregisterObject(Object* object);
+	
 	/**
 	 * Marks the objects as "dirty", i.e. as having unsaved changes.
 	 * Emits hasUnsavedChanged(true) if the map did not have unsaved changes before.
@@ -1615,6 +1644,7 @@ private:
 	TemplateVector closed_templates;
 	int first_front_template = 0;		// index of the first template in templates which should be drawn in front of the map
 	PartVector parts;
+	QHash<QUuid, Object*> objects_by_uuid;  ///< foom: the objects in the parts
 	ObjectSelection object_selection;
 	Object* first_selected_object = nullptr;
 	QScopedPointer<UndoManager> undo_manager;

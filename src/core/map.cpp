@@ -462,6 +462,7 @@ void Map::clear()
 	for (MapPart* part : parts)
 		delete part;
 	parts.clear();
+	objects_by_uuid.clear();
 	current_part_index = 0;
 	
 	for (auto symbol : symbols)
@@ -2179,6 +2180,29 @@ int Map::getNumObjects() const
 	for (const MapPart* part : parts)
 		num_objects += part->getNumObjects();
 	return num_objects;
+}
+
+Object* Map::findObject(const QUuid& uuid) const
+{
+	return objects_by_uuid.value(uuid, nullptr);
+}
+
+void Map::registerObject(Object* object)
+{
+	auto const existing = objects_by_uuid.constFind(object->uuid());
+	if (existing != objects_by_uuid.constEnd() && *existing != object)
+	{
+		object->setDerivedFrom(object->uuid());
+		object->setIdentity(QUuid::createUuid(), object->createdTime(), object->modifiedTime());
+	}
+	objects_by_uuid.insert(object->uuid(), object);
+}
+
+void Map::unregisterObject(Object* object)
+{
+	auto const existing = objects_by_uuid.constFind(object->uuid());
+	if (existing != objects_by_uuid.constEnd() && *existing == object)
+		objects_by_uuid.erase(existing);
 }
 
 int Map::addObject(Object* object, int part_index)

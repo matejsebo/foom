@@ -23,18 +23,22 @@
 #include <QBuffer>
 #include <QMessageBox>
 #include <QTextStream>
+#include <QUuid>
 
 #include "test_config.h"
 
 #include "global.h"
 #include "core/map.h"
 #include "core/map_color.h"
+#include "core/map_part.h"
 #include "core/map_printer.h" // IWYU pragma: keep
 #include "core/map_view.h"
 #include "core/objects/object.h"
 #include "core/objects/symbol_rule_set.h"
 #include "core/symbols/symbol.h"
 #include "core/symbols/point_symbol.h"
+#include "undo/object_undo.h"
+#include "undo/undo_manager.h"
 
 using namespace OpenOrienteering;
 
@@ -416,4 +420,83 @@ namespace  {
 #endif
 
 
+void MapTest::objectIdentityTest()
+{
+	// the design notes, "Object identity and timestamps", Accept (2).
+	Map map;
+	auto* symbol = new PointSymbol();
+	map.addSymbol(symbol, 0);
+	auto* part = map.getCurrentPart();
+	
+	auto* original = new PointObject(symbol);
+	auto const uuid = original->uuid();
+	map.addObject(original);
+	QCOMPARE(map.findObject(uuid), original);
+	QVERIFY(!map.findObject(QUuid::createUuid()));
+	
+	// A duplicate added to the same map gets a new uuid, derived from the original.
+	auto* duplicate = original->duplicate();
+	QCOMPARE(duplicate->uuid(), uuid);
+	map.addObject(duplicate);
+	QVERIFY(!duplicate->uuid().isNull());
+	QVERIFY(duplicate->uuid() != uuid);
+	QCOMPARE(duplicate->derivedFrom(), uuid);
+	QCOMPARE(duplicate->createdTime(), original->createdTime());
+	QCOMPARE(map.findObject(uuid), original);
+	QCOMPARE(map.findObject(duplicate->uuid()), duplicate);
+	auto const duplicate_uuid = duplicate->uuid();
+	
+	// Edit > Duplicate, undone and redone (cf. MapEditorController::duplicateClicked).
+	auto* delete_step = new DeleteObjectsUndoStep(&map);
+	delete_step->addObject(part->findObjectIndex(duplicate));
+	map.push(delete_step);
+	map.undoManager().undo();
+	QCOMPARE(part->getNumObjects(), 1);
+	QCOMPARE(map.findObject(uuid), original);
+	QVERIFY(!map.findObject(duplicate_uuid));
+	map.undoManager().redo();
+	QCOMPARE(part->getNumObjects(), 2);
+	QCOMPARE(map.findObject(duplicate_uuid), part->getObject(1));
+	QCOMPARE(part->getObject(1)->derivedFrom(), uuid);
+	
+	// An undo copy which replaces the live object keeps the identity (ReplaceObjectsUndoStep).
+	auto* backup = original->duplicate();
+	auto* replace_step = new ReplaceObjectsUndoStep(&map);
+	replace_step->addObject(part->findObjectIndex(original), backup);
+	map.push(replace_step);
+	map.undoManager().undo();
+	QCOMPARE(part->getObject(0), backup);
+	QCOMPARE(backup->uuid(), uuid);
+	QVERIFY(backup->derivedFrom().isNull());
+	QCOMPARE(map.findObject(uuid), backup);
+	
+	// Moving an object to another part keeps its uuid; deleting the part forgets it.
+	map.addPart(new MapPart(QStringLiteral("second"), &map), 1);
+	auto* second = map.getPart(1);
+	second->addObject(part->releaseObject(backup));
+	QCOMPARE(map.findObject(uuid), backup);
+	map.removePart(1);
+	QVERIFY(!map.findObject(uuid));
+	QCOMPARE(map.findObject(duplicate_uuid), part->getObject(0));
+	
+	// Importing into another map keeps the uuid; importing again derives a new one.
+	Map other;
+	other.importMap(map, Map::CompleteImport);
+	QCOMPARE(other.getNumObjects(), 1);
+	auto const* imported = other.findObject(duplicate_uuid);
+	QVERIFY(imported);
+	QCOMPARE(imported->derivedFrom(), uuid);
+	other.importMap(map, Map::CompleteImport);
+	QCOMPARE(other.getNumObjects(), 2);
+	QCOMPARE(other.findObject(duplicate_uuid), imported);
+	auto const* imported_again = other.getCurrentPart()->getObject(1);
+	QVERIFY(imported_again->uuid() != duplicate_uuid);
+	QCOMPARE(imported_again->derivedFrom(), duplicate_uuid);
+	
+	// clear() forgets every object.
+	map.clear();
+	QVERIFY(!map.findObject(duplicate_uuid));
+}
+	
+	
 QTEST_MAIN(MapTest)

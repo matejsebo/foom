@@ -58,6 +58,9 @@ private slots:
 	void matchQuerySymbolNumberTest_data();
 	void matchQuerySymbolNumberTest();
 	
+	/** foom: Tests uniqueness of object uuids per map. */
+	void objectIdentityTest();
+	
 };
 
 #endif
