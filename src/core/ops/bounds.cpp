@@ -24,31 +24,35 @@
 #include <algorithm>
 #include <vector>
 
+#include <QPointF>
+#include <QRectF>
+
 #include "core/map_coord.h"
 #include "core/objects/object.h"
+#include "core/objects/text_object.h"
 
 
 namespace OpenOrienteering {
 
 namespace ops {
 
-MapCoordF boundingCentre(const std::vector<const Object*>& in)
+QRectF boundingRect(const std::vector<const Object*>& in)
 {
 	auto left = 0.0, top = 0.0, right = 0.0, bottom = 0.0;
 	auto first = true;
-	auto include = [&](const MapCoord& coord) {
+	auto include = [&](const QPointF& point) {
 		if (first)
 		{
-			left = right = coord.x();
-			top = bottom = coord.y();
+			left = right = point.x();
+			top = bottom = point.y();
 			first = false;
 		}
 		else
 		{
-			left = std::min(left, coord.x());
-			right = std::max(right, coord.x());
-			top = std::min(top, coord.y());
-			bottom = std::max(bottom, coord.y());
+			left = std::min(left, point.x());
+			right = std::max(right, point.x());
+			top = std::min(top, point.y());
+			bottom = std::max(bottom, point.y());
 		}
 	};
 	for (auto const* object : in)
@@ -58,16 +62,33 @@ MapCoordF boundingCentre(const std::vector<const Object*>& in)
 		auto const& coords = object->getRawCoordinateVector();
 		if (object->getType() == Object::Text)
 		{
-			if (!coords.empty())
-				include(coords.front());
+			auto const* text = object->asText();
+			if (coords.empty())
+				continue;
+			auto const anchor = QPointF(text->getAnchorCoordF());
+			if (text->hasSingleAnchor())
+			{
+				include(anchor);
+			}
+			else
+			{
+				auto const half_size = QPointF(text->getBoxSize()) / 2;
+				include(anchor - half_size);
+				include(anchor + half_size);
+			}
 		}
 		else
 		{
 			for (auto const& coord : coords)
-				include(coord);
+				include(QPointF(coord));
 		}
 	}
-	return MapCoordF((left + right) / 2, (top + bottom) / 2);
+	return first ? QRectF{} : QRectF(QPointF(left, top), QPointF(right, bottom));
+}
+
+MapCoordF boundingCentre(const std::vector<const Object*>& in)
+{
+	return MapCoordF(boundingRect(in).center());
 }
 
 

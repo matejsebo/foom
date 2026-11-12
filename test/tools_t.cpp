@@ -39,6 +39,7 @@
 #include "core/map_part.h"
 #include "core/objects/object.h"
 #include "core/objects/object_query.h"
+#include "core/ops/align.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
 #include "global.h"
@@ -403,6 +404,62 @@ void ToolsTest::numericTransforms()
 	
 	map.map->clearObjectSelection(true);
 	QVERIFY(!move_act->isEnabled() && !rotate_act->isEnabled() && !stretch_act->isEnabled());
+}
+
+
+void ToolsTest::alignAndDistribute()
+{
+	// the design notes, "Align and distribute", editor paragraph.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* align_act = editor.editor->getAction("align-left");
+	auto* distribute_act = editor.editor->getAction("distribute-h");
+	QVERIFY(align_act && distribute_act);
+	for (auto id : { "align-hcenter", "align-right", "align-top", "align-vcenter", "align-bottom", "distribute-v" })
+		QVERIFY(editor.editor->getAction(id));
+	
+	// The fixture line spans x 10..30, y 10..20.
+	auto* first = map.line_object;
+	auto* second = new PathObject(map.line_symbol, { MapCoord(30.0, 30.0), MapCoord(40.0, 30.0) });
+	map.map->addObject(second);
+	auto* third = new PathObject(map.line_symbol, { MapCoord(100.0, 50.0), MapCoord(110.0, 50.0) });
+	map.map->addObject(third);
+	auto* part = map.map->getCurrentPart();
+	auto const second_uuid = second->uuid();
+	auto const third_uuid = third->uuid();
+	auto const undo_steps = map.map->undoManager().undoStepCount();
+	
+	map.map->addObjectToSelection(first, true);
+	QVERIFY(!align_act->isEnabled() && !distribute_act->isEnabled());
+	map.map->addObjectToSelection(second, true);
+	QVERIFY(align_act->isEnabled() && !distribute_act->isEnabled());
+	map.map->addObjectToSelection(third, true);
+	QVERIFY(align_act->isEnabled() && distribute_act->isEnabled());
+	
+	// Centres x 20, 35, 105: the second moves to 62.5.
+	editor.editor->distribute(true);
+	QCOMPARE(part->getNumObjects(), 3);
+	auto const* spaced = map.map->findObject(second_uuid);
+	QVERIFY(spaced && spaced != second);
+	QCOMPARE(spaced->getRawCoordinateVector(), (MapCoordVector{ MapCoord(57.5, 30.0), MapCoord(67.5, 30.0) }));
+	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 1);
+	
+	// Top edges to the first-selected object's y 10.
+	map.map->clearObjectSelection(false);
+	map.map->addObjectToSelection(first, true);
+	map.map->addObjectToSelection(const_cast<Object*>(spaced), true);
+	map.map->addObjectToSelection(third, true);
+	editor.editor->align(ops::AlignParams::Top);
+	QCOMPARE(part->getNumObjects(), 3);
+	QCOMPARE(map.map->findObject(second_uuid)->getRawCoordinateVector(), (MapCoordVector{ MapCoord(57.5, 10.0), MapCoord(67.5, 10.0) }));
+	QCOMPARE(map.map->findObject(third_uuid)->getRawCoordinateVector(), (MapCoordVector{ MapCoord(100.0, 10.0), MapCoord(110.0, 10.0) }));
+	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 2);
+	
+	QVERIFY(map.map->undoManager().undo());
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(map.map->findObject(second_uuid), second);
+	QCOMPARE(second->getRawCoordinateVector(), (MapCoordVector{ MapCoord(30.0, 30.0), MapCoord(40.0, 30.0) }));
+	QCOMPARE(map.map->findObject(third_uuid), third);
 }
 
 

@@ -108,6 +108,7 @@
 #include "core/objects/boolean_tool.h"
 #include "core/objects/object.h"
 #include "core/objects/object_operations.h"
+#include "core/ops/align.h"
 #include "core/ops/apply_op.h"
 #include "core/ops/flatten.h"
 #include "core/ops/mirror.h"
@@ -1097,6 +1098,18 @@ void MapEditorController::createActions()
 	move_by_act = newAction("move-by", tr("Move by..."), this, SLOT(moveByClicked()));  // foom
 	rotate_by_act = newAction("rotate-by", tr("Rotate by..."), this, SLOT(rotateByClicked()));  // foom
 	stretch_act = newAction("stretch", tr("Stretch..."), this, SLOT(stretchClicked()));  // foom
+	align_acts[ops::AlignParams::Left] = newAction("align-left", tr("Align left"), this, SLOT(alignClicked()));  // foom
+	align_acts[ops::AlignParams::HCentre] = newAction("align-hcenter", tr("Align centers horizontally"), this, SLOT(alignClicked()));  // foom
+	align_acts[ops::AlignParams::Right] = newAction("align-right", tr("Align right"), this, SLOT(alignClicked()));  // foom
+	align_acts[ops::AlignParams::Top] = newAction("align-top", tr("Align top"), this, SLOT(alignClicked()));  // foom
+	align_acts[ops::AlignParams::VCentre] = newAction("align-vcenter", tr("Align centers vertically"), this, SLOT(alignClicked()));  // foom
+	align_acts[ops::AlignParams::Bottom] = newAction("align-bottom", tr("Align bottom"), this, SLOT(alignClicked()));  // foom
+	for (int edge = ops::AlignParams::Left; edge <= ops::AlignParams::Bottom; ++edge)  // foom
+		align_acts[edge]->setData(edge);
+	distribute_h_act = newAction("distribute-h", tr("Distribute horizontally"), this, SLOT(distributeClicked()));  // foom
+	distribute_h_act->setData(true);
+	distribute_v_act = newAction("distribute-v", tr("Distribute vertically"), this, SLOT(distributeClicked()));  // foom
+	distribute_v_act->setData(false);
 	clip_area_act = newToolAction("cliparea", tr("Clip area"), this, SLOT(clipAreaClicked()), "tool-clip.png", QString{}, "toolbars.html#clip_area");
 	erase_area_act = newToolAction("erasearea", tr("Erase area"), this, SLOT(eraseAreaClicked()), "tool-erase.png", QString{}, "toolbars.html#erase_area");
 	distribute_points_act = newAction("distributepoints", tr("Distribute points along path"), this, SLOT(distributePointsClicked()), "tool-distribute-points.png", QString{}, "toolbars.html#distribute_points"); // TODO: write documentation
@@ -1270,6 +1283,12 @@ void MapEditorController::createMenuAndToolbars()
 	tools_menu->addAction(move_by_act);  // foom
 	tools_menu->addAction(rotate_by_act);  // foom
 	tools_menu->addAction(stretch_act);  // foom
+	auto* align_menu = tools_menu->addMenu(tr("Align"));  // foom
+	for (auto* action : align_acts)
+		align_menu->addAction(action);
+	align_menu->addSeparator();
+	align_menu->addAction(distribute_h_act);
+	align_menu->addAction(distribute_v_act);
 	tools_menu->addAction(clip_area_act);
 	tools_menu->addAction(erase_area_act);
 	tools_menu->addAction(distribute_points_act);
@@ -2689,11 +2708,22 @@ void MapEditorController::updateObjectDependentActions()
 	to_polyline_act->setEnabled(have_area || have_line);  // foom
 	to_polyline_act->setStatusTip(tr("Replace the curves of path objects by straight segments.") + (to_polyline_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a path object to activate this tool."))));
 	mirror_act->setEnabled(have_selection);  // foom
-	mirror_act->setStatusTip(tr("Mirror the selected objects about an axis through their centre.") + (mirror_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select at least one object to activate this tool."))));
+	mirror_act->setStatusTip(tr("Mirror the selected objects about an axis through their center.") + (mirror_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select at least one object to activate this tool."))));
 	for (auto* action : { move_by_act, rotate_by_act, stretch_act })  // foom
 	{
 		action->setEnabled(have_selection);
 		action->setStatusTip(action->isEnabled() ? QString{} : tr("Select at least one object to activate this tool."));
+	}
+	auto const num_selected = have_selection ? map->getNumSelectedObjects() : 0;  // foom
+	for (auto* action : align_acts)
+	{
+		action->setEnabled(num_selected >= 2);
+		action->setStatusTip(action->isEnabled() ? QString{} : tr("Select at least two objects to activate this tool."));
+	}
+	for (auto* action : { distribute_h_act, distribute_v_act })
+	{
+		action->setEnabled(num_selected >= 3);
+		action->setStatusTip(action->isEnabled() ? QString{} : tr("Select at least three objects to activate this tool."));
 	}
 	
 	// cut_hole_enabled
@@ -3676,6 +3706,49 @@ void MapEditorController::stretch(double factor_x, double factor_y, bool duplica
 	params.factor_y = factor_y;
 	params.duplicate = duplicate;
 	applyOpResult(ops::stretch(*map, in, params));
+}
+
+// foom
+void MapEditorController::alignClicked()
+{
+	if (auto* action = qobject_cast<QAction*>(sender()))
+		align(static_cast<ops::AlignParams::Edge>(action->data().toInt()));
+}
+
+// foom
+void MapEditorController::align(ops::AlignParams::Edge edge)
+{
+	// the design notes, "Align and distribute".
+	auto const* first = map->getFirstSelectedObject();
+	std::vector<const Object*> in;
+	in.reserve(map->getNumSelectedObjects());
+	if (first)
+		in.push_back(first);
+	for (auto const* object : map->selectedObjects())
+	{
+		if (object != first)
+			in.push_back(object);
+	}
+	ops::AlignParams params;
+	params.edge = edge;
+	applyOpResult(ops::align(*map, in, params));
+}
+
+// foom
+void MapEditorController::distributeClicked()
+{
+	if (auto* action = qobject_cast<QAction*>(sender()))
+		distribute(action->data().toBool());
+}
+
+// foom
+void MapEditorController::distribute(bool horizontal)
+{
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	ops::DistributeParams params;
+	params.direction = horizontal ? ops::DistributeParams::Horizontal : ops::DistributeParams::Vertical;
+	applyOpResult(ops::distribute(*map, in, params));
 }
 
 // foom

@@ -30,6 +30,7 @@
 #include <QtTest>
 #include <QObject>
 #include <QPointF>
+#include <QRectF>
 #include <QString>
 #include <QUuid>
 
@@ -37,15 +38,19 @@
 #include "core/map.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
+#include "core/objects/text_object.h"
 #include "core/objects/object.h"
+#include "core/ops/align.h"
 #include "core/ops/apply_op.h"
 #include "core/ops/flatten.h"
+#include "core/ops/bounds.h"
 #include "core/ops/mirror.h"
 #include "core/ops/transform.h"
 #include "core/ops/op.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
+#include "core/symbols/text_symbol.h"
 #include "undo/undo_manager.h"
 
 using namespace OpenOrienteering;
@@ -102,6 +107,8 @@ private slots:
 	void flattenTest();
 	void mirrorTest();
 	void transformTest();
+	void alignTest();
+	void distributeTest();
 };
 
 
@@ -414,6 +421,140 @@ void OpsTest::transformTest()
 	auto duplicated = ops::moveBy(map, { line }, move);
 	QCOMPARE(duplicated.out.size(), std::size_t(1));
 	QVERIFY(duplicated.consumed.empty());
+}
+
+
+void OpsTest::alignTest()
+{
+	// the design notes, "Align and distribute".
+	Map map;
+	auto* symbol = new LineSymbol();
+	map.addSymbol(symbol, 0);
+	auto* point_symbol = new PointSymbol();
+	map.addSymbol(point_symbol, 1);
+	auto* a = new PathObject(symbol, { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0), MapCoord(10.0, 4.0) });
+	map.addObject(a);
+	auto* b = new PointObject(point_symbol);
+	b->setPosition(MapCoord(20.0, 10.0));
+	map.addObject(b);
+	auto* c = new PathObject(symbol, { MapCoord(30.0, 20.0), MapCoord(34.0, 22.0) });
+	map.addObject(c);
+	
+	auto const check = [&map, a, b, c](ops::AlignParams::Edge edge, const MapCoord& b_expected, const MapCoordVector& c_expected) {
+		ops::AlignParams params;
+		params.edge = edge;
+		auto result = ops::align(map, { a, b, c }, params);
+		QVERIFY(result.error.isEmpty());
+		QCOMPARE(result.out.size(), std::size_t(2));
+		QCOMPARE(result.consumed, (std::vector<const Object*>{ b, c }));
+		QCOMPARE(result.out.front()->asPoint()->getCoord(), b_expected);
+		QCOMPARE(result.out.back()->asPath()->getRawCoordinateVector(), c_expected);
+	};
+	check(ops::AlignParams::Left, MapCoord(0.0, 10.0), { MapCoord(0.0, 20.0), MapCoord(4.0, 22.0) });
+	check(ops::AlignParams::Right, MapCoord(10.0, 10.0), { MapCoord(6.0, 20.0), MapCoord(10.0, 22.0) });
+	check(ops::AlignParams::HCentre, MapCoord(5.0, 10.0), { MapCoord(3.0, 20.0), MapCoord(7.0, 22.0) });
+	check(ops::AlignParams::Top, MapCoord(20.0, 0.0), { MapCoord(30.0, 0.0), MapCoord(34.0, 2.0) });
+	check(ops::AlignParams::Bottom, MapCoord(20.0, 4.0), { MapCoord(30.0, 2.0), MapCoord(34.0, 4.0) });
+	check(ops::AlignParams::VCentre, MapCoord(20.0, 2.0), { MapCoord(30.0, 1.0), MapCoord(34.0, 3.0) });
+	
+	// Objects already in place are left alone; fewer than two objects is an error.
+	auto* d = new PathObject(symbol, { MapCoord(0.0, 30.0), MapCoord(5.0, 30.0) });
+	map.addObject(d);
+	ops::AlignParams left;
+	left.edge = ops::AlignParams::Left;
+	auto in_place = ops::align(map, { a, d }, left);
+	QVERIFY(in_place.error.isEmpty());
+	QVERIFY(in_place.out.empty() && in_place.consumed.empty());
+	QVERIFY(!ops::align(map, { a }, left).error.isEmpty());
+	QVERIFY(!ops::align(map, {}, left).error.isEmpty());
+	
+	// Through applyOp, the moved object keeps its uuid and the first object stays.
+	auto const a_uuid = a->uuid();
+	auto const b_uuid = b->uuid();
+	QVERIFY(ops::applyOp(map, ops::align(map, { a, b }, left)));
+	QCOMPARE(map.findObject(a_uuid), a);
+	auto const* moved_b = map.findObject(b_uuid);
+	QVERIFY(moved_b && moved_b != b);
+	QCOMPARE(moved_b->asPoint()->getCoord(), MapCoord(0.0, 10.0));
+	QVERIFY(map.undoManager().undo());
+	QCOMPARE(map.findObject(b_uuid), b);
+	
+	// The extent of a boxed text is its box.
+	auto* text_symbol = new TextSymbol();
+	map.addSymbol(text_symbol, 2);
+	auto* text = new TextObject(text_symbol);
+	text->setBox(MapCoord(50.0, 50.0).nativeX(), MapCoord(50.0, 50.0).nativeY(), 20.0, 10.0);
+	map.addObject(text);
+	auto const box = ops::boundingRect({ text });
+	QCOMPARE(box, QRectF(40.0, 45.0, 20.0, 10.0));
+	QCOMPARE(ops::boundingRect({ a, b }), QRectF(0.0, 0.0, 20.0, 10.0));
+	QVERIFY(ops::boundingRect({}).isNull());
+	auto text_left = ops::align(map, { a, text }, left);
+	QCOMPARE(text_left.out.size(), std::size_t(1));
+	QCOMPARE(text_left.out.front()->asText()->getAnchorCoordF(), MapCoordF(10.0, 50.0));
+}
+
+void OpsTest::distributeTest()
+{
+	// the design notes, "Align and distribute".
+	Map map;
+	auto* symbol = new LineSymbol();
+	map.addSymbol(symbol, 0);
+	auto* point_symbol = new PointSymbol();
+	map.addSymbol(point_symbol, 1);
+	auto const addPoint = [&map, point_symbol](double x, double y) {
+		auto* point = new PointObject(point_symbol);
+		point->setPosition(MapCoord(x, y));
+		map.addObject(point);
+		return point;
+	};
+	auto const point_coord = [](const ops::OpResult& result, std::size_t i) { return result.out[i]->asPoint()->getCoord(); };
+	
+	// Three points, given out of order: only the middle one moves.
+	auto* p40 = addPoint(40.0, 9.0);
+	auto* p0 = addPoint(0.0, 0.0);
+	auto* p10 = addPoint(10.0, 5.0);
+	ops::DistributeParams horizontal;
+	QCOMPARE(horizontal.direction, ops::DistributeParams::Horizontal);
+	auto three = ops::distribute(map, { p40, p0, p10 }, horizontal);
+	QVERIFY(three.error.isEmpty());
+	QCOMPARE(three.out.size(), std::size_t(1));
+	QCOMPARE(three.consumed, (std::vector<const Object*>{ p10 }));
+	QCOMPARE(point_coord(three, 0), MapCoord(20.0, 5.0));
+	
+	// Four points: the middle two move to equal centre spacing.
+	auto* q0 = addPoint(0.0, 0.0);
+	auto* q1 = addPoint(1.0, 0.0);
+	auto* q2 = addPoint(2.0, 0.0);
+	auto* q30 = addPoint(30.0, 0.0);
+	auto four = ops::distribute(map, { q0, q1, q2, q30 }, horizontal);
+	QVERIFY(four.error.isEmpty());
+	QCOMPARE(four.out.size(), std::size_t(2));
+	QCOMPARE(four.consumed, (std::vector<const Object*>{ q1, q2 }));
+	QCOMPARE(point_coord(four, 0), MapCoord(10.0, 0.0));
+	QCOMPARE(point_coord(four, 1), MapCoord(20.0, 0.0));
+	
+	// A line moves by the centre of its extent.
+	auto* line = new PathObject(symbol, { MapCoord(10.0, 0.0), MapCoord(14.0, 0.0) });
+	map.addObject(line);
+	auto with_line = ops::distribute(map, { p0, line, p40 }, horizontal);
+	QCOMPARE(with_line.out.size(), std::size_t(1));
+	QCOMPARE(with_line.out.front()->asPath()->getRawCoordinateVector(), (MapCoordVector{ MapCoord(18.0, 0.0), MapCoord(22.0, 0.0) }));
+	
+	// Vertically.
+	auto* v0 = addPoint(3.0, 0.0);
+	auto* v10 = addPoint(7.0, 10.0);
+	auto* v40 = addPoint(1.0, 40.0);
+	ops::DistributeParams vertical;
+	vertical.direction = ops::DistributeParams::Vertical;
+	auto down = ops::distribute(map, { v10, v40, v0 }, vertical);
+	QCOMPARE(down.out.size(), std::size_t(1));
+	QCOMPARE(down.consumed, (std::vector<const Object*>{ v10 }));
+	QCOMPARE(point_coord(down, 0), MapCoord(7.0, 20.0));
+	
+	// Fewer than three objects is an error.
+	QVERIFY(!ops::distribute(map, { p0, p40 }, horizontal).error.isEmpty());
+	QVERIFY(!ops::distribute(map, {}, horizontal).error.isEmpty());
 }
 
 

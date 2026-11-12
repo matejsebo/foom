@@ -24,6 +24,8 @@
 
 #include <vector>
 
+#include <QRectF>
+
 #include "core/map_coord.h"
 
 namespace OpenOrienteering {
@@ -33,11 +35,18 @@ class Object;
 namespace ops {
 
 /**
- * Returns the centre of the bounding box of the objects' coordinates.
+ * Returns the extent of the objects: the bounding box of their coordinates, in mm.
  *
- * For text objects, only the anchor counts (the second coordinate of a
- * boxed text holds the box size). Null objects are skipped. The centre of
- * no coordinates is the origin.
+ * For a boxed text the box counts, for other text only the anchor (the
+ * second coordinate of a boxed text holds the box size). Null objects are
+ * skipped. No coordinates give a null rectangle at the origin.
+ *
+ * See the design notes, "Align and distribute".
+ */
+QRectF boundingRect(const std::vector<const Object*>& in);
+
+/**
+ * Returns the centre of the objects' extent, see boundingRect().
  */
 MapCoordF boundingCentre(const std::vector<const Object*>& in);
 

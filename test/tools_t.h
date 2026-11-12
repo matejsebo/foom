@@ -47,6 +47,9 @@ private slots:
 	
 	/** foom: Tests the move-by, rotate-by and stretch actions. */
 	void numericTransforms();
+	
+	/** foom: Tests the align and distribute actions. */
+	void alignAndDistribute();
 };
 
 #endif

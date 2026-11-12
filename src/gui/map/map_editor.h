@@ -34,6 +34,7 @@
 #include <QTimer>
 
 #include "core/map.h"
+#include "core/ops/align.h"  // foom
 #include "core/ops/transform.h"  // foom
 #include "gui/main_window_controller.h"
 
@@ -495,6 +496,14 @@ public slots:
 	void stretchClicked();
 	/** foom: Stretches the selected objects by the factors about their common centre. */
 	void stretch(double factor_x, double factor_y, bool duplicate);
+	/** foom: Aligns the selected objects; the sending action's data holds the edge. */
+	void alignClicked();
+	/** foom: Moves every selected object but the first-selected one so that the named edge or centre of its extent matches the first's. */
+	void align(ops::AlignParams::Edge edge);
+	/** foom: Distributes the selected objects; the sending action's data says whether horizontally. */
+	void distributeClicked();
+	/** foom: Spaces the centres of the selected objects equally between the two outermost. */
+	void distribute(bool horizontal);
 	/** Activates the physical cutout tool */
 	void clipAreaClicked();
 	/** Activates the physical cutout tool (inversed) */
@@ -841,6 +850,9 @@ private:
 	ops::MoveParams move_by_params;  // foom: kept for the session
 	ops::RotateParams rotate_by_params;  // foom: kept for the session
 	ops::StretchParams stretch_params;  // foom: kept for the session
+	QAction* align_acts[6] = {};  // foom: indexed by ops::AlignParams::Edge
+	QAction* distribute_h_act = {};  // foom
+	QAction* distribute_v_act = {};  // foom
 	QAction* clip_area_act = {};
 	QAction* erase_area_act = {};
 	QAction* distribute_points_act = {};
