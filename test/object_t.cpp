@@ -18,8 +18,11 @@
  *    along with OpenOrienteering.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <memory>
+
 #include <QtTest>
 #include <QObject>
+#include <QUuid>
 
 #include "core/map.h"
 #include "core/map_coord.h"
@@ -178,6 +181,62 @@ private slots:
 		// Another point in the rotated text, and subject to rotation.
 		auto const anchor_text_2 = QPointF{10.0, 5.0};
 		QCOMPARE(to_text.map(to_map.map(anchor_text_2)), anchor_text_2);
+	}
+	
+	void identityTest()
+	{
+		// foom: every object carries a uuid and creation/modification times.
+		auto const before = Object::currentTime();
+		PathObject object;
+		auto const after = Object::currentTime();
+		QVERIFY(!object.uuid().isNull());
+		QVERIFY(object.derivedFrom().isNull());
+		QCOMPARE(object.createdTime(), object.modifiedTime());
+		QVERIFY(object.createdTime() >= before);
+		QVERIFY(object.createdTime() <= after);
+	
+		// The coordinate-taking constructor mints an identity as well.
+		PathObject other(nullptr, MapCoordVector{ MapCoord{0.0, 0.0}, MapCoord{1.0, 1.0} });
+		QVERIFY(!other.uuid().isNull());
+		QVERIFY(other.uuid() != object.uuid());
+	
+		// Identity is not geometry: a touched object still equals its duplicate.
+		std::unique_ptr<Object> duplicate{ object.duplicate() };
+		object.touch(object.createdTime() + 10);
+		QCOMPARE(object.modifiedTime(), object.createdTime() + 10);
+		QVERIFY(object.equals(duplicate.get(), true));
+	
+		// Loaders set the identity; 0 means an unknown time.
+		auto const uuid = QUuid::createUuid();
+		auto const source = QUuid::createUuid();
+		object.setIdentity(uuid, 0, 0);
+		object.setDerivedFrom(source);
+		QCOMPARE(object.uuid(), uuid);
+		QCOMPARE(object.derivedFrom(), source);
+		QCOMPARE(object.createdTime(), qint64(0));
+		QCOMPARE(object.modifiedTime(), qint64(0));
+	
+		// duplicate() copies the identity unchanged, for every object type.
+		duplicate.reset(object.duplicate());
+		QCOMPARE(duplicate->uuid(), uuid);
+		QCOMPARE(duplicate->derivedFrom(), source);
+		QCOMPARE(duplicate->createdTime(), qint64(0));
+		QCOMPARE(duplicate->modifiedTime(), qint64(0));
+	
+		PointObject point;
+		point.setIdentity(uuid, 123, 456);
+		duplicate.reset(point.duplicate());
+		QCOMPARE(duplicate->uuid(), uuid);
+		QCOMPARE(duplicate->createdTime(), qint64(123));
+		QCOMPARE(duplicate->modifiedTime(), qint64(456));
+	
+		TextSymbol text_symbol;
+		TextObject text(&text_symbol);
+		text.setIdentity(uuid, 123, 456);
+		duplicate.reset(text.duplicate());
+		QCOMPARE(duplicate->uuid(), uuid);
+		QCOMPARE(duplicate->createdTime(), qint64(123));
+		QCOMPARE(duplicate->modifiedTime(), qint64(456));
 	}
 	
 };  // class ObjectTest

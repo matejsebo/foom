@@ -29,6 +29,7 @@
 #include <QtGlobal>
 #include <QRectF>
 #include <QString>
+#include <QUuid>
 // IWYU pragma: no_include <QTransform>
 
 #include "core/map_coord.h"
@@ -317,6 +318,55 @@ public:
 	 */
 	void includeControlPointsRect(QRectF& rect) const;
 	
+	
+	// foom: object identity and timestamps.
+	// See the design notes, "Object identity and timestamps".
+	
+	/**
+	 * Returns the object's unique id.
+	 * 
+	 * Every object gets a fresh uuid when it is constructed. Copies made by
+	 * the copy constructor and duplicate() carry the same uuid; uniqueness
+	 * within a map is enforced where an object enters a map part.
+	 */
+	const QUuid& uuid() const { return object_uuid; }
+	
+	/**
+	 * Returns the uuid of the object this one was derived from, or a null
+	 * uuid.
+	 * 
+	 * It is set when a copy had to receive a new uuid because the original
+	 * is in the same map.
+	 */
+	const QUuid& derivedFrom() const { return object_derived_from; }
+	
+	/** Returns the creation time, in seconds since the epoch (UTC), 0 if unknown. */
+	qint64 createdTime() const { return object_created; }
+	
+	/** Returns the last modification time, in seconds since the epoch (UTC), 0 if unknown. */
+	qint64 modifiedTime() const { return object_modified; }
+	
+	/**
+	 * Replaces uuid and timestamps, for loaders and importers.
+	 * 
+	 * The timestamps are seconds since the epoch (UTC); 0 means unknown.
+	 */
+	void setIdentity(const QUuid& uuid, qint64 created, qint64 modified);
+	
+	/** Records the uuid of the object this one was derived from. */
+	void setDerivedFrom(const QUuid& uuid) { object_derived_from = uuid; }
+	
+	/**
+	 * Sets the modification time.
+	 * 
+	 * This is meant to be called from one place, the undo manager, when an
+	 * undo step which affects this object is pushed.
+	 */
+	void touch(qint64 now) { object_modified = now; }
+	
+	/** Returns the current time in the unit of the object timestamps. */
+	static qint64 currentTime();
+	
 protected:
 	virtual void updateEvent() const;
 	
@@ -333,6 +383,12 @@ private:
 	mutable bool output_dirty = true; // does the output have to be re-generated because of changes?
 	mutable QRectF extent;            // only valid after calling update()
 	mutable ObjectRenderables output; // only valid after calling update()
+	
+	// foom: identity. Minted for every constructor which does not copy it.
+	QUuid object_uuid = QUuid::createUuid();
+	QUuid object_derived_from;
+	qint64 object_created = currentTime();
+	qint64 object_modified = object_created;
 };
 
 

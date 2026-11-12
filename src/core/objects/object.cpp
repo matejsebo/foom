@@ -32,6 +32,7 @@
 
 #include <Qt>
 #include <QtNumeric>
+#include <QDateTime>
 #include <QFlags>
 #include <QLatin1String>
 #include <QPoint>
@@ -110,11 +111,28 @@ Object::Object(const Object& proto)
  , rotation(proto.rotation)
  , extent(proto.extent)
  , output(*this)
+ , object_uuid(proto.object_uuid)
+ , object_derived_from(proto.object_derived_from)
+ , object_created(proto.object_created)
+ , object_modified(proto.object_modified)
 {
 	// nothing
 }
 
 Object::~Object() = default;
+
+
+void Object::setIdentity(const QUuid& uuid, qint64 created, qint64 modified)
+{
+	object_uuid = uuid;
+	object_created = created;
+	object_modified = modified;
+}
+
+qint64 Object::currentTime()
+{
+	return QDateTime::currentSecsSinceEpoch();
+}
 
 void Object::copyFrom(const Object& other)
 {
