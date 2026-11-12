@@ -478,6 +478,10 @@ public slots:
 	void toPolylineClicked();
 	/** foom: Replaces the curves of the selected paths by straight segments ("to polyline"). */
 	void toPolyline(double tolerance);
+	/** foom: Asks for the axis, then mirrors the selected objects. */
+	void mirrorClicked();
+	/** foom: Mirrors the selected objects about an axis at the given angle (degrees) through their centre. */
+	void mirror(double axis_angle, bool duplicate);
 	/** Activates the physical cutout tool */
 	void clipAreaClicked();
 	/** Activates the physical cutout tool (inversed) */
@@ -813,6 +817,9 @@ private:
 	QAction* simplify_path_act = {};
 	QAction* to_polyline_act = {};  // foom
 	double to_polyline_tolerance = 0.05;  // foom: mm on paper, kept for the session
+	QAction* mirror_act = {};  // foom
+	double mirror_axis_angle = 90.0;  // foom: degrees, kept for the session
+	bool mirror_duplicate = false;  // foom: kept for the session
 	QAction* clip_area_act = {};
 	QAction* erase_area_act = {};
 	QAction* distribute_points_act = {};

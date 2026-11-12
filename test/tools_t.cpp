@@ -335,4 +335,36 @@ void ToolsTest::toPolyline()
 }
 	
 	
+void ToolsTest::mirror()
+{
+	// the design notes, "Mirror", editor paragraph.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* action = editor.editor->getAction("mirror");
+	QVERIFY(action);
+	
+	auto* object = map.line_object;
+	auto const uuid = object->uuid();
+	auto const coords = object->getRawCoordinateVector();
+	map.map->addObjectToSelection(object, true);
+	QVERIFY(action->isEnabled());
+	auto const undo_steps = map.map->undoManager().undoStepCount();
+	
+	editor.editor->mirror(90.0, false);
+	auto* part = map.map->getCurrentPart();
+	QCOMPARE(part->getNumObjects(), 1);
+	auto* flipped = part->getObject(0);
+	QVERIFY(flipped != object);
+	QCOMPARE(flipped->uuid(), uuid);
+	QVERIFY(flipped->getRawCoordinateVector() != coords);
+	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 1);
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(part->getObject(0), object);
+	QCOMPARE(object->getRawCoordinateVector(), coords);
+	
+	map.map->clearObjectSelection(true);
+	QVERIFY(!action->isEnabled());
+}
+	
+	
 QTEST_MAIN(ToolsTest)

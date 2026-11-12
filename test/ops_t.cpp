@@ -40,6 +40,7 @@
 #include "core/objects/object.h"
 #include "core/ops/apply_op.h"
 #include "core/ops/flatten.h"
+#include "core/ops/mirror.h"
 #include "core/ops/op.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
@@ -98,6 +99,7 @@ private slots:
 	void applyOpTest();
 	void applyOpErrorTest();
 	void flattenTest();
+	void mirrorTest();
 };
 
 
@@ -271,6 +273,79 @@ void OpsTest::flattenTest()
 	QCOMPARE(map.findObject(uuid), static_cast<const Object*>(out));
 	QVERIFY(map.getCurrentPart()->findObjectIndex(out) >= 0);
 	QVERIFY(map.selectedObjects() == (Map::ObjectSelection{ const_cast<Object*>(static_cast<const Object*>(out)) }));
+}
+	
+	
+void OpsTest::mirrorTest()
+{
+	// the design notes, "Mirror".
+	Map map;
+	auto* symbol = new LineSymbol();
+	map.addSymbol(symbol, 0);
+	auto* point_symbol = new PointSymbol();
+	point_symbol->setRotatable(true);
+	map.addSymbol(point_symbol, 1);
+	auto const line_coords = MapCoordVector{ MapCoord(0.0, 0.0), MapCoord(10.0, 0.0), MapCoord(10.0, 4.0) };
+	auto* line = new PathObject(symbol, line_coords);
+	auto const uuid = line->uuid();
+	map.addObject(line);
+	
+	auto const mirrored = [&map, line](double axis_angle) {
+		ops::MirrorParams params;
+		params.axis_angle = axis_angle;
+		auto result = ops::mirror(map, { line }, params);
+		Q_ASSERT(result.error.isEmpty() && result.out.size() == 1);
+		return result.out.front()->asPath()->getRawCoordinateVector();
+	};
+	QCOMPARE(mirrored(90.0), (MapCoordVector{ MapCoord(0.0, 4.0), MapCoord(0.0, 0.0), MapCoord(10.0, 0.0) }));
+	QCOMPARE(mirrored(0.0), (MapCoordVector{ MapCoord(10.0, 0.0), MapCoord(10.0, 4.0), MapCoord(0.0, 4.0) }));
+	QCOMPARE(mirrored(45.0), (MapCoordVector{ MapCoord(3.0, -3.0), MapCoord(7.0, -3.0), MapCoord(7.0, 7.0) }));
+	
+	// A rotatable point: position and rotation are mirrored.
+	auto* point = new PointObject(point_symbol);
+	point->setPosition(MapCoord(10.0, 0.0));
+	point->setRotation(0.3);
+	map.addObject(point);
+	ops::MirrorParams vertical;
+	vertical.axis_angle = 90.0;
+	auto point_result = ops::mirror(map, { point }, vertical);
+	QVERIFY(point_result.error.isEmpty());
+	QCOMPARE(point_result.out.size(), std::size_t(1));
+	auto const* mirrored_point = point_result.out.front()->asPoint();
+	QVERIFY(mirrored_point);
+	QCOMPARE(mirrored_point->getCoord(), MapCoord(10.0, 0.0));  // alone, the point is its own centre
+	QVERIFY(std::abs(mirrored_point->getRotation() - (M_PI - 0.3)) < 1e-9);
+	auto both_result = ops::mirror(map, { line, point }, vertical);
+	QCOMPARE(both_result.out.size(), std::size_t(2));
+	QCOMPARE(both_result.out.back()->asPoint()->getCoord(), MapCoord(0.0, 0.0));
+	
+	// An empty input is an error.
+	QVERIFY(!ops::mirror(map, {}, vertical).error.isEmpty());
+	
+	// Without the duplicate flag the output replaces the input and keeps its uuid.
+	auto* part = map.getCurrentPart();
+	map.addObjectToSelection(line, false);
+	auto replace_result = ops::mirror(map, { line }, vertical);
+	QCOMPARE(replace_result.consumed.size(), std::size_t(1));
+	QVERIFY(ops::applyOp(map, std::move(replace_result)));
+	QCOMPARE(part->getNumObjects(), 2);
+	auto const* replaced = map.findObject(uuid);
+	QVERIFY(replaced && replaced != line);
+	QCOMPARE(replaced->asPath()->getRawCoordinateVector().size(), std::size_t(3));
+	QVERIFY(map.undoManager().undo());
+	QCOMPARE(map.findObject(uuid), line);
+	QCOMPARE(line->getRawCoordinateVector(), line_coords);
+	
+	// With the duplicate flag the input stays and the output carries derived_from.
+	vertical.duplicate = true;
+	auto duplicate_result = ops::mirror(map, { line }, vertical);
+	QVERIFY(duplicate_result.consumed.empty());
+	QVERIFY(ops::applyOp(map, std::move(duplicate_result)));
+	QCOMPARE(part->getNumObjects(), 3);
+	QCOMPARE(map.findObject(uuid), line);
+	auto const* copy = part->getObject(2);
+	QCOMPARE(copy->derivedFrom(), uuid);
+	QVERIFY(map.selectedObjects() == (Map::ObjectSelection{ const_cast<Object*>(copy) }));
 }
 	
 	

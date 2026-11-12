@@ -118,6 +118,7 @@ set(Mapper_Common_SRCS
   
   core/ops/apply_op.cpp
   core/ops/flatten.cpp
+  core/ops/mirror.cpp
   
   core/renderables/renderable.cpp
   core/renderables/renderable_implementation.cpp

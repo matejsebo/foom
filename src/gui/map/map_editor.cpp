@@ -42,7 +42,10 @@
 #include <QByteArray>
 #include <QComboBox>
 #include <QDate>
+#include <QCheckBox>
 #include <QDialog>
+#include <QDialogButtonBox>
+#include <QDoubleSpinBox>
 #include <QDir>
 #include <QDockWidget>
 #include <QEvent>
@@ -59,6 +62,7 @@
 #include <QKeyEvent> // IWYU pragma: keep
 #include <QKeySequence>
 #include <QLabel>
+#include <QRadioButton>
 #include <QLatin1Char>
 #include <QLatin1String>
 #include <QLineEdit>
@@ -106,6 +110,7 @@
 #include "core/objects/object_operations.h"
 #include "core/ops/apply_op.h"
 #include "core/ops/flatten.h"
+#include "core/ops/mirror.h"
 #include "core/symbols/symbol.h"
 #include "core/symbols/symbol_icon_decorator.h"
 #include "fileformats/file_format.h"
@@ -1086,6 +1091,7 @@ void MapEditorController::createActions()
 	convert_to_curves_act = newAction("converttocurves", tr("Convert to curves"), this, SLOT(convertToCurvesClicked()), "tool-convert-to-curves.png", QString{}, "toolbars.html#convert_to_curves");
 	simplify_path_act = newAction("simplify", tr("Simplify path"), this, SLOT(simplifyPathClicked()), "tool-simplify-path.png", QString{}, "toolbars.html#simplify_path");
 	to_polyline_act = newAction("to-polyline", tr("To polyline..."), this, SLOT(toPolylineClicked()));  // foom
+	mirror_act = newAction("mirror", tr("Mirror..."), this, SLOT(mirrorClicked()));  // foom
 	clip_area_act = newToolAction("cliparea", tr("Clip area"), this, SLOT(clipAreaClicked()), "tool-clip.png", QString{}, "toolbars.html#clip_area");
 	erase_area_act = newToolAction("erasearea", tr("Erase area"), this, SLOT(eraseAreaClicked()), "tool-erase.png", QString{}, "toolbars.html#erase_area");
 	distribute_points_act = newAction("distributepoints", tr("Distribute points along path"), this, SLOT(distributePointsClicked()), "tool-distribute-points.png", QString{}, "toolbars.html#distribute_points"); // TODO: write documentation
@@ -1255,6 +1261,7 @@ void MapEditorController::createMenuAndToolbars()
 	tools_menu->addAction(convert_to_curves_act);
 	tools_menu->addAction(simplify_path_act);
 	tools_menu->addAction(to_polyline_act);  // foom
+	tools_menu->addAction(mirror_act);  // foom
 	tools_menu->addAction(clip_area_act);
 	tools_menu->addAction(erase_area_act);
 	tools_menu->addAction(distribute_points_act);
@@ -2673,6 +2680,8 @@ void MapEditorController::updateObjectDependentActions()
 	simplify_path_act->setStatusTip(tr("Reduce the number of points in path objects while trying to retain their shape.") + (simplify_path_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a path object to activate this tool."))));
 	to_polyline_act->setEnabled(have_area || have_line);  // foom
 	to_polyline_act->setStatusTip(tr("Replace the curves of path objects by straight segments.") + (to_polyline_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a path object to activate this tool."))));
+	mirror_act->setEnabled(have_selection);  // foom
+	mirror_act->setStatusTip(tr("Mirror the selected objects about an axis through their centre.") + (mirror_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select at least one object to activate this tool."))));
 	
 	// cut_hole_enabled
 	const bool cut_hole_enabled = single_object_selected && have_area;
@@ -3542,6 +3551,67 @@ void MapEditorController::toPolyline(double tolerance)
 	ops::FlattenParams params;
 	params.tolerance = tolerance;
 	auto result = ops::flatten(*map, in, params);
+	if (!result.error.isEmpty())
+	{
+		QMessageBox::warning(window, tr("Error"), result.error);
+		return;
+	}
+	ops::applyOp(*map, std::move(result));
+}
+
+// foom
+void MapEditorController::mirrorClicked()
+{
+	QDialog dialog(window);
+	dialog.setWindowTitle(tr("Mirror"));
+	auto* vertical = new QRadioButton(tr("Vertical axis (swap left and right)"));
+	auto* horizontal = new QRadioButton(tr("Horizontal axis (swap top and bottom)"));
+	auto* angled = new QRadioButton(tr("Axis at angle:"));
+	auto* angle_edit = new QDoubleSpinBox();
+	angle_edit->setRange(-180.0, 180.0);
+	angle_edit->setDecimals(1);
+	angle_edit->setSuffix(tr("\u00b0"));
+	angle_edit->setValue(mirror_axis_angle);
+	angle_edit->setEnabled(false);
+	connect(angled, &QRadioButton::toggled, angle_edit, &QWidget::setEnabled);
+	if (qFuzzyCompare(mirror_axis_angle, 90.0))
+		vertical->setChecked(true);
+	else if (qFuzzyIsNull(mirror_axis_angle))
+		horizontal->setChecked(true);
+	else
+		angled->setChecked(true);
+	auto* keep = new QCheckBox(tr("Keep the original"));
+	keep->setChecked(mirror_duplicate);
+	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+	connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+	connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	auto* angle_row = new QHBoxLayout();
+	angle_row->addWidget(angled);
+	angle_row->addWidget(angle_edit);
+	auto* layout = new QVBoxLayout(&dialog);
+	layout->addWidget(vertical);
+	layout->addWidget(horizontal);
+	layout->addLayout(angle_row);
+	layout->addWidget(keep);
+	layout->addWidget(buttons);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	
+	mirror_axis_angle = vertical->isChecked() ? 90.0 : horizontal->isChecked() ? 0.0 : angle_edit->value();
+	mirror_duplicate = keep->isChecked();
+	mirror(mirror_axis_angle, mirror_duplicate);
+}
+
+// foom
+void MapEditorController::mirror(double axis_angle, bool duplicate)
+{
+	// the design notes, "Mirror".
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	ops::MirrorParams params;
+	params.axis_angle = axis_angle;
+	params.duplicate = duplicate;
+	auto result = ops::mirror(*map, in, params);
 	if (!result.error.isEmpty())
 	{
 		QMessageBox::warning(window, tr("Error"), result.error);
