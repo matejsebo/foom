@@ -330,6 +330,7 @@ if(Mapper_PACKAGE_QT)
 	  platforminputcontexts/composeplatforminputcontextplugin
 	  platforminputcontexts/ibusplatforminputcontextplugin
 	  platforms/qcocoa
+	  platforms/qoffscreen  # foom-cli
 	  platforms/qwindows
 	  platforms/qxcb
 	  position/qtposition_cl

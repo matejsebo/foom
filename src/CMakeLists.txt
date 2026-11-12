@@ -398,6 +398,13 @@ install(TARGETS Mapper
 )
 
 
+# foom-cli, the headless runner
+
+if(NOT ANDROID)
+	add_subdirectory(cli)
+endif()
+
+
 # Java sources for Android
 # This target's sources will be build with the APK.
 
