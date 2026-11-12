@@ -22,6 +22,7 @@
 #include "map_part.h"
 
 #include <algorithm>
+#include <cmath>
 #include <iterator>
 
 #include <QtGlobal>
@@ -119,6 +120,7 @@ MapPart* MapPart::load(QXmlStreamReader& xml, Map& map, SymbolDictionary& symbol
 				{
 					part->objects.push_back(Object::load(xml, &map, symbol_dict));
 					map.registerObject(part->objects.back());
+					part->spatial_index.add(part->objects.back());
 				}
 				else
 					xml.skipCurrentElement(); // unknown
@@ -152,6 +154,7 @@ int MapPart::findObjectIndex(const Object* object) const
 void MapPart::setObject(Object* object, int pos, bool delete_old)
 {
 	map->unregisterObject(objects[pos]);
+	spatial_index.remove(objects[pos]);
 	map->removeRenderablesOfObject(objects[pos], true);
 	if (delete_old)
 		delete objects[pos];
@@ -160,6 +163,7 @@ void MapPart::setObject(Object* object, int pos, bool delete_old)
 	map->registerObject(object);
 	object->setMap(map);
 	object->update();
+	spatial_index.enter(object);
 	map->setObjectsDirty(); // TODO: remove from here, dirty state handling should be separate
 }
 
@@ -174,6 +178,7 @@ void MapPart::addObject(Object* object, int pos)
 	map->registerObject(object);
 	object->setMap(map);
 	object->update();
+	spatial_index.enter(object);
 	
 	if (objects.size() == 1 && map->getNumObjects() == 1)
 		map->updateAllMapWidgets();
@@ -198,6 +203,7 @@ Object* MapPart::releaseObject(int pos)
 	auto object_to_return = objects[pos];
 	objects.erase(objects.begin() + pos);
 	map->unregisterObject(object_to_return);
+	spatial_index.remove(object_to_return);
 	
 	if (objects.empty() && map->getNumObjects() == 0)
 		map->updateAllMapWidgets();
@@ -240,6 +246,7 @@ std::unique_ptr<UndoStep> MapPart::importPart(const MapPart* other, const QHash<
 		map->registerObject(new_object);
 		new_object->setMap(map);
 		new_object->update();
+		spatial_index.enter(new_object);
 		
 		undo_step->addObject((int)objects.size() - 1);
 		if (select_new_objects)
@@ -268,7 +275,15 @@ void MapPart::findObjectsAt(
         bool include_protected_objects,
         SelectionInfoVector& out ) const
 {
-	for (Object* object : objects)
+	// foom: The candidates come from the spatial index; the tests are unchanged.
+	// Object::isPointOnObject() finds objects within the tolerance of their
+	// extent, and point objects where the squared distance to the coordinate
+	// is below the tolerance, i.e. within sqrt(tolerance).
+	auto const radius = qMax(tolerance, std::sqrt(tolerance));
+	std::vector<Object*> candidates;
+	query(QRectF(coord.x() - radius, coord.y() - radius, 2 * radius, 2 * radius), candidates);
+	
+	for (Object* object : candidates)
 	{
 		if (!include_hidden_objects && object->getSymbol()->isHidden())
 			continue;
@@ -290,7 +305,12 @@ void MapPart::findObjectsAtBox(
         std::vector< Object* >& out ) const
 {
 	auto rect = QRectF(corner1, corner2).normalized();
-	for (Object* object : objects)
+	
+	// foom: The candidates come from the spatial index; the tests are unchanged.
+	std::vector<Object*> candidates;
+	query(rect, candidates);
+	
+	for (Object* object : candidates)
 	{
 		if (!include_hidden_objects && object->getSymbol()->isHidden())
 			continue;
@@ -301,6 +321,17 @@ void MapPart::findObjectsAtBox(
 		if (rect.intersects(object->getExtent()) && object->intersectsBox(rect))
 			out.push_back(object);
 	}
+}
+
+void MapPart::query(const QRectF& rect_mm, std::vector<Object*>& out) const
+{
+	map->updateIndexes();
+	spatial_index.query(rect_mm, out);
+}
+
+void MapPart::markIndexStale(const Object* object) const
+{
+	spatial_index.markStale(object);
 }
 
 int MapPart::countObjectsInRect(const QRectF& map_coord_rect, bool include_hidden_objects) const

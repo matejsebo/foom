@@ -264,7 +264,12 @@ public:
 	 */
 	const MapCoordVector& getRawCoordinateVector() const;
 	
-	/** Sets the object output's dirty state. */
+	/**
+	 * Sets the object output's dirty state.
+	 * 
+	 * foom: When the object is in a map, marking it dirty tells the map that
+	 * the object must be re-entered into the spatial index of its part.
+	 */
 	void setOutputDirty(bool dirty = true);
 	/** Returns true if the object's output must be regenerated. */
 	bool isOutputDirty() const;
@@ -1210,12 +1215,6 @@ inline
 const MapCoordVector& Object::getRawCoordinateVector() const
 {
 	return coords;
-}
-
-inline
-void Object::setOutputDirty(bool dirty)
-{
-	output_dirty = dirty;
 }
 
 inline

@@ -104,6 +104,7 @@ set(Mapper_Common_SRCS
   core/map_printer.cpp
   core/map_view.cpp
   core/path_coord.cpp
+  core/spatial_index.cpp
   core/storage_location.cpp
   core/track.cpp
   core/virtual_coord_vector.cpp
