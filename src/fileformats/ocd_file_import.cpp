@@ -66,6 +66,7 @@
 #include "core/symbols/symbol.h"
 #include "core/symbols/text_symbol.h"
 #include "fileformats/file_format.h"
+#include "fileformats/ocd_datetime.h"
 #include "fileformats/ocd_file_format.h"
 #include "fileformats/ocd_georef_fields.h"
 #include "fileformats/ocd_icon.h"
@@ -841,6 +842,26 @@ void OcdFileImport::importObjects(const OcdFile<Ocd::FormatV8>& file)
 	}
 }
 
+namespace {
+
+// foom: object timestamps, in the object header since OCD version 12.
+// See the design notes, "Object identity and timestamps".
+template< class O >
+void importObjectDates(const O& /*ocd_object*/, Object* /*object*/)
+{
+	// nothing before version 12
+}
+
+void importObjectDates(const Ocd::ObjectV12& ocd_object, Object* object)
+{
+	object->setIdentity(object->uuid(),
+	                    Ocd::fromDelphiDateTime(Ocd::delphiDateTimeFromBits(ocd_object.creation_date)),
+	                    Ocd::fromDelphiDateTime(Ocd::delphiDateTimeFromBits(ocd_object.modification_date)));
+}
+
+}  // namespace
+
+
 template< class F >
 void OcdFileImport::importObjects(const OcdFile< F >& file)
 {
@@ -854,7 +875,10 @@ void OcdFileImport::importObjects(const OcdFile< F >& file)
 		     && ocd_object.entry->status != Ocd::ObjectDeletedForUndo )
 		{
 			if (auto object = importObject(*ocd_object.entity, part))
+			{
+				importObjectDates(*ocd_object.entity, object);  // foom
 				part->addObject(object, part->getNumObjects());
+			}
 		}
 	}
 }

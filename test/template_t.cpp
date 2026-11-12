@@ -294,6 +294,7 @@ private slots:
 		QVERIFY(out_buffer.open(QIODevice::WriteOnly));
 		XMLFileExporter exporter{ {}, &map, &view };
 		exporter.setOption(QStringLiteral("autoFormatting"), true);
+		exporter.setOption(QStringLiteral("foom"), false);  // foom: the fixture is upstream's
 		exporter.setDevice(&out_buffer);
 		exporter.doExport();
 		out_buffer.close();

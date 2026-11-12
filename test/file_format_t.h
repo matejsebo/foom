@@ -83,6 +83,27 @@ private slots:
 	void saveAndLoad_data();
 	
 	/**
+	 * foom: Tests the foom marker and the object identity attributes.
+	 */
+	void foomIdentityTest();
+	
+	/**
+	 * foom: Tests that old files load without warnings and round-trip as .foom.
+	 */
+	void oldFilesTest();
+	void oldFilesTest_data();
+	
+	/**
+	 * foom: Tests the conversion of Delphi date-time values.
+	 */
+	void ocdDateTimeTest();
+	
+	/**
+	 * foom: Tests the round trip of object dates through OCD version 12.
+	 */
+	void ocdDatesTest();
+	
+	/**
 	 * Tests saving and loading a map which is created in memory and does not go
 	 * through an implicit export-import-cycle before the test.
 	 */

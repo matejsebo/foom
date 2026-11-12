@@ -40,6 +40,8 @@
 #include <QByteRef>
 #include <QChar>
 #include <QCoreApplication>
+#include <QDate>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -59,6 +61,8 @@
 #include <QStringList>
 #include <QStringRef>
 #include <QTemporaryDir>
+#include <QTime>
+#include <QUuid>
 #include <QVariant>
 
 #include "global.h"
@@ -75,6 +79,7 @@
 #include "core/objects/text_object.h"
 #include "core/symbols/area_symbol.h"
 #include "core/symbols/line_symbol.h"
+#include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
 #include "core/symbols/text_symbol.h"
 #include "fileformats/file_format.h"
@@ -82,6 +87,7 @@
 #include "fileformats/file_import_export.h"
 #include "fileformats/iof_course_export.h"
 #include "fileformats/kml_course_export.h"
+#include "fileformats/ocd_datetime.h"
 #include "fileformats/ocd_file_export.h"
 #include "fileformats/ocd_file_format.h"
 #include "fileformats/ocd_file_import.h"
@@ -470,6 +476,27 @@ namespace
 	 * A lossy importer might skip some elements, but it is fair to require that
 	 * it imports everything which is exported by the corresponding exporter.
 	 */
+	// foom: object identity and timestamps
+	void compareObjectIdentity(const Map& actual, const Map& expected)
+	{
+		QCOMPARE(actual.getNumParts(), expected.getNumParts());
+		for (int p = 0; p < actual.getNumParts(); ++p)
+		{
+			auto const* actual_part = actual.getPart(p);
+			auto const* expected_part = expected.getPart(p);
+			QCOMPARE(actual_part->getNumObjects(), expected_part->getNumObjects());
+			for (int i = 0; i < actual_part->getNumObjects(); ++i)
+			{
+				auto const* actual_object = actual_part->getObject(i);
+				auto const* expected_object = expected_part->getObject(i);
+				QCOMPARE(actual_object->uuid(), expected_object->uuid());
+				QCOMPARE(actual_object->derivedFrom(), expected_object->derivedFrom());
+				QCOMPARE(actual_object->createdTime(), expected_object->createdTime());
+				QCOMPARE(actual_object->modifiedTime(), expected_object->modifiedTime());
+			}
+		}
+	}
+	
 	void fuzzyCompareMaps(const Map& actual, const Map& expected, const QByteArray& format_id)
 	{
 		// Miscellaneous
@@ -568,6 +595,7 @@ namespace
 	  "data:tags.omap",
 	  "data:text-object.omap",
 	  "data:undo.omap",
+	  "data:identity.foom",
 	};
 	
 }  // namespace
@@ -965,6 +993,8 @@ void FileFormatTest::saveAndLoad()
 	
 	compareMaps(*new_map, *original);
 	comparePrinterConfig(new_map->printerConfig(), original->printerConfig());
+	if (format_id == "XML")
+		compareObjectIdentity(*new_map, *original);  // foom
 	
 	if (filepath.endsWith(QStringLiteral("text-object.omap")))
 	{
@@ -2061,4 +2091,145 @@ namespace  {
 #endif
 
 
+void FileFormatTest::foomIdentityTest()
+{
+	// the design notes, "File format version 10" and "Object identity and timestamps".
+	Map map;
+	auto* symbol = new PointSymbol();
+	map.addSymbol(symbol, 0);
+	auto* first = new PointObject(symbol);
+	auto const derived_from = QUuid::createUuid();
+	first->setIdentity(QUuid::createUuid(), 1700000000, 1700000100);
+	first->setDerivedFrom(derived_from);
+	map.addObject(first);
+	auto* second = new PointObject(symbol);
+	second->setIdentity(QUuid::createUuid(), 0, 0);  // unknown times
+	map.addObject(second);
+	
+	XMLFileFormat format;
+	QBuffer buffer;
+	QVERIFY(buffer.open(QIODevice::ReadWrite));
+	auto exporter = format.makeExporter({}, &map, nullptr);
+	QVERIFY(exporter);
+	exporter->setDevice(&buffer);
+	QVERIFY(exporter->doExport());
+	
+	auto const data = QString::fromUtf8(buffer.data());
+	QVERIFY(data.contains(QLatin1String(" version=\"9\"")));
+	QVERIFY(data.contains(QLatin1String(" foom=\"1\"")));
+	QVERIFY(data.contains(QLatin1String(" uuid=\"") + first->uuid().toString(QUuid::WithoutBraces) + QLatin1Char('"')));
+	QVERIFY(data.contains(QLatin1String(" derived_from=\"") + derived_from.toString(QUuid::WithoutBraces) + QLatin1Char('"')));
+	QVERIFY(data.contains(QLatin1String(" created=\"2023-11-14T22:13:20Z\"")));
+	QVERIFY(data.contains(QLatin1String(" modified=\"2023-11-14T22:15:00Z\"")));
+	QVERIFY(!data.contains(QLatin1String("=\"{")));  // uuids without braces
+	QCOMPARE(data.count(QLatin1String(" uuid=\"")), 2);
+	QCOMPARE(data.count(QLatin1String(" derived_from=\"")), 1);
+	QCOMPARE(data.count(QLatin1String(" created=\"")), 1);  // unknown times are not written
+	QCOMPARE(data.count(QLatin1String(" modified=\"")), 1);
+	
+	Map reloaded;
+	auto importer = format.makeImporter({}, &reloaded, nullptr);
+	QVERIFY(importer);
+	QVERIFY(buffer.seek(0));
+	importer->setDevice(&buffer);
+	QVERIFY(importer->doImport());
+	QVERIFY(importer->warnings().empty());
+	compareObjectIdentity(reloaded, map);
+	QCOMPARE(reloaded.findObject(first->uuid()), reloaded.getPart(0)->getObject(0));
+	QCOMPARE(reloaded.getPart(0)->getObject(1)->createdTime(), qint64(0));
+	
+	// The exporter option "foom" turns the additions off (used by symbol_set_t).
+	QBuffer plain_buffer;
+	QVERIFY(plain_buffer.open(QIODevice::ReadWrite));
+	auto plain_exporter = format.makeExporter({}, &map, nullptr);
+	plain_exporter->setOption(QString::fromLatin1("foom"), false);
+	plain_exporter->setDevice(&plain_buffer);
+	QVERIFY(plain_exporter->doExport());
+	auto const plain_data = QString::fromUtf8(plain_buffer.data());
+	QVERIFY(!plain_data.contains(QLatin1String(" foom=")));
+	QVERIFY(!plain_data.contains(QLatin1String(" uuid=")));
+}
+	
+void FileFormatTest::oldFilesTest_data()
+{
+	QTest::addColumn<QString>("filepath");
+	QTest::addColumn<bool>("warnings_expected");
+	
+	auto const dir = QDir(QString::fromUtf8(MAPPER_TEST_SOURCE_DIR "/data"));
+	for (auto const& name : dir.entryList({ QStringLiteral("*.omap"), QStringLiteral("*.xmap") }, QDir::Files, QDir::Name))
+	{
+		// legacy_map.omap is the binary format of Mapper before 0.9, which is refused.
+		if (name == QLatin1String("legacy_map.omap"))
+			continue;
+		// barrier.omap carries a barrier for a future version, and the issue-513
+		// fixtures carry coordinates out of bounds; the importer says so.
+		auto const warnings_expected = name == QLatin1String("barrier.omap")
+		                               || name.startsWith(QLatin1String("issue-513"));
+		QTest::newRow(name.toUtf8()) << dir.absoluteFilePath(name) << warnings_expected;
+	}
+}
+	
+void FileFormatTest::oldFilesTest()
+{
+	// the design notes, "File format version 10", Accept (2).
+	QFETCH(QString, filepath);
+	QFETCH(bool, warnings_expected);
+	
+	Map map;
+	auto importer = FileFormats.makeImporter(filepath, map, nullptr);
+	QVERIFY(importer);
+	QVERIFY(importer->doImport());
+	QCOMPARE(!importer->warnings().empty(), warnings_expected);
+	for (int p = 0; p < map.getNumParts(); ++p)
+	{
+		auto const* part = map.getPart(p);
+		for (int i = 0; i < part->getNumObjects(); ++i)
+		{
+			// Without the attributes, the times are unknown.
+			QVERIFY(!part->getObject(i)->uuid().isNull());
+			QCOMPARE(part->getObject(i)->createdTime(), qint64(0));
+			QCOMPARE(part->getObject(i)->modifiedTime(), qint64(0));
+		}
+	}
+	
+	XMLFileFormat format;
+	auto reloaded = saveAndLoadMap(map, &format);
+	QVERIFY(reloaded);
+	compareMaps(*reloaded, map);
+	compareObjectIdentity(*reloaded, map);
+}
+	
+void FileFormatTest::ocdDateTimeTest()
+{
+	// See the design notes, "Object identity and timestamps".
+	auto const local = QDateTime(QDate(2026, 11, 10), QTime(19, 4, 7), Qt::LocalTime).toSecsSinceEpoch();
+	QCOMPARE(Ocd::fromDelphiDateTime(46336.79453064815), local);
+	QVERIFY(qAbs(Ocd::toDelphiDateTime(local) - 46336.79453064815) < 1.0 / 86400);  // the milliseconds are dropped
+	QCOMPARE(Ocd::fromDelphiDateTime(Ocd::toDelphiDateTime(local)), local);
+	QCOMPARE(Ocd::fromDelphiDateTime(0.0), qint64(0));
+	QCOMPARE(Ocd::toDelphiDateTime(0), 0.0);
+}
+	
+void FileFormatTest::ocdDatesTest()
+{
+	Map map;
+	QVERIFY(map.loadFrom(QStringLiteral("data:identity.foom")));
+	auto const* part = map.getPart(0);
+	QCOMPARE(part->getNumObjects(), 4);
+	QVERIFY(part->getObject(0)->createdTime() > 0);
+	
+	auto const* format = FileFormats.findFormat("OCD12");
+	QVERIFY(format);
+	auto reloaded = saveAndLoadMap(map, format);
+	QVERIFY(reloaded);
+	auto const* reloaded_part = reloaded->getPart(0);
+	QCOMPARE(reloaded_part->getNumObjects(), part->getNumObjects());
+	for (int i = 0; i < part->getNumObjects(); ++i)
+	{
+		QCOMPARE(reloaded_part->getObject(i)->createdTime(), part->getObject(i)->createdTime());
+		QCOMPARE(reloaded_part->getObject(i)->modifiedTime(), part->getObject(i)->modifiedTime());
+	}
+}
+	
+	
 QTEST_MAIN(FileFormatTest)

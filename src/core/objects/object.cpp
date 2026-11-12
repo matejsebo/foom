@@ -56,6 +56,7 @@
 #include "core/virtual_coord_vector.h"
 #include "fileformats/file_format.h"
 #include "fileformats/file_import_export.h"
+#include "fileformats/xml_file_format.h"
 #include "util/util.h"
 #include "util/xml_stream_util.h"
 
@@ -77,7 +78,25 @@ namespace literal
 	static const QLatin1String rotation("rotation");
 	static const QLatin1String size("size");
 	static const QLatin1String tags("tags");
+	static const QLatin1String uuid("uuid");  // foom
+	static const QLatin1String derived_from("derived_from");  // foom
+	static const QLatin1String created("created");  // foom
+	static const QLatin1String modified("modified");  // foom
 }
+
+
+namespace {
+
+/// foom: Reads an ISO 8601 time attribute as seconds since the epoch, 0 if absent or invalid.
+qint64 timeFromAttribute(const OpenOrienteering::XmlElementReader& element, const QLatin1String& name)
+{
+	if (!element.hasAttribute(name))
+		return 0;
+	auto const time = QDateTime::fromString(element.attribute<QString>(name), Qt::ISODate);
+	return time.isValid() ? time.toSecsSinceEpoch() : 0;
+}
+
+}  // namespace
 
 
 
@@ -270,6 +289,20 @@ void Object::save(QXmlStreamWriter& xml) const
 	if (symbol->isRotatable() && !qIsNull(rotation))
 		object_element.writeAttribute(literal::rotation, rotation);
 	
+	// foom: object identity. Written for objects in a map (not for symbol
+	// elements) when the exporter enables the foom additions.
+	// See the design notes, "Object identity and timestamps".
+	if (map && XMLFileFormat::foom_revision >= 1)
+	{
+		object_element.writeAttribute(literal::uuid, object_uuid.toString(QUuid::WithoutBraces));
+		if (!object_derived_from.isNull())
+			object_element.writeAttribute(literal::derived_from, object_derived_from.toString(QUuid::WithoutBraces));
+		if (object_created > 0)
+			object_element.writeAttribute(literal::created, QDateTime::fromSecsSinceEpoch(object_created, Qt::UTC).toString(Qt::ISODate));
+		if (object_modified > 0)
+			object_element.writeAttribute(literal::modified, QDateTime::fromSecsSinceEpoch(object_modified, Qt::UTC).toString(Qt::ISODate));
+	}
+	
 	if (type == Text)
 	{
 		auto const* text = static_cast<TextObject const*>(this);
@@ -334,6 +367,21 @@ Object* Object::load(QXmlStreamReader& xml, Map* map, const SymbolDictionary& sy
 		throw FileFormatException(::OpenOrienteering::ImportExport::tr("Error while loading an object of type %1.").arg(object_type));
 	
 	object->map = map;
+	
+	// foom: object identity, when present. Objects from files without the
+	// attributes keep the fresh uuid and get unknown (0) times.
+	{
+		auto uuid = object->uuid();
+		if (object_element.hasAttribute(literal::uuid))
+		{
+			auto const stored_uuid = QUuid(object_element.attribute<QString>(literal::uuid));
+			if (!stored_uuid.isNull())
+				uuid = stored_uuid;
+		}
+		object->setIdentity(uuid, timeFromAttribute(object_element, literal::created), timeFromAttribute(object_element, literal::modified));
+		if (object_element.hasAttribute(literal::derived_from))
+			object->setDerivedFrom(QUuid(object_element.attribute<QString>(literal::derived_from)));
+	}
 	
 	if (symbol)
 		object->symbol = symbol;

@@ -76,6 +76,7 @@
 #include "core/symbols/text_symbol.h"
 #include "fileformats/file_format.h"
 #include "fileformats/file_import_export.h"
+#include "fileformats/ocd_datetime.h"
 #include "fileformats/ocd_file_format.h"
 #include "fileformats/ocd_georef_fields.h"
 #include "fileformats/ocd_icon.h"
@@ -2478,6 +2479,25 @@ void OcdFileExport::exportObjects(OcdFile<Format>& file)
 }
 
 
+namespace {
+
+// foom: object timestamps, in the object header since OCD version 12.
+// See the design notes, "Object identity and timestamps".
+template< class O >
+void exportObjectDates(const Object* /*object*/, O& /*ocd_object*/)
+{
+	// nothing before version 12
+}
+
+void exportObjectDates(const Object* object, Ocd::ObjectV12& ocd_object)
+{
+	ocd_object.creation_date = Ocd::delphiDateTimeToBits(Ocd::toDelphiDateTime(object->createdTime()));
+	ocd_object.modification_date = Ocd::delphiDateTimeToBits(Ocd::toDelphiDateTime(object->modifiedTime()));
+}
+
+}  // namespace
+
+
 /**
  * Object setup which depends on the type features, not on minor type variations of members.
  */
@@ -2488,6 +2508,7 @@ void OcdFileExport::handleObjectExtras(const Object* object, OcdObject& ocd_obje
 	entry.type = ocd_object.type;
 	entry.status = Ocd::ObjectNormal;
 	entry.color = convertColor(object->getSymbol()->guessDominantColor());
+	exportObjectDates(object, ocd_object);  // foom
 }
 
 

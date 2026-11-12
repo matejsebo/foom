@@ -72,6 +72,8 @@ constexpr int XMLFileFormat::minimum_version = 2;
 constexpr int XMLFileFormat::current_version = 9;
 
 int XMLFileFormat::active_version = 5; // updated by XMLFileExporter::doExport()
+constexpr int XMLFileFormat::current_foom_revision = 1;
+int XMLFileFormat::foom_revision = 0; // updated by XMLFileExporter::exportImplementation()
 
 
 
@@ -146,6 +148,7 @@ namespace literal
 {
 	static const QLatin1String map("map");
 	static const QLatin1String version("version");
+	static const QLatin1String foom("foom");
 	static const QLatin1String notes("notes");
 	
 	static const QLatin1String barrier("barrier");
@@ -222,6 +225,7 @@ XMLFileExporter::XMLFileExporter(const QString& path, const Map* map, const MapV
 	// Determine auto-formatting default from filename, if possible.
 	bool auto_formatting = path.endsWith(QLatin1String(".xmap"));
 	setOption(QString::fromLatin1("autoFormatting"), auto_formatting);
+	setOption(QString::fromLatin1("foom"), true);  // foom: write the foom additions
 }
 
 XMLFileExporter::~XMLFileExporter() = default;
@@ -247,6 +251,7 @@ bool XMLFileExporter::exportImplementation()
 #else
 	XMLFileFormat::active_version = XMLFileFormat::current_version;
 #endif
+	XMLFileFormat::foom_revision = option(QString::fromLatin1("foom")).toBool() ? XMLFileFormat::current_foom_revision : 0;  // foom
 	
 	xml.writeDefaultNamespace(mapperNamespace());
 	xml.writeStartDocument();
@@ -255,6 +260,8 @@ bool XMLFileExporter::exportImplementation()
 	{
 		XmlElementWriter map_element(xml, literal::map);
 		map_element.writeAttribute(literal::version, XMLFileFormat::active_version);
+		if (XMLFileFormat::foom_revision > 0)
+			map_element.writeAttribute(literal::foom, XMLFileFormat::foom_revision);
 		writeLineBreak(xml);
 		
 		xml.writeTextElement(literal::notes, map->getMapNotes());
@@ -563,6 +570,11 @@ bool XMLFileImporter::importImplementation()
 		xml.raiseError(::OpenOrienteering::Importer::tr("Unsupported old file format version. Please use an older program version to load and update the file."));
 	else if (version > XMLFileFormat::current_version)
 		addWarning(::OpenOrienteering::Importer::tr("Unsupported new file format version. Some map features will not be loaded or saved by this version of the program."));
+	
+	// foom: the revision of the foom additions, see the design notes.
+	if (map_element.hasAttribute(literal::foom)
+	    && map_element.attribute<int>(literal::foom) > XMLFileFormat::current_foom_revision)
+		addWarning(::OpenOrienteering::Importer::tr("Unsupported new FOOM file format revision. Some map features will not be loaded or saved by this version of the program."));
 	
 	QScopedValueRollback<MapCoord::BoundsOffset> rollback { MapCoord::boundsOffset() };
 	MapCoord::boundsOffset().reset(true);

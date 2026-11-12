@@ -288,6 +288,7 @@ set(Mapper_Common_HEADERS
   core/renderables/renderable_implementation.h
   
   fileformats/file_import_export.h  # translations
+  fileformats/ocd_datetime.h
   fileformats/ocd_file_import.h     # translations
   fileformats/ocd_types.h
   fileformats/ocd_types_v8.h

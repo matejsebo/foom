@@ -73,6 +73,20 @@ public:
 	 */
 	static int active_version;
 	
+	/** @brief foom: The revision of the foom additions written by this implementation.
+	 * 
+	 * See the design notes, "File format version 10".
+	 */
+	static const int current_foom_revision;
+	
+	/** @brief foom: The revision of the foom additions to be written, 0 for none.
+	 * 
+	 * The exporter sets this from its option "foom" (default true; the
+	 * symbol set and template tests turn it off so that upstream's files stay as they are).
+	 * Object::save() consults this value, like active_version.
+	 */
+	static int foom_revision;
+	
 };
 
 

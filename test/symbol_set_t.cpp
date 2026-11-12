@@ -679,6 +679,7 @@ void saveIfDifferent(const QString& path, Map* map, MapView* view = nullptr)
 	XMLFileExporter exporter({}, map, view);
 	auto is_src_format = path.contains(QLatin1String(".xmap"));
 	exporter.setOption(QString::fromLatin1("autoFormatting"), is_src_format);
+	exporter.setOption(QString::fromLatin1("foom"), false);  // foom: keep the shipped files as upstream writes them
 	auto retain_compatibility = is_src_format && map->getNumParts() == 1
 	                            && !path.contains(QLatin1String("ISOM2017"));
 	Settings::getInstance().setSetting(Settings::General_RetainCompatiblity, retain_compatibility);
