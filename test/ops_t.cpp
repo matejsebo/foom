@@ -41,6 +41,7 @@
 #include "core/ops/apply_op.h"
 #include "core/ops/flatten.h"
 #include "core/ops/mirror.h"
+#include "core/ops/transform.h"
 #include "core/ops/op.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
@@ -95,11 +96,12 @@ class OpsTest : public QObject
 Q_OBJECT
 private slots:
 	void initTestCase();
-
+	
 	void applyOpTest();
 	void applyOpErrorTest();
 	void flattenTest();
 	void mirrorTest();
+	void transformTest();
 };
 
 
@@ -168,7 +170,7 @@ void OpsTest::applyOpTest()
 	QCOMPARE(out1->derivedFrom(), first_uuid);
 	QVERIFY(map.selectedObjects() == (Map::ObjectSelection{ out0, out1 }));
 }
-	
+
 void OpsTest::applyOpErrorTest()
 {
 	// the design notes, "Geometry operations", Accept (3).
@@ -191,7 +193,7 @@ void OpsTest::applyOpErrorTest()
 	QCOMPARE(map.undoManager().undoStepCount(), undo_steps);
 	QCOMPARE(message, QStringLiteral("This operation always fails."));
 }
-	
+
 void OpsTest::flattenTest()
 {
 	// the design notes, "To polyline".
@@ -274,8 +276,8 @@ void OpsTest::flattenTest()
 	QVERIFY(map.getCurrentPart()->findObjectIndex(out) >= 0);
 	QVERIFY(map.selectedObjects() == (Map::ObjectSelection{ const_cast<Object*>(static_cast<const Object*>(out)) }));
 }
-	
-	
+
+
 void OpsTest::mirrorTest()
 {
 	// the design notes, "Mirror".
@@ -347,7 +349,73 @@ void OpsTest::mirrorTest()
 	QCOMPARE(copy->derivedFrom(), uuid);
 	QVERIFY(map.selectedObjects() == (Map::ObjectSelection{ const_cast<Object*>(copy) }));
 }
+
+
+void OpsTest::transformTest()
+{
+	// the design notes, "Numeric transforms".
+	Map map;
+	auto* symbol = new LineSymbol();
+	map.addSymbol(symbol, 0);
+	auto* point_symbol = new PointSymbol();
+	point_symbol->setRotatable(true);
+	map.addSymbol(point_symbol, 1);
+	auto* line = new PathObject(symbol, { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0), MapCoord(10.0, 4.0) });
+	map.addObject(line);
+	auto* point = new PointObject(point_symbol);
+	point->setPosition(MapCoord(10.0, 0.0));
+	point->setRotation(0.3);
+	map.addObject(point);
+	auto const path_coords = [](const ops::OpResult& result) { return result.out.front()->asPath()->getRawCoordinateVector(); };
+	auto const point_coord = [](const ops::OpResult& result) { return result.out.back()->asPoint()->getCoord(); };
 	
+	// move-by
+	ops::MoveParams move;
+	move.dx = 1.0;
+	move.dy = 2.0;
+	auto moved = ops::moveBy(map, { line, point }, move);
+	QVERIFY(moved.error.isEmpty());
+	QCOMPARE(moved.out.size(), std::size_t(2));
+	QCOMPARE(moved.consumed.size(), std::size_t(2));
+	QCOMPARE(path_coords(moved), (MapCoordVector{ MapCoord(1.0, 2.0), MapCoord(11.0, 2.0), MapCoord(11.0, 6.0) }));
+	QCOMPARE(point_coord(moved), MapCoord(11.0, 2.0));
+	QCOMPARE(moved.out.back()->getRotation(), 0.3);
 	
+	// rotate-by, about the common centre (5, 2)
+	ops::RotateParams rotate;
+	rotate.angle = 90.0;
+	auto rotated = ops::rotateBy(map, { line, point }, rotate);
+	QVERIFY(rotated.error.isEmpty());
+	QCOMPARE(path_coords(rotated), (MapCoordVector{ MapCoord(3.0, 7.0), MapCoord(3.0, -3.0), MapCoord(7.0, -3.0) }));
+	QCOMPARE(point_coord(rotated), MapCoord(3.0, -3.0));
+	QVERIFY(std::abs(rotated.out.back()->getRotation() - (0.3 + M_PI / 2)) < 1e-9);
+	// ... and about each object's own centre: the point stays.
+	rotate.each_object = true;
+	auto rotated_each = ops::rotateBy(map, { line, point }, rotate);
+	QCOMPARE(path_coords(rotated_each), path_coords(rotated));
+	QCOMPARE(point_coord(rotated_each), MapCoord(10.0, 0.0));
+	
+	// stretch, about the common centre (5, 2)
+	ops::StretchParams stretch;
+	stretch.factor_x = 2.0;
+	stretch.factor_y = 0.5;
+	auto stretched = ops::stretch(map, { line, point }, stretch);
+	QVERIFY(stretched.error.isEmpty());
+	QCOMPARE(path_coords(stretched), (MapCoordVector{ MapCoord(-5.0, 1.0), MapCoord(15.0, 1.0), MapCoord(15.0, 3.0) }));
+	QCOMPARE(point_coord(stretched), MapCoord(15.0, 1.0));
+	QCOMPARE(stretched.out.back()->getRotation(), 0.3);
+	
+	// Errors, and the duplicate flag.
+	QVERIFY(!ops::moveBy(map, {}, move).error.isEmpty());
+	QVERIFY(!ops::rotateBy(map, {}, rotate).error.isEmpty());
+	stretch.factor_x = 0.0;
+	QVERIFY(!ops::stretch(map, { line }, stretch).error.isEmpty());
+	move.duplicate = true;
+	auto duplicated = ops::moveBy(map, { line }, move);
+	QCOMPARE(duplicated.out.size(), std::size_t(1));
+	QVERIFY(duplicated.consumed.empty());
+}
+
+
 QTEST_MAIN(OpsTest)
 #include "ops_t.moc"  // IWYU pragma: keep

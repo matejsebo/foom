@@ -21,7 +21,6 @@
 
 #include "mirror.h"
 
-#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <utility>
@@ -33,61 +32,13 @@
 #include "core/map_coord.h"
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
+#include "core/ops/bounds.h"
 
 
 namespace OpenOrienteering {
 
 namespace ops {
 
-namespace {
-
-/**
- * Returns the centre of the bounding box of the objects' coordinates.
- * 
- * For text objects, only the anchor counts (the second coordinate of a
- * boxed text holds the box size).
- */
-MapCoordF boundingCentre(const std::vector<const Object*>& in)
-{
-	auto left = 0.0, top = 0.0, right = 0.0, bottom = 0.0;
-	auto first = true;
-	auto include = [&](const MapCoord& coord) {
-		if (first)
-		{
-			left = right = coord.x();
-			top = bottom = coord.y();
-			first = false;
-		}
-		else
-		{
-			left = std::min(left, coord.x());
-			right = std::max(right, coord.x());
-			top = std::min(top, coord.y());
-			bottom = std::max(bottom, coord.y());
-		}
-	};
-	for (auto const* object : in)
-	{
-		if (!object)
-			continue;
-		auto const& coords = object->getRawCoordinateVector();
-		if (object->getType() == Object::Text)
-		{
-			if (!coords.empty())
-				include(coords.front());
-		}
-		else
-		{
-			for (auto const& coord : coords)
-				include(coord);
-		}
-	}
-	return MapCoordF((left + right) / 2, (top + bottom) / 2);
-}
-	
-}  // namespace
-	
-	
 OpResult mirror(const Map& /*map*/, const std::vector<const Object*>& in, const MirrorParams& params)
 {
 	OpResult result;
@@ -150,8 +101,8 @@ OpResult mirror(const Map& /*map*/, const std::vector<const Object*>& in, const 
 	}
 	return result;
 }
-	
-	
+
+
 }  // namespace ops
 
 }  // namespace OpenOrienteering

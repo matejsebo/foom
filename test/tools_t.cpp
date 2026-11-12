@@ -333,8 +333,8 @@ void ToolsTest::toPolyline()
 	map.map->clearObjectSelection(true);
 	QVERIFY(!action->isEnabled());
 }
-	
-	
+
+
 void ToolsTest::mirror()
 {
 	// the design notes, "Mirror", editor paragraph.
@@ -365,6 +365,45 @@ void ToolsTest::mirror()
 	map.map->clearObjectSelection(true);
 	QVERIFY(!action->isEnabled());
 }
+
+
+void ToolsTest::numericTransforms()
+{
+	// the design notes, "Numeric transforms", editor paragraph.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* move_act = editor.editor->getAction("move-by");
+	auto* rotate_act = editor.editor->getAction("rotate-by");
+	auto* stretch_act = editor.editor->getAction("stretch");
+	QVERIFY(move_act && rotate_act && stretch_act);
 	
+	auto* object = map.line_object;
+	auto const uuid = object->uuid();
+	auto const coords = object->getRawCoordinateVector();
+	map.map->addObjectToSelection(object, true);
+	QVERIFY(move_act->isEnabled() && rotate_act->isEnabled() && stretch_act->isEnabled());
+	auto const undo_steps = map.map->undoManager().undoStepCount();
+	auto* part = map.map->getCurrentPart();
 	
+	editor.editor->moveBy(1.0, 2.0, false);
+	QCOMPARE(part->getNumObjects(), 1);
+	QCOMPARE(part->getObject(0)->uuid(), uuid);
+	QCOMPARE(part->getObject(0)->getRawCoordinateVector().front(), MapCoord(coords.front().x() + 1.0, coords.front().y() + 2.0));
+	editor.editor->rotateBy(90.0, false, false);
+	editor.editor->stretch(2.0, 0.5, false);
+	QCOMPARE(part->getNumObjects(), 1);
+	QCOMPARE(part->getObject(0)->uuid(), uuid);
+	QVERIFY(part->getObject(0)->getRawCoordinateVector() != coords);
+	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 3);
+	
+	for (int i = 0; i < 3; ++i)
+		QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(part->getObject(0), object);
+	QCOMPARE(object->getRawCoordinateVector(), coords);
+	
+	map.map->clearObjectSelection(true);
+	QVERIFY(!move_act->isEnabled() && !rotate_act->isEnabled() && !stretch_act->isEnabled());
+}
+
+
 QTEST_MAIN(ToolsTest)

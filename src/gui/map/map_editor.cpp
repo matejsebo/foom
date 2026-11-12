@@ -111,6 +111,7 @@
 #include "core/ops/apply_op.h"
 #include "core/ops/flatten.h"
 #include "core/ops/mirror.h"
+#include "core/ops/transform.h"
 #include "core/symbols/symbol.h"
 #include "core/symbols/symbol_icon_decorator.h"
 #include "fileformats/file_format.h"
@@ -131,6 +132,7 @@
 #include "gui/map/map_information_dialog.h"
 #include "gui/map/map_notes.h"
 #include "gui/map/map_widget.h"
+#include "gui/map/numeric_transform_dialogs.h"
 #include "gui/map/rotate_map_dialog.h"
 #include "gui/symbols/symbol_replacement.h"
 #include "gui/symbols/symbol_report_feature.h"
@@ -1092,6 +1094,9 @@ void MapEditorController::createActions()
 	simplify_path_act = newAction("simplify", tr("Simplify path"), this, SLOT(simplifyPathClicked()), "tool-simplify-path.png", QString{}, "toolbars.html#simplify_path");
 	to_polyline_act = newAction("to-polyline", tr("To polyline..."), this, SLOT(toPolylineClicked()));  // foom
 	mirror_act = newAction("mirror", tr("Mirror..."), this, SLOT(mirrorClicked()));  // foom
+	move_by_act = newAction("move-by", tr("Move by..."), this, SLOT(moveByClicked()));  // foom
+	rotate_by_act = newAction("rotate-by", tr("Rotate by..."), this, SLOT(rotateByClicked()));  // foom
+	stretch_act = newAction("stretch", tr("Stretch..."), this, SLOT(stretchClicked()));  // foom
 	clip_area_act = newToolAction("cliparea", tr("Clip area"), this, SLOT(clipAreaClicked()), "tool-clip.png", QString{}, "toolbars.html#clip_area");
 	erase_area_act = newToolAction("erasearea", tr("Erase area"), this, SLOT(eraseAreaClicked()), "tool-erase.png", QString{}, "toolbars.html#erase_area");
 	distribute_points_act = newAction("distributepoints", tr("Distribute points along path"), this, SLOT(distributePointsClicked()), "tool-distribute-points.png", QString{}, "toolbars.html#distribute_points"); // TODO: write documentation
@@ -1262,6 +1267,9 @@ void MapEditorController::createMenuAndToolbars()
 	tools_menu->addAction(simplify_path_act);
 	tools_menu->addAction(to_polyline_act);  // foom
 	tools_menu->addAction(mirror_act);  // foom
+	tools_menu->addAction(move_by_act);  // foom
+	tools_menu->addAction(rotate_by_act);  // foom
+	tools_menu->addAction(stretch_act);  // foom
 	tools_menu->addAction(clip_area_act);
 	tools_menu->addAction(erase_area_act);
 	tools_menu->addAction(distribute_points_act);
@@ -2682,6 +2690,11 @@ void MapEditorController::updateObjectDependentActions()
 	to_polyline_act->setStatusTip(tr("Replace the curves of path objects by straight segments.") + (to_polyline_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a path object to activate this tool."))));
 	mirror_act->setEnabled(have_selection);  // foom
 	mirror_act->setStatusTip(tr("Mirror the selected objects about an axis through their centre.") + (mirror_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select at least one object to activate this tool."))));
+	for (auto* action : { move_by_act, rotate_by_act, stretch_act })  // foom
+	{
+		action->setEnabled(have_selection);
+		action->setStatusTip(action->isEnabled() ? QString{} : tr("Select at least one object to activate this tool."));
+	}
 	
 	// cut_hole_enabled
 	const bool cut_hole_enabled = single_object_selected && have_area;
@@ -3550,13 +3563,7 @@ void MapEditorController::toPolyline(double tolerance)
 	std::vector<const Object*> in(begin(selection), end(selection));
 	ops::FlattenParams params;
 	params.tolerance = tolerance;
-	auto result = ops::flatten(*map, in, params);
-	if (!result.error.isEmpty())
-	{
-		QMessageBox::warning(window, tr("Error"), result.error);
-		return;
-	}
-	ops::applyOp(*map, std::move(result));
+	applyOpResult(ops::flatten(*map, in, params));
 }
 
 // foom
@@ -3611,7 +3618,69 @@ void MapEditorController::mirror(double axis_angle, bool duplicate)
 	ops::MirrorParams params;
 	params.axis_angle = axis_angle;
 	params.duplicate = duplicate;
-	auto result = ops::mirror(*map, in, params);
+	applyOpResult(ops::mirror(*map, in, params));
+}
+
+// foom
+void MapEditorController::moveByClicked()
+{
+	if (NumericTransformDialogs::askMoveBy(window, move_by_params))
+		moveBy(move_by_params.dx, move_by_params.dy, move_by_params.duplicate);
+}
+
+// foom
+void MapEditorController::moveBy(double dx, double dy, bool duplicate)
+{
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	ops::MoveParams params;
+	params.dx = dx;
+	params.dy = dy;
+	params.duplicate = duplicate;
+	applyOpResult(ops::moveBy(*map, in, params));
+}
+
+// foom
+void MapEditorController::rotateByClicked()
+{
+	if (NumericTransformDialogs::askRotateBy(window, rotate_by_params))
+		rotateBy(rotate_by_params.angle, rotate_by_params.each_object, rotate_by_params.duplicate);
+}
+
+// foom
+void MapEditorController::rotateBy(double angle, bool each_object, bool duplicate)
+{
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	ops::RotateParams params;
+	params.angle = angle;
+	params.each_object = each_object;
+	params.duplicate = duplicate;
+	applyOpResult(ops::rotateBy(*map, in, params));
+}
+
+// foom
+void MapEditorController::stretchClicked()
+{
+	if (NumericTransformDialogs::askStretch(window, stretch_params))
+		stretch(stretch_params.factor_x, stretch_params.factor_y, stretch_params.duplicate);
+}
+
+// foom
+void MapEditorController::stretch(double factor_x, double factor_y, bool duplicate)
+{
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	ops::StretchParams params;
+	params.factor_x = factor_x;
+	params.factor_y = factor_y;
+	params.duplicate = duplicate;
+	applyOpResult(ops::stretch(*map, in, params));
+}
+
+// foom
+void MapEditorController::applyOpResult(ops::OpResult&& result)
+{
 	if (!result.error.isEmpty())
 	{
 		QMessageBox::warning(window, tr("Error"), result.error);

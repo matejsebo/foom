@@ -34,6 +34,7 @@
 #include <QTimer>
 
 #include "core/map.h"
+#include "core/ops/transform.h"  // foom
 #include "gui/main_window_controller.h"
 
 class QAction;
@@ -482,6 +483,18 @@ public slots:
 	void mirrorClicked();
 	/** foom: Mirrors the selected objects about an axis at the given angle (degrees) through their centre. */
 	void mirror(double axis_angle, bool duplicate);
+	/** foom: Asks for the offset, then moves the selected objects. */
+	void moveByClicked();
+	/** foom: Moves the selected objects by dx, dy (mm of map coordinates). */
+	void moveBy(double dx, double dy, bool duplicate);
+	/** foom: Asks for the angle and the pivot, then rotates the selected objects. */
+	void rotateByClicked();
+	/** foom: Rotates the selected objects by the angle (degrees, counter-clockwise) about the common centre or each object's own. */
+	void rotateBy(double angle, bool each_object, bool duplicate);
+	/** foom: Asks for the factors, then stretches the selected objects. */
+	void stretchClicked();
+	/** foom: Stretches the selected objects by the factors about their common centre. */
+	void stretch(double factor_x, double factor_y, bool duplicate);
 	/** Activates the physical cutout tool */
 	void clipAreaClicked();
 	/** Activates the physical cutout tool (inversed) */
@@ -641,6 +654,8 @@ protected:
 	 * The caller shall also call updateSymbolAndObjectDependentActions().
 	 */
 	void updateObjectDependentActions();
+	/** foom: Applies the result of a geometry operation, or shows its error. */
+	void applyOpResult(ops::OpResult&& result);
 	
 	/**
 	 * Adjusts the enabled state of various actions
@@ -820,6 +835,12 @@ private:
 	QAction* mirror_act = {};  // foom
 	double mirror_axis_angle = 90.0;  // foom: degrees, kept for the session
 	bool mirror_duplicate = false;  // foom: kept for the session
+	QAction* move_by_act = {};  // foom
+	QAction* rotate_by_act = {};  // foom
+	QAction* stretch_act = {};  // foom
+	ops::MoveParams move_by_params;  // foom: kept for the session
+	ops::RotateParams rotate_by_params;  // foom: kept for the session
+	ops::StretchParams stretch_params;  // foom: kept for the session
 	QAction* clip_area_act = {};
 	QAction* erase_area_act = {};
 	QAction* distribute_points_act = {};

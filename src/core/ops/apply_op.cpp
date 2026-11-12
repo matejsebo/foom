@@ -110,8 +110,8 @@ bool applyOp(Map& map, OpResult&& result, const Object* principal)
 	map.emitSelectionEdited();
 	return true;
 }
-	
-	
+
+
 }  // namespace ops
 
 }  // namespace OpenOrienteering

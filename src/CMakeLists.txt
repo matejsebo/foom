@@ -119,7 +119,9 @@ set(Mapper_Common_SRCS
   
   core/ops/apply_op.cpp
   core/ops/flatten.cpp
+  core/ops/bounds.cpp
   core/ops/mirror.cpp
+  core/ops/transform.cpp
   
   core/renderables/renderable.cpp
   core/renderables/renderable_implementation.cpp
@@ -174,6 +176,7 @@ set(Mapper_Common_SRCS
   gui/map/map_dialog_scale.cpp
   gui/map/map_editor.cpp
   gui/map/map_editor_activity.cpp
+  gui/map/numeric_transform_dialogs.cpp
   gui/map/map_find_feature.cpp
   gui/map/map_information_dialog.cpp
   gui/map/map_notes.cpp

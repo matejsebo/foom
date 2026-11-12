@@ -44,6 +44,9 @@ private slots:
 	
 	/** foom: Tests the mirror action. */
 	void mirror();
+	
+	/** foom: Tests the move-by, rotate-by and stretch actions. */
+	void numericTransforms();
 };
 
 #endif

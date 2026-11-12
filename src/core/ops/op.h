@@ -69,10 +69,10 @@ struct OpResult
 {
 	/** The new objects, to be added to the map. */
 	std::vector<std::unique_ptr<Object>> out;
-
+	
 	/** The inputs which the outputs replace, to be removed from the map. */
 	std::vector<const Object*> consumed;
-
+	
 	/** The failure message, empty on success. */
 	QString error;
 };

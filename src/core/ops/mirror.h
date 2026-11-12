@@ -45,7 +45,7 @@ struct MirrorParams : public OpParams
 	 * axis, which swaps left and right.
 	 */
 	double axis_angle = 90.0;
-
+	
 	/** Keep the inputs and add the outputs, instead of replacing the inputs. */
 	bool duplicate = false;
 };
