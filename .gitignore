@@ -11,3 +11,6 @@ help/*.qhc
 !3rd-party/*/download/README.txt
 packaging/android/Mapper
 
+
+# foom: local build folder
+/build/
