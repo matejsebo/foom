@@ -104,6 +104,8 @@
 #include "core/objects/boolean_tool.h"
 #include "core/objects/object.h"
 #include "core/objects/object_operations.h"
+#include "core/ops/apply_op.h"
+#include "core/ops/flatten.h"
 #include "core/symbols/symbol.h"
 #include "core/symbols/symbol_icon_decorator.h"
 #include "fileformats/file_format.h"
@@ -1083,6 +1085,7 @@ void MapEditorController::createActions()
 	boolean_merge_holes_act = newAction("booleanmergeholes", tr("Merge area holes"), this, SLOT(booleanMergeHolesClicked()), "tool-boolean-merge-holes.png", QString{}, "toolbars.html#area_merge_holes"); // TODO:documentation
 	convert_to_curves_act = newAction("converttocurves", tr("Convert to curves"), this, SLOT(convertToCurvesClicked()), "tool-convert-to-curves.png", QString{}, "toolbars.html#convert_to_curves");
 	simplify_path_act = newAction("simplify", tr("Simplify path"), this, SLOT(simplifyPathClicked()), "tool-simplify-path.png", QString{}, "toolbars.html#simplify_path");
+	to_polyline_act = newAction("to-polyline", tr("To polyline..."), this, SLOT(toPolylineClicked()));  // foom
 	clip_area_act = newToolAction("cliparea", tr("Clip area"), this, SLOT(clipAreaClicked()), "tool-clip.png", QString{}, "toolbars.html#clip_area");
 	erase_area_act = newToolAction("erasearea", tr("Erase area"), this, SLOT(eraseAreaClicked()), "tool-erase.png", QString{}, "toolbars.html#erase_area");
 	distribute_points_act = newAction("distributepoints", tr("Distribute points along path"), this, SLOT(distributePointsClicked()), "tool-distribute-points.png", QString{}, "toolbars.html#distribute_points"); // TODO: write documentation
@@ -1251,6 +1254,7 @@ void MapEditorController::createMenuAndToolbars()
 	tools_menu->addAction(measure_act);
 	tools_menu->addAction(convert_to_curves_act);
 	tools_menu->addAction(simplify_path_act);
+	tools_menu->addAction(to_polyline_act);  // foom
 	tools_menu->addAction(clip_area_act);
 	tools_menu->addAction(erase_area_act);
 	tools_menu->addAction(distribute_points_act);
@@ -2667,6 +2671,8 @@ void MapEditorController::updateObjectDependentActions()
 	convert_to_curves_act->setStatusTip(tr("Turn paths made of straight segments into smooth bezier splines.") + (convert_to_curves_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a path object to activate this tool."))));
 	simplify_path_act->setEnabled(have_area || have_line);
 	simplify_path_act->setStatusTip(tr("Reduce the number of points in path objects while trying to retain their shape.") + (simplify_path_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a path object to activate this tool."))));
+	to_polyline_act->setEnabled(have_area || have_line);  // foom
+	to_polyline_act->setStatusTip(tr("Replace the curves of path objects by straight segments.") + (to_polyline_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a path object to activate this tool."))));
 	
 	// cut_hole_enabled
 	const bool cut_hole_enabled = single_object_selected && have_area;
@@ -3513,6 +3519,35 @@ void MapEditorController::simplifyPathClicked()
 		map->push(undo_step);
 		map->emitSelectionEdited();
 	}
+}
+
+// foom
+void MapEditorController::toPolylineClicked()
+{
+	bool ok = false;
+	auto const tolerance = QInputDialog::getDouble(window, tr("To polyline"), tr("Tolerance (mm):"), to_polyline_tolerance, 0.001, 10.0, 3, &ok);
+	if (ok)
+	{
+		to_polyline_tolerance = tolerance;
+		toPolyline(tolerance);
+	}
+}
+
+// foom
+void MapEditorController::toPolyline(double tolerance)
+{
+	// the design notes, "To polyline".
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	ops::FlattenParams params;
+	params.tolerance = tolerance;
+	auto result = ops::flatten(*map, in, params);
+	if (!result.error.isEmpty())
+	{
+		QMessageBox::warning(window, tr("Error"), result.error);
+		return;
+	}
+	ops::applyOp(*map, std::move(result));
 }
 
 void MapEditorController::clipAreaClicked()

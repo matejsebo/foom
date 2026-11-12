@@ -38,6 +38,9 @@ private slots:
 	void paintOnTemplateFeature();
 	
 	void testFindObjects();
+	
+	/** foom: Tests the to-polyline action. */
+	void toPolyline();
 };
 
 #endif

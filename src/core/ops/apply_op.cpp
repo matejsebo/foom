@@ -41,6 +41,8 @@ bool applyOp(Map& map, OpResult&& result, const Object* principal)
 {
 	if (!result.error.isEmpty())
 		return false;
+	if (result.out.empty() && result.consumed.empty())
+		return true;  // nothing to do, and nothing to record
 	
 	auto* part = map.getCurrentPart();
 	for (auto const* object : result.consumed)

@@ -259,6 +259,12 @@ void OpsTest::flattenTest()
 	QVERIFY(closed_out->parts().front().isClosed());
 	QVERIFY(closed_out->getRawCoordinateVector().back().isClosePoint());
 	
+	// A result with nothing to do leaves the selection alone.
+	map.addObjectToSelection(straight, false);
+	QVERIFY(ops::applyOp(map, ops::flatten(map, { straight }, params)));
+	QVERIFY(map.selectedObjects() == (Map::ObjectSelection{ straight }));
+	map.clearObjectSelection(false);
+	
 	// Through applyOp, the output takes the input's place.
 	map.addObjectToSelection(curved, false);
 	QVERIFY(ops::applyOp(map, std::move(result)));

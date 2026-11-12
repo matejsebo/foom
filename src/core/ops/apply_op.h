@@ -47,7 +47,8 @@ namespace ops {
  * to now, since the delete step which records them stamps nothing.
  *
  * Returns false and leaves the map unchanged when the result carries an
- * error, or when a consumed object is not in the current part.
+ * error, or when a consumed object is not in the current part. A result
+ * with neither outputs nor consumed objects changes nothing and returns true.
  */
 bool applyOp(Map& map, OpResult&& result, const Object* principal = nullptr);
 

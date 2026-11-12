@@ -25,6 +25,7 @@
 #include <Qt>
 #include <QtGlobal>
 #include <QtTest>
+#include <QAction>
 #include <QApplication>
 #include <QEvent>
 #include <QMouseEvent>
@@ -35,6 +36,7 @@
 #include "core/map.h"
 #include "core/map_color.h"
 #include "core/map_coord.h"
+#include "core/map_part.h"
 #include "core/objects/object.h"
 #include "core/objects/object_query.h"
 #include "core/symbols/line_symbol.h"
@@ -47,6 +49,7 @@
 #include "templates/paint_on_template_feature.h"
 #include "tools/edit_point_tool.h"
 #include "tools/edit_tool.h"
+#include "undo/undo_manager.h"
 
 using namespace OpenOrienteering;
 
@@ -295,4 +298,41 @@ namespace  {
 }
 
 
+void ToolsTest::toPolyline()
+{
+	// the design notes, "To polyline", Accept (editor).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* action = editor.editor->getAction("to-polyline");
+	QVERIFY(action);
+	
+	auto* object = map.line_object;
+	auto const uuid = object->uuid();
+	QVERIFY(object->getRawCoordinateVector()[1].isCurveStart());
+	map.map->addObjectToSelection(object, true);
+	QVERIFY(action->isEnabled());
+	auto const undo_steps = map.map->undoManager().undoStepCount();
+	
+	editor.editor->toPolyline(0.05);
+	auto* part = map.map->getCurrentPart();
+	QCOMPARE(part->getNumObjects(), 1);
+	auto* flat = part->getObject(0);
+	QVERIFY(flat != object);
+	QCOMPARE(flat->uuid(), uuid);
+	QVERIFY(flat->getRawCoordinateVector().size() > 4);
+	for (auto const& coord : flat->getRawCoordinateVector())
+		QVERIFY(!coord.isCurveStart());
+	QVERIFY(map.map->selectedObjects() == (Map::ObjectSelection{ flat }));
+	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 1);
+	
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(part->getNumObjects(), 1);
+	QCOMPARE(part->getObject(0), object);
+	QVERIFY(object->getRawCoordinateVector()[1].isCurveStart());
+	
+	map.map->clearObjectSelection(true);
+	QVERIFY(!action->isEnabled());
+}
+	
+	
 QTEST_MAIN(ToolsTest)

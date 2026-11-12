@@ -474,6 +474,10 @@ public slots:
 	void convertToCurvesClicked();
 	/** Tries to remove points of selected paths while retaining their shape */
 	void simplifyPathClicked();
+	/** foom: Asks for the tolerance, then replaces the curves of the selected paths by straight segments. */
+	void toPolylineClicked();
+	/** foom: Replaces the curves of the selected paths by straight segments ("to polyline"). */
+	void toPolyline(double tolerance);
 	/** Activates the physical cutout tool */
 	void clipAreaClicked();
 	/** Activates the physical cutout tool (inversed) */
@@ -807,6 +811,8 @@ private:
 	QAction* boolean_merge_holes_act = {};
 	QAction* convert_to_curves_act = {};
 	QAction* simplify_path_act = {};
+	QAction* to_polyline_act = {};  // foom
+	double to_polyline_tolerance = 0.05;  // foom: mm on paper, kept for the session
 	QAction* clip_area_act = {};
 	QAction* erase_area_act = {};
 	QAction* distribute_points_act = {};
