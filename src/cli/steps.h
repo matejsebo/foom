@@ -1,0 +1,106 @@
+/*
+ *    Copyright 2026 Matej Šebo
+ *
+ *    This file is part of FOOM, the Fantastic Open Orienteering Mapper,
+ *    a fork of OpenOrienteering Mapper.
+ *
+ *    FOOM is free software: you can redistribute it and/or modify
+ *    it under the terms of the GNU General Public License as published by
+ *    the Free Software Foundation, either version 3 of the License, or
+ *    (at your option) any later version.
+ *
+ *    FOOM is distributed in the hope that it will be useful,
+ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *    GNU General Public License for more details.
+ *
+ *    You should have received a copy of the GNU General Public License
+ *    along with FOOM.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+
+#ifndef OPENORIENTEERING_CLI_STEPS_H
+#define OPENORIENTEERING_CLI_STEPS_H
+
+#include <memory>
+
+#include <QJsonObject>
+#include <QString>
+
+namespace OpenOrienteering {
+
+class Map;
+
+namespace Cli {
+
+class Job;
+struct Step;
+
+
+/**
+ * The outcome of one step.
+ */
+struct StepResult
+{
+	bool ok = true;
+	QString message;        ///< Why the step failed; empty on success.
+	QJsonObject details;    ///< Extra members for the log line, e.g. the written path.
+};
+
+
+/**
+ * Validates and runs the steps of a job.
+ *
+ * The steps are those of the table in "Headless runner",
+ * the design notes. Steps whose features are not built yet are
+ * rejected by validate(): `check`, the `course` parameter of `export`, and
+ * the `layer` and `clip` parameters of `import`.
+ */
+class StepRunner
+{
+public:
+	explicit StepRunner(const Job& job);
+	
+	StepRunner(const StepRunner&) = delete;
+	StepRunner& operator=(const StepRunner&) = delete;
+	
+	~StepRunner();
+	
+	/**
+	 * Checks the step's name and parameters.
+	 *
+	 * map_open tells whether an `open` step precedes this one; the steps
+	 * which work on a map require it, and `open` sets it.
+	 *
+	 * @throws JobError on a problem.
+	 */
+	static void validate(const Step& step, bool& map_open);
+	
+	/**
+	 * Runs a validated step.
+	 */
+	StepResult run(const Step& step);
+
+private:
+	StepResult open(const Step& step);
+	StepResult import(const Step& step);
+	StepResult applyCrt(const Step& step);
+	StepResult replaceSymbols(const Step& step);
+	StepResult changeScale(const Step& step);
+	StepResult setGeoreferencing(const Step& step);
+	StepResult exportMap(const Step& step);
+	StepResult saveAs(const Step& step);
+	
+	StepResult exportImage(const Step& step, const QString& path, const QString& format);
+	StepResult exportPdf(const Step& step, const QString& path);
+	
+	const Job& job;
+	std::unique_ptr<Map> map;
+};
+
+
+}  // namespace Cli
+
+}  // namespace OpenOrienteering
+
+#endif  // OPENORIENTEERING_CLI_STEPS_H

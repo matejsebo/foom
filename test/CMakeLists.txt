@@ -200,6 +200,10 @@ add_system_test(coord_xml_t MANUAL)
 
 # System tests
 add_system_test(file_format_t)
+add_system_test(cli_t)  # Runs the foom-cli executable
+target_link_libraries(cli_t PRIVATE MapperTestUtils)
+target_compile_definitions(cli_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
+add_dependencies(cli_t foom-cli)
 add_system_test(duplicate_equals_t)
 add_system_test(map_t)
 add_system_test(map_printer_t)
