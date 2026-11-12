@@ -91,11 +91,12 @@ QString mapperNamespace()
 XMLFileFormat::XMLFileFormat()
  : FileFormat(MapFile,
               "XML",
-              ::OpenOrienteering::ImportExport::tr("OpenOrienteering Mapper"),
-              QString::fromLatin1("omap"),
+              ::OpenOrienteering::ImportExport::tr("FOOM map"),
+              QString::fromLatin1("foom"),
               Feature::FileOpen | Feature::FileImport |
               Feature::FileSave | Feature::FileSaveAs )
 {
+	addExtension(QString::fromLatin1("omap"));
 	addExtension(QString::fromLatin1("xmap"));
 }
 

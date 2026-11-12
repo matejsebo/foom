@@ -356,7 +356,7 @@ void KmzGroundOverlayExport::writeKml(QByteArray& buffer, const std::vector<KmzG
 {
 	buffer.append(
 	  "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-	  "<!-- Generator: OpenOrienteering Mapper " APP_VERSION " -->\n"
+	  "<!-- Generator: FOOM " APP_VERSION " -->\n"
 	  "<kml xmlns=\"http://www.opengis.net/kml/2.2\">\n"
 	  "<Folder>\n"
 	  " <name>Map</name>\n"

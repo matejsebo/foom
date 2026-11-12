@@ -33,46 +33,52 @@ FunctionEnd
 
 Function installAssociations
   ; The application
-  WriteRegStr HKLM "Software\Classes\OpenOrienteering.Map" "" "OpenOrienteering Map"
-  WriteRegStr HKLM "Software\Classes\OpenOrienteering.Map\DefaultIcon" "" "$INSTDIR\Mapper.exe"
+  WriteRegStr HKLM "Software\Classes\FOOM.Map" "" "FOOM Map"
+  WriteRegStr HKLM "Software\Classes\FOOM.Map\DefaultIcon" "" "$INSTDIR\FOOM.exe"
   
-  ReadRegStr $R0 HKLM "Software\Classes\OpenOrienteering.Map\shell\open\command" ""
+  ReadRegStr $R0 HKLM "Software\Classes\FOOM.Map\shell\open\command" ""
   StrCmp $R0 "" 0 +3
-    WriteRegStr HKLM "Software\Classes\OpenOrienteering.Map\shell" "" "open"
-    WriteRegStr HKLM "Software\Classes\OpenOrienteering.Map\shell\open\command" "" '"$INSTDIR\Mapper.exe" "%1"'
+    WriteRegStr HKLM "Software\Classes\FOOM.Map\shell" "" "open"
+    WriteRegStr HKLM "Software\Classes\FOOM.Map\shell\open\command" "" '"$INSTDIR\FOOM.exe" "%1"'
   
   ; The file type associations
-  WriteRegStr HKLM "Software\Classes\.omap" "" "OpenOrienteering.Map"
+  WriteRegStr HKLM "Software\Classes\.foom" "" "FOOM.Map"
+  WriteRegStr HKLM "Software\Classes\.foom" "PerceivedType" "document"
+  WriteRegStr HKLM "Software\Classes\.omap" "" "FOOM.Map"
   WriteRegStr HKLM "Software\Classes\.omap" "PerceivedType" "document"
-  WriteRegStr HKLM "Software\Classes\.xmap" "" "OpenOrienteering.Map"
+  WriteRegStr HKLM "Software\Classes\.xmap" "" "FOOM.Map"
   WriteRegStr HKLM "Software\Classes\.xmap" "PerceivedType" "document"
   
   ReadRegStr $R0 HKLM "Software\Classes\.ocd" ""
   StrCmp $R0 "" 0 +3
-    WriteRegStr HKLM "Software\Classes\.ocd" "" "OpenOrienteering.Map"
+    WriteRegStr HKLM "Software\Classes\.ocd" "" "FOOM.Map"
     WriteRegStr HKLM "Software\Classes\.ocd" "PerceivedType" "document"
-  WriteRegStr HKLM "Software\Classes\.ocd\OpenWithProgIDs" "OpenOrienteering.Map" ""
+  WriteRegStr HKLM "Software\Classes\.ocd\OpenWithProgIDs" "FOOM.Map" ""
   
   System::Call 'Shell32::SHChangeNotify(i ${SHCNE_ASSOCCHANGED}, i ${SHCNF_IDLIST}, p0, p0)'
 FunctionEnd
 
 Function un.installAssociations
   ; The file type associations
+  ReadRegStr $R0 HKLM "Software\Classes\.foom" ""
+  StrCmp $R0 "FOOM.Map" 0 +2
+    DeleteRegKey HKLM "Software\Classes\.foom"
+
   ReadRegStr $R0 HKLM "Software\Classes\.omap" ""
-  StrCmp $R0 "OpenOrienteering.Map" 0 +2
+  StrCmp $R0 "FOOM.Map" 0 +2
     DeleteRegKey HKLM "Software\Classes\.omap"
   
   ReadRegStr $R0 HKLM "Software\Classes\.xmap" ""
-  StrCmp $R0 "OpenOrienteering.Map" 0 +2
+  StrCmp $R0 "FOOM.Map" 0 +2
     DeleteRegKey HKLM "Software\Classes\.xmap"
   
-  DeleteRegValue HKLM "Software\Classes\.ocd\OpenWithProgIDs" "OpenOrienteering.Map"
+  DeleteRegValue HKLM "Software\Classes\.ocd\OpenWithProgIDs" "FOOM.Map"
   ReadRegStr $R0 HKLM "Software\Classes\.ocd" ""
-  StrCmp $R0 "OpenOrienteering.Map" 0 +2
+  StrCmp $R0 "FOOM.Map" 0 +2
     DeleteRegKey HKLM "Software\Classes\.ocd"
   
   ; The application
-  DeleteRegKey HKLM "Software\Classes\OpenOrienteering.Map"
+  DeleteRegKey HKLM "Software\Classes\FOOM.Map"
   
   System::Call 'Shell32::SHChangeNotify(i ${SHCNE_ASSOCCHANGED}, i ${SHCNF_IDLIST}, p0, p0)'
 FunctionEnd

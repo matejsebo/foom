@@ -32,13 +32,13 @@ BEGIN
 	BEGIN
 		BLOCK "080904E4"
 		BEGIN
-			VALUE "CompanyName", "OpenOrienteering Developers"
-			VALUE "FileDescription", "OpenOrienteering @CMAKE_PROJECT_NAME@ @Mapper_VERSION_MAJOR@.@Mapper_VERSION_MINOR@.@Mapper_VERSION_PATCH@"
+			VALUE "CompanyName", "FOOM"
+			VALUE "FileDescription", "Fantastic Open Orienteering Mapper @Mapper_VERSION_MAJOR@.@Mapper_VERSION_MINOR@.@Mapper_VERSION_PATCH@"
 			VALUE "FileVersion", "@Mapper_VERSION_MAJOR@.@Mapper_VERSION_MINOR@.@Mapper_VERSION_PATCH@ @CMAKE_BUILD_TYPE@"
-			VALUE "InternalName", "@CMAKE_PROJECT_NAME@"
+			VALUE "InternalName", "FOOM"
 			VALUE "LegalCopyright", "@Mapper_COPYRIGHT@"
-			VALUE "OriginalFilename", "Mapper.exe"
-			VALUE "ProductName", "OpenOrienteering @CMAKE_PROJECT_NAME@"
+			VALUE "OriginalFilename", "FOOM.exe"
+			VALUE "ProductName", "FOOM"
 			VALUE "ProductVersion", "@Mapper_VERSION_MAJOR@.@Mapper_VERSION_MINOR@.@Mapper_VERSION_PATCH@ @CMAKE_BUILD_TYPE@"
 		END
 	END

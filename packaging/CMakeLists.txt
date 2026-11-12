@@ -88,12 +88,12 @@ endif()
 
 # cf. http://www.cmake.org/cmake/help/cmake-2-8-docs.html#module:CPack
 # cf. http://www.cmake.org/Wiki/CMake:CPackPackageGenerators
-set(CPACK_PACKAGE_NAME "OpenOrienteering ${CMAKE_PROJECT_NAME}")
-set(CPACK_PACKAGE_VENDOR "OpenOrienteering")
+set(CPACK_PACKAGE_NAME "FOOM")
+set(CPACK_PACKAGE_VENDOR "FOOM")
 set(CPACK_PACKAGE_VERSION_MAJOR ${Mapper_VERSION_MAJOR})
 set(CPACK_PACKAGE_VERSION_MINOR ${Mapper_VERSION_MINOR})
 set(CPACK_PACKAGE_VERSION_PATCH ${Mapper_VERSION_PATCH})
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Map drawing program from OpenOrienteering")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Fantastic Open Orienteering Mapper, a fork of OpenOrienteering Mapper")
 if(NOT CMAKE_SIZEOF_VOID_P AND MINGW)
 	set(_env_lang $ENV{LANG})
 	set(ENV{LANG} C)
@@ -120,12 +120,12 @@ else()
 	set(_system_name "${CMAKE_SYSTEM_NAME}-unknown")
 endif()
 set(CPACK_PACKAGE_FILE_NAME 
-    "OpenOrienteering-Mapper-${Mapper_VERSION_FILESYSTEM}-${_system_name}")
+    "FOOM-${Mapper_VERSION_FILESYSTEM}-${_system_name}")
 set(CPACK_RESOURCE_FILE_LICENSE "${PROJECT_SOURCE_DIR}/COPYING")
 set(CPACK_STRIP_FILES "TRUE")
 
 set(CPACK_SOURCE_PACKAGE_FILE_NAME
-    "openorienteering-mapper_${Mapper_VERSION_FILESYSTEM}-src")
+    "foom_${Mapper_VERSION_FILESYSTEM}-src")
 set(CPACK_SOURCE_IGNORE_FILES 
   "${PROJECT_BINARY_DIR}"
   "/[.]git/"
@@ -137,7 +137,7 @@ set(CPACK_SOURCE_IGNORE_FILES
 
 set(MAPPER_MACOS_SUBDIR "")
 
-set(CPACK_PACKAGE_EXECUTABLES "Mapper" "${CPACK_PACKAGE_NAME} ${Mapper_VERSION_DISPLAY}")
+set(CPACK_PACKAGE_EXECUTABLES "FOOM" "${CPACK_PACKAGE_NAME} ${Mapper_VERSION_DISPLAY}")
 
 if(WIN32)
 	# Packaging as ZIP archive
@@ -155,7 +155,7 @@ if(WIN32)
 		# NSIS start menu links will point to executables in this directory
 		set(CPACK_NSIS_EXECUTABLES_DIRECTORY ".")
 		# A path to the executable that contains the uninstaller icon.
-		set(CPACK_NSIS_INSTALLED_ICON_NAME Mapper.exe)
+		set(CPACK_NSIS_INSTALLED_ICON_NAME FOOM.exe)
 		# URL to a web site providing more information about your application.
 		set(CPACK_NSIS_URL_INFO_ABOUT "https://www.openorienteering.org/apps/mapper/")
 		# Extra NSIS include
@@ -172,16 +172,16 @@ if(WIN32)
 	endif(MAKENSIS_EXECUTABLE)
 	
 elseif(APPLE)
-	set(MAPPER_MACOS_SUBDIR "/Mapper.app/Contents/MacOS")
+	set(MAPPER_MACOS_SUBDIR "/FOOM.app/Contents/MacOS")
 	set(CPACK_GENERATOR_DEFAULT "DragNDrop")
 	set(CPACK_PACKAGE_ICON "${PROJECT_SOURCE_DIR}/images/mapper-icon/Mapper.icns")
 	set(CPACK_COMMAND_HDIUTIL "${CMAKE_CURRENT_LIST_DIR}/macos/hdiutil.sh")
 	set_target_properties(Mapper PROPERTIES
 	  MACOSX_BUNDLE_INFO_STRING          "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}"
 	  MACOSX_BUNDLE_ICON_FILE            "Mapper.icns"
-	  MACOSX_BUNDLE_GUI_IDENTIFIER       "org.openorienteering.${CMAKE_PROJECT_NAME}"
-	  MACOSX_BUNDLE_LONG_VERSION_STRING  "${CMAKE_PROJECT_NAME} ${Mapper_VERSION_DISPLAY} for macOS"
-	  MACOSX_BUNDLE_BUNDLE_NAME          "${CMAKE_PROJECT_NAME}" # less than 16 characters long
+	  MACOSX_BUNDLE_GUI_IDENTIFIER       "org.openorienteering.foom"
+	  MACOSX_BUNDLE_LONG_VERSION_STRING  "FOOM ${Mapper_VERSION_DISPLAY} for macOS"
+	  MACOSX_BUNDLE_BUNDLE_NAME          "FOOM" # less than 16 characters long
 	  MACOSX_BUNDLE_SHORT_VERSION_STRING "${Mapper_VERSION_MAJOR}.${Mapper_VERSION_MINOR}.${Mapper_VERSION_PATCH}"
 	  MACOSX_BUNDLE_BUNDLE_VERSION       "${Mapper_VERSION_MAJOR}.${Mapper_VERSION_MINOR}.${Mapper_VERSION_PATCH}"
 	  MACOSX_BUNDLE_COPYRIGHT            "${Mapper_COPYRIGHT}"
@@ -197,7 +197,7 @@ elseif(ANDROID)
 elseif(UNIX AND EXISTS /usr/bin/dpkg AND EXISTS /usr/bin/lsb_release)
 	# Packaging on Debian or similar
 	set(CPACK_GENERATOR_DEFAULT "DEB")
-	set(CPACK_DEBIAN_PACKAGE_NAME "openorienteering-mapper")
+	set(CPACK_DEBIAN_PACKAGE_NAME "foom")
 	execute_process(
 	  COMMAND /usr/bin/lsb_release -sc 
 	  OUTPUT_VARIABLE CPACK_LSB_RELEASE 
@@ -209,7 +209,7 @@ elseif(UNIX AND EXISTS /usr/bin/dpkg AND EXISTS /usr/bin/lsb_release)
 	string(REPLACE "Linux-x64" "${CPACK_LSB_RELEASE}_amd64"
 	  CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_FILE_NAME}"
 	)
-	set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Kai Pastor <dg0yt@darc.de>")
+	set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Matej Šebo <10730237+matejsebo@users.noreply.github.com>")
 	set(CPACK_DEBIAN_SECTION            "graphics")
 	set(CPACK_DEBIAN_PACKAGE_HOMEPAGE   "https://www.openorienteering.org/apps/mapper/")
 	

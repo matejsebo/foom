@@ -38,7 +38,7 @@ option(CMAKE_FIND_PACKAGE_PREFER_CONFIG "Lookup package config files before usin
 
 # Project declaration
 
-project(Mapper VERSION 0.9.7 LANGUAGES CXX C)
+project(Mapper VERSION 0.10.0 LANGUAGES CXX C)
 set(Mapper_COPYRIGHT "(C) 2026 The OpenOrienteering developers")
 
 math(EXPR Mapper_VERSION_CODE "${Mapper_VERSION_MAJOR} * 10000 + ${Mapper_VERSION_MINOR} * 100 + ${Mapper_VERSION_PATCH} * 2 + ${CMAKE_SIZEOF_VOID_P} / 4 - 1")
@@ -117,7 +117,7 @@ mark_as_advanced(Mapper_PACKAGE_PROJ Mapper_PACKAGE_GDAL Mapper_PACKAGE_QT Mappe
 
 # Installation configuration
 
-set(Mapper_PACKAGE_NAME "openorienteering-mapper" CACHE STRING
+set(Mapper_PACKAGE_NAME "foom" CACHE STRING
   "The package name"
 )
 
@@ -136,8 +136,8 @@ elseif(WIN32)
 elseif(APPLE)
 	set(MAPPER_RUNTIME_DESTINATION .)
 	set(MAPPER_LIBRARY_DESTINATION .)
-	set(MAPPER_DATA_DESTINATION    "Mapper.app/Contents/Resources")
-	set(MAPPER_ABOUT_DESTINATION   "Mapper.app/Contents/Resources/doc")
+	set(MAPPER_DATA_DESTINATION    "FOOM.app/Contents/Resources")
+	set(MAPPER_ABOUT_DESTINATION   "FOOM.app/Contents/Resources/doc")
 elseif(ANDROID)
 	set(MAPPER_RUNTIME_DESTINATION "libs/${CMAKE_ANDROID_ARCH_ABI}")
 	set(MAPPER_LIBRARY_DESTINATION "libs/${CMAKE_ANDROID_ARCH_ABI}")

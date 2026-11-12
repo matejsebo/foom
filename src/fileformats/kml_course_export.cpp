@@ -86,7 +86,7 @@ void KmlCourseExport::writeKml(const PathObject& object)
 {
 	auto const stamp = QDateTime::currentDateTime();
 	xml->writeDefaultNamespace(QLatin1String("http://www.opengis.net/kml/2.2"));
-	xml->writeComment(QLatin1String("Generator: OpenOrienteering Mapper " APP_VERSION));
+	xml->writeComment(QLatin1String("Generator: FOOM " APP_VERSION));
 	xml->writeComment(QLatin1String("Created:   ") + stamp.toString(Qt::ISODate));
 	
 	XmlElementWriter kml(*xml, QLatin1String("kml"));

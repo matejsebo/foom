@@ -263,7 +263,7 @@ public:
 		           "<head>\n"
 		           "<meta charset=\"utf-8\">"
 		           "<title>%0</title>\n"
-		           "<meta name=\"generator\" content=\"OpenOrienteering Mapper\">\n"
+		           "<meta name=\"generator\" content=\"FOOM\">\n"
 		           "<style>\n"
 		           "th { font-size: 120%; text-align: center; }\n"
 		           "th, td { padding: 4px; }\n"

@@ -89,7 +89,7 @@ void IofCourseExport::writeXml(const PathObject& object)
 	
 	XmlElementWriter course_data(*xml, QLatin1String("CourseData"));
 	course_data.writeAttribute(QLatin1String("iofVersion"), QLatin1String("3.0"));
-	course_data.writeAttribute(QLatin1String("creator"), QLatin1String("OpenOrienteering Mapper " APP_VERSION));
+	course_data.writeAttribute(QLatin1String("creator"), QLatin1String("FOOM " APP_VERSION));
 	course_data.writeAttribute(QLatin1String("createTime"), stamp.toString(Qt::ISODate));
 	{
 		XmlElementWriter event(*xml, QLatin1String("Event"));

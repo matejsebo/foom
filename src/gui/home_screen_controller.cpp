@@ -146,7 +146,7 @@ void HomeScreenController::goToTip(int index)
 	{
 		// Some error may have occurred during reading the tips file.
 		// Display a welcome text.
-		widget->setTipOfTheDay(QString::fromLatin1("<h2>%1</h2>").arg(tr("Welcome to OpenOrienteering Mapper!")));
+		widget->setTipOfTheDay(QString::fromLatin1("<h2>%1</h2>").arg(tr("Welcome to Fantastic Open Orienteering Mapper!")));
 	}
 	else
 	{

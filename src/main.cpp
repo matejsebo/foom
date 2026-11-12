@@ -127,8 +127,9 @@ int main(int argc, char** argv)
 {
 #ifdef MAPPER_USE_QTSINGLEAPPLICATION
 	// Create single-instance application.
-	// Use "oo-mapper" instead of the executable as identifier, in case we launch from different paths.
-	QtSingleApplication qapp(QString::fromLatin1("oo-mapper"), argc, argv);
+	// Use "foom" instead of the executable as identifier, in case we launch from different paths.
+	// (Not "oo-mapper": FOOM and OpenOrienteering Mapper may run side by side.)
+	QtSingleApplication qapp(QString::fromLatin1("foom"), argc, argv);
 	if (qapp.isRunning()) {
 		// Send a message to activate the running app, and optionally open a file
 		auto const arguments = firstRemoved(QCoreApplication::arguments());
@@ -148,8 +149,8 @@ int main(int argc, char** argv)
 	Q_INIT_RESOURCE(resources);
 	
 	// QSettings on OS X benefits from using an internet domain here.
-	QCoreApplication::setOrganizationName(QString::fromLatin1("OpenOrienteering.org"));
-	QCoreApplication::setApplicationName(QString::fromLatin1("Mapper"));
+	QCoreApplication::setOrganizationName(QString::fromLatin1("FOOM"));
+	QCoreApplication::setApplicationName(QString::fromLatin1("FOOM"));
 	QGuiApplication::setApplicationDisplayName(APP_NAME + QString::fromUtf8(" " APP_VERSION));
 	
 #ifdef WIN32

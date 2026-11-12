@@ -33,6 +33,7 @@
      <comment xml:lang="uk">Спортивна карта</comment>
      <comment xml:lang="zh_CN">定向运动地图</comment>
      <comment xml:lang="zh_Hant">定向越野運動地圖</comment>
+     <glob pattern="*.foom"/>
      <glob pattern="*.omap"/>
      <glob pattern="*.xmap"/>
    </mime-type>

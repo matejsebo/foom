@@ -82,7 +82,7 @@ QStringList TemplateMap::locked_maps;
 
 const std::vector<QByteArray>& TemplateMap::supportedExtensions()
 {
-	static std::vector<QByteArray> extensions = { "ocd", "omap", "xmap" };
+	static std::vector<QByteArray> extensions = { "ocd", "foom", "omap", "xmap" };
 	return extensions;
 }
 
