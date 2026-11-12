@@ -116,6 +116,9 @@ set(Mapper_Common_SRCS
   core/objects/symbol_rule_set.cpp
   core/objects/text_object.cpp
   
+  core/ops/apply_op.cpp
+  core/ops/flatten.cpp
+  
   core/renderables/renderable.cpp
   core/renderables/renderable_implementation.cpp
   

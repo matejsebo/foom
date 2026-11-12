@@ -206,6 +206,7 @@ add_system_test(map_printer_t)
 target_link_libraries(map_printer_t PRIVATE MapperTestUtils)
 add_system_test(object_t)
 add_system_test(object_query_t)
+add_system_test(ops_t)
 add_system_test(path_object_t)
 add_system_test(style_t)
 target_link_libraries(style_t  PRIVATE scaling-icon-engine)
@@ -244,6 +245,16 @@ if(Mapper_AUTORUN_TESTS)
 	)
 	add_dependencies(AUTORUN_TESTS ${Mapper_AUTORUN_TESTS})
 endif()
+
+
+# foom: purity of src/core/ops/, see the design notes, "Geometry operations".
+add_test(NAME ops_purity
+  COMMAND "${CMAKE_COMMAND}" "-DOPS_DIR=${PROJECT_SOURCE_DIR}/src/core/ops" -P "${CMAKE_CURRENT_SOURCE_DIR}/ops_purity.cmake"
+)
+add_test(NAME ops_purity_negative
+  COMMAND "${CMAKE_COMMAND}" "-DOPS_DIR=${CMAKE_CURRENT_SOURCE_DIR}/data/ops_purity/bad" -P "${CMAKE_CURRENT_SOURCE_DIR}/ops_purity.cmake"
+)
+set_tests_properties(ops_purity_negative PROPERTIES PASS_REGULAR_EXPRESSION "Editor code included")
 
 
 set(IOF_3_XSD_FILE "" CACHE FILEPATH "Path of the IOF Data Standard 3 XSD file")
