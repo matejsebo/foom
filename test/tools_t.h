@@ -56,6 +56,9 @@ private slots:
 	
 	/** foom: Tests the move-parallel tool and command. */
 	void moveParallel();
+	
+	/** foom: Tests the vertex type commands. */
+	void vertexType();
 };
 
 #endif

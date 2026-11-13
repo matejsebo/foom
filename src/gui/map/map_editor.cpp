@@ -111,6 +111,7 @@
 #include "core/ops/align.h"
 #include "core/ops/apply_op.h"
 #include "core/ops/offset.h"
+#include "core/ops/vertex_type.h"
 #include "core/ops/flatten.h"
 #include "core/ops/mirror.h"
 #include "core/ops/transform.h"
@@ -1079,6 +1080,12 @@ void MapEditorController::createActions()
 	reshape_act = newToolAction("reshape", tr("Reshape"), this, SLOT(reshapeClicked()));  // foom
 	move_parallel_act = newToolAction("move-parallel", tr("Move parallel"), this, SLOT(moveParallelClicked()));  // foom
 	move_parallel_by_act = newAction("move-parallel-by", tr("Move parallel by..."), this, SLOT(moveParallelByClicked()));  // foom
+	vertex_type_normal_act = newAction("set-vertex-type-normal", tr("Normal"), this, SLOT(setVertexTypeClicked()));  // foom
+	vertex_type_normal_act->setData(false);
+	vertex_type_dash_act = newAction("set-vertex-type-dash", tr("Dash point"), this, SLOT(setVertexTypeClicked()));  // foom
+	vertex_type_dash_act->setData(true);
+	vertex_type_keep_ends_act = newCheckAction("set-vertex-type-keep-ends", tr("Keep first and last vertex"), nullptr, nullptr);  // foom
+	vertex_type_keep_ends_act->setChecked(true);
 	cut_hole_act = newToolAction("cuthole", tr("Cut free form hole"), this, SLOT(cutHoleClicked()), "tool-cut-hole.png", QString{}, "toolbars.html#cut_hole"); // cut hole using a path
 	cut_hole_circle_act = newToolAction("cutholecircle", tr("Cut round hole"), this, SLOT(cutHoleCircleClicked()), "tool-cut-hole.png", QString{}, "toolbars.html#cut_hole");
 	cut_hole_rectangle_act = newToolAction("cutholerectangle", tr("Cut rectangular hole"), this, SLOT(cutHoleRectangleClicked()), "tool-cut-hole.png", QString{}, "toolbars.html#cut_hole");
@@ -1299,6 +1306,11 @@ void MapEditorController::createMenuAndToolbars()
 	align_menu->addSeparator();
 	align_menu->addAction(distribute_h_act);
 	align_menu->addAction(distribute_v_act);
+	auto* vertex_type_menu = tools_menu->addMenu(tr("Vertex type"));  // foom
+	vertex_type_menu->addAction(vertex_type_normal_act);
+	vertex_type_menu->addAction(vertex_type_dash_act);
+	vertex_type_menu->addSeparator();
+	vertex_type_menu->addAction(vertex_type_keep_ends_act);
 	tools_menu->addAction(clip_area_act);
 	tools_menu->addAction(erase_area_act);
 	tools_menu->addAction(distribute_points_act);
@@ -2724,7 +2736,7 @@ void MapEditorController::updateObjectDependentActions()
 		action->setEnabled(have_selection);
 		action->setStatusTip(action->isEnabled() ? QString{} : tr("Select at least one object to activate this tool."));
 	}
-	for (auto* action : { move_parallel_act, move_parallel_by_act })  // foom
+	for (auto* action : { move_parallel_act, move_parallel_by_act, vertex_type_normal_act, vertex_type_dash_act })  // foom
 	{
 		action->setEnabled(have_line || have_area);
 		action->setStatusTip(action->isEnabled() ? QString{} : tr("Select a line or area object to activate this tool."));
@@ -3480,6 +3492,25 @@ void MapEditorController::moveParallelBy(double distance, bool duplicate)
 	params.distance = distance;
 	params.duplicate = duplicate;
 	applyOpResult(ops::offset(*map, in, params));
+}
+
+// foom
+void MapEditorController::setVertexTypeClicked()
+{
+	if (auto* action = qobject_cast<QAction*>(sender()))
+		setVertexType(action->data().toBool(), vertex_type_keep_ends_act->isChecked());
+}
+
+// foom
+void MapEditorController::setVertexType(bool dash, bool keep_ends)
+{
+	// the design notes, "Vertex types".
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	ops::VertexTypeParams params;
+	params.dash = dash;
+	params.keep_ends = keep_ends;
+	applyOpResult(ops::setVertexType(*map, in, params));
 }
 
 void MapEditorController::cutHoleClicked()

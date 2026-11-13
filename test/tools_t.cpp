@@ -573,4 +573,37 @@ void ToolsTest::moveParallel()
 }
 
 
+void ToolsTest::vertexType()
+{
+	// the design notes, "Vertex types", editor paragraph.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* normal_act = editor.editor->getAction("set-vertex-type-normal");
+	auto* dash_act = editor.editor->getAction("set-vertex-type-dash");
+	auto* keep_act = editor.editor->getAction("set-vertex-type-keep-ends");
+	QVERIFY(normal_act && dash_act && keep_act);
+	QVERIFY(keep_act->isCheckable());
+	
+	auto* line = new PathObject(map.line_symbol, { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0), MapCoord(20.0, 0.0) });
+	map.map->addObject(line);
+	auto const uuid = line->uuid();
+	auto* part = map.map->getCurrentPart();
+	auto const undo_steps = map.map->undoManager().undoStepCount();
+	map.map->clearObjectSelection(true);
+	QVERIFY(!normal_act->isEnabled() && !dash_act->isEnabled());
+	map.map->addObjectToSelection(line, true);
+	QVERIFY(normal_act->isEnabled() && dash_act->isEnabled());
+	
+	editor.editor->setVertexType(true, true);
+	auto const* flagged = map.map->findObject(uuid);
+	QVERIFY(flagged && flagged != line);
+	auto const& coords = flagged->asPath()->getRawCoordinateVector();
+	QVERIFY(!coords[0].isDashPoint() && coords[1].isDashPoint() && !coords[2].isDashPoint());
+	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 1);
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(map.map->findObject(uuid), line);
+	QCOMPARE(part->getNumObjects(), 2);
+}
+
+
 QTEST_MAIN(ToolsTest)

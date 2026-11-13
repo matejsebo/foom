@@ -513,6 +513,10 @@ public slots:
 	void moveParallelByClicked();
 	/** foom: Offsets the selected path objects by the distance (mm, positive to the left of travel). */
 	void moveParallelBy(double distance, bool duplicate);
+	/** foom: Sets or clears the dash flag of the selected paths' vertices; the sending action's data says which. */
+	void setVertexTypeClicked();
+	/** foom: Sets (dash) or clears the dash flag of every vertex of the selected paths. */
+	void setVertexType(bool dash, bool keep_ends);
 	/** Activates the physical cutout tool */
 	void clipAreaClicked();
 	/** Activates the physical cutout tool (inversed) */
@@ -866,6 +870,9 @@ private:
 	QAction* move_parallel_act = {};  // foom
 	QAction* move_parallel_by_act = {};  // foom
 	QPointer<MoveParallelDialog> move_parallel_dialog;  // foom
+	QAction* vertex_type_normal_act = {};  // foom
+	QAction* vertex_type_dash_act = {};  // foom
+	QAction* vertex_type_keep_ends_act = {};  // foom
 	QAction* clip_area_act = {};
 	QAction* erase_area_act = {};
 	QAction* distribute_points_act = {};

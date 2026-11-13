@@ -47,6 +47,7 @@
 #include "core/ops/mirror.h"
 #include "core/ops/offset.h"
 #include "core/ops/transform.h"
+#include "core/ops/vertex_type.h"
 #include "core/ops/op.h"
 #include "core/ops/reshape.h"
 #include "core/symbols/line_symbol.h"
@@ -114,6 +115,7 @@ private slots:
 	void distributeTest();
 	void reshapeTest();
 	void offsetTest();
+	void vertexTypeTest();
 };
 
 
@@ -819,6 +821,74 @@ void OpsTest::offsetTest()
 	// The signed distance helper: left of eastward travel is negative y.
 	QCOMPARE(ops::signedDistance(*straight, MapCoordF(5.0, -3.0)), 3.0);
 	QCOMPARE(ops::signedDistance(*straight, MapCoordF(5.0, 2.0)), -2.0);
+}
+
+
+void OpsTest::vertexTypeTest()
+{
+	// the design notes, "Vertex types".
+	Map map;
+	auto* symbol = new LineSymbol();
+	map.addSymbol(symbol, 0);
+	auto* area_symbol = new AreaSymbol();
+	map.addSymbol(area_symbol, 1);
+	auto* point_symbol = new PointSymbol();
+	map.addSymbol(point_symbol, 2);
+	auto const dashed = [](const MapCoordVector& coords) {
+		std::vector<bool> flags;
+		for (auto const& coord : coords)
+			flags.push_back(coord.isDashPoint());
+		return flags;
+	};
+	auto const apply = [&map](const Object* object, bool dash, bool keep_ends) {
+		ops::VertexTypeParams params;
+		params.dash = dash;
+		params.keep_ends = keep_ends;
+		return ops::setVertexType(map, { object }, params);
+	};
+	
+	auto curve_start = MapCoord(20.0, 0.0);
+	curve_start.setCurveStart(true);
+	auto* line = new PathObject(symbol, { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0), curve_start, MapCoord(22.0, 3.0), MapCoord(28.0, 3.0), MapCoord(30.0, 0.0), MapCoord(40.0, 0.0) });
+	map.addObject(line);
+	auto const uuid = line->uuid();
+	auto dash = apply(line, true, true);
+	QVERIFY2(dash.error.isEmpty(), dash.error.toLatin1());
+	QCOMPARE(dash.out.size(), std::size_t(1));
+	QCOMPARE(dash.consumed, (std::vector<const Object*>{ line }));
+	QCOMPARE(dash.out.front()->uuid(), uuid);
+	auto const& dash_coords = dash.out.front()->asPath()->getRawCoordinateVector();
+	QCOMPARE(dashed(dash_coords), (std::vector<bool>{ false, true, true, false, false, true, false }));
+	QVERIFY(dash_coords[2].isCurveStart());
+	auto normal = apply(dash.out.front().get(), false, false);
+	QVERIFY(normal.error.isEmpty());
+	QCOMPARE(dashed(normal.out.front()->asPath()->getRawCoordinateVector()), std::vector<bool>(7, false));
+	auto unchanged = apply(line, false, false);
+	QVERIFY(unchanged.error.isEmpty());
+	QVERIFY(unchanged.out.empty() && unchanged.consumed.empty());
+	
+	auto* square = new PathObject(area_symbol);
+	for (auto const& coord : { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0), MapCoord(10.0, 10.0), MapCoord(0.0, 10.0) })
+		square->addCoordinate(coord);
+	square->parts().front().setClosed(true);
+	map.addObject(square);
+	QCOMPARE(square->getCoordinateCount(), MapCoordVector::size_type(5));
+	auto inner = apply(square, true, true);
+	QVERIFY2(inner.error.isEmpty(), inner.error.toLatin1());
+	QCOMPARE(dashed(inner.out.front()->asPath()->getRawCoordinateVector()), (std::vector<bool>{ false, true, true, true, false }));
+	QVERIFY(inner.out.front()->asPath()->parts().front().isClosed());
+	auto all = apply(square, true, false);
+	QCOMPARE(dashed(all.out.front()->asPath()->getRawCoordinateVector()), std::vector<bool>(5, true));
+	
+	auto* point = new PointObject(point_symbol);
+	map.addObject(point);
+	ops::VertexTypeParams params;
+	params.dash = true;
+	auto mixed = ops::setVertexType(map, { point, line }, params);
+	QVERIFY(mixed.error.isEmpty());
+	QCOMPARE(mixed.out.size(), std::size_t(1));
+	QVERIFY(!ops::setVertexType(map, { point }, params).error.isEmpty());
+	QVERIFY(!ops::setVertexType(map, {}, params).error.isEmpty());
 }
 
 

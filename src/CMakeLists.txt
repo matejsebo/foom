@@ -125,6 +125,7 @@ set(Mapper_Common_SRCS
   core/ops/offset.cpp
   core/ops/reshape.cpp
   core/ops/transform.cpp
+  core/ops/vertex_type.cpp
   
   core/renderables/renderable.cpp
   core/renderables/renderable_implementation.cpp
