@@ -40,6 +40,7 @@
 #include "core/objects/object.h"
 #include "core/objects/object_query.h"
 #include "core/ops/align.h"
+#include "tools/move_parallel_tool.h"
 #include "tools/reshape_tool.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
@@ -510,6 +511,63 @@ void ToolsTest::reshape()
 	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 1);
 	QVERIFY(map.map->undoManager().undo());
 	QCOMPARE(map.map->findObject(uuid), line);
+	
+	editor.editor->setTool(nullptr);
+}
+
+
+void ToolsTest::moveParallel()
+{
+	// the design notes, "Parallel offset", editor paragraphs.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* line = new PathObject(map.line_symbol, { MapCoord(0.0, 0.0), MapCoord(20.0, 0.0) });
+	map.map->addObject(line);
+	auto const uuid = line->uuid();
+	auto* part = map.map->getCurrentPart();
+	auto const num_objects = part->getNumObjects();
+	auto const undo_steps = map.map->undoManager().undoStepCount();
+	auto* tool_act = editor.editor->getAction("move-parallel");
+	auto* by_act = editor.editor->getAction("move-parallel-by");
+	QVERIFY(tool_act && by_act);
+	map.map->clearObjectSelection(true);
+	QVERIFY(!tool_act->isEnabled() && !by_act->isEnabled());
+	map.map->addObjectToSelection(line, true);
+	QVERIFY(tool_act->isEnabled() && by_act->isEnabled());
+	
+	// The command.
+	editor.editor->moveParallelBy(2.0, false);
+	QCOMPARE(part->getNumObjects(), num_objects);
+	auto const* moved = map.map->findObject(uuid);
+	QVERIFY(moved && moved != line);
+	QCOMPARE(moved->asPath()->getRawCoordinateVector(), (MapCoordVector{ MapCoord(0.0, -2.0), MapCoord(20.0, -2.0) }));
+	editor.editor->moveParallelBy(2.0, true);
+	QCOMPARE(part->getNumObjects(), num_objects + 1);
+	QCOMPARE(map.map->findObject(uuid), moved);
+	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 2);
+	QVERIFY(map.map->undoManager().undo());
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(map.map->findObject(uuid), line);
+	QCOMPARE(part->getNumObjects(), num_objects);
+	
+	// The tool: drag a point of the line 5 mm upwards.
+	map.map->clearObjectSelection(false);
+	map.map->addObjectToSelection(line, true);
+	tool_act->trigger();
+	QVERIFY(dynamic_cast<MoveParallelTool*>(editor.editor->getTool()));
+	auto const* map_widget = editor.map_widget;
+	editor.simulateDrag(map_widget->mapToViewport(MapCoord(10.0, 0.0)), map_widget->mapToViewport(MapCoord(10.0, -5.0)));
+	QCOMPARE(part->getNumObjects(), num_objects);
+	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 1);
+	auto const* dragged = map.map->findObject(uuid);
+	QVERIFY(dragged);
+	auto const& coords = dragged->asPath()->getRawCoordinateVector();
+	QCOMPARE(coords.size(), MapCoordVector::size_type(2));
+	QVERIFY(std::abs(coords.front().y() + 5.0) < 0.2);
+	QVERIFY(std::abs(coords.back().y() + 5.0) < 0.2);
+	QVERIFY(std::abs(coords.front().x()) < 0.2 && std::abs(coords.back().x() - 20.0) < 0.2);
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(map.map->findObject(uuid)->asPath()->getRawCoordinateVector(), (MapCoordVector{ MapCoord(0.0, 0.0), MapCoord(20.0, 0.0) }));
 	
 	editor.editor->setTool(nullptr);
 }

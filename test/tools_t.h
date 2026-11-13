@@ -53,6 +53,9 @@ private slots:
 	
 	/** foom: Tests the reshape tool. */
 	void reshape();
+	
+	/** foom: Tests the move-parallel tool and command. */
+	void moveParallel();
 };
 
 #endif

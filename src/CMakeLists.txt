@@ -122,6 +122,7 @@ set(Mapper_Common_SRCS
   core/ops/flatten.cpp
   core/ops/bounds.cpp
   core/ops/mirror.cpp
+  core/ops/offset.cpp
   core/ops/reshape.cpp
   core/ops/transform.cpp
   
@@ -178,6 +179,7 @@ set(Mapper_Common_SRCS
   gui/map/map_dialog_scale.cpp
   gui/map/map_editor.cpp
   gui/map/map_editor_activity.cpp
+  gui/map/move_parallel_dialog.cpp
   gui/map/numeric_transform_dialogs.cpp
   gui/map/map_find_feature.cpp
   gui/map/map_information_dialog.cpp
@@ -245,6 +247,7 @@ set(Mapper_Common_SRCS
   tools/box_zoom_tool.cpp
   tools/cut_tool.cpp
   tools/cut_hole_tool.cpp
+  tools/move_parallel_tool.cpp
   tools/reshape_tool.cpp
   tools/cutout_operation.cpp
   tools/cutout_tool.cpp

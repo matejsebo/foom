@@ -110,6 +110,7 @@
 #include "core/objects/object_operations.h"
 #include "core/ops/align.h"
 #include "core/ops/apply_op.h"
+#include "core/ops/offset.h"
 #include "core/ops/flatten.h"
 #include "core/ops/mirror.h"
 #include "core/ops/transform.h"
@@ -133,6 +134,7 @@
 #include "gui/map/map_information_dialog.h"
 #include "gui/map/map_notes.h"
 #include "gui/map/map_widget.h"
+#include "gui/map/move_parallel_dialog.h"
 #include "gui/map/numeric_transform_dialogs.h"
 #include "gui/map/rotate_map_dialog.h"
 #include "gui/symbols/symbol_replacement.h"
@@ -156,6 +158,7 @@
 #include "tools/box_zoom_tool.h"
 #include "tools/cut_tool.h"
 #include "tools/cut_hole_tool.h"
+#include "tools/move_parallel_tool.h"  // foom
 #include "tools/reshape_tool.h"  // foom
 #include "tools/cutout_tool.h"
 #include "tools/distribute_points_tool.h"
@@ -1074,6 +1077,8 @@ void MapEditorController::createActions()
 	
 	cut_tool_act = newToolAction("cutobject", tr("Cut object"), this, SLOT(cutClicked()), "tool-cut.png", QString{}, "toolbars.html#cut_tool");
 	reshape_act = newToolAction("reshape", tr("Reshape"), this, SLOT(reshapeClicked()));  // foom
+	move_parallel_act = newToolAction("move-parallel", tr("Move parallel"), this, SLOT(moveParallelClicked()));  // foom
+	move_parallel_by_act = newAction("move-parallel-by", tr("Move parallel by..."), this, SLOT(moveParallelByClicked()));  // foom
 	cut_hole_act = newToolAction("cuthole", tr("Cut free form hole"), this, SLOT(cutHoleClicked()), "tool-cut-hole.png", QString{}, "toolbars.html#cut_hole"); // cut hole using a path
 	cut_hole_circle_act = newToolAction("cutholecircle", tr("Cut round hole"), this, SLOT(cutHoleCircleClicked()), "tool-cut-hole.png", QString{}, "toolbars.html#cut_hole");
 	cut_hole_rectangle_act = newToolAction("cutholerectangle", tr("Cut rectangular hole"), this, SLOT(cutHoleRectangleClicked()), "tool-cut-hole.png", QString{}, "toolbars.html#cut_hole");
@@ -1286,6 +1291,8 @@ void MapEditorController::createMenuAndToolbars()
 	tools_menu->addAction(move_by_act);  // foom
 	tools_menu->addAction(rotate_by_act);  // foom
 	tools_menu->addAction(stretch_act);  // foom
+	tools_menu->addAction(move_parallel_act);  // foom
+	tools_menu->addAction(move_parallel_by_act);  // foom
 	auto* align_menu = tools_menu->addMenu(tr("Align"));  // foom
 	for (auto* action : align_acts)
 		align_menu->addAction(action);
@@ -2717,6 +2724,11 @@ void MapEditorController::updateObjectDependentActions()
 		action->setEnabled(have_selection);
 		action->setStatusTip(action->isEnabled() ? QString{} : tr("Select at least one object to activate this tool."));
 	}
+	for (auto* action : { move_parallel_act, move_parallel_by_act })  // foom
+	{
+		action->setEnabled(have_line || have_area);
+		action->setStatusTip(action->isEnabled() ? QString{} : tr("Select a line or area object to activate this tool."));
+	}
 	auto const num_selected = have_selection ? map->getNumSelectedObjects() : 0;  // foom
 	for (auto* action : align_acts)
 	{
@@ -3440,6 +3452,34 @@ void MapEditorController::cutClicked()
 void MapEditorController::reshapeClicked()
 {
 	setTool(new ReshapeTool(this, reshape_act));
+}
+
+// foom
+void MapEditorController::moveParallelClicked()
+{
+	setTool(new MoveParallelTool(this, move_parallel_act));
+}
+
+// foom
+void MapEditorController::moveParallelByClicked()
+{
+	if (!move_parallel_dialog)
+		move_parallel_dialog = new MoveParallelDialog(this, window);
+	move_parallel_dialog->show();
+	move_parallel_dialog->raise();
+	move_parallel_dialog->activateWindow();
+}
+
+// foom
+void MapEditorController::moveParallelBy(double distance, bool duplicate)
+{
+	// the design notes, "Parallel offset", editor paragraph.
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	ops::OffsetParams params;
+	params.distance = distance;
+	params.duplicate = duplicate;
+	applyOpResult(ops::offset(*map, in, params));
 }
 
 void MapEditorController::cutHoleClicked()

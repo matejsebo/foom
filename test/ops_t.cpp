@@ -45,6 +45,7 @@
 #include "core/ops/flatten.h"
 #include "core/ops/bounds.h"
 #include "core/ops/mirror.h"
+#include "core/ops/offset.h"
 #include "core/ops/transform.h"
 #include "core/ops/op.h"
 #include "core/ops/reshape.h"
@@ -112,6 +113,7 @@ private slots:
 	void alignTest();
 	void distributeTest();
 	void reshapeTest();
+	void offsetTest();
 };
 
 
@@ -678,6 +680,145 @@ void OpsTest::reshapeTest()
 	QCOMPARE(replaced->asPath()->getRawCoordinateVector(), expected);
 	QVERIFY(map.undoManager().undo());
 	QCOMPARE(map.findObject(uuid), line);
+}
+
+
+void OpsTest::offsetTest()
+{
+	// the design notes, "Parallel offset".
+	Map map;
+	auto* symbol = new LineSymbol();
+	map.addSymbol(symbol, 0);
+	auto* area_symbol = new AreaSymbol();
+	map.addSymbol(area_symbol, 1);
+	auto* point_symbol = new PointSymbol();
+	map.addSymbol(point_symbol, 2);
+	auto const area = [](const MapCoordVector& coords, std::size_t first, std::size_t last) {
+		auto sum = 0.0;
+		for (auto i = first; i < last; ++i)
+			sum += coords[i].x() * coords[i+1].y() - coords[i+1].x() * coords[i].y();
+		return std::abs(sum) / 2;
+	};
+	auto const offsetOf = [&map](const Object* object, double distance, bool duplicate = false) {
+		ops::OffsetParams params;
+		params.distance = distance;
+		params.duplicate = duplicate;
+		return ops::offset(map, { object }, params);
+	};
+	
+	// A straight line: left of eastward travel is up, towards smaller y.
+	auto* straight = new PathObject(symbol, { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0) });
+	map.addObject(straight);
+	auto const uuid = straight->uuid();
+	auto up = offsetOf(straight, 1.0);
+	QVERIFY2(up.error.isEmpty(), up.error.toLatin1());
+	QCOMPARE(up.out.size(), std::size_t(1));
+	QCOMPARE(up.consumed, (std::vector<const Object*>{ straight }));
+	QCOMPARE(up.out.front()->uuid(), uuid);
+	QCOMPARE(up.out.front()->asPath()->getRawCoordinateVector(), (MapCoordVector{ MapCoord(0.0, -1.0), MapCoord(10.0, -1.0) }));
+	auto down = offsetOf(straight, -1.0);
+	QCOMPARE(down.out.front()->asPath()->getRawCoordinateVector(), (MapCoordVector{ MapCoord(0.0, 1.0), MapCoord(10.0, 1.0) }));
+	auto kept = offsetOf(straight, 1.0, true);
+	QVERIFY(kept.consumed.empty());
+	QCOMPARE(kept.out.size(), std::size_t(1));
+	
+	// A right turn: the inner side is trimmed, the outer side rounded.
+	auto corner = MapCoord(10.0, 0.0);
+	corner.setDashPoint(true);
+	auto* bent = new PathObject(symbol, { MapCoord(0.0, 0.0), corner, MapCoord(10.0, 10.0) });
+	map.addObject(bent);
+	auto inner = offsetOf(bent, -1.0);
+	QVERIFY2(inner.error.isEmpty(), inner.error.toLatin1());
+	auto const& inner_coords = inner.out.front()->asPath()->getRawCoordinateVector();
+	auto const inner_expected = MapCoordVector{ MapCoord(0.0, 1.0), MapCoord(9.0, 1.0), MapCoord(9.0, 10.0) };
+	QCOMPARE(inner_coords.size(), inner_expected.size());
+	for (std::size_t i = 0; i < inner_expected.size(); ++i)
+		QVERIFY(inner_coords[i].isPositionEqualTo(inner_expected[i]));
+	QVERIFY(inner_coords[1].isDashPoint());
+	auto outer = offsetOf(bent, 1.0);
+	QVERIFY2(outer.error.isEmpty(), outer.error.toLatin1());
+	auto const& outer_coords = outer.out.front()->asPath()->getRawCoordinateVector();
+	QVERIFY(outer_coords.size() >= 6);
+	QCOMPARE(outer_coords[0], MapCoord(0.0, -1.0));
+	QCOMPARE(outer_coords[1], MapCoord(10.0, -1.0));
+	QCOMPARE(outer_coords[outer_coords.size() - 2], MapCoord(11.0, 0.0));
+	QCOMPARE(outer_coords.back(), MapCoord(11.0, 10.0));
+	for (std::size_t i = 1; i + 1 < outer_coords.size(); ++i)
+		QVERIFY(std::abs(MapCoordF(outer_coords[i]).distanceTo(MapCoordF(10.0, 0.0)) - 1.0) < 0.011);
+	QVERIFY(std::any_of(begin(outer_coords), end(outer_coords), [](const MapCoord& c) { return c.isDashPoint(); }));
+	
+	// A closed square, drawn clockwise on paper: -1 shrinks it, +1 grows it with round corners.
+	auto const makeSquare = [area_symbol](double size, double origin) {
+		auto* square = new PathObject(area_symbol);
+		for (auto const& coord : { MapCoord(origin, origin), MapCoord(origin + size, origin), MapCoord(origin + size, origin + size), MapCoord(origin, origin + size) })
+			square->addCoordinate(coord);
+		square->parts().front().setClosed(true);
+		return square;
+	};
+	auto* square = makeSquare(10.0, 0.0);
+	map.addObject(square);
+	auto shrunk = offsetOf(square, -1.0);
+	QVERIFY2(shrunk.error.isEmpty(), shrunk.error.toLatin1());
+	auto const* shrunk_path = shrunk.out.front()->asPath();
+	QVERIFY(shrunk_path->parts().front().isClosed());
+	QCOMPARE(shrunk_path->getRawCoordinateVector(), (MapCoordVector{ MapCoord(1.0, 1.0), MapCoord(9.0, 1.0), MapCoord(9.0, 9.0), MapCoord(1.0, 9.0), shrunk_path->getRawCoordinateVector().back() }));
+	QCOMPARE(shrunk_path->getRawCoordinateVector().back().x(), 1.0);
+	QCOMPARE(shrunk_path->getRawCoordinateVector().back().y(), 1.0);
+	auto grown = offsetOf(square, 1.0);
+	QVERIFY2(grown.error.isEmpty(), grown.error.toLatin1());
+	auto const* grown_path = grown.out.front()->asPath();
+	QVERIFY(grown_path->parts().front().isClosed());
+	auto const grown_area = area(grown_path->getRawCoordinateVector(), 0, grown_path->getCoordinateCount() - 1);
+	QVERIFY2(std::abs(grown_area - (140.0 + M_PI)) < 0.005 * (140.0 + M_PI), QByteArray::number(grown_area));
+	
+	// A hole drawn the same way as the outer boundary grows when the boundary shrinks.
+	auto* holed = makeSquare(40.0, 0.0);
+	holed->addCoordinate(MapCoord(10.0, 10.0), true);
+	for (auto const& coord : { MapCoord(20.0, 10.0), MapCoord(20.0, 20.0), MapCoord(10.0, 20.0) })
+		holed->addCoordinate(coord);
+	holed->parts().back().setClosed(true);
+	map.addObject(holed);
+	auto uniform = offsetOf(holed, -1.0);
+	QVERIFY2(uniform.error.isEmpty(), uniform.error.toLatin1());
+	auto const* uniform_path = uniform.out.front()->asPath();
+	QCOMPARE(uniform_path->parts().size(), std::size_t(2));
+	auto const& uniform_coords = uniform_path->getRawCoordinateVector();
+	auto const& outer_part = uniform_path->parts().front();
+	QCOMPARE(outer_part.size(), VirtualPath::size_type(5));
+	QCOMPARE(uniform_coords[outer_part.first_index], MapCoord(1.0, 1.0));
+	QCOMPARE(uniform_coords[outer_part.first_index + 2], MapCoord(39.0, 39.0));
+	auto const& hole_part = uniform_path->parts().back();
+	QVERIFY(hole_part.isClosed());
+	auto const hole_area = area(uniform_coords, hole_part.first_index, hole_part.last_index);
+	QVERIFY2(std::abs(hole_area - (140.0 + M_PI)) < 0.005 * (140.0 + M_PI), QByteArray::number(hole_area));
+	
+	// A curved input gives an output with curves.
+	auto curve_start = MapCoord(0.0, 0.0);
+	curve_start.setCurveStart(true);
+	auto* curved = new PathObject(symbol, { curve_start, MapCoord(0.0, 10.0), MapCoord(20.0, 10.0), MapCoord(20.0, 0.0) });
+	map.addObject(curved);
+	auto refit = offsetOf(curved, 1.0);
+	QVERIFY2(refit.error.isEmpty(), refit.error.toLatin1());
+	QVERIFY(ops::hasCurve(refit.out.front()->asPath()->getRawCoordinateVector()));
+	QVERIFY(refit.out.front()->asPath()->getCoordinateCount() < 40);
+	
+	// Points are ignored; an empty input and a zero distance are errors.
+	auto* point = new PointObject(point_symbol);
+	map.addObject(point);
+	ops::OffsetParams params;
+	params.distance = 1.0;
+	auto mixed = ops::offset(map, { point, straight }, params);
+	QVERIFY(mixed.error.isEmpty());
+	QCOMPARE(mixed.out.size(), std::size_t(1));
+	QCOMPARE(mixed.consumed, (std::vector<const Object*>{ straight }));
+	QVERIFY(!ops::offset(map, {}, params).error.isEmpty());
+	QVERIFY(!ops::offset(map, { point }, params).error.isEmpty());
+	params.distance = 0.0;
+	QVERIFY(!ops::offset(map, { straight }, params).error.isEmpty());
+	
+	// The signed distance helper: left of eastward travel is negative y.
+	QCOMPARE(ops::signedDistance(*straight, MapCoordF(5.0, -3.0)), 3.0);
+	QCOMPARE(ops::signedDistance(*straight, MapCoordF(5.0, 2.0)), -2.0);
 }
 
 

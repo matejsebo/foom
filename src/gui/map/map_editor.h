@@ -65,6 +65,7 @@ class GeoreferencingDialog;
 class MainWindow;
 class MapCoordF;
 class MapEditorActivity;
+class MoveParallelDialog;  // foom
 class MapEditorTool;
 class MapFindFeature;
 class MapView;
@@ -506,6 +507,12 @@ public slots:
 	void distribute(bool horizontal);
 	/** foom: Activates the reshape tool. */
 	void reshapeClicked();
+	/** foom: Activates the move-parallel tool. */
+	void moveParallelClicked();
+	/** foom: Shows the move-parallel-by dialog, which stays open. */
+	void moveParallelByClicked();
+	/** foom: Offsets the selected path objects by the distance (mm, positive to the left of travel). */
+	void moveParallelBy(double distance, bool duplicate);
 	/** Activates the physical cutout tool */
 	void clipAreaClicked();
 	/** Activates the physical cutout tool (inversed) */
@@ -856,6 +863,9 @@ private:
 	QAction* distribute_h_act = {};  // foom
 	QAction* distribute_v_act = {};  // foom
 	QAction* reshape_act = {};  // foom
+	QAction* move_parallel_act = {};  // foom
+	QAction* move_parallel_by_act = {};  // foom
+	QPointer<MoveParallelDialog> move_parallel_dialog;  // foom
 	QAction* clip_area_act = {};
 	QAction* erase_area_act = {};
 	QAction* distribute_points_act = {};

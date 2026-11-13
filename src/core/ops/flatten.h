@@ -24,6 +24,7 @@
 
 #include <vector>
 
+#include "core/map_coord.h"
 #include "core/ops/op.h"
 
 namespace OpenOrienteering {
@@ -56,6 +57,17 @@ struct FlattenParams : public OpParams
  * See the design notes, "To polyline".
  */
 OpResult flatten(const Map& map, const std::vector<const Object*>& in, const FlattenParams& params);
+
+/**
+ * Returns true when a coordinate starts a curve.
+ */
+bool hasCurve(const MapCoordVector& coords);
+
+/**
+ * Returns the coordinates with every curve replaced by straight segments
+ * within the tolerance; see flatten().
+ */
+MapCoordVector flattenCoords(const MapCoordVector& coords, double tolerance);
 
 
 }  // namespace ops

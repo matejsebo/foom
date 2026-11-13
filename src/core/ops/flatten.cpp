@@ -76,6 +76,9 @@ void flattenCurve(const MapCoordF& c0, const MapCoordF& c1, const MapCoordF& c2,
 	flattenCurve(c0123, c123, c23, c3, tolerance, depth - 1, out);
 }
 
+}  // namespace
+
+
 bool hasCurve(const MapCoordVector& coords)
 {
 	return std::any_of(begin(coords), end(coords), [](auto const& coord) { return coord.isCurveStart(); });
@@ -108,8 +111,6 @@ MapCoordVector flattenCoords(const MapCoordVector& coords, double tolerance)
 	}
 	return out;
 }
-
-}  // namespace
 
 
 OpResult flatten(const Map& /*map*/, const std::vector<const Object*>& in, const FlattenParams& params)
