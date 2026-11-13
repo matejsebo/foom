@@ -70,6 +70,9 @@ public:
 	bool mousePressEvent(QMouseEvent* event, const MapCoordF& map_coord, MapWidget* widget) override;
 	bool mouseMoveEvent(QMouseEvent* event, const MapCoordF& map_coord, MapWidget* widget) override;
 	bool mouseReleaseEvent(QMouseEvent* event, const MapCoordF& map_coord, MapWidget* widget) override;
+	bool acceptsNumericVertices() const override;  // foom
+	void acceptNumericVertex(const MapCoordF& map_coord) override;  // foom
+	bool numericReferenceVertex(MapCoordF& out) const override;  // foom
 	bool mouseDoubleClickEvent(QMouseEvent* event, const MapCoordF& map_coord, MapWidget* widget) override;
 	
 	bool keyPressEvent(QKeyEvent* event) override;

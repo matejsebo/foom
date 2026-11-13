@@ -138,6 +138,7 @@
 #include "gui/map/map_notes.h"
 #include "gui/map/map_widget.h"
 #include "gui/map/move_parallel_dialog.h"
+#include "gui/map/numeric_entry_bar.h"
 #include "gui/map/numeric_transform_dialogs.h"
 #include "gui/map/rotate_map_dialog.h"
 #include "gui/symbols/symbol_replacement.h"
@@ -396,6 +397,8 @@ void MapEditorController::setTool(MapEditorTool* new_tool)
 	
 	if (!override_tool)
 		map_widget->setTool(current_tool);
+	
+	emit toolChanged(current_tool);  // foom
 }
 
 void MapEditorController::setEditTool()
@@ -1234,6 +1237,12 @@ void MapEditorController::createMenuAndToolbars()
 	edit_menu->addSeparator();
 	edit_menu->addAction(find_feature->showDialogAction());
 	edit_menu->addAction(find_feature->findNextAction());
+	edit_menu->addSeparator();  // foom: numeric entry bar
+	numeric_entry_bar = new NumericEntryBar(this, window);
+	auto* numeric_entry_act = numeric_entry_bar->toggleViewAction();
+	numeric_entry_act->setText(tr("Numeric entry"));
+	actionsById["numeric-entry"] = numeric_entry_act;
+	edit_menu->addAction(numeric_entry_act);
 	edit_menu->addSeparator();
 	edit_menu->addAction(clear_undo_redo_history_act);
 	
@@ -1481,6 +1490,10 @@ void MapEditorController::createMenuAndToolbars()
 	toolbars_menu->addAction(toolbar_drawing->toggleViewAction());
 	toolbars_menu->addAction(toolbar_editing->toggleViewAction());
 	toolbars_menu->addAction(toolbar_advanced_editing->toggleViewAction());
+	window->addToolBarBreak();  // foom: the numeric entry bar has its own row and starts hidden
+	window->addToolBar(numeric_entry_bar);
+	numeric_entry_bar->hide();
+	toolbars_menu->addAction(numeric_entry_act);
 	
 	QWidget* context_menu = map_widget->getContextMenu();
 	context_menu->addAction(edit_tool_act);

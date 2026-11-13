@@ -66,6 +66,7 @@ class MainWindow;
 class MapCoordF;
 class MapEditorActivity;
 class MoveParallelDialog;  // foom
+class NumericEntryBar;  // foom
 class MapEditorTool;
 class MapFindFeature;
 class MapView;
@@ -209,6 +210,9 @@ public:
 	inline MapWidget* getMainWidget() const {return map_widget;}
 	/** Returns this controller's symbol widget, where the symbol selection happens. */
 	inline SymbolWidget* getSymbolWidget() const {return symbol_widget;}
+	
+	/** foom: Returns the numeric entry bar. */
+	inline NumericEntryBar* numericEntryBar() const {return numeric_entry_bar;}
 	
 	
 	/**
@@ -665,6 +669,9 @@ signals:
 	void activeSymbolChanged(const OpenOrienteering::Symbol* symbol);
 	
 	void templatePositionDockWidgetClosed(OpenOrienteering::Template* temp);
+	
+	/** foom: Indicates a change of the active tool, which may be nullptr. */
+	void toolChanged(OpenOrienteering::MapEditorTool* tool);
 
 protected:
 	/**
@@ -881,6 +888,7 @@ private:
 	QAction* move_parallel_act = {};  // foom
 	QAction* move_parallel_by_act = {};  // foom
 	QPointer<MoveParallelDialog> move_parallel_dialog;  // foom
+	NumericEntryBar* numeric_entry_bar = nullptr;  // foom
 	QAction* vertex_type_normal_act = {};  // foom
 	QAction* vertex_type_dash_act = {};  // foom
 	QAction* vertex_type_keep_ends_act = {};  // foom

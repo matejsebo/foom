@@ -269,6 +269,71 @@ bool DrawPathTool::mousePressEvent(QMouseEvent* event, const MapCoordF& map_coor
 	return false;
 }
 
+// foom
+bool DrawPathTool::acceptsNumericVertices() const
+{
+	return true;
+}
+
+// foom
+void DrawPathTool::acceptNumericVertex(const MapCoordF& map_coord)
+{
+	// the design notes, "Numeric entry bar".
+	if (following || picking_angle)
+		return;
+	if (!cur_map_widget)
+		cur_map_widget = editor->getMainWidget();
+	
+	click_pos_map = map_coord;
+	cur_pos_map = map_coord;
+	click_pos = cur_map_widget->mapToViewport(map_coord).toPoint();
+	cur_pos = click_pos;
+	dragging = false;
+	if (!editingInProgress())
+	{
+		startDrawing();
+		angle_helper->setCenter(map_coord);
+		updateSnapHelper();
+		path_has_preview_point = false;
+		previous_point_is_curve_point = false;
+		appending = false;
+	}
+	
+	auto coord = MapCoord { map_coord };
+	if (draw_dash_points)
+		coord.setDashPoint(true);
+	auto const count = preview_path->getCoordinateCount();
+	if (path_has_preview_point)
+		preview_path->setCoordinate(count - 1, coord);
+	else if (count == 0 || !preview_path->getCoordinate(count - 1).isPositionEqualTo(coord))
+		preview_path->addCoordinate(coord);
+	updatePreviewPath();
+	updateAngleHelper();
+	
+	path_has_preview_point = false;
+	previous_point_is_curve_point = false;
+	created_point_at_last_mouse_press = false;
+	create_segment = true;
+	updateDirtyRect();
+	updateStatusText();
+}
+
+// foom
+bool DrawPathTool::numericReferenceVertex(MapCoordF& out) const
+{
+	if (!editingInProgress() || !preview_path || preview_path->getCoordinateCount() == 0)
+		return false;
+	auto index = preview_path->getCoordinateCount() - 1;
+	if (path_has_preview_point && index > 0)
+	{
+		// The preview point is not fixed yet; step back to the vertex before it,
+		// which is the start of a preview curve when there is one.
+		index = (index >= 3 && preview_path->getCoordinate(index - 3).isCurveStart()) ? index - 3 : index - 1;
+	}
+	out = MapCoordF(preview_path->getCoordinate(index));
+	return true;
+}
+
 bool DrawPathTool::mouseMoveEvent(QMouseEvent* event, const MapCoordF& map_coord, MapWidget* widget)
 {
 	cur_pos = event->pos();

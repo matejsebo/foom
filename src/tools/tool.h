@@ -126,6 +126,15 @@ public:
 	 */
 	virtual void init();
 	
+	/** foom: Returns true when the tool takes vertices from the numeric entry bar. */
+	virtual bool acceptsNumericVertices() const;
+	
+	/** foom: Takes a vertex from the numeric entry bar, in map coordinates. */
+	virtual void acceptNumericVertex(const MapCoordF& map_coord);
+	
+	/** foom: Returns the vertex a length-and-angle entry is measured from, if there is one. */
+	virtual bool numericReferenceVertex(MapCoordF& out) const;
+	
 	/**
 	 * @brief Makes this tool inactive in the editor.
 	 * 

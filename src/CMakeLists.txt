@@ -184,6 +184,7 @@ set(Mapper_Common_SRCS
   gui/map/map_editor.cpp
   gui/map/map_editor_activity.cpp
   gui/map/move_parallel_dialog.cpp
+  gui/map/numeric_entry_bar.cpp
   gui/map/numeric_transform_dialogs.cpp
   gui/map/map_find_feature.cpp
   gui/map/map_information_dialog.cpp

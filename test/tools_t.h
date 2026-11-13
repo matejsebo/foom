@@ -65,6 +65,9 @@ private slots:
 	
 	/** foom: Tests the group commands and the click rule. */
 	void groups();
+	
+	/** foom: Tests the numeric entry bar. */
+	void numericEntry();
 };
 
 #endif

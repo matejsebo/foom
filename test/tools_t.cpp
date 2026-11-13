@@ -40,6 +40,10 @@
 #include "core/objects/object.h"
 #include "core/objects/object_query.h"
 #include "core/ops/align.h"
+#include "core/georeferencing.h"
+#include "gui/map/numeric_entry_bar.h"
+#include "gui/widgets/symbol_widget.h"
+#include "tools/draw_path_tool.h"
 #include "tools/lasso_tool.h"
 #include "tools/move_parallel_tool.h"
 #include "tools/reshape_tool.h"
@@ -725,6 +729,95 @@ void ToolsTest::groups()
 	editor.editor->ungroupSelection();
 	QCOMPARE(map.map->findObject(first_uuid)->group(), 0);
 	QCOMPARE(map.map->findObject(second_uuid)->group(), 0);
+	editor.editor->setTool(nullptr);
+}
+
+
+void ToolsTest::numericEntry()
+{
+	// the design notes, "Numeric entry bar".
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* bar = editor.editor->numericEntryBar();
+	QVERIFY(bar);
+	auto* toggle = editor.editor->getAction("numeric-entry");
+	QVERIFY(toggle && toggle->isCheckable());
+	auto const near = [](const MapCoordF& a, const MapCoordF& b, double tolerance) { return std::abs(a.x() - b.x()) <= tolerance && std::abs(a.y() - b.y()) <= tolerance; };
+	
+	// Without georeferencing: mm, y up; length and angle from a reference.
+	QCOMPARE(map.map->getGeoreferencing().getState(), Georeferencing::Local);
+	MapCoordF vertex;
+	QString error;
+	QVERIFY(NumericEntryBar::computeVertex(*map.map, NumericEntryBar::Position, 10.0, 20.0, false, nullptr, vertex, error));
+	QVERIFY(near(vertex, MapCoordF(10.0, -20.0), 1e-9));
+	auto const origin = MapCoordF(0.0, 0.0);
+	QVERIFY(NumericEntryBar::computeVertex(*map.map, NumericEntryBar::LengthAndAngle, 10.0, 90.0, false, &origin, vertex, error));
+	QVERIFY(near(vertex, MapCoordF(10.0, 0.0), 1e-9));
+	QVERIFY(NumericEntryBar::computeVertex(*map.map, NumericEntryBar::LengthAndAngle, 10.0, 0.0, false, &origin, vertex, error));
+	QVERIFY(near(vertex, MapCoordF(0.0, -10.0), 1e-9));
+	QVERIFY(!NumericEntryBar::computeVertex(*map.map, NumericEntryBar::LengthAndAngle, 10.0, 0.0, false, nullptr, vertex, error));
+	QVERIFY(!error.isEmpty());
+	
+	// With a UTM georeferencing: easting and northing, metres on the ground, grid angle.
+	Georeferencing georef;
+	georef.setScaleDenominator(10000);
+	georef.setProjectedRefPoint(QPointF(500000.0, 5000000.0));
+	if (georef.setProjectedCRS(QStringLiteral("UTM"), QStringLiteral("+proj=utm +zone=14 +datum=WGS84 +units=m +no_defs")) && georef.getState() == Georeferencing::Geospatial)
+	{
+		Map geo_map;
+		geo_map.setGeoreferencing(georef);
+		QVERIFY(NumericEntryBar::computeVertex(geo_map, NumericEntryBar::Position, 500100.0, 5000000.0, false, nullptr, vertex, error));
+		QVERIFY(near(vertex, MapCoordF(10.0, 0.0), 1e-6));
+		QVERIFY(NumericEntryBar::computeVertex(geo_map, NumericEntryBar::Position, 500000.0, 5000100.0, false, nullptr, vertex, error));
+		QVERIFY(near(vertex, MapCoordF(0.0, -10.0), 1e-6));
+		QVERIFY(NumericEntryBar::computeVertex(geo_map, NumericEntryBar::LengthAndAngle, 100.0, 90.0, false, &origin, vertex, error));
+		QVERIFY(near(vertex, MapCoordF(10.0, 0.0), 1e-6));
+		QVERIFY(std::abs(NumericEntryBar::gridNorthAngle(geo_map.getGeoreferencing())) < 1e-6);
+		
+		georef.setGrivation(10.0);
+		geo_map.setGeoreferencing(georef);
+		auto const& rotated = geo_map.getGeoreferencing();
+		QVERIFY(std::abs(std::abs(NumericEntryBar::gridNorthAngle(rotated)) - 10.0) < 1e-6);
+		QVERIFY(NumericEntryBar::computeVertex(geo_map, NumericEntryBar::LengthAndAngle, 100.0, 0.0, true, &origin, vertex, error));
+		auto const expected = rotated.toMapCoordF(QPointF(500000.0, 5000100.0));
+		QVERIFY2(near(vertex, expected, 1e-6), qPrintable(QString::fromLatin1("%1 %2 vs %3 %4").arg(vertex.x()).arg(vertex.y()).arg(expected.x()).arg(expected.y())));
+	}
+	else
+	{
+		QWARN("UTM georeferencing not available, the projected checks were skipped.");
+	}
+	
+	// In the editor: three vertices through the bar, then Ctrl+Return.
+	editor.editor->setTool(new EditPointTool(editor.editor, nullptr));
+	bar->setMode(NumericEntryBar::Position);
+	bar->setValues(QStringLiteral("0"), QStringLiteral("0"));
+	QVERIFY(!bar->accept());  // the edit tool takes no numeric vertices
+	editor.editor->getSymbolWidget()->selectSingleSymbol(map.line_symbol);
+	QCOMPARE(editor.editor->activeSymbol(), static_cast<Symbol*>(map.line_symbol));
+	auto* part = map.map->getCurrentPart();
+	auto const num_objects = part->getNumObjects();
+	editor.editor->setTool(new DrawPathTool(editor.editor, nullptr, false, true));
+	auto* tool = editor.editor->getTool();
+	QVERIFY(tool && tool->acceptsNumericVertices());
+	QVERIFY(bar->accept());
+	QVERIFY(tool->editingInProgress());
+	bar->setValues(QStringLiteral("10"), QStringLiteral("0"));
+	QVERIFY(bar->accept());
+	bar->setMode(NumericEntryBar::LengthAndAngle);
+	bar->setValues(QStringLiteral("10"), QStringLiteral("90"));
+	QVERIFY(bar->accept());
+	QTest::keyClick(editor.map_widget, Qt::Key_Return, Qt::ControlModifier);
+	QVERIFY(!tool->editingInProgress());
+	QCOMPARE(part->getNumObjects(), num_objects + 1);
+	auto const* drawn = part->getObject(num_objects);
+	QCOMPARE(drawn->getType(), Object::Path);
+	auto const& drawn_coords = drawn->getRawCoordinateVector();
+	QCOMPARE(drawn_coords.size(), MapCoordVector::size_type(3));
+	QVERIFY(drawn_coords[0].isPositionEqualTo(MapCoord(0.0, 0.0)));
+	QVERIFY(drawn_coords[1].isPositionEqualTo(MapCoord(10.0, 0.0)));
+	QVERIFY(drawn_coords[2].isPositionEqualTo(MapCoord(20.0, 0.0)));
+	QCOMPARE(drawn->getSymbol(), static_cast<const Symbol*>(map.line_symbol));
+	
 	editor.editor->setTool(nullptr);
 }
 

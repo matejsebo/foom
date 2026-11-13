@@ -249,6 +249,24 @@ void MapEditorTool::setStatusBarText(const QString& text)
 	editor->getWindow()->setStatusBarText(text);
 }
 
+// foom
+bool MapEditorTool::acceptsNumericVertices() const
+{
+	return false;
+}
+
+// foom
+void MapEditorTool::acceptNumericVertex(const MapCoordF& /*map_coord*/)
+{
+	// nothing
+}
+
+// foom
+bool MapEditorTool::numericReferenceVertex(MapCoordF& /*out*/) const
+{
+	return false;
+}
+
 void MapEditorTool::drawSelectionBox(QPainter* painter, MapWidget* widget, const MapCoordF& corner1, const MapCoordF& corner2) const
 {
 	painter->setBrush(Qt::NoBrush);
