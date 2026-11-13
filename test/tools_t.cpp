@@ -32,7 +32,10 @@
 #include <QPoint>
 #include <QPointF>
 #include <QKeySequence>
+#include <QLabel>
 #include <QSettings>
+#include <QStatusBar>
+#include <QVariant>
 #include <QString>
 #include <QTemporaryDir>
 
@@ -50,6 +53,8 @@
 #include "check/legibility.h"
 #include "check/map_check.h"
 #include "gui/map/legibility_dialog.h"
+#include "tools/legibility_feedback.h"
+#include "settings.h"
 #include "core/georeferencing.h"
 #include "core/map_view.h"
 #include "gui/map/view_history.h"
@@ -1138,6 +1143,66 @@ void ToolsTest::legibility()
 	QVERIFY(has_short_line());
 	editor.editor->runMapCheck();
 	QVERIFY(!has_short_line());
+}
+
+void ToolsTest::drawingFeedback()
+{
+	// the design notes, "Legibility", drawing-time feedback.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto& settings = Settings::getInstance();
+	auto const old_check = settings.getSetting(Settings::MapEditor_LegibilityMinimumCheck);
+	auto const old_halo = settings.getSetting(Settings::MapEditor_LegibilityHalo);
+	auto const old_halo_mm = settings.getSetting(Settings::MapEditor_LegibilityHaloMM);
+	settings.setSettingInCache(Settings::MapEditor_LegibilityMinimumCheck, true);
+
+	map.line_symbol->setMinimumLength(2000);
+	auto* area_symbol = new AreaSymbol();
+	area_symbol->setMinimumArea(1000);
+	map.map->addSymbol(area_symbol, 1);
+	auto const* status = editor.window->statusBar()->findChild<QLabel*>();
+	QVERIFY(status);
+
+	editor.editor->getSymbolWidget()->selectSingleSymbol(map.line_symbol);
+	editor.editor->setTool(new DrawPathTool(editor.editor, nullptr, false, true));
+	auto* tool = editor.editor->getTool();
+	tool->acceptNumericVertex(MapCoordF(0.0, 0.0));
+	tool->acceptNumericVertex(MapCoordF(1.0, 0.0));
+	QVERIFY2(status->text().contains(QLatin1String("1.00 / 2.00 mm")), qPrintable(status->text()));
+	QVERIFY(status->text().contains(QLatin1String("red")));
+	QVERIFY(status->text().contains(QLatin1String("50 % short")));
+	tool->acceptNumericVertex(MapCoordF(3.0, 0.0));
+	QVERIFY2(status->text().contains(QLatin1String("3.00 / 2.00 mm")), qPrintable(status->text()));
+	QVERIFY(!status->text().contains(QLatin1String("red")));
+	settings.setSettingInCache(Settings::MapEditor_LegibilityMinimumCheck, false);
+	tool->acceptNumericVertex(MapCoordF(4.0, 0.0));
+	QVERIFY(!status->text().contains(QLatin1String(" / 2.00 mm")));
+	settings.setSettingInCache(Settings::MapEditor_LegibilityMinimumCheck, true);
+	editor.editor->setTool(nullptr);
+
+	editor.editor->getSymbolWidget()->selectSingleSymbol(area_symbol);
+	editor.editor->setTool(new DrawPathTool(editor.editor, nullptr, false, true));
+	tool = editor.editor->getTool();
+	tool->acceptNumericVertex(MapCoordF(0.0, 0.0));
+	tool->acceptNumericVertex(MapCoordF(1.0, 0.0));
+	tool->acceptNumericVertex(MapCoordF(1.0, 0.5));
+	QVERIFY2(status->text().contains(QString::fromUtf8("0.25 / 1.00 mm\u00b2")), qPrintable(status->text()));
+	QVERIFY(status->text().contains(QLatin1String("red")));
+	QVERIFY(status->text().contains(QLatin1String("75 % short")));
+	editor.editor->setTool(nullptr);
+
+	settings.setSettingInCache(Settings::MapEditor_LegibilityHaloMM, 0.0);
+	QCOMPARE(legibilityHaloDistance(*map.map), defaultGap(*map.map));
+	settings.setSettingInCache(Settings::MapEditor_LegibilityHaloMM, 0.3);
+	QCOMPARE(legibilityHaloDistance(*map.map), 0.3);
+	settings.setSettingInCache(Settings::MapEditor_LegibilityHalo, false);
+	QVERIFY(!legibilityHaloEnabled());
+	settings.setSettingInCache(Settings::MapEditor_LegibilityHalo, true);
+	QVERIFY(legibilityHaloEnabled());
+
+	settings.setSettingInCache(Settings::MapEditor_LegibilityMinimumCheck, old_check);
+	settings.setSettingInCache(Settings::MapEditor_LegibilityHalo, old_halo);
+	settings.setSettingInCache(Settings::MapEditor_LegibilityHaloMM, old_halo_mm);
 }
 
 

@@ -89,6 +89,9 @@ private slots:
 	
 	/** foom: Tests the legibility check command. */
 	void legibility();
+	
+	/** foom: Tests the drawing-time legibility feedback of the path tool. */
+	void drawingFeedback();
 };
 
 #endif

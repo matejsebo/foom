@@ -136,6 +136,9 @@ Settings::Settings()
 	registerSetting(MapEditor_ZoomOutAwayFromCursor, "MapEditor/zoom_out_away_from_cursor", true);
 	registerSetting(MapEditor_DrawLastPointOnRightClick, "MapEditor/draw_last_point_on_right_click", true);
 	registerSetting(MapEditor_IgnoreTouchInput, "MapEditor/ignore_touch_input", false);
+	registerSetting(MapEditor_LegibilityMinimumCheck, "MapEditor/legibility_minimum_check", true);  // foom
+	registerSetting(MapEditor_LegibilityHalo, "MapEditor/legibility_halo", true);  // foom
+	registerSetting(MapEditor_LegibilityHaloMM, "MapEditor/legibility_halo_mm", 0.0);  // foom
 	registerSetting(MapGeoreferencing_ControlScaleFactor, "MapGeoreferencing/control_scale_factor", false);
 	
 	registerSetting(EditTool_DeleteBezierPointAction, "EditTool/delete_bezier_point_action", int(DeleteBezierPoint_RetainExistingShape));

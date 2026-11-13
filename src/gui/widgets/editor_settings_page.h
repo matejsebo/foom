@@ -71,6 +71,10 @@ private:
 	
 	QSpinBox* rectangle_helper_cross_radius;
 	QCheckBox* rectangle_preview_line_width;
+	
+	QCheckBox* legibility_minimum_check;  // foom
+	QCheckBox* legibility_halo;  // foom
+	QDoubleSpinBox* legibility_halo_mm;  // foom
 };
 
 

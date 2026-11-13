@@ -55,6 +55,9 @@ public:
 		MapEditor_ZoomOutAwayFromCursor,
 		MapEditor_DrawLastPointOnRightClick,
 		MapEditor_IgnoreTouchInput,
+		MapEditor_LegibilityMinimumCheck,  // foom
+		MapEditor_LegibilityHalo,  // foom
+		MapEditor_LegibilityHaloMM,  // foom
 		MapGeoreferencing_ControlScaleFactor,
 		EditTool_DeleteBezierPointAction,
 		EditTool_DeleteBezierPointActionAlternative,

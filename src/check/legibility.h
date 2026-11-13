@@ -75,6 +75,23 @@ struct LegibilityParams
 double defaultGap(const Map& map);
 
 /**
+ * Returns the minimum length of a line symbol in mm: the symbol's minimum,
+ * or for a dashed symbol at least the length from which two dashes are
+ * drawn. Zero when there is none.
+ */
+double minimumLineLength(const Symbol* symbol);
+
+/**
+ * Returns the minimum area of an area symbol in mm²; zero when there is none.
+ */
+double minimumAreaSize(const Symbol* symbol);
+
+/**
+ * Returns half the width of the symbol's widest visible stroke in mm.
+ */
+double strokeHalfWidth(const Symbol* symbol);
+
+/**
  * Runs the legibility scan over every part and returns the issues.
  *
  * Issues carry the measured value and the limit in mm (line length), mm²

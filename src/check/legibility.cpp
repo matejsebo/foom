@@ -64,41 +64,6 @@ constexpr double flatten_tolerance = 0.05;
 constexpr double vertex_tolerance = 0.001;
 
 
-/** The half width of the widest visible stroke of a symbol, in mm. */
-double halfWidth(const Symbol* symbol)
-{
-	if (!symbol)
-		return 0.0;
-	switch (symbol->getType())
-	{
-	case Symbol::Line:
-		{
-			auto const* line = symbol->asLine();
-			auto const main = line->getColor() ? 0.0005 * line->getLineWidth() : 0.0;
-			auto widest = main;
-			if (line->hasBorder())
-			{
-				for (auto const* border : { &line->getBorder(), &line->getRightBorder() })
-				{
-					if (border->isVisible())
-						widest = std::max(widest, 0.0005 * line->getLineWidth() + 0.001 * border->shift + 0.0005 * border->width);
-				}
-			}
-			return widest;
-		}
-	case Symbol::Combined:
-		{
-			auto const* combined = symbol->asCombined();
-			auto widest = 0.0;
-			for (int i = 0; i < combined->getNumParts(); ++i)
-				widest = std::max(widest, halfWidth(combined->getPart(i)));
-			return widest;
-		}
-	default:
-		return 0.0;
-	}
-}
-
 bool isContourClass(const Symbol* symbol)
 {
 	auto const number = symbol->getNumberComponent(0);
@@ -133,7 +98,7 @@ bool Outline::build(const Object* input)
 {
 	object = input;
 	symbol = input->getSymbol();
-	half_width = halfWidth(symbol);
+	half_width = strokeHalfWidth(symbol);
 	group = colourGroupOf(symbol->guessDominantColor());
 	contour = isContourClass(symbol);
 	cliff = isCliffClass(symbol);
@@ -355,22 +320,6 @@ Issue objectIssue(const char* rule, const Object& object, double measured, doubl
 	return issue;
 }
 
-/** The minimum length of a line symbol in mm, including the two-dashes rule; 0 when there is none. */
-double minimumLength(const Symbol* symbol)
-{
-	auto minimum = 0.001 * symbol->getMinimumLength();
-	if (symbol->getType() == Symbol::Line)
-	{
-		auto const* line = symbol->asLine();
-		if (line->isDashed() && line->getDashLength() > 0 && line->getBreakLength() > 0)
-		{
-			auto const group = line->getDashesInGroup() * line->getDashLength() + (line->getDashesInGroup() - 1) * line->getInGroupBreakLength();
-			minimum = std::max(minimum, 0.001 * (1.5 * group + 0.5 * line->getBreakLength()));
-		}
-	}
-	return minimum;
-}
-
 void checkSizes(const Object& object, const LegibilityParams& params, std::vector<Issue>& issues)
 {
 	if (object.getType() != Object::Path)
@@ -381,7 +330,7 @@ void checkSizes(const Object& object, const LegibilityParams& params, std::vecto
 	path->update();
 	if (params.minimum_length && (types & Symbol::Line))
 	{
-		auto const minimum = minimumLength(symbol);
+		auto const minimum = minimumLineLength(symbol);
 		if (minimum > 0.0)
 		{
 			auto length = 0.0;
@@ -393,7 +342,7 @@ void checkSizes(const Object& object, const LegibilityParams& params, std::vecto
 	}
 	else if (params.minimum_area && (types & Symbol::Area))
 	{
-		auto const minimum = 0.001 * symbol->getMinimumArea();
+		auto const minimum = minimumAreaSize(symbol);
 		if (minimum > 0.0 && !path->parts().empty())
 		{
 			auto area = std::abs(path->parts().front().calculateArea());
@@ -525,6 +474,60 @@ double defaultGap(const Map& map)
 	if (scale == 0)
 		return 0.15;
 	return qRound(100.0 * 0.15 * 15000.0 / scale) / 100.0;
+}
+
+double strokeHalfWidth(const Symbol* symbol)
+{
+	if (!symbol)
+		return 0.0;
+	switch (symbol->getType())
+	{
+	case Symbol::Line:
+		{
+			auto const* line = symbol->asLine();
+			auto const main = line->getColor() ? 0.0005 * line->getLineWidth() : 0.0;
+			auto widest = main;
+			if (line->hasBorder())
+			{
+				for (auto const* border : { &line->getBorder(), &line->getRightBorder() })
+				{
+					if (border->isVisible())
+						widest = std::max(widest, 0.0005 * line->getLineWidth() + 0.001 * border->shift + 0.0005 * border->width);
+				}
+			}
+			return widest;
+		}
+	case Symbol::Combined:
+		{
+			auto const* combined = symbol->asCombined();
+			auto widest = 0.0;
+			for (int i = 0; i < combined->getNumParts(); ++i)
+				widest = std::max(widest, strokeHalfWidth(combined->getPart(i)));
+			return widest;
+		}
+	default:
+		return 0.0;
+	}
+}
+
+double minimumLineLength(const Symbol* symbol)
+{
+	auto minimum = 0.001 * symbol->getMinimumLength();
+	if (symbol->getType() == Symbol::Line)
+	{
+		auto const* line = symbol->asLine();
+		if (line->isDashed() && line->getDashLength() > 0 && line->getBreakLength() > 0)
+		{
+			auto const group = line->getDashesInGroup() * line->getDashLength() + (line->getDashesInGroup() - 1) * line->getInGroupBreakLength();
+			minimum = std::max(minimum, 0.001 * (1.5 * group + 0.5 * line->getBreakLength()));
+		}
+	}
+	return minimum;
+}
+
+double minimumAreaSize(const Symbol* symbol)
+{
+	return 0.001 * symbol->getMinimumArea();
 }
 
 std::vector<Issue> checkLegibility(const Map& map, const LegibilityParams& params)

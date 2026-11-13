@@ -128,6 +128,7 @@ set(Mapper_Common_SRCS
   core/ops/reshape.cpp
   check/issue.cpp
   check/legibility.cpp
+  tools/legibility_feedback.cpp
   check/map_check.cpp
   core/color_group.cpp
   core/extents.cpp

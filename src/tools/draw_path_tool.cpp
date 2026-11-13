@@ -58,6 +58,7 @@
 #include "gui/map/map_editor.h"
 #include "gui/map/map_widget.h"
 #include "gui/widgets/key_button_bar.h"
+#include "tools/legibility_feedback.h"  // foom
 #include "tools/tool.h"
 #include "tools/tool_helpers.h"
 #include "util/util.h"
@@ -602,6 +603,8 @@ bool DrawPathTool::keyReleaseEvent(QKeyEvent* event)
 
 void DrawPathTool::draw(QPainter* painter, MapWidget* widget)
 {
+	if (editingInProgress() && preview_path && legibilityHaloEnabled())  // foom
+		drawLegibilityHalo(painter, widget, *preview_path, drawing_symbol, legibilityHaloDistance(*map()));
 	drawPreviewObjects(painter, widget);
 	
 	if (editingInProgress())
@@ -1003,6 +1006,11 @@ void DrawPathTool::updateDirtyRect()
 	if (shift_pressed || (!editingInProgress() && ctrl_pressed))
 		snap_helper->includeDirtyRect(rect);
 	includePreviewRects(rect);
+	if (editingInProgress() && preview_path && rect.isValid() && legibilityHaloEnabled())  // foom: the clearance halo
+	{
+		auto const margin = legibilityHaloMargin(*map(), drawing_symbol);
+		rect.adjust(-margin, -margin, margin, margin);
+	}
 	
 	if (is_helper_tool)
 		emit dirtyRectChanged(rect);
@@ -1199,6 +1207,9 @@ void DrawPathTool::updateStatusText()
 		//Q_ASSERT(!preview_path->isDirty());
 		auto length = map()->getScaleDenominator() * double(preview_path->parts().front().path_coords.back().clen) * 0.001;
 		text += tr("<b>Length:</b> %1 m ").arg(QLocale().toString(length, 'f', 1)) + QLatin1String("| ");
+		auto const readout = legibilityReadout(*map(), drawing_symbol, *preview_path);  // foom
+		if (!readout.isEmpty())
+			text += readout + QLatin1String(" | ");
 	}
 	
 	if (draw_dash_points && !is_helper_tool)

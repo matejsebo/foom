@@ -112,6 +112,18 @@ EditorSettingsPage::EditorSettingsPage(QWidget* parent)
 	rectangle_preview_line_width = new QCheckBox(tr("Preview the width of lines with helper cross"));
 	layout->addRow(rectangle_preview_line_width);
 	
+	// foom: drawing-time legibility feedback
+	layout->addItem(Util::SpacerItem::create(this));
+	layout->addRow(Util::Headline::create(tr("Legibility:")));
+	legibility_minimum_check = new QCheckBox(tr("Drawing tools: show length or area against the symbol minimum"));
+	layout->addRow(legibility_minimum_check);
+	legibility_halo = new QCheckBox(tr("Drawing tools: show the clearance halo around the preview"));
+	layout->addRow(legibility_halo);
+	legibility_halo_mm = Util::SpinBox::create(2, 0.0, 10.0, tr("mm", "millimeters"), 0.01);
+	legibility_halo_mm->setSpecialValueText(tr("Per specification"));
+	layout->addRow(tr("Halo distance:"), legibility_halo_mm);
+	connect(legibility_halo, &QAbstractButton::toggled, legibility_halo_mm, &QWidget::setEnabled);
+	
 	
 	connect(antialiasing, &QAbstractButton::toggled, text_antialiasing, &QCheckBox::setEnabled);
 	
@@ -147,6 +159,9 @@ void EditorSettingsPage::apply()
 	setSetting(Settings::EditTool_DeleteBezierPointActionAlternative, edit_tool_delete_bezier_point_action_alternative->currentData());
 	setSetting(Settings::RectangleTool_HelperCrossRadiusMM, rectangle_helper_cross_radius->value());
 	setSetting(Settings::RectangleTool_PreviewLineWidth, rectangle_preview_line_width->isChecked());
+	setSetting(Settings::MapEditor_LegibilityMinimumCheck, legibility_minimum_check->isChecked());  // foom
+	setSetting(Settings::MapEditor_LegibilityHalo, legibility_halo->isChecked());  // foom
+	setSetting(Settings::MapEditor_LegibilityHaloMM, legibility_halo_mm->value());  // foom
 }
 
 void EditorSettingsPage::reset()
@@ -173,6 +188,12 @@ void EditorSettingsPage::updateWidgets()
 	
 	edit_tool_delete_bezier_point_action->setCurrentIndex(edit_tool_delete_bezier_point_action->findData(getSetting(Settings::EditTool_DeleteBezierPointAction).toInt()));
 	edit_tool_delete_bezier_point_action_alternative->setCurrentIndex(edit_tool_delete_bezier_point_action_alternative->findData(getSetting(Settings::EditTool_DeleteBezierPointActionAlternative).toInt()));
+	
+	// foom
+	legibility_minimum_check->setChecked(getSetting(Settings::MapEditor_LegibilityMinimumCheck).toBool());
+	legibility_halo->setChecked(getSetting(Settings::MapEditor_LegibilityHalo).toBool());
+	legibility_halo_mm->setValue(getSetting(Settings::MapEditor_LegibilityHaloMM).toDouble());
+	legibility_halo_mm->setEnabled(legibility_halo->isChecked());
 	
 	rectangle_helper_cross_radius->setValue(getSetting(Settings::RectangleTool_HelperCrossRadiusMM).toInt());
 	rectangle_preview_line_width->setChecked(getSetting(Settings::RectangleTool_PreviewLineWidth).toBool());
