@@ -341,6 +341,25 @@ void OpsTest::mirrorTest()
 	QCOMPARE(both_result.out.size(), std::size_t(2));
 	QCOMPARE(both_result.out.back()->asPoint()->getCoord(), MapCoord(0.0, 0.0));
 	
+	// A closed square maps onto itself and stays closed (setCoordinate() moves the close point along).
+	auto* area_symbol_m = new AreaSymbol();
+	map.addSymbol(area_symbol_m, 2);
+	auto* square = new PathObject(area_symbol_m);
+	for (auto const& coord : { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0), MapCoord(10.0, 10.0), MapCoord(0.0, 10.0) })
+		square->addCoordinate(coord);
+	square->parts().front().setClosed(true);
+	map.addObject(square);
+	auto square_result = ops::mirror(map, { square }, vertical);
+	QVERIFY(square_result.error.isEmpty());
+	auto const* mirrored_square = square_result.out.front()->asPath();
+	QVERIFY(mirrored_square->parts().front().isClosed());
+	QCOMPARE(mirrored_square->getCoordinateCount(), MapCoordVector::size_type(5));
+	for (auto const& coord : mirrored_square->getRawCoordinateVector())
+		QVERIFY((coord.x() == 0.0 || coord.x() == 10.0) && (coord.y() == 0.0 || coord.y() == 10.0));
+	QVERIFY(mirrored_square->getCoordinate(4).isPositionEqualTo(mirrored_square->getCoordinate(0)));
+	QVERIFY(!mirrored_square->getCoordinate(1).isPositionEqualTo(mirrored_square->getCoordinate(0)));
+	QVERIFY(!mirrored_square->getCoordinate(2).isPositionEqualTo(mirrored_square->getCoordinate(1)));
+	
 	// An empty input is an error.
 	QVERIFY(!ops::mirror(map, {}, vertical).error.isEmpty());
 	
@@ -350,7 +369,7 @@ void OpsTest::mirrorTest()
 	auto replace_result = ops::mirror(map, { line }, vertical);
 	QCOMPARE(replace_result.consumed.size(), std::size_t(1));
 	QVERIFY(ops::applyOp(map, std::move(replace_result)));
-	QCOMPARE(part->getNumObjects(), 2);
+	QCOMPARE(part->getNumObjects(), 3);  // line, point, square
 	auto const* replaced = map.findObject(uuid);
 	QVERIFY(replaced && replaced != line);
 	QCOMPARE(replaced->asPath()->getRawCoordinateVector().size(), std::size_t(3));
@@ -363,9 +382,9 @@ void OpsTest::mirrorTest()
 	auto duplicate_result = ops::mirror(map, { line }, vertical);
 	QVERIFY(duplicate_result.consumed.empty());
 	QVERIFY(ops::applyOp(map, std::move(duplicate_result)));
-	QCOMPARE(part->getNumObjects(), 3);
+	QCOMPARE(part->getNumObjects(), 4);
 	QCOMPARE(map.findObject(uuid), line);
-	auto const* copy = part->getObject(2);
+	auto const* copy = part->getObject(3);
 	QCOMPARE(copy->derivedFrom(), uuid);
 	QVERIFY(map.selectedObjects() == (Map::ObjectSelection{ const_cast<Object*>(copy) }));
 }
@@ -424,6 +443,26 @@ void OpsTest::transformTest()
 	QCOMPARE(path_coords(stretched), (MapCoordVector{ MapCoord(-5.0, 1.0), MapCoord(15.0, 1.0), MapCoord(15.0, 3.0) }));
 	QCOMPARE(point_coord(stretched), MapCoord(15.0, 1.0));
 	QCOMPARE(stretched.out.back()->getRotation(), 0.3);
+	
+	// A closed square stretched by 2 and 1 about (5, 5) stays closed with its corners at x -5 and 15.
+	auto* area_symbol_s = new AreaSymbol();
+	map.addSymbol(area_symbol_s, 2);
+	auto* square = new PathObject(area_symbol_s);
+	for (auto const& coord : { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0), MapCoord(10.0, 10.0), MapCoord(0.0, 10.0) })
+		square->addCoordinate(coord);
+	square->parts().front().setClosed(true);
+	map.addObject(square);
+	ops::StretchParams wide;
+	wide.factor_x = 2.0;
+	auto wide_result = ops::stretch(map, { square }, wide);
+	QVERIFY(wide_result.error.isEmpty());
+	auto const* wide_square = wide_result.out.front()->asPath();
+	QVERIFY(wide_square->parts().front().isClosed());
+	QCOMPARE(wide_square->getCoordinateCount(), MapCoordVector::size_type(5));
+	for (auto const& coord : wide_square->getRawCoordinateVector())
+		QVERIFY((coord.x() == -5.0 || coord.x() == 15.0) && (coord.y() == 0.0 || coord.y() == 10.0));
+	QVERIFY(wide_square->getCoordinate(4).isPositionEqualTo(wide_square->getCoordinate(0)));
+	QVERIFY(!wide_square->getCoordinate(1).isPositionEqualTo(wide_square->getCoordinate(0)));
 	
 	// Errors, and the duplicate flag.
 	QVERIFY(!ops::moveBy(map, {}, move).error.isEmpty());

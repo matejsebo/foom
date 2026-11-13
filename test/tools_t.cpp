@@ -45,6 +45,7 @@
 #include "core/ops/align.h"
 #include "core/bookmarks.h"
 #include "core/extents.h"
+#include "gui/map/extent_dialog.h"
 #include "core/georeferencing.h"
 #include "core/map_view.h"
 #include "gui/map/view_history.h"
@@ -1061,6 +1062,16 @@ void ToolsTest::extents()
 	QVERIFY(editor.editor->activeExtent().isEmpty());
 	QVERIFY(map.map->undoManager().undo());
 	QCOMPARE(map.map->extents().size(), std::size_t(1));
+	
+	// The dialog's "From current view" is the map area the widget shows.
+	ExtentDialog dialog(editor.editor, Extent{}, editor.window);
+	dialog.fromCurrentView();
+	auto const* widget = editor.map_widget;
+	auto const shown = QRectF(QPointF(widget->viewportToMapF(widget->rect().topLeft())), QPointF(widget->viewportToMapF(widget->rect().bottomRight()))).normalized();
+	auto const entered = dialog.extent().rect_mm;
+	QVERIFY(std::abs(entered.left() - shown.left()) < 0.011 && std::abs(entered.top() - shown.top()) < 0.011);
+	QVERIFY(std::abs(entered.width() - shown.width()) < 0.011 && std::abs(entered.height() - shown.height()) < 0.011);
+	QVERIFY(shown.width() > 1.0 && shown.height() > 1.0);
 }
 
 

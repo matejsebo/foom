@@ -54,9 +54,12 @@ public:
 	Extent extent() const;
 	void setExtent(const Extent& extent);
 
+public slots:
+	/** Fills the rectangle from the map area the main widget shows. */
+	void fromCurrentView();
+	
 private slots:
 	void fromPaperFormat();
-	void fromCurrentView();
 	void fromPrintArea();
 
 private:

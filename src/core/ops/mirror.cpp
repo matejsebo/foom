@@ -72,7 +72,12 @@ OpResult mirror(const Map& /*map*/, const std::vector<const Object*>& in, const 
 			{
 				auto* path = output->asPath();
 				for (MapCoordVector::size_type i = 0; i < path->getCoordinateCount(); ++i)
-					path->setCoordinate(i, reflect(path->getCoordinate(i)));
+				{
+					// setCoordinate() keeps the close point of a closed part equal to its
+					// first point, so the close point is already done when it comes round.
+					if (!path->getCoordinate(i).isClosePoint())
+						path->setCoordinate(i, reflect(path->getCoordinate(i)));
+				}
 				path->reverse();
 				path->setPatternOrigin(reflect(path->getPatternOrigin()));
 				path->setPatternRotation(2 * angle - path->getPatternRotation());

@@ -109,7 +109,11 @@ OpResult stretch(const Map& /*map*/, const std::vector<const Object*>& in, const
 			{
 				auto* path = output.asPath();
 				for (MapCoordVector::size_type i = 0; i < path->getCoordinateCount(); ++i)
-					path->setCoordinate(i, stretchCoord(path->getCoordinate(i)));
+				{
+					// setCoordinate() moves the close point of a closed part with its first point.
+					if (!path->getCoordinate(i).isClosePoint())
+						path->setCoordinate(i, stretchCoord(path->getCoordinate(i)));
+				}
 				path->setPatternOrigin(stretchCoord(path->getPatternOrigin()));
 			}
 			break;

@@ -30,6 +30,7 @@
 #include <QPageSize>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QPointF>
 #include <QRectF>
 #include <QSpinBox>
 #include <QVBoxLayout>
@@ -170,7 +171,8 @@ void ExtentDialog::fromPaperFormat()
 void ExtentDialog::fromCurrentView()
 {
 	auto const* widget = editor->getMainWidget();
-	setRect(widget->getMapView()->calculateViewedRect(widget->rect()));
+	auto const rect = widget->rect();
+	setRect(QRectF(QPointF(widget->viewportToMapF(rect.topLeft())), QPointF(widget->viewportToMapF(rect.bottomRight()))).normalized());
 }
 
 void ExtentDialog::fromPrintArea()
