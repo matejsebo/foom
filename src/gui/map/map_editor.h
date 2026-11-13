@@ -47,6 +47,7 @@
 #include "core/ops/replace_text.h"  // foom
 #include "gui/map/view_history.h"  // foom
 #include "core/ops/buildings.h"  // foom
+#include "core/ops/smooth.h"  // foom
 #include "core/ops/topology.h"  // foom
 #include "core/ops/transform.h"  // foom
 #include "gui/main_window_controller.h"
@@ -575,6 +576,10 @@ public slots:
 	void intersections(const ops::IntersectionParams& params);
 	/** foom: Drops repeated vertices from the selected paths. */
 	void removeDuplicateVertices();
+	/** foom: Asks for the parameters, then smooths the selected paths. */
+	void smoothClicked();
+	/** foom: Simplifies and curve-fits the selected paths. */
+	void smoothPaths(const ops::SmoothParams& params);
 	/** foom: Asks for the parameters, then squares the selected closed paths. */
 	void makeRectangularClicked();
 	/** foom: Squares the selected closed paths; the reference in the parameters is left alone. */
@@ -1020,6 +1025,7 @@ private:
 	QAction* fix_overshoots_act = {};  // foom
 	QAction* intersections_act = {};  // foom
 	QAction* remove_duplicate_vertices_act = {};  // foom
+	QAction* topo_smooth_act = {};  // foom
 	QAction* make_rectangular_act = {};  // foom
 	QAction* generalize_buildings_act = {};  // foom
 	QAction* check_legibility_act = {};  // foom

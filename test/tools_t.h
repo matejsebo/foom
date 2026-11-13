@@ -98,6 +98,9 @@ private slots:
 	
 	/** foom: Tests make rectangular and generalize buildings in the editor. */
 	void buildings();
+	
+	/** foom: Tests the smooth command in the editor. */
+	void smooth();
 };
 
 #endif

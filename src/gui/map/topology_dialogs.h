@@ -29,6 +29,7 @@
 #include <QString>
 
 #include "core/ops/buildings.h"
+#include "core/ops/smooth.h"
 #include "core/ops/topology.h"
 
 class QCheckBox;
@@ -119,6 +120,28 @@ private:
 	QRadioButton* point_button;
 	QComboBox* vertex_combo;
 	QCheckBox* touching_check;
+};
+
+
+/**
+ * Asks for the parameters of the smooth command.
+ *
+ * See the design notes, "Smooth".
+ */
+class SmoothDialog : public QDialog
+{
+Q_OBJECT
+public:
+	SmoothDialog(QWidget* parent);
+	~SmoothDialog() override;
+
+	ops::SmoothParams params() const;
+
+private:
+	QDoubleSpinBox* tolerance_edit;
+	QCheckBox* corners_check;
+	QDoubleSpinBox* angle_edit;
+	QCheckBox* inflections_check;
 };
 
 

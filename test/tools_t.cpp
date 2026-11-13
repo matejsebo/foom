@@ -1282,5 +1282,28 @@ void ToolsTest::buildings()
 	QVERIFY(map.map->findObject(skewed->uuid()));
 }
 
+void ToolsTest::smooth()
+{
+	// the design notes, "Smooth", the editor part.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("topo-smooth"));
+	MapCoordVector zigzag;
+	for (int i = 0; i <= 10; ++i)
+		zigzag.emplace_back(double(i), (i == 0 || i == 10) ? 0.0 : (i % 2 ? 0.05 : -0.05));
+	auto* zig = new PathObject(map.line_symbol, zigzag);
+	map.map->addObject(zig);
+	map.map->clearObjectSelection(false);
+	map.map->addObjectToSelection(zig, true);
+	SmoothDialog dialog(editor.window);
+	auto const params = dialog.params();
+	QCOMPARE(params.tolerance, 0.1);
+	QVERIFY(!params.keep_corners && !params.keep_inflections);
+	editor.editor->smoothPaths(params);
+	QCOMPARE(map.map->getNumSelectedObjects(), 1);
+	QCOMPARE(map.map->getFirstSelectedObject()->asPath()->getCoordinateCount(), MapCoordVector::size_type(2));
+	QVERIFY(map.map->undoManager().undo());
+}
+
 
 QTEST_MAIN(ToolsTest)

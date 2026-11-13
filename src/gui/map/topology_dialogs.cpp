@@ -197,6 +197,58 @@ ops::IntersectionParams IntersectionDialog::params() const
 }
 
 
+SmoothDialog::SmoothDialog(QWidget* parent)
+: QDialog(parent)
+{
+	setWindowTitle(tr("Smooth"));
+	ops::SmoothParams const defaults;
+	tolerance_edit = new QDoubleSpinBox();
+	tolerance_edit->setDecimals(2);
+	tolerance_edit->setRange(0.01, 100.0);
+	tolerance_edit->setSingleStep(0.05);
+	tolerance_edit->setSuffix(QStringLiteral(" mm"));
+	tolerance_edit->setValue(defaults.tolerance);
+	corners_check = new QCheckBox(tr("Keep corners sharper than:"));
+	corners_check->setChecked(defaults.keep_corners);
+	angle_edit = new QDoubleSpinBox();
+	angle_edit->setDecimals(0);
+	angle_edit->setRange(1.0, 179.0);
+	angle_edit->setSuffix(QStringLiteral(" \u00b0"));
+	angle_edit->setValue(defaults.corner_angle_deg);
+	angle_edit->setEnabled(defaults.keep_corners);
+	connect(corners_check, &QCheckBox::toggled, angle_edit, &QWidget::setEnabled);
+	inflections_check = new QCheckBox(tr("Keep where the curvature changes direction"));
+	inflections_check->setChecked(defaults.keep_inflections);
+
+	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+	connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+	connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+	auto* corner_row = new QHBoxLayout();
+	corner_row->addWidget(corners_check);
+	corner_row->addWidget(angle_edit);
+	corner_row->addStretch();
+	auto* layout = new QFormLayout();
+	layout->addRow(tr("Tolerance:"), tolerance_edit);
+	layout->addRow(corner_row);
+	layout->addRow(inflections_check);
+	auto* main_layout = new QVBoxLayout(this);
+	main_layout->addLayout(layout);
+	main_layout->addWidget(buttons);
+}
+
+SmoothDialog::~SmoothDialog() = default;
+
+ops::SmoothParams SmoothDialog::params() const
+{
+	ops::SmoothParams params;
+	params.tolerance = tolerance_edit->value();
+	params.keep_corners = corners_check->isChecked();
+	params.corner_angle_deg = angle_edit->value();
+	params.keep_inflections = inflections_check->isChecked();
+	return params;
+}
+
+
 MakeRectangularDialog::MakeRectangularDialog(MapEditorController* editor, QWidget* parent)
 : QDialog(parent)
 , editor(editor)

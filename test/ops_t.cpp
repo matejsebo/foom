@@ -57,6 +57,7 @@
 #include "core/ops/replace_text.h"
 #include "core/ops/reshape.h"
 #include "core/ops/buildings.h"
+#include "core/ops/smooth.h"
 #include "core/ops/topology.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/area_symbol.h"
@@ -129,6 +130,7 @@ private slots:
 	void replaceTextTest();
 	void topologyTest();
 	void buildingsTest();
+	void smoothTest();
 };
 
 
@@ -1371,6 +1373,105 @@ void OpsTest::buildingsTest()
 	}
 	QCOMPARE(series.out[0]->uuid(), square_a->uuid());
 	QCOMPARE(series.out[1]->derivedFrom(), square_a->uuid());
+}
+
+void OpsTest::smoothTest()
+{
+	// the design notes, "Smooth", Accept.
+	Map map;
+	auto* symbol = new LineSymbol();
+	map.addSymbol(symbol, 0);
+	auto* area_symbol = new AreaSymbol();
+	map.addSymbol(area_symbol, 1);
+	auto* point_symbol = new PointSymbol();
+	map.addSymbol(point_symbol, 2);
+	auto const line = [&map, symbol](const MapCoordVector& coords) {
+		auto* object = new PathObject(symbol, coords);
+		map.addObject(object);
+		return object;
+	};
+	auto const vertices = [](const Object* object) {
+		std::vector<QPointF> out;
+		auto const& coords = object->asPath()->getRawCoordinateVector();
+		for (std::size_t i = 0; i < coords.size(); ++i)
+		{
+			out.emplace_back(coords[i].x(), coords[i].y());
+			if (coords[i].isCurveStart())
+				i += 2;
+		}
+		return out;
+	};
+	auto const near = [](const QPointF& a, const QPointF& b) { return std::abs(a.x() - b.x()) <= 0.002 && std::abs(a.y() - b.y()) <= 0.002; };
+
+	MapCoordVector zigzag;
+	for (int i = 0; i <= 10; ++i)
+		zigzag.emplace_back(double(i), (i == 0 || i == 10) ? 0.0 : (i % 2 ? 0.05 : -0.05));
+	auto* zig = line(zigzag);
+	ops::SmoothParams params;
+	auto smoothed = ops::smoothPaths(map, { zig }, params);
+	QVERIFY2(smoothed.error.isEmpty(), smoothed.error.toLatin1());
+	QCOMPARE(smoothed.out.size(), std::size_t(1));
+	QCOMPARE(smoothed.consumed, (std::vector<const Object*>{ zig }));
+	QCOMPARE(smoothed.out.front()->uuid(), zig->uuid());
+	QCOMPARE(smoothed.out.front()->asPath()->getCoordinateCount(), MapCoordVector::size_type(2));
+	QVERIFY(!smoothed.out.front()->asPath()->getCoordinate(0).isCurveStart());
+	QVERIFY(near(vertices(smoothed.out.front().get()).back(), QPointF(10.0, 0.0)));
+
+	auto dashed = zigzag;
+	dashed[5].setDashPoint(true);
+	auto* zig_dash = line(dashed);
+	auto with_dash = ops::smoothPaths(map, { zig_dash }, params);
+	QVERIFY(with_dash.error.isEmpty());
+	auto const* dash_path = with_dash.out.front()->asPath();
+	QCOMPARE(dash_path->getCoordinateCount(), MapCoordVector::size_type(7));
+	QVERIFY(dash_path->getCoordinate(0).isCurveStart() && dash_path->getCoordinate(3).isCurveStart());
+	QVERIFY(dash_path->getCoordinate(3).isDashPoint());
+	auto const v = vertices(dash_path);
+	QCOMPARE(v.size(), std::size_t(3));
+	QVERIFY(near(v[1], QPointF(5.0, 0.05)));
+	auto const h_in = QPointF(dash_path->getCoordinate(2).x(), dash_path->getCoordinate(2).y());
+	auto const h_out = QPointF(dash_path->getCoordinate(4).x(), dash_path->getCoordinate(4).y());
+	auto const a = v[1] - h_in;
+	auto const b = h_out - v[1];
+	QVERIFY(std::abs(a.x() * b.y() - a.y() * b.x()) / std::hypot(b.x(), b.y()) < 0.01);
+
+	auto* corner = line({ MapCoord(0.0, 20.0), MapCoord(10.0, 20.0), MapCoord(10.0, 30.0) });
+	params.keep_corners = true;
+	auto kept = ops::smoothPaths(map, { corner }, params);
+	QVERIFY(kept.error.isEmpty() && kept.out.empty());
+	params.keep_corners = false;
+	auto rounded = ops::smoothPaths(map, { corner }, params);
+	QCOMPARE(rounded.out.size(), std::size_t(1));
+	QCOMPARE(rounded.out.front()->asPath()->getCoordinateCount(), MapCoordVector::size_type(7));
+	QVERIFY(near(vertices(rounded.out.front().get())[1], QPointF(10.0, 20.0)));
+
+	auto* s_curve = line({ MapCoord(0.0, 40.0), MapCoord(2.0, 41.0), MapCoord(4.0, 41.5), MapCoord(6.0, 41.0), MapCoord(8.0, 40.0), MapCoord(10.0, 39.0), MapCoord(12.0, 38.5), MapCoord(14.0, 39.0), MapCoord(16.0, 40.0) });
+	params.tolerance = 2.0;
+	auto flattened = ops::smoothPaths(map, { s_curve }, params);
+	QCOMPARE(flattened.out.front()->asPath()->getCoordinateCount(), MapCoordVector::size_type(2));
+	params.keep_inflections = true;
+	auto inflected = ops::smoothPaths(map, { s_curve }, params);
+	QCOMPARE(inflected.out.front()->asPath()->getCoordinateCount(), MapCoordVector::size_type(7));
+	QVERIFY(near(vertices(inflected.out.front().get())[1], QPointF(10.0, 39.0)));
+	params.keep_inflections = false;
+	params.tolerance = 0.01;
+
+	auto* ring = new PathObject(area_symbol);
+	for (int i = 0; i < 12; ++i)
+		ring->addCoordinate(MapCoord(50.0 + 5.0 * std::cos(qDegreesToRadians(30.0 * i)), 50.0 + 5.0 * std::sin(qDegreesToRadians(30.0 * i))));
+	ring->parts().front().setClosed(true);
+	map.addObject(ring);
+	auto circled = ops::smoothPaths(map, { ring }, params);
+	QVERIFY2(circled.error.isEmpty(), circled.error.toLatin1());
+	QCOMPARE(circled.out.size(), std::size_t(1));
+	auto const* circle = circled.out.front()->asPath();
+	QCOMPARE(circle->getCoordinateCount(), MapCoordVector::size_type(37));
+	QVERIFY(circle->parts().front().isClosed());
+	QCOMPARE(vertices(circle).size(), std::size_t(13));  // twelve plus the close point
+
+	auto* point = new PointObject(point_symbol);
+	map.addObject(point);
+	QVERIFY(!ops::smoothPaths(map, { point }, params).error.isEmpty());
 }
 
 

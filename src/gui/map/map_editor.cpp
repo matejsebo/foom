@@ -1070,6 +1070,7 @@ void MapEditorController::createActions()
 	fix_overshoots_act = newAction("fix-overshoots", tr("Remove overshoots and undershoots..."), this, SLOT(fixOvershootsClicked()));  // foom
 	intersections_act = newAction("intersections", tr("Intersections..."), this, SLOT(intersectionsClicked()));  // foom
 	remove_duplicate_vertices_act = newAction("remove-duplicate-vertices", tr("Remove duplicate vertices"), this, SLOT(removeDuplicateVertices()));  // foom
+	topo_smooth_act = newAction("topo-smooth", tr("Smooth..."), this, SLOT(smoothClicked()));  // foom
 	make_rectangular_act = newAction("make-rectangular", tr("Make rectangular..."), this, SLOT(makeRectangularClicked()));  // foom
 	generalize_buildings_act = newAction("generalize-buildings", tr("Generalize buildings..."), this, SLOT(generalizeBuildingsClicked()));  // foom
 	issues_window_act = newCheckAction("issueswindow", tr("Issues window"), this, SLOT(showIssuesWindow(bool)));  // foom
@@ -1419,6 +1420,7 @@ void MapEditorController::createMenuAndToolbars()
 	map_menu->addAction(mappart_merge_act);
 	auto* topology_menu = map_menu->addMenu(tr("Topology"));  // foom
 	topology_menu->addAction(topo_join_act);
+	topology_menu->addAction(topo_smooth_act);
 	topology_menu->addAction(make_rectangular_act);
 	topology_menu->addAction(generalize_buildings_act);
 	topology_menu->addAction(close_areas_act);
@@ -2865,6 +2867,8 @@ void MapEditorController::updateObjectDependentActions()
 		action->setEnabled(have_line || have_area);
 		action->setStatusTip(action->isEnabled() ? QString{} : tr("Select closed line or area objects to activate this tool."));
 	}
+	topo_smooth_act->setEnabled(have_line || have_area);  // foom
+	topo_smooth_act->setStatusTip(topo_smooth_act->isEnabled() ? QString{} : tr("Select a line or area object to activate this tool."));
 	group_act->setEnabled(num_selected >= 2);  // foom
 	group_act->setStatusTip(group_act->isEnabled() ? QString{} : tr("Select at least two objects to activate this tool."));
 	for (auto* action : { ungroup_act, select_group_act })  // foom
@@ -3725,6 +3729,23 @@ void MapEditorController::removeDuplicateVertices()
 	auto const& selection = map->selectedObjects();
 	std::vector<const Object*> in(begin(selection), end(selection));
 	applyOpResult(ops::removeDuplicateVertices(*map, in, ops::OpParams()));
+}
+
+// foom
+void MapEditorController::smoothClicked()
+{
+	SmoothDialog dialog(window);
+	if (dialog.exec() == QDialog::Accepted)
+		smoothPaths(dialog.params());
+}
+
+// foom
+void MapEditorController::smoothPaths(const ops::SmoothParams& params)
+{
+	// the design notes, "Smooth".
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	applyOpResult(ops::smoothPaths(*map, in, params));
 }
 
 // foom
