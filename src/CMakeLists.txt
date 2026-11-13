@@ -126,6 +126,8 @@ set(Mapper_Common_SRCS
   core/ops/offset.cpp
   core/ops/replace_text.cpp
   core/ops/reshape.cpp
+  check/issue.cpp
+  check/map_check.cpp
   core/extents.cpp
   core/lasso_query.cpp
   core/object_groups.cpp
@@ -221,6 +223,7 @@ set(Mapper_Common_SRCS
   gui/widgets/crs_selector.cpp
   gui/widgets/editor_settings_page.cpp
   gui/widgets/general_settings_page.cpp
+  gui/widgets/issues_widget.cpp
   gui/widgets/home_screen_widget.cpp
   gui/widgets/key_button_bar.cpp
   gui/widgets/mapper_proxystyle.cpp

@@ -46,6 +46,8 @@
 #include "core/bookmarks.h"
 #include "core/extents.h"
 #include "gui/map/extent_dialog.h"
+#include "check/issue.h"
+#include "check/map_check.h"
 #include "core/georeferencing.h"
 #include "core/map_view.h"
 #include "gui/map/view_history.h"
@@ -1072,6 +1074,30 @@ void ToolsTest::extents()
 	QVERIFY(std::abs(entered.left() - shown.left()) < 0.011 && std::abs(entered.top() - shown.top()) < 0.011);
 	QVERIFY(std::abs(entered.width() - shown.width()) < 0.011 && std::abs(entered.height() - shown.height()) < 0.011);
 	QVERIFY(shown.width() > 1.0 && shown.height() > 1.0);
+}
+
+
+void ToolsTest::mapCheck()
+{
+	// the design notes, "Map check", the editor part.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("check-map") && editor.editor->getAction("issueswindow"));
+	auto* blank = new TextObject(new TextSymbol());
+	map.map->addSymbol(const_cast<Symbol*>(blank->getSymbol()), 1);
+	blank->setText(QString{});
+	map.map->addObject(blank);
+	auto const count = editor.editor->runMapCheck();
+	QVERIFY(count >= 1);
+	QCOMPARE(editor.editor->issueModel()->rowCount(), count);
+	QVERIFY(editor.editor->getAction("issueswindow")->isChecked());
+	editor.editor->issueModel()->setRuleFilter(rule::text_empty);
+	QCOMPARE(editor.editor->issueModel()->rowCount(), 1);
+	QVERIFY(editor.editor->fixIssueRow(0));
+	QVERIFY(!map.map->findObject(blank->uuid()));
+	// The check ran again: the rule is gone, and the dock has dropped the filter for it.
+	for (auto const& issue : editor.editor->issueModel()->issues())
+		QVERIFY(issue.rule != rule::text_empty);
 }
 
 

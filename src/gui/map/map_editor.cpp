@@ -144,7 +144,10 @@
 #include "gui/map/move_parallel_dialog.h"
 #include "gui/map/numeric_entry_bar.h"
 #include "gui/map/bookmark_dialog.h"
+#include "check/issue.h"
+#include "check/map_check.h"
 #include "gui/map/extent_dialog.h"
+#include "gui/widgets/issues_widget.h"
 #include "gui/map/find_replace_text_dialog.h"
 #include "undo/map_data_undo.h"
 #include "gui/map/numeric_transform_dialogs.h"
@@ -1056,6 +1059,10 @@ void MapEditorController::createActions()
 	bookmark_add_act = newAction("bookmark-add", tr("Add bookmark..."), this, SLOT(bookmarkAddClicked()));  // foom
 	find_replace_text_act = newAction("find-replace-text", tr("Find and replace text..."), this, SLOT(findReplaceTextClicked()));  // foom
 	extent_define_act = newAction("extent-define", tr("Define extent..."), this, SLOT(extentDefineClicked()));  // foom
+	check_map_act = newAction("check-map", tr("Check map"), this, SLOT(runMapCheck()));  // foom
+	issues_window_act = newCheckAction("issueswindow", tr("Issues window"), this, SLOT(showIssuesWindow(bool)));  // foom
+	issue_model = new IssueModel(this);
+	connect(issue_model, &IssueModel::issueActivated, this, &MapEditorController::issueActivated);
 	extent_delete_act = newAction("extent-delete", tr("Delete extent..."), this, SLOT(extentDeleteClicked()));  // foom
 	bookmark_manage_act = newAction("bookmark-manage", tr("Manage bookmarks..."), this, SLOT(bookmarkManageClicked()));  // foom
 	view_history_timer.setSingleShot(true);  // foom
@@ -1320,6 +1327,7 @@ void MapEditorController::createMenuAndToolbars()
 	view_menu->addAction(color_window_act);
 	view_menu->addAction(symbol_window_act);
 	view_menu->addAction(template_window_act);
+	view_menu->addAction(issues_window_act);  // foom
 	
 	// Tools menu
 	QMenu *tools_menu = window->menuBar()->addMenu(tr("&Tools"));
@@ -1397,6 +1405,7 @@ void MapEditorController::createMenuAndToolbars()
 	map_menu->addMenu(mappart_move_menu);
 	map_menu->addMenu(mappart_merge_menu);
 	map_menu->addAction(mappart_merge_act);
+	map_menu->addAction(check_map_act);  // foom
 	map_menu->addSeparator();  // foom: named extents
 	auto* extents_menu = map_menu->addMenu(tr("Extents"));
 	extents_menu->addAction(extent_define_act);
@@ -3958,6 +3967,76 @@ void MapEditorController::drawActiveExtent(QPainter* painter, MapWidget* widget)
 		painter->restore();
 		return;
 	}
+}
+
+// foom
+int MapEditorController::runMapCheck()
+{
+	// the design notes, "Map check".
+	issue_model->setIssues(checkMap(*map));
+	showIssuesWindow(true);
+	return int(issue_model->issues().size());
+}
+
+// foom
+void MapEditorController::showIssuesWindow(bool show)
+{
+	if (!issues_dock_widget)
+	{
+		issues_dock_widget = new EditorDockWidget(tr("Issues"), issues_window_act, this, window);
+		issues_dock_widget->setWidget(new IssuesWidget(this, issue_model, issues_dock_widget));
+		issues_dock_widget->setObjectName(QString::fromLatin1("Issues dock widget"));
+		if (!window->restoreDockWidget(issues_dock_widget))
+			window->addDockWidget(Qt::BottomDockWidgetArea, issues_dock_widget, Qt::Horizontal);
+	}
+	issues_window_act->setChecked(show);
+	issues_dock_widget->setVisible(show);
+}
+
+// foom
+bool MapEditorController::fixIssueRow(int row)
+{
+	if (row < 0 || row >= issue_model->rowCount())
+		return false;
+	auto const fixed = fixIssue(*map, issue_model->issueAt(row));
+	issue_model->setIssues(checkMap(*map));
+	return fixed;
+}
+
+// foom
+int MapEditorController::fixShownIssues()
+{
+	std::vector<Issue> shown;
+	for (int row = 0; row < issue_model->rowCount(); ++row)
+		shown.push_back(issue_model->issueAt(row));
+	auto count = 0;
+	for (auto const& issue : shown)
+	{
+		if (fixIssue(*map, issue))
+			++count;
+	}
+	issue_model->setIssues(checkMap(*map));
+	return count;
+}
+
+// foom
+void MapEditorController::issueActivated(const QVector<QUuid>& objects, const MapCoordF& where)
+{
+	map->clearObjectSelection(false);
+	auto found = false;
+	for (auto const& uuid : objects)
+	{
+		if (auto* object = map->findObject(uuid))
+		{
+			map->addObjectToSelection(object, false);
+			found = true;
+		}
+	}
+	map->emitSelectionChanged();
+	if (found)
+		map->ensureVisibilityOfSelectedObjects(Map::FullVisibility);
+	else if (main_view && !where.isNull())
+		main_view->setCenter(MapCoord(where));
 }
 
 void MapEditorController::cutHoleClicked()

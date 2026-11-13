@@ -30,6 +30,8 @@
 #include <QKeySequence>  // foom
 #include <QObject>
 #include <QPointer>
+#include <QVector>  // foom
+#include <QUuid>  // foom
 #include <QScopedPointer>
 #include <QString>
 #include <QTimer>
@@ -73,6 +75,7 @@ class MainWindow;
 class MapCoordF;
 class MapEditorActivity;
 class ExtentDialog;  // foom
+class IssueModel;  // foom
 class FindReplaceTextDialog;  // foom
 class MoveParallelDialog;  // foom
 class NumericEntryBar;  // foom
@@ -228,6 +231,9 @@ public:
 	
 	/** foom: Draws the active extent as a sheet outline; the map widget's overlay. */
 	void drawActiveExtent(QPainter* painter, MapWidget* widget) const;
+	
+	/** foom: Returns the issue model of the Issues window. */
+	IssueModel* issueModel() const { return issue_model; }
 	
 	/** foom: Returns the numeric entry bar. */
 	inline NumericEntryBar* numericEntryBar() const {return numeric_entry_bar;}
@@ -541,6 +547,16 @@ public slots:
 	void setVertexTypeClicked();
 	/** foom: Sets (dash) or clears the dash flag of every vertex of the selected paths. */
 	void setVertexType(bool dash, bool keep_ends);
+	/** foom: Runs the map check and shows the issues; returns their number. */
+	int runMapCheck();
+	/** foom: Shows or hides the Issues window. */
+	void showIssuesWindow(bool show);
+	/** foom: Applies the fix of the issue shown in the row and checks again; returns false when nothing changed. */
+	bool fixIssueRow(int row);
+	/** foom: Applies the fixes of every shown issue and checks again; returns how many changed something. */
+	int fixShownIssues();
+	/** foom: Selects the objects of an activated issue and shows them. */
+	void issueActivated(const QVector<QUuid>& objects, const OpenOrienteering::MapCoordF& where);
 	/** foom: Opens the extent dialog for a new extent. */
 	void extentDefineClicked();
 	/** foom: Adds the extent, or replaces the one of its name, as one undo step. */
@@ -953,6 +969,10 @@ private:
 	QPointer<MoveParallelDialog> move_parallel_dialog;  // foom
 	QAction* find_replace_text_act = {};  // foom
 	QAction* extent_define_act = {};  // foom
+	QAction* check_map_act = {};  // foom
+	QAction* issues_window_act = {};  // foom
+	IssueModel* issue_model = nullptr;  // foom
+	QPointer<EditorDockWidget> issues_dock_widget;  // foom
 	QAction* extent_delete_act = {};  // foom
 	QMenu* active_extent_menu = nullptr;  // foom
 	QString active_extent_name;  // foom: view state
