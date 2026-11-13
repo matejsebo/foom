@@ -77,6 +77,9 @@ private slots:
 	
 	/** foom: Tests the shortcut store. */
 	void shortcuts();
+	
+	/** foom: Tests the find and replace text commands. */
+	void findReplaceText();
 };
 
 #endif

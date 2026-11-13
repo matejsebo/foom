@@ -32,6 +32,7 @@
 #include <QPointF>
 #include <QRectF>
 #include <QString>
+#include <QStringList>
 #include <QUuid>
 
 #include "global.h"
@@ -50,11 +51,13 @@
 #include "core/ops/transform.h"
 #include "core/ops/vertex_type.h"
 #include "core/ops/op.h"
+#include "core/ops/replace_text.h"
 #include "core/ops/reshape.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/area_symbol.h"
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
+#include "core/symbols/text_symbol.h"
 #include "core/symbols/text_symbol.h"
 #include "undo/undo_manager.h"
 
@@ -118,6 +121,7 @@ private slots:
 	void offsetTest();
 	void vertexTypeTest();
 	void groupTest();
+	void replaceTextTest();
 };
 
 
@@ -920,6 +924,61 @@ void OpsTest::groupTest()
 	QVERIFY(map.undoManager().undo());
 	QCOMPARE(map.findObject(uuid), first);
 	QCOMPARE(first->group(), 0);
+}
+
+
+void OpsTest::replaceTextTest()
+{
+	// the design notes, "Find and replace text".
+	Map map;
+	auto* text_symbol = new TextSymbol();
+	map.addSymbol(text_symbol, 0);
+	auto* point_symbol = new PointSymbol();
+	map.addSymbol(point_symbol, 1);
+	std::vector<const Object*> in;
+	for (auto const* content : { "Hill 1", "hill top", "Hillside" })
+	{
+		auto* text = new TextObject(text_symbol);
+		text->setText(QString::fromLatin1(content));
+		map.addObject(text);
+		in.push_back(text);
+	}
+	auto* point = new PointObject(point_symbol);
+	map.addObject(point);
+	in.push_back(point);
+	auto const texts = [](const ops::OpResult& result) {
+		QStringList texts;
+		for (auto const& object : result.out)
+			texts << object->asText()->getText();
+		return texts;
+	};
+	
+	ops::ReplaceTextParams params;
+	params.find = QStringLiteral("hill");
+	params.replacement = QStringLiteral("Knoll");
+	auto all = ops::replaceText(map, in, params);
+	QVERIFY(all.error.isEmpty());
+	QCOMPARE(texts(all), (QStringList{ QStringLiteral("Knoll 1"), QStringLiteral("Knoll top"), QStringLiteral("Knollside") }));
+	QCOMPARE(all.consumed.size(), std::size_t(3));
+	QCOMPARE(all.out.front()->uuid(), in.front()->uuid());
+	params.whole_word = true;
+	QCOMPARE(texts(ops::replaceText(map, in, params)), (QStringList{ QStringLiteral("Knoll 1"), QStringLiteral("Knoll top") }));
+	params.whole_word = false;
+	params.case_sensitive = true;
+	params.find = QStringLiteral("Hill");
+	QCOMPARE(texts(ops::replaceText(map, in, params)), (QStringList{ QStringLiteral("Knoll 1"), QStringLiteral("Knollside") }));
+	params.case_sensitive = false;
+	params.find = QStringLiteral("hill");
+	
+	auto removed = ops::deleteMatchingText(map, in, params);
+	QVERIFY(removed.error.isEmpty());
+	QVERIFY(removed.out.empty());
+	QCOMPARE(removed.consumed, (std::vector<const Object*>{ in[0], in[1], in[2] }));
+	
+	params.find.clear();
+	QVERIFY(!ops::replaceText(map, in, params).error.isEmpty());
+	QVERIFY(!ops::deleteMatchingText(map, in, params).error.isEmpty());
+	QVERIFY(!ops::textMatches(QStringLiteral("Hill"), params));
 }
 
 

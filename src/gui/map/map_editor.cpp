@@ -108,6 +108,7 @@
 #include "core/objects/boolean_tool.h"
 #include "core/objects/object.h"
 #include "core/objects/object_operations.h"
+#include "core/objects/text_object.h"  // foom
 #include "core/ops/align.h"
 #include "core/ops/apply_op.h"
 #include "core/ops/offset.h"
@@ -140,6 +141,7 @@
 #include "gui/map/move_parallel_dialog.h"
 #include "gui/map/numeric_entry_bar.h"
 #include "gui/map/bookmark_dialog.h"
+#include "gui/map/find_replace_text_dialog.h"
 #include "gui/map/numeric_transform_dialogs.h"
 #include "gui/map/rotate_map_dialog.h"
 #include "gui/symbols/symbol_replacement.h"
@@ -1046,6 +1048,7 @@ void MapEditorController::createActions()
 	view_back_act = newAction("view-back", tr("Back"), this, SLOT(viewBack()));  // foom
 	view_forward_act = newAction("view-forward", tr("Forward"), this, SLOT(viewForward()));  // foom
 	bookmark_add_act = newAction("bookmark-add", tr("Add bookmark..."), this, SLOT(bookmarkAddClicked()));  // foom
+	find_replace_text_act = newAction("find-replace-text", tr("Find and replace text..."), this, SLOT(findReplaceTextClicked()));  // foom
 	bookmark_manage_act = newAction("bookmark-manage", tr("Manage bookmarks..."), this, SLOT(bookmarkManageClicked()));  // foom
 	view_history_timer.setSingleShot(true);  // foom
 	view_history_timer.setInterval(500);
@@ -1259,6 +1262,7 @@ void MapEditorController::createMenuAndToolbars()
 	edit_menu->addSeparator();
 	edit_menu->addAction(find_feature->showDialogAction());
 	edit_menu->addAction(find_feature->findNextAction());
+	edit_menu->addAction(find_replace_text_act);  // foom
 	edit_menu->addSeparator();  // foom: numeric entry bar
 	numeric_entry_bar = new NumericEntryBar(this, window);
 	auto* numeric_entry_act = numeric_entry_bar->toggleViewAction();
@@ -3728,6 +3732,94 @@ void MapEditorController::viewForward()
 	}
 	view_back_act->setEnabled(view_history.canGoBack());
 	view_forward_act->setEnabled(view_history.canGoForward());
+}
+
+// foom
+void MapEditorController::findReplaceTextClicked()
+{
+	if (!find_replace_text_dialog)
+		find_replace_text_dialog = new FindReplaceTextDialog(this, window);
+	find_replace_text_dialog->show();
+	find_replace_text_dialog->raise();
+	find_replace_text_dialog->activateWindow();
+}
+
+namespace {
+	
+// foom: the text objects of the part, all or those of the symbols selected in the pane.
+std::vector<const Object*> textObjectsInScope(const MapPart& part, const SymbolWidget* symbol_widget, bool selected_symbols_only, const Map::ObjectSelection* selection)
+{
+	std::vector<const Object*> objects;
+	for (int i = 0; i < part.getNumObjects(); ++i)
+	{
+		auto const* object = part.getObject(i);
+		if (object->getType() != Object::Text)
+			continue;
+		if (selected_symbols_only && !(symbol_widget && symbol_widget->isSymbolSelected(object->getSymbol())))
+			continue;
+		if (selection && !selection->count(const_cast<Object*>(object)))
+			continue;
+		objects.push_back(object);
+	}
+	return objects;
+}
+
+}  // namespace
+
+// foom
+bool MapEditorController::findNextText(const ops::ReplaceTextParams& params, bool selected_symbols_only)
+{
+	// the design notes, "Find and replace text".
+	auto const candidates = textObjectsInScope(*map->getCurrentPart(), symbol_widget, selected_symbols_only, nullptr);
+	auto const* pivot = map->getFirstSelectedObject();
+	const Object* first_match = nullptr;
+	const Object* next_match = nullptr;
+	auto after_pivot = pivot == nullptr;
+	for (auto const* object : candidates)
+	{
+		if (object == pivot)
+		{
+			after_pivot = true;
+			continue;
+		}
+		if (!ops::textMatches(object->asText()->getText(), params))
+			continue;
+		if (after_pivot)
+		{
+			next_match = object;
+			break;
+		}
+		if (!first_match)
+			first_match = object;
+	}
+	if (!next_match)
+		next_match = first_match;
+	if (!next_match)
+		return false;
+	map->clearObjectSelection(false);
+	map->addObjectToSelection(const_cast<Object*>(next_match), true);
+	map->ensureVisibilityOfSelectedObjects(Map::FullVisibility);
+	return true;
+}
+
+// foom
+int MapEditorController::replaceText(const ops::ReplaceTextParams& params, bool selected_symbols_only, bool selected_objects_only)
+{
+	auto const in = textObjectsInScope(*map->getCurrentPart(), symbol_widget, selected_symbols_only, selected_objects_only ? &map->selectedObjects() : nullptr);
+	auto result = ops::replaceText(*map, in, params);
+	auto const count = int(result.out.size());
+	applyOpResult(std::move(result));
+	return count;
+}
+
+// foom
+int MapEditorController::deleteMatchingText(const ops::ReplaceTextParams& params, bool selected_symbols_only, bool selected_objects_only)
+{
+	auto const in = textObjectsInScope(*map->getCurrentPart(), symbol_widget, selected_symbols_only, selected_objects_only ? &map->selectedObjects() : nullptr);
+	auto result = ops::deleteMatchingText(*map, in, params);
+	auto const count = int(result.consumed.size());
+	applyOpResult(std::move(result));
+	return count;
 }
 
 void MapEditorController::cutHoleClicked()

@@ -38,6 +38,7 @@
 #include "core/bookmarks.h"  // foom
 #include "core/map_view.h"  // foom
 #include "core/ops/align.h"  // foom
+#include "core/ops/replace_text.h"  // foom
 #include "gui/map/view_history.h"  // foom
 #include "core/ops/transform.h"  // foom
 #include "gui/main_window_controller.h"
@@ -69,6 +70,7 @@ class GeoreferencingDialog;
 class MainWindow;
 class MapCoordF;
 class MapEditorActivity;
+class FindReplaceTextDialog;  // foom
 class MoveParallelDialog;  // foom
 class NumericEntryBar;  // foom
 class MapEditorTool;
@@ -533,6 +535,14 @@ public slots:
 	void setVertexTypeClicked();
 	/** foom: Sets (dash) or clears the dash flag of every vertex of the selected paths. */
 	void setVertexType(bool dash, bool keep_ends);
+	/** foom: Opens the find-and-replace-text dialog, which stays open. */
+	void findReplaceTextClicked();
+	/** foom: Selects the next matching text object after the first selected one, wrapping round; returns false when nothing matches. */
+	bool findNextText(const ops::ReplaceTextParams& params, bool selected_symbols_only);
+	/** foom: Replaces the matches in the scope, or in the selected objects of the scope; returns the number of changed objects. */
+	int replaceText(const ops::ReplaceTextParams& params, bool selected_symbols_only, bool selected_objects_only);
+	/** foom: Deletes the matching text objects of the scope, or the selected ones; returns their number. */
+	int deleteMatchingText(const ops::ReplaceTextParams& params, bool selected_symbols_only, bool selected_objects_only);
 	/** foom: Asks for a name, then stores the current view as a bookmark. */
 	void bookmarkAddClicked();
 	/** foom: Stores the current view centre and zoom as a bookmark with the name. */
@@ -919,6 +929,8 @@ private:
 	QAction* move_parallel_act = {};  // foom
 	QAction* move_parallel_by_act = {};  // foom
 	QPointer<MoveParallelDialog> move_parallel_dialog;  // foom
+	QAction* find_replace_text_act = {};  // foom
+	QPointer<FindReplaceTextDialog> find_replace_text_dialog;  // foom
 	NumericEntryBar* numeric_entry_bar = nullptr;  // foom
 	QAction* view_back_act = {};  // foom
 	QAction* view_forward_act = {};  // foom

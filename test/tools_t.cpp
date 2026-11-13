@@ -57,6 +57,9 @@
 #include "core/symbols/area_symbol.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
+#include "core/symbols/text_symbol.h"
+#include "core/objects/text_object.h"
+#include "core/ops/replace_text.h"
 #include "global.h"
 #include "gui/main_window.h"
 #include "gui/map/map_editor.h"
@@ -946,6 +949,81 @@ void ToolsTest::shortcuts()
 	QCOMPARE(ShortcutSettings::apply(settings, actions), 0);
 	draw_path->setShortcut(editor.editor->defaultShortcut("drawpath"));
 	QCOMPARE(draw_path->shortcut(), QKeySequence(QStringLiteral("P")));
+}
+
+
+void ToolsTest::findReplaceText()
+{
+	// the design notes, "Find and replace text", editor paragraphs.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("find-replace-text"));
+	auto* text_symbol = new TextSymbol();
+	map.map->addSymbol(text_symbol, 1);
+	auto* other_symbol = new TextSymbol();
+	map.map->addSymbol(other_symbol, 2);
+	std::vector<TextObject*> texts;
+	for (auto const* content : { "Hill 1", "hill top", "Hillside" })
+	{
+		auto* text = new TextObject(text_symbol);
+		text->setText(QString::fromLatin1(content));
+		text->setAnchorPosition(MapCoord(10.0 * texts.size(), 0.0));
+		map.map->addObject(text);
+		texts.push_back(text);
+	}
+	auto* other = new TextObject(other_symbol);
+	other->setText(QStringLiteral("hill of the other symbol"));
+	map.map->addObject(other);
+	auto* part = map.map->getCurrentPart();
+	auto const num_objects = part->getNumObjects();
+	map.map->clearObjectSelection(true);
+	
+	ops::ReplaceTextParams params;
+	params.find = QStringLiteral("hill");
+	params.replacement = QStringLiteral("Knoll");
+	auto const selected = [&map]() { return map.map->getFirstSelectedObject(); };
+	QVERIFY(editor.editor->findNextText(params, false));
+	QCOMPARE(selected(), static_cast<Object*>(texts[0]));
+	QVERIFY(editor.editor->findNextText(params, false));
+	QCOMPARE(selected(), static_cast<Object*>(texts[1]));
+	QVERIFY(editor.editor->findNextText(params, false));
+	QCOMPARE(selected(), static_cast<Object*>(texts[2]));
+	QVERIFY(editor.editor->findNextText(params, false));
+	QCOMPARE(selected(), static_cast<Object*>(other));
+	QVERIFY(editor.editor->findNextText(params, false));
+	QCOMPARE(selected(), static_cast<Object*>(texts[0]));
+	ops::ReplaceTextParams missing;
+	missing.find = QStringLiteral("nothing like it");
+	QVERIFY(!editor.editor->findNextText(missing, false));
+	
+	// Replace in the selection, then in the rest of the scope.
+	auto const undo_steps = map.map->undoManager().undoStepCount();
+	auto const first_uuid = texts[0]->uuid();
+	QCOMPARE(editor.editor->replaceText(params, false, true), 1);
+	QCOMPARE(map.map->findObject(first_uuid)->asText()->getText(), QStringLiteral("Knoll 1"));
+	QCOMPARE(editor.editor->replaceText(params, false, false), 3);
+	QCOMPARE(other->getText(), QStringLiteral("hill of the other symbol"));  // the object was replaced
+	QCOMPARE(map.map->findObject(other->uuid())->asText()->getText(), QStringLiteral("Knoll of the other symbol"));
+	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 2);
+	QVERIFY(map.map->undoManager().undo());
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(map.map->findObject(first_uuid)->asText()->getText(), QStringLiteral("Hill 1"));
+	
+	// The scope of the selected symbols.
+	editor.editor->getSymbolWidget()->selectSingleSymbol(other_symbol);
+	QCOMPARE(editor.editor->replaceText(params, true, false), 1);
+	QCOMPARE(map.map->findObject(first_uuid)->asText()->getText(), QStringLiteral("Hill 1"));
+	QCOMPARE(map.map->findObject(other->uuid())->asText()->getText(), QStringLiteral("Knoll of the other symbol"));
+	
+	// Delete the selected matching object.
+	map.map->clearObjectSelection(false);
+	map.map->addObjectToSelection(map.map->findObject(first_uuid), true);
+	QCOMPARE(editor.editor->deleteMatchingText(params, false, true), 1);
+	QCOMPARE(part->getNumObjects(), num_objects - 1);
+	QVERIFY(!map.map->findObject(first_uuid));
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(part->getNumObjects(), num_objects);
+	QVERIFY(map.map->findObject(first_uuid));
 }
 
 
