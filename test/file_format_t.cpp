@@ -69,6 +69,7 @@
 #include "test_config.h"
 #include "core/georeferencing.h"
 #include "core/latlon.h"
+#include "core/bookmarks.h"
 #include "core/map.h"
 #include "core/map_color.h"
 #include "core/map_coord.h"
@@ -95,6 +96,7 @@
 #include "fileformats/ocd_types_v8.h"
 #include "fileformats/ocd_types_v12.h"
 #include "fileformats/simple_course_export.h"
+#include "fileformats/ocd_bookmark.h"
 #include "fileformats/xml_file_format.h"
 #include "templates/template.h"
 #include "undo/undo.h"
@@ -479,6 +481,7 @@ namespace
 	// foom: object identity and timestamps
 	void compareObjectIdentity(const Map& actual, const Map& expected)
 	{
+		QVERIFY(actual.bookmarks() == expected.bookmarks());
 		QCOMPARE(actual.getNumParts(), expected.getNumParts());
 		for (int p = 0; p < actual.getNumParts(); ++p)
 		{
@@ -2245,6 +2248,59 @@ void FileFormatTest::foomGroupTest()
 	auto const plain_data = QString::fromUtf8(plain_buffer.data());
 	QVERIFY(!plain_data.contains(QLatin1String(" group=")));
 	QVERIFY(!plain_data.contains(QLatin1String("<groups")));
+}
+
+void FileFormatTest::foomBookmarkTest()
+{
+	// the design notes, "Bookmarks and view history".
+	Map map;
+	auto* symbol = new PointSymbol();
+	map.addSymbol(symbol, 0);
+	map.addObject(new PointObject(symbol));
+	Bookmark start;
+	start.name = QStringLiteral("start");
+	start.center = MapCoord::fromNative(2000, 0);
+	start.zoom = 8.0;
+	map.addBookmark(start);
+	Bookmark finish;
+	finish.name = QStringLiteral("finish");
+	finish.center = MapCoord::fromNative(-1500, 3000);
+	finish.zoom = 2.0;
+	finish.note = QStringLiteral("see note");
+	map.addBookmark(finish);
+	
+	XMLFileFormat format;
+	QBuffer buffer;
+	QVERIFY(buffer.open(QIODevice::ReadWrite));
+	auto exporter = format.makeExporter({}, &map, nullptr);
+	exporter->setDevice(&buffer);
+	QVERIFY(exporter->doExport());
+	QVERIFY(QString::fromUtf8(buffer.data()).contains(QLatin1String("<bookmarks count=\"2\">")));
+	QVERIFY(buffer.seek(0));
+	Map reloaded;
+	auto importer = format.makeImporter({}, &reloaded, nullptr);
+	importer->setDevice(&buffer);
+	QVERIFY(importer->doImport());
+	QVERIFY(importer->warnings().empty());
+	QCOMPARE(reloaded.bookmarks().size(), std::size_t(2));
+	QVERIFY(reloaded.bookmarks() == map.bookmarks());
+	
+	QBuffer plain_buffer;
+	QVERIFY(plain_buffer.open(QIODevice::ReadWrite));
+	auto plain_exporter = format.makeExporter({}, &map, nullptr);
+	plain_exporter->setOption(QString::fromLatin1("foom"), false);
+	plain_exporter->setDevice(&plain_buffer);
+	QVERIFY(plain_exporter->doExport());
+	QVERIFY(!QString::fromUtf8(plain_buffer.data()).contains(QLatin1String("<bookmarks")));
+	
+	// OCD type 18 strings.
+	Bookmark parsed;
+	QVERIFY(parseOcdBookmark(QStringLiteral("Start\tx12.5\ty-3\tz4\tdNote"), parsed));
+	QCOMPARE(parsed.name, QStringLiteral("Start"));
+	QCOMPARE(parsed.center, MapCoord(12.5, 3.0));
+	QCOMPARE(parsed.zoom, 4.0);
+	QCOMPARE(parsed.note, QStringLiteral("Note"));
+	QVERIFY(!parseOcdBookmark(QStringLiteral("\tx1\ty2"), parsed));
 }
 
 void FileFormatTest::ocdDateTimeTest()

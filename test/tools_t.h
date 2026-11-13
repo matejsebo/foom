@@ -68,6 +68,12 @@ private slots:
 	
 	/** foom: Tests the numeric entry bar. */
 	void numericEntry();
+	
+	/** foom: Tests the view history. */
+	void viewHistory();
+	
+	/** foom: Tests the bookmark commands. */
+	void bookmarks();
 };
 
 #endif

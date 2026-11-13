@@ -40,7 +40,10 @@
 #include "core/objects/object.h"
 #include "core/objects/object_query.h"
 #include "core/ops/align.h"
+#include "core/bookmarks.h"
 #include "core/georeferencing.h"
+#include "core/map_view.h"
+#include "gui/map/view_history.h"
 #include "gui/map/numeric_entry_bar.h"
 #include "gui/widgets/symbol_widget.h"
 #include "tools/draw_path_tool.h"
@@ -819,6 +822,78 @@ void ToolsTest::numericEntry()
 	QCOMPARE(drawn->getSymbol(), static_cast<const Symbol*>(map.line_symbol));
 	
 	editor.editor->setTool(nullptr);
+}
+
+
+void ToolsTest::viewHistory()
+{
+	// the design notes, "Bookmarks and view history".
+	ViewHistory history;
+	QVERIFY(!history.canGoBack() && !history.canGoForward());
+	auto const entry = [](double x, double zoom) { return ViewHistory::Entry{ MapCoord(x, 0.0), zoom }; };
+	QVERIFY(history.record(entry(1.0, 1.0)));
+	QVERIFY(history.record(entry(2.0, 1.0)));
+	QVERIFY(history.record(entry(3.0, 1.0)));
+	QVERIFY(!history.record(entry(3.0, 1.0)));  // the current entry again
+	QCOMPARE(history.size(), std::size_t(3));
+	QVERIFY(history.back() && history.back());
+	QVERIFY(!history.back());
+	auto const* forward = history.forward();
+	QVERIFY(forward && *forward == entry(2.0, 1.0));
+	QVERIFY(history.record(entry(4.0, 2.0)));  // drops the entry at 3
+	QCOMPARE(history.size(), std::size_t(3));
+	QVERIFY(!history.canGoForward());
+	for (int i = 0; i < 40; ++i)
+		history.record(entry(100.0 + i, 1.0));
+	QCOMPARE(history.size(), ViewHistory::capacity);
+	QVERIFY(history.back() && *history.back() == entry(137.0, 1.0));
+	
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* back_act = editor.editor->getAction("view-back");
+	auto* forward_act = editor.editor->getAction("view-forward");
+	QVERIFY(back_act && forward_act);
+	auto* view = editor.map_widget->getMapView();
+	view->setCenter(MapCoord(0.0, 0.0));
+	view->setZoom(1.0);
+	editor.editor->recordView();
+	view->setCenter(MapCoord(10.0, 10.0));
+	view->setZoom(4.0);
+	editor.editor->recordView();
+	QVERIFY(back_act->isEnabled() && !forward_act->isEnabled());
+	editor.editor->viewBack();
+	QCOMPARE(view->center(), MapCoord(0.0, 0.0));
+	QCOMPARE(view->getZoom(), 1.0);
+	QVERIFY(forward_act->isEnabled());
+	editor.editor->viewForward();
+	QCOMPARE(view->center(), MapCoord(10.0, 10.0));
+	QCOMPARE(view->getZoom(), 4.0);
+	QVERIFY(!forward_act->isEnabled());
+}
+
+void ToolsTest::bookmarks()
+{
+	// the design notes, "Bookmarks and view history".
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("bookmark-add") && editor.editor->getAction("bookmark-manage"));
+	auto* view = editor.map_widget->getMapView();
+	view->setCenter(MapCoord(5.0, -5.0));
+	view->setZoom(2.0);
+	map.map->setHasUnsavedChanges(false);
+	editor.editor->addBookmark(QStringLiteral("start"));
+	QCOMPARE(map.map->bookmarks().size(), std::size_t(1));
+	QCOMPARE(map.map->bookmarks().front().name, QStringLiteral("start"));
+	QCOMPARE(map.map->bookmarks().front().center, MapCoord(5.0, -5.0));
+	QCOMPARE(map.map->bookmarks().front().zoom, 2.0);
+	QVERIFY(map.map->hasUnsavedChanges());
+	view->setCenter(MapCoord(50.0, 50.0));
+	view->setZoom(8.0);
+	editor.editor->jumpToBookmark(0);
+	QCOMPARE(view->center(), MapCoord(5.0, -5.0));
+	QCOMPARE(view->getZoom(), 2.0);
+	editor.editor->jumpToBookmark(7);  // out of range: nothing happens
+	QCOMPARE(view->center(), MapCoord(5.0, -5.0));
 }
 
 

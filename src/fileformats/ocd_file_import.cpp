@@ -52,6 +52,7 @@
 #include <QVariant>
 
 #include "settings.h"
+#include "core/bookmarks.h"
 #include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_color.h"
@@ -64,6 +65,7 @@
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
+#include "fileformats/ocd_bookmark.h"
 #include "core/symbols/text_symbol.h"
 #include "fileformats/file_format.h"
 #include "fileformats/ocd_datetime.h"
@@ -330,6 +332,7 @@ void OcdFileImport::importImplementation()
 		{
 			importView(file);
 		}
+		importBookmarks(file);  // foom
 	}
 	
 	// No deep copy during import
@@ -1032,6 +1035,21 @@ template< class F >
 void OcdFileImport::importView(const OcdFile< F >& file)
 {
 	handleStrings(file, { { 1030, &OcdFileImport::importView } });
+}
+
+// foom
+template< class F >
+void OcdFileImport::importBookmarks(const OcdFile< F >& file)
+{
+	handleStrings(file, { { 18, &OcdFileImport::importBookmark } });
+}
+
+// foom
+void OcdFileImport::importBookmark(const QString& param_string)
+{
+	Bookmark bookmark;
+	if (parseOcdBookmark(param_string, bookmark))
+		map->addBookmark(bookmark);
 }
 
 void OcdFileImport::importView(const QString& param_string)

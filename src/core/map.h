@@ -44,6 +44,7 @@
 #include <QTransform>
 #include <QUuid>
 
+#include "core/bookmarks.h"  // foom
 #include "core/map_coord.h"
 #include "core/map_grid.h"
 #include "core/map_part.h"
@@ -955,6 +956,15 @@ public:
 	/** foom: Returns the group names by group number. */
 	const QHash<int, QString>& objectGroupNames() const { return object_group_names; }
 	
+	/** foom: Returns the bookmarks. See the design notes. */
+	const std::vector<Bookmark>& bookmarks() const { return map_bookmarks; }
+	
+	/** foom: Replaces the bookmarks. */
+	void setBookmarks(std::vector<Bookmark> bookmarks) { map_bookmarks = std::move(bookmarks); }
+	
+	/** foom: Appends a bookmark. */
+	void addBookmark(const Bookmark& bookmark) { map_bookmarks.push_back(bookmark); }
+	
 	
 	// foom: spatial index.
 	// See the design notes, "Spatial index".
@@ -1693,6 +1703,7 @@ private:
 	PartVector parts;
 	QHash<QUuid, Object*> objects_by_uuid;  ///< foom: the objects in the parts
 	QHash<int, QString> object_group_names;  ///< foom: see the design notes, "Groups"
+	std::vector<Bookmark> map_bookmarks;  ///< foom: view state, see the design notes
 	mutable std::unordered_set<const Object*> stale_index_objects;  ///< foom: to be re-entered into the spatial indexes
 	ObjectSelection object_selection;
 	Object* first_selected_object = nullptr;

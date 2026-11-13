@@ -34,7 +34,10 @@
 #include <QTimer>
 
 #include "core/map.h"
+#include "core/bookmarks.h"  // foom
+#include "core/map_view.h"  // foom
 #include "core/ops/align.h"  // foom
+#include "gui/map/view_history.h"  // foom
 #include "core/ops/transform.h"  // foom
 #include "gui/main_window_controller.h"
 
@@ -523,6 +526,26 @@ public slots:
 	void setVertexTypeClicked();
 	/** foom: Sets (dash) or clears the dash flag of every vertex of the selected paths. */
 	void setVertexType(bool dash, bool keep_ends);
+	/** foom: Asks for a name, then stores the current view as a bookmark. */
+	void bookmarkAddClicked();
+	/** foom: Stores the current view centre and zoom as a bookmark with the name. */
+	void addBookmark(const QString& name);
+	/** foom: Opens the bookmark dialog. */
+	void bookmarkManageClicked();
+	/** foom: Moves the view to the bookmark with the index. */
+	void jumpToBookmark(int index);
+	/** foom: Moves the view to the bookmark the sending action names. */
+	void bookmarkJumpClicked();
+	/** foom: Rebuilds the bookmarks submenu. */
+	void updateBookmarksMenu();
+	/** foom: Records the current view in the view history. */
+	void recordView();
+	/** foom: Starts the delay after which a settled view is recorded. */
+	void viewChangedForHistory(OpenOrienteering::MapView::ChangeFlags change);
+	/** foom: Returns to the previous view of the history. */
+	void viewBack();
+	/** foom: Goes to the next view of the history. */
+	void viewForward();
 	/** foom: Asks for a name, then groups the selected objects. */
 	void groupClicked();
 	/** foom: Gives the selected objects the next free group number, and the group the name. */
@@ -889,6 +912,14 @@ private:
 	QAction* move_parallel_by_act = {};  // foom
 	QPointer<MoveParallelDialog> move_parallel_dialog;  // foom
 	NumericEntryBar* numeric_entry_bar = nullptr;  // foom
+	QAction* view_back_act = {};  // foom
+	QAction* view_forward_act = {};  // foom
+	QAction* bookmark_add_act = {};  // foom
+	QAction* bookmark_manage_act = {};  // foom
+	QMenu* bookmarks_menu = nullptr;  // foom
+	ViewHistory view_history;  // foom
+	QTimer view_history_timer;  // foom
+	bool applying_view_history = false;  // foom
 	QAction* vertex_type_normal_act = {};  // foom
 	QAction* vertex_type_dash_act = {};  // foom
 	QAction* vertex_type_keep_ends_act = {};  // foom

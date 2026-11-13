@@ -139,6 +139,7 @@
 #include "gui/map/map_widget.h"
 #include "gui/map/move_parallel_dialog.h"
 #include "gui/map/numeric_entry_bar.h"
+#include "gui/map/bookmark_dialog.h"
 #include "gui/map/numeric_transform_dialogs.h"
 #include "gui/map/rotate_map_dialog.h"
 #include "gui/symbols/symbol_replacement.h"
@@ -802,6 +803,7 @@ void MapEditorController::attach(MainWindow* window)
 	map_widget = new MapWidget(mode == MapEditor, mode == SymbolEditor);
 	map_widget->setMapView(main_view);
 	map_widget->setZoomDisplay(zoom_display_function);
+	recordView();  // foom: the opening view is the first entry of the view history
 	
 	// Create menu and toolbar together, so actions can be inserted into one or both
 	if (mode == MapEditor)
@@ -1038,6 +1040,15 @@ void MapEditorController::createActions()
 	show_all_act = newAction("showall", tr("Show whole map"), this, SLOT(showWholeMap()), "view-show-all.png", QString{}, "view_menu.html");
 	fullscreen_act = newAction("fullscreen", tr("Toggle fullscreen mode"), window, SLOT(toggleFullscreenMode()), nullptr, QString{}, "view_menu.html");
 	custom_zoom_act = newAction("setzoom", tr("Set custom zoom factor..."), this, SLOT(setCustomZoomFactorClicked()), nullptr, QString{}, "view_menu.html");
+	view_back_act = newAction("view-back", tr("Back"), this, SLOT(viewBack()));  // foom
+	view_forward_act = newAction("view-forward", tr("Forward"), this, SLOT(viewForward()));  // foom
+	bookmark_add_act = newAction("bookmark-add", tr("Add bookmark..."), this, SLOT(bookmarkAddClicked()));  // foom
+	bookmark_manage_act = newAction("bookmark-manage", tr("Manage bookmarks..."), this, SLOT(bookmarkManageClicked()));  // foom
+	view_history_timer.setSingleShot(true);  // foom
+	view_history_timer.setInterval(500);
+	connect(&view_history_timer, &QTimer::timeout, this, &MapEditorController::recordView);
+	view_back_act->setEnabled(view_history.canGoBack());
+	view_forward_act->setEnabled(view_history.canGoForward());
 	
 	hatch_areas_view_act = newCheckAction("hatchareasview", tr("Hatch areas"), this, SLOT(hatchAreas(bool)), "view-hatch-areas.png", QString{}, "view_menu.html");
 	baseline_view_act = newCheckAction("baselineview", tr("Baseline view"), this, SLOT(baselineView(bool)), "view-baseline.png", QString{}, "view_menu.html");
@@ -1255,6 +1266,12 @@ void MapEditorController::createMenuAndToolbars()
 	view_menu->addAction(box_zoom_act);
 	view_menu->addAction(show_all_act);
 	view_menu->addAction(custom_zoom_act);
+	view_menu->addSeparator();  // foom: view history and bookmarks
+	view_menu->addAction(view_back_act);
+	view_menu->addAction(view_forward_act);
+	bookmarks_menu = view_menu->addMenu(tr("Bookmarks"));
+	connect(bookmarks_menu, &QMenu::aboutToShow, this, &MapEditorController::updateBookmarksMenu);
+	updateBookmarksMenu();
 	view_menu->addSeparator();
 	view_menu->addAction(show_grid_act);
 	view_menu->addAction(hatch_areas_view_act);
@@ -3589,6 +3606,119 @@ void MapEditorController::selectGroup()
 	expandSelectionToGroups(*map);
 }
 
+// foom
+void MapEditorController::bookmarkAddClicked()
+{
+	bool ok = false;
+	auto const name = QInputDialog::getText(window, tr("Add bookmark"), tr("Name:"), QLineEdit::Normal, tr("Bookmark %1").arg(map->bookmarks().size() + 1), &ok);
+	if (ok && !name.isEmpty())
+		addBookmark(name);
+}
+
+// foom
+void MapEditorController::addBookmark(const QString& name)
+{
+	// the design notes, "Bookmarks and view history".
+	Bookmark bookmark;
+	bookmark.name = name;
+	bookmark.center = main_view->center();
+	bookmark.zoom = main_view->getZoom();
+	map->addBookmark(bookmark);
+	map->setHasUnsavedChanges(true);
+}
+
+// foom
+void MapEditorController::bookmarkManageClicked()
+{
+	BookmarkDialog dialog(this, window);
+	dialog.exec();
+}
+
+// foom
+void MapEditorController::jumpToBookmark(int index)
+{
+	auto const& bookmarks = map->bookmarks();
+	if (index < 0 || std::size_t(index) >= bookmarks.size())
+		return;
+	main_view->setCenter(bookmarks[index].center);
+	main_view->setZoom(bookmarks[index].zoom);
+}
+
+// foom
+void MapEditorController::bookmarkJumpClicked()
+{
+	if (auto* action = qobject_cast<QAction*>(sender()))
+		jumpToBookmark(action->data().toInt());
+}
+
+// foom
+void MapEditorController::updateBookmarksMenu()
+{
+	if (!bookmarks_menu)
+		return;
+	bookmarks_menu->clear();
+	bookmarks_menu->addAction(bookmark_add_act);
+	bookmarks_menu->addAction(bookmark_manage_act);
+	auto const& bookmarks = map->bookmarks();
+	if (!bookmarks.empty())
+		bookmarks_menu->addSeparator();
+	for (std::size_t i = 0; i < bookmarks.size(); ++i)
+	{
+		auto* action = bookmarks_menu->addAction(bookmarks[i].name, this, SLOT(bookmarkJumpClicked()));
+		action->setData(int(i));
+	}
+}
+
+// foom
+void MapEditorController::recordView()
+{
+	if (!main_view)
+		return;
+	view_history.record({ main_view->center(), main_view->getZoom() });
+	if (view_back_act && view_forward_act)  // not yet created while attaching, absent in the symbol editor
+	{
+		view_back_act->setEnabled(view_history.canGoBack());
+		view_forward_act->setEnabled(view_history.canGoForward());
+	}
+}
+
+// foom
+void MapEditorController::viewChangedForHistory(MapView::ChangeFlags change)
+{
+	if (!applying_view_history && (change & (MapView::CenterChange | MapView::ZoomChange)))
+		view_history_timer.start();
+}
+
+// foom
+void MapEditorController::viewBack()
+{
+	if (auto const* entry = view_history.back())
+	{
+		applying_view_history = true;
+		main_view->setCenter(entry->center);
+		main_view->setZoom(entry->zoom);
+		applying_view_history = false;
+		view_history_timer.stop();
+	}
+	view_back_act->setEnabled(view_history.canGoBack());
+	view_forward_act->setEnabled(view_history.canGoForward());
+}
+
+// foom
+void MapEditorController::viewForward()
+{
+	if (auto const* entry = view_history.forward())
+	{
+		applying_view_history = true;
+		main_view->setCenter(entry->center);
+		main_view->setZoom(entry->zoom);
+		applying_view_history = false;
+		view_history_timer.stop();
+	}
+	view_back_act->setEnabled(view_history.canGoBack());
+	view_forward_act->setEnabled(view_history.canGoForward());
+}
+
 void MapEditorController::cutHoleClicked()
 {
 	setTool(new CutHoleTool(this, cut_hole_act, CutHoleTool::Path));
@@ -4482,6 +4612,7 @@ void MapEditorController::setMapAndView(Map* map, MapView* map_view)
 	this->map = map;
 	this->main_view = map_view;
 	updateMapPartsUI();
+	connect(map_view, &MapView::viewChanged, this, &MapEditorController::viewChangedForHistory);  // foom
 	
 	connect(&map->undoManager(), &UndoManager::canRedoChanged, this, &MapEditorController::undoStepAvailabilityChanged);
 	connect(&map->undoManager(), &UndoManager::canUndoChanged, this, &MapEditorController::undoStepAvailabilityChanged);

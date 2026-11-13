@@ -237,6 +237,12 @@ protected:
 	
 	void importView(const QString& param_string);
 	
+	// foom: bookmarks from type 18 strings
+	template< class F >
+	void importBookmarks(const OcdFile< F >& file);
+	
+	void importBookmark(const QString& param_string);
+	
 	
 	// Symbol import
 	

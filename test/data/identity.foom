@@ -23,6 +23,9 @@ anchor</text></object>
 <groups count="1">
 <group id="1" name="labels"/>
 </groups>
+<bookmarks count="1">
+<bookmark name="start" x="2000" y="0" zoom="8" note=""/>
+</bookmarks>
 <templates count="0" first_front_template="0">
 <defaults use_meters_per_pixel="true" meters_per_pixel="0" dpi="0" scale="0"/>
 </templates>

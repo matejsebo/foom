@@ -194,6 +194,12 @@ namespace literal
 	static const QLatin1String parts("parts");
 	static const QLatin1String object_groups("groups");  // foom
 	static const QLatin1String object_group("group");  // foom
+	static const QLatin1String bookmarks("bookmarks");  // foom
+	static const QLatin1String bookmark("bookmark");  // foom
+	static const QLatin1String bookmark_x("x");  // foom
+	static const QLatin1String bookmark_y("y");  // foom
+	static const QLatin1String bookmark_zoom("zoom");  // foom
+	static const QLatin1String bookmark_note("note");  // foom
 	static const QLatin1String part("part");
 	
 	static const QLatin1String templates("templates");
@@ -292,6 +298,11 @@ bool XMLFileExporter::exportImplementation()
 		if (XMLFileFormat::foom_revision >= 1 && !map->objectGroupNames().isEmpty())  // foom
 		{
 			exportObjectGroups();
+			writeLineBreak(xml);
+		}
+		if (XMLFileFormat::foom_revision >= 1 && !map->bookmarks().empty())  // foom
+		{
+			exportBookmarks();
 			writeLineBreak(xml);
 		}
 		exportTemplates();
@@ -464,6 +475,26 @@ void XMLFileExporter::exportObjectGroups()
 		XmlElementWriter group_element(xml, literal::object_group);
 		group_element.writeAttribute(literal::id, group);
 		group_element.writeAttribute(literal::name, names.value(group));
+	}
+	writeLineBreak(xml);
+}
+
+// foom
+void XMLFileExporter::exportBookmarks()
+{
+	// the design notes, "Bookmarks and view history".
+	auto const& bookmarks = map->bookmarks();
+	XmlElementWriter bookmarks_element(xml, literal::bookmarks);
+	bookmarks_element.writeAttribute(literal::count, bookmarks.size());
+	for (auto const& bookmark : bookmarks)
+	{
+		writeLineBreak(xml);
+		XmlElementWriter bookmark_element(xml, literal::bookmark);
+		bookmark_element.writeAttribute(literal::name, bookmark.name);
+		bookmark_element.writeAttribute(literal::bookmark_x, bookmark.center.nativeX());
+		bookmark_element.writeAttribute(literal::bookmark_y, bookmark.center.nativeY());
+		bookmark_element.writeAttribute(literal::bookmark_zoom, bookmark.zoom);
+		bookmark_element.writeAttribute(literal::bookmark_note, bookmark.note);
 	}
 	writeLineBreak(xml);
 }
@@ -670,6 +701,8 @@ void XMLFileImporter::importElements()
 			importMapParts();
 		else if (name == literal::object_groups)  // foom
 			importObjectGroups();
+		else if (name == literal::bookmarks)  // foom
+			importBookmarks();
 		else if (name == literal::templates)
 			importTemplates();
 		else if (name == literal::print)
@@ -1042,6 +1075,30 @@ void XMLFileImporter::importObjectGroups()
 		{
 			XmlElementReader group_element(xml);
 			map->setObjectGroupName(group_element.attribute<int>(literal::id), group_element.attribute<QString>(literal::name));
+		}
+		else
+		{
+			addWarningUnsupportedElement();
+			xml.skipCurrentElement();
+		}
+	}
+}
+
+// foom
+void XMLFileImporter::importBookmarks()
+{
+	XmlElementReader bookmarks_element(xml);
+	while (xml.readNextStartElement())
+	{
+		if (xml.name() == literal::bookmark)
+		{
+			XmlElementReader bookmark_element(xml);
+			Bookmark bookmark;
+			bookmark.name = bookmark_element.attribute<QString>(literal::name);
+			bookmark.center = MapCoord::fromNative(bookmark_element.attribute<qint32>(literal::bookmark_x), bookmark_element.attribute<qint32>(literal::bookmark_y));
+			bookmark.zoom = bookmark_element.attribute<double>(literal::bookmark_zoom);
+			bookmark.note = bookmark_element.attribute<QString>(literal::bookmark_note);
+			map->addBookmark(bookmark);
 		}
 		else
 		{
