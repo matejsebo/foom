@@ -31,7 +31,10 @@
 #include <QMouseEvent>
 #include <QPoint>
 #include <QPointF>
+#include <QKeySequence>
+#include <QSettings>
 #include <QString>
+#include <QTemporaryDir>
 
 #include "core/map.h"
 #include "core/map_color.h"
@@ -44,6 +47,7 @@
 #include "core/georeferencing.h"
 #include "core/map_view.h"
 #include "gui/map/view_history.h"
+#include "gui/widgets/shortcut_settings.h"
 #include "gui/map/numeric_entry_bar.h"
 #include "gui/widgets/symbol_widget.h"
 #include "tools/draw_path_tool.h"
@@ -894,6 +898,54 @@ void ToolsTest::bookmarks()
 	QCOMPARE(view->getZoom(), 2.0);
 	editor.editor->jumpToBookmark(7);  // out of range: nothing happens
 	QCOMPARE(view->center(), MapCoord(5.0, -5.0));
+}
+
+
+void ToolsTest::shortcuts()
+{
+	// the design notes, "Shortcut editor".
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto const& actions = editor.editor->actions();
+	auto* draw_path = editor.editor->getAction("drawpath");
+	QVERIFY(draw_path);
+	QCOMPARE(draw_path->objectName(), QStringLiteral("drawpath"));
+	QCOMPARE(editor.editor->getAction("mirror")->objectName(), QStringLiteral("mirror"));
+	QCOMPARE(editor.editor->defaultShortcut("drawpath"), QKeySequence(QStringLiteral("P")));
+	QCOMPARE(draw_path->shortcut(), QKeySequence(QStringLiteral("P")));
+	
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	QSettings settings(dir.filePath(QStringLiteral("shortcuts.ini")), QSettings::IniFormat);
+	auto const sequence = QKeySequence(QStringLiteral("Ctrl+Shift+P"));
+	QKeySequence loaded;
+	QVERIFY(!ShortcutSettings::load(settings, "drawpath", loaded));
+	ShortcutSettings::store(settings, "drawpath", sequence);
+	QVERIFY(ShortcutSettings::load(settings, "drawpath", loaded));
+	QCOMPARE(loaded, sequence);
+	QCOMPARE(ShortcutSettings::apply(settings, actions), 1);
+	QCOMPARE(draw_path->shortcut(), sequence);
+	
+	// Conflicts: the sequence is in use, unless the user itself is excluded.
+	QCOMPARE(ShortcutSettings::conflict(actions, sequence, nullptr), draw_path);
+	QVERIFY(!ShortcutSettings::conflict(actions, sequence, draw_path));
+	QVERIFY(!ShortcutSettings::conflict(actions, QKeySequence(QStringLiteral("Ctrl+Alt+Shift+F12")), nullptr));
+	QVERIFY(!ShortcutSettings::conflict(actions, QKeySequence(), nullptr));
+	
+	// JSON round trip.
+	auto const json = ShortcutSettings::toJson(actions);
+	QVERIFY(json.contains("\"drawpath\": \"Ctrl+Shift+P\""));
+	QSettings imported(dir.filePath(QStringLiteral("imported.ini")), QSettings::IniFormat);
+	QVERIFY(ShortcutSettings::fromJson(imported, json) > 0);
+	QVERIFY(ShortcutSettings::load(imported, "drawpath", loaded));
+	QCOMPARE(loaded, sequence);
+	QCOMPARE(ShortcutSettings::fromJson(imported, "not json"), -1);
+	
+	// Removing the stored shortcuts leaves the defaults to the editor.
+	ShortcutSettings::removeAll(settings);
+	QCOMPARE(ShortcutSettings::apply(settings, actions), 0);
+	draw_path->setShortcut(editor.editor->defaultShortcut("drawpath"));
+	QCOMPARE(draw_path->shortcut(), QKeySequence(QStringLiteral("P")));
 }
 
 

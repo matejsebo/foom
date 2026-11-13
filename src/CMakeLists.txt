@@ -225,6 +225,8 @@ set(Mapper_Common_SRCS
   gui/widgets/pie_menu.cpp
   gui/widgets/segmented_button_layout.cpp
   gui/widgets/settings_page.cpp
+  gui/widgets/shortcut_settings.cpp
+  gui/widgets/shortcuts_settings_page.cpp
   gui/widgets/symbol_dropdown.cpp
   gui/widgets/symbol_render_widget.cpp
   gui/widgets/symbol_tooltip.cpp

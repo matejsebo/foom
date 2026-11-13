@@ -149,6 +149,7 @@
 #include "gui/widgets/compass_display.h"
 #include "gui/widgets/key_button_bar.h" // IWYU pragma: keep
 #include "gui/widgets/measure_widget.h"
+#include "gui/widgets/shortcut_settings.h"  // foom
 #include "gui/widgets/symbol_widget.h"
 #include "gui/widgets/tags_widget.h"
 #include "gui/widgets/template_list_widget.h"
@@ -884,6 +885,7 @@ QAction* MapEditorController::newAction(const char* id, const QString &tr_text, 
 	if (whats_this_link) action->setWhatsThis(Util::makeWhatThis(whats_this_link));
 	if (receiver) QObject::connect(action, SIGNAL(triggered()), receiver, slot);
 	actionsById[id] = action;
+	action->setObjectName(QString::fromLatin1(id));  // foom: the shortcut editor addresses actions by id
 	action->setMenuRole(QAction::NoRole);
 	return action;
 }
@@ -904,6 +906,7 @@ QAction* MapEditorController::newToolAction(const char* id, const QString &tr_te
 	if (whats_this_link) action->setWhatsThis(Util::makeWhatThis(whats_this_link));
 	if (receiver) QObject::connect(action, SIGNAL(activated()), receiver, slot);
 	actionsById[id] = action;
+	action->setObjectName(QString::fromLatin1(id));  // foom
 	return action;
 }
 
@@ -1206,6 +1209,14 @@ void MapEditorController::createMenuAndToolbars()
 	
 	// Refactored so we can do custom key bindings in the future
 	assignKeyboardShortcuts();
+	// foom: remember the defaults, then apply the stored shortcuts.
+	for (auto it = actionsById.constBegin(); it != actionsById.constEnd(); ++it)
+	{
+		if (it.value())
+			default_shortcuts.insert(it.key(), it.value()->shortcut());
+	}
+	QSettings shortcut_settings;
+	ShortcutSettings::apply(shortcut_settings, actionsById);
 	
 	// Extend file menu
 	QMenu* file_menu = window->getFileMenu();

@@ -74,6 +74,9 @@ private slots:
 	
 	/** foom: Tests the bookmark commands. */
 	void bookmarks();
+	
+	/** foom: Tests the shortcut store. */
+	void shortcuts();
 };
 
 #endif

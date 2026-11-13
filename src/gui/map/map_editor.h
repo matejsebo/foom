@@ -27,6 +27,7 @@
 
 #include <QClipboard>
 #include <QHash>
+#include <QKeySequence>  // foom
 #include <QObject>
 #include <QPointer>
 #include <QScopedPointer>
@@ -213,6 +214,12 @@ public:
 	inline MapWidget* getMainWidget() const {return map_widget;}
 	/** Returns this controller's symbol widget, where the symbol selection happens. */
 	inline SymbolWidget* getSymbolWidget() const {return symbol_widget;}
+	
+	/** foom: Returns the actions by id, for the shortcut editor. */
+	const QHash<QByteArray, QAction*>& actions() const { return actionsById; }
+	
+	/** foom: Returns the shortcut an action had before the stored shortcuts were applied. */
+	QKeySequence defaultShortcut(const QByteArray& id) const { return default_shortcuts.value(id); }
 	
 	/** foom: Returns the numeric entry bar. */
 	inline NumericEntryBar* numericEntryBar() const {return numeric_entry_bar;}
@@ -784,6 +791,7 @@ private:
 	
 	// Action handling
 	QHash<QByteArray, QAction*> actionsById;
+	QHash<QByteArray, QKeySequence> default_shortcuts;  // foom
 	
 	EditorDockWidget* print_dock_widget;
 	PrintWidget* print_widget;

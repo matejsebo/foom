@@ -57,6 +57,7 @@
 #include "gui/widgets/general_settings_page.h"
 #include "gui/widgets/paint_on_template_settings_page.h"
 #include "gui/widgets/settings_page.h"
+#include "gui/widgets/shortcuts_settings_page.h"  // foom
 #include "util/backports.h" // IWYU pragma: keep
 
 #ifdef MAPPER_USE_GDAL
@@ -216,6 +217,7 @@ void SettingsDialog::addPages()
 {
 	addPage(new GeneralSettingsPage(this));
 	addPage(new EditorSettingsPage(this));
+	addPage(new ShortcutsSettingsPage(this));  // foom
 #ifdef MAPPER_USE_GDAL
 	addPage(new GdalSettingsPage(this));
 #endif
