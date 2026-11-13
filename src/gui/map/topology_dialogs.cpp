@@ -29,6 +29,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QRadioButton>
+#include <QSpinBox>
 #include <QVBoxLayout>
 
 #include "core/map.h"
@@ -192,6 +193,156 @@ ops::IntersectionParams IntersectionDialog::params() const
 	params.dash = vertex_combo->currentData().toBool();
 	params.point_symbol = editor->activeSymbol();
 	params.include_touching = touching_check->isChecked();
+	return params;
+}
+
+
+MakeRectangularDialog::MakeRectangularDialog(MapEditorController* editor, QWidget* parent)
+: QDialog(parent)
+, editor(editor)
+{
+	setWindowTitle(tr("Make rectangular"));
+	tolerance_edit = new QSpinBox();
+	tolerance_edit->setRange(0, 90);
+	tolerance_edit->setSingleStep(5);
+	tolerance_edit->setSuffix(QStringLiteral(" \u00b0"));
+	tolerance_edit->setValue(int(ops::RectangularParams().tolerance_deg));
+	auto const* first = editor->getMap()->getFirstSelectedObject();
+	auto const have_reference = first && first->getType() == Object::Path && first->getSymbol() && (first->getSymbol()->getContainedTypes() & Symbol::Line) && editor->getMap()->getNumSelectedObjects() >= 2;
+	reference_check = new QCheckBox(tr("Align to the first selected line"));
+	reference_check->setEnabled(have_reference);
+	distance_check = new QCheckBox(tr("Place at distance from it:"));
+	distance_edit = new QDoubleSpinBox();
+	distance_edit->setDecimals(2);
+	distance_edit->setRange(0.0, 100.0);
+	distance_edit->setSingleStep(0.1);
+	distance_edit->setSuffix(QStringLiteral(" mm"));
+	distance_check->setEnabled(false);
+	distance_edit->setEnabled(false);
+	connect(reference_check, &QCheckBox::toggled, distance_check, &QWidget::setEnabled);
+	connect(reference_check, &QCheckBox::toggled, this, [this](bool on) { distance_edit->setEnabled(on && distance_check->isChecked()); });
+	connect(distance_check, &QCheckBox::toggled, distance_edit, &QWidget::setEnabled);
+
+	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+	connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+	connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+	auto* distance_row = new QHBoxLayout();
+	distance_row->addWidget(distance_check);
+	distance_row->addWidget(distance_edit);
+	distance_row->addStretch();
+	auto* layout = new QFormLayout();
+	layout->addRow(tr("Angle tolerance:"), tolerance_edit);
+	layout->addRow(reference_check);
+	layout->addRow(distance_row);
+	auto* main_layout = new QVBoxLayout(this);
+	main_layout->addLayout(layout);
+	main_layout->addWidget(buttons);
+}
+
+MakeRectangularDialog::~MakeRectangularDialog() = default;
+
+ops::RectangularParams MakeRectangularDialog::params() const
+{
+	ops::RectangularParams params;
+	params.tolerance_deg = tolerance_edit->value();
+	if (reference_check->isChecked())
+	{
+		params.reference = editor->getMap()->getFirstSelectedObject();
+		params.place_at_distance = distance_check->isChecked();
+		params.distance_mm = distance_edit->value();
+	}
+	return params;
+}
+
+
+GeneralizeBuildingsDialog::GeneralizeBuildingsDialog(QWidget* parent)
+: QDialog(parent)
+{
+	setWindowTitle(tr("Generalize buildings"));
+	ops::SimplifyBuildingParams const simplify_defaults;
+	simplify_button = new QRadioButton(tr("Simplify outlines"));
+	simplify_button->setChecked(true);
+	keep_corners_check = new QCheckBox(tr("Keep corner vertices (dash points)"));
+	keep_corners_check->setChecked(simplify_defaults.keep_corners);
+	angle_edit = new QDoubleSpinBox();
+	angle_edit->setDecimals(1);
+	angle_edit->setRange(0.0, 45.0);
+	angle_edit->setSingleStep(0.5);
+	angle_edit->setSuffix(QStringLiteral(" \u00b0"));
+	angle_edit->setValue(simplify_defaults.angle_deg);
+	offset_edit = new QDoubleSpinBox();
+	offset_edit->setDecimals(2);
+	offset_edit->setRange(0.0, 10.0);
+	offset_edit->setSingleStep(0.05);
+	offset_edit->setSuffix(QStringLiteral(" mm"));
+	offset_edit->setValue(simplify_defaults.offset_mm);
+	compensate_check = new QCheckBox(tr("Compensate the area"));
+	compensate_check->setChecked(simplify_defaults.compensate_area);
+
+	rectangle_button = new QRadioButton(tr("Replace by rectangles"));
+	mode_combo = new QComboBox();
+	mode_combo->addItem(tr("Each object by its own rectangle"), int(ops::RectangleParams::Each));
+	mode_combo->addItem(tr("All objects by one rectangle"), int(ops::RectangleParams::All));
+	mode_combo->addItem(tr("All objects by a series of rectangles"), int(ops::RectangleParams::Series));
+	count_edit = new QSpinBox();
+	count_edit->setRange(1, 50);
+	count_edit->setValue(2);
+	factor_edit = new QSpinBox();
+	factor_edit->setRange(20, 500);
+	factor_edit->setSingleStep(10);
+	factor_edit->setSuffix(QStringLiteral(" %"));
+	factor_edit->setValue(100);
+
+	auto const enable_mode = [this](bool simplify) {
+		for (auto* widget : std::vector<QWidget*>{ keep_corners_check, angle_edit, offset_edit, compensate_check })
+			widget->setEnabled(simplify);
+		for (auto* widget : std::vector<QWidget*>{ mode_combo, count_edit, factor_edit })
+			widget->setEnabled(!simplify);
+	};
+	connect(simplify_button, &QRadioButton::toggled, this, enable_mode);
+	enable_mode(true);
+
+	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+	connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+	connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+	auto* layout = new QFormLayout();
+	layout->addRow(simplify_button);
+	layout->addRow(keep_corners_check);
+	layout->addRow(tr("Angle limit:"), angle_edit);
+	layout->addRow(tr("Offset tolerance:"), offset_edit);
+	layout->addRow(compensate_check);
+	layout->addRow(rectangle_button);
+	layout->addRow(tr("Mode:"), mode_combo);
+	layout->addRow(tr("Number in the series:"), count_edit);
+	layout->addRow(tr("Area:"), factor_edit);
+	auto* main_layout = new QVBoxLayout(this);
+	main_layout->addLayout(layout);
+	main_layout->addWidget(buttons);
+}
+
+GeneralizeBuildingsDialog::~GeneralizeBuildingsDialog() = default;
+
+bool GeneralizeBuildingsDialog::simplify() const
+{
+	return simplify_button->isChecked();
+}
+
+ops::SimplifyBuildingParams GeneralizeBuildingsDialog::simplifyParams() const
+{
+	ops::SimplifyBuildingParams params;
+	params.keep_corners = keep_corners_check->isChecked();
+	params.angle_deg = angle_edit->value();
+	params.offset_mm = offset_edit->value();
+	params.compensate_area = compensate_check->isChecked();
+	return params;
+}
+
+ops::RectangleParams GeneralizeBuildingsDialog::rectangleParams() const
+{
+	ops::RectangleParams params;
+	params.mode = ops::RectangleParams::Mode(mode_combo->currentData().toInt());
+	params.count = count_edit->value();
+	params.area_factor = factor_edit->value() / 100.0;
 	return params;
 }
 

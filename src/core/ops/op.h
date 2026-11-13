@@ -75,6 +75,8 @@ struct OpResult
 	
 	/** The failure message, empty on success. */
 	QString error;
+	/** A message about inputs which were skipped, on success. */
+	QString warning;
 };
 
 

@@ -1241,5 +1241,46 @@ void ToolsTest::topology()
 	QVERIFY(map.map->undoManager().undo());
 }
 
+void ToolsTest::buildings()
+{
+	// the design notes, "Make rectangular" and "Generalize buildings", the editor part.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("make-rectangular") && editor.editor->getAction("generalize-buildings"));
+	auto* area_symbol = new AreaSymbol();
+	map.map->addSymbol(area_symbol, 1);
+	auto* skewed = new PathObject(area_symbol);
+	for (auto const& coord : { MapCoord(0.0, 0.0), MapCoord(10.0, 0.2), MapCoord(10.2, 5.0), MapCoord(0.0, 5.1) })
+		skewed->addCoordinate(coord);
+	skewed->parts().front().setClosed(true);
+	map.map->addObject(skewed);
+	auto* reference = new PathObject(map.line_symbol, { MapCoord(0.0, 20.0), MapCoord(10.0, 20.0) });
+	map.map->addObject(reference);
+	map.map->clearObjectSelection(false);
+	map.map->addObjectToSelection(reference, false);
+	map.map->addObjectToSelection(skewed, true);
+
+	MakeRectangularDialog dialog(editor.editor, editor.window);
+	auto params = dialog.params();
+	QCOMPARE(params.tolerance_deg, 15.0);
+	QVERIFY(!params.reference);
+	params.reference = reference;
+	editor.editor->makeRectangular(params);
+	QCOMPARE(map.map->getNumSelectedObjects(), 1);
+	QCOMPARE(map.map->getFirstSelectedObject()->asPath()->getCoordinateCount(), MapCoordVector::size_type(5));
+	QVERIFY(map.map->findObject(reference->uuid()));
+
+	GeneralizeBuildingsDialog generalize(editor.window);
+	QVERIFY(generalize.simplify());
+	QCOMPARE(generalize.rectangleParams().area_factor, 1.0);
+	ops::RectangleParams rectangle;
+	rectangle.area_factor = 2.0;
+	editor.editor->buildingRectangles(rectangle);
+	QCOMPARE(map.map->getNumSelectedObjects(), 1);
+	QVERIFY(map.map->undoManager().undo());
+	QVERIFY(map.map->undoManager().undo());
+	QVERIFY(map.map->findObject(skewed->uuid()));
+}
+
 
 QTEST_MAIN(ToolsTest)

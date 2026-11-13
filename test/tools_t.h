@@ -95,6 +95,9 @@ private slots:
 	
 	/** foom: Tests the topology commands of the editor. */
 	void topology();
+	
+	/** foom: Tests make rectangular and generalize buildings in the editor. */
+	void buildings();
 };
 
 #endif

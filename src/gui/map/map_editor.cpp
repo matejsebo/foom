@@ -1070,6 +1070,8 @@ void MapEditorController::createActions()
 	fix_overshoots_act = newAction("fix-overshoots", tr("Remove overshoots and undershoots..."), this, SLOT(fixOvershootsClicked()));  // foom
 	intersections_act = newAction("intersections", tr("Intersections..."), this, SLOT(intersectionsClicked()));  // foom
 	remove_duplicate_vertices_act = newAction("remove-duplicate-vertices", tr("Remove duplicate vertices"), this, SLOT(removeDuplicateVertices()));  // foom
+	make_rectangular_act = newAction("make-rectangular", tr("Make rectangular..."), this, SLOT(makeRectangularClicked()));  // foom
+	generalize_buildings_act = newAction("generalize-buildings", tr("Generalize buildings..."), this, SLOT(generalizeBuildingsClicked()));  // foom
 	issues_window_act = newCheckAction("issueswindow", tr("Issues window"), this, SLOT(showIssuesWindow(bool)));  // foom
 	issue_model = new IssueModel(this);
 	connect(issue_model, &IssueModel::issueActivated, this, &MapEditorController::issueActivated);
@@ -1417,6 +1419,8 @@ void MapEditorController::createMenuAndToolbars()
 	map_menu->addAction(mappart_merge_act);
 	auto* topology_menu = map_menu->addMenu(tr("Topology"));  // foom
 	topology_menu->addAction(topo_join_act);
+	topology_menu->addAction(make_rectangular_act);
+	topology_menu->addAction(generalize_buildings_act);
 	topology_menu->addAction(close_areas_act);
 	topology_menu->addAction(areas_ccw_act);
 	topology_menu->addAction(fix_overshoots_act);
@@ -2856,6 +2860,11 @@ void MapEditorController::updateObjectDependentActions()
 		action->setStatusTip(action->isEnabled() ? QString{} : tr("Select at least two path objects to activate this tool."));
 	}
 	remove_duplicate_vertices_act->setEnabled(have_line || have_area);  // foom
+	for (auto* action : { make_rectangular_act, generalize_buildings_act })  // foom
+	{
+		action->setEnabled(have_line || have_area);
+		action->setStatusTip(action->isEnabled() ? QString{} : tr("Select closed line or area objects to activate this tool."));
+	}
 	group_act->setEnabled(num_selected >= 2);  // foom
 	group_act->setStatusTip(group_act->isEnabled() ? QString{} : tr("Select at least two objects to activate this tool."));
 	for (auto* action : { ungroup_act, select_group_act })  // foom
@@ -3719,6 +3728,51 @@ void MapEditorController::removeDuplicateVertices()
 }
 
 // foom
+void MapEditorController::makeRectangularClicked()
+{
+	MakeRectangularDialog dialog(this, window);
+	if (dialog.exec() == QDialog::Accepted)
+		makeRectangular(dialog.params());
+}
+
+// foom
+void MapEditorController::makeRectangular(const ops::RectangularParams& params)
+{
+	// the design notes, "Make rectangular".
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	applyOpResult(ops::makeRectangular(*map, in, params));
+}
+
+// foom
+void MapEditorController::generalizeBuildingsClicked()
+{
+	GeneralizeBuildingsDialog dialog(window);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	if (dialog.simplify())
+		simplifyBuildings(dialog.simplifyParams());
+	else
+		buildingRectangles(dialog.rectangleParams());
+}
+
+// foom
+void MapEditorController::simplifyBuildings(const ops::SimplifyBuildingParams& params)
+{
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	applyOpResult(ops::simplifyBuildings(*map, in, params));
+}
+
+// foom
+void MapEditorController::buildingRectangles(const ops::RectangleParams& params)
+{
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	applyOpResult(ops::buildingRectangles(*map, in, params));
+}
+
+// foom
 void MapEditorController::groupClicked()
 {
 	bool ok = false;
@@ -4503,7 +4557,10 @@ void MapEditorController::applyOpResult(ops::OpResult&& result)
 		QMessageBox::warning(window, tr("Error"), result.error);
 		return;
 	}
+	auto const warning = result.warning;
 	ops::applyOp(*map, std::move(result));
+	if (!warning.isEmpty())
+		QMessageBox::information(window, tr("Skipped objects"), warning);
 }
 
 void MapEditorController::clipAreaClicked()

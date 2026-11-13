@@ -46,6 +46,7 @@
 #include "core/ops/align.h"  // foom
 #include "core/ops/replace_text.h"  // foom
 #include "gui/map/view_history.h"  // foom
+#include "core/ops/buildings.h"  // foom
 #include "core/ops/topology.h"  // foom
 #include "core/ops/transform.h"  // foom
 #include "gui/main_window_controller.h"
@@ -574,6 +575,16 @@ public slots:
 	void intersections(const ops::IntersectionParams& params);
 	/** foom: Drops repeated vertices from the selected paths. */
 	void removeDuplicateVertices();
+	/** foom: Asks for the parameters, then squares the selected closed paths. */
+	void makeRectangularClicked();
+	/** foom: Squares the selected closed paths; the reference in the parameters is left alone. */
+	void makeRectangular(const ops::RectangularParams& params);
+	/** foom: Asks for the mode and parameters, then generalizes the selected buildings. */
+	void generalizeBuildingsClicked();
+	/** foom: Simplifies the outlines of the selected closed paths. */
+	void simplifyBuildings(const ops::SimplifyBuildingParams& params);
+	/** foom: Replaces the selected closed paths by rectangles. */
+	void buildingRectangles(const ops::RectangleParams& params);
 	/** foom: Runs the map check and shows the issues; returns their number. */
 	int runMapCheck();
 	/** foom: Asks for the legibility parameters, then runs the scan. */
@@ -1009,6 +1020,8 @@ private:
 	QAction* fix_overshoots_act = {};  // foom
 	QAction* intersections_act = {};  // foom
 	QAction* remove_duplicate_vertices_act = {};  // foom
+	QAction* make_rectangular_act = {};  // foom
+	QAction* generalize_buildings_act = {};  // foom
 	QAction* check_legibility_act = {};  // foom
 	std::function<std::vector<Issue>()> last_check;  // foom: what Check again repeats
 	QAction* issues_window_act = {};  // foom

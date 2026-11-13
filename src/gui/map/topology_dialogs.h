@@ -28,12 +28,14 @@
 #include <QObject>
 #include <QString>
 
+#include "core/ops/buildings.h"
 #include "core/ops/topology.h"
 
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
 class QRadioButton;
+class QSpinBox;
 class QWidget;
 
 namespace OpenOrienteering {
@@ -117,6 +119,59 @@ private:
 	QRadioButton* point_button;
 	QComboBox* vertex_combo;
 	QCheckBox* touching_check;
+};
+
+
+/**
+ * Asks for the parameters of the make-rectangular command.
+ *
+ * See the design notes, "Make rectangular".
+ */
+class MakeRectangularDialog : public QDialog
+{
+Q_OBJECT
+public:
+	MakeRectangularDialog(MapEditorController* editor, QWidget* parent);
+	~MakeRectangularDialog() override;
+
+	/** The parameters; the reference is the first selected object when asked for. */
+	ops::RectangularParams params() const;
+
+private:
+	MapEditorController* editor;
+	QSpinBox* tolerance_edit;
+	QCheckBox* reference_check;
+	QCheckBox* distance_check;
+	QDoubleSpinBox* distance_edit;
+};
+
+
+/**
+ * Asks for the mode and parameters of the generalize-buildings command.
+ *
+ * See the design notes, "Generalize buildings".
+ */
+class GeneralizeBuildingsDialog : public QDialog
+{
+Q_OBJECT
+public:
+	GeneralizeBuildingsDialog(QWidget* parent);
+	~GeneralizeBuildingsDialog() override;
+
+	bool simplify() const;
+	ops::SimplifyBuildingParams simplifyParams() const;
+	ops::RectangleParams rectangleParams() const;
+
+private:
+	QRadioButton* simplify_button;
+	QCheckBox* keep_corners_check;
+	QDoubleSpinBox* angle_edit;
+	QDoubleSpinBox* offset_edit;
+	QCheckBox* compensate_check;
+	QRadioButton* rectangle_button;
+	QComboBox* mode_combo;
+	QSpinBox* count_edit;
+	QSpinBox* factor_edit;
 };
 
 

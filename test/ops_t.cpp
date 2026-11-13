@@ -29,6 +29,7 @@
 #include <vector>
 
 #include <QtGlobal>
+#include <QtMath>
 #include <QtTest>
 #include <QObject>
 #include <QPointF>
@@ -55,6 +56,7 @@
 #include "core/ops/op.h"
 #include "core/ops/replace_text.h"
 #include "core/ops/reshape.h"
+#include "core/ops/buildings.h"
 #include "core/ops/topology.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/area_symbol.h"
@@ -126,6 +128,7 @@ private slots:
 	void groupTest();
 	void replaceTextTest();
 	void topologyTest();
+	void buildingsTest();
 };
 
 
@@ -1192,6 +1195,182 @@ void OpsTest::topologyTest()
 	params.include_touching = false;
 	auto untouched = ops::intersections(map, { x1, t }, params);
 	QVERIFY(untouched.error.isEmpty() && untouched.out.empty());
+}
+
+void OpsTest::buildingsTest()
+{
+	// the design notes, "Make rectangular" and "Generalize buildings", Accept.
+	Map map;
+	auto* area_symbol = new AreaSymbol();
+	map.addSymbol(area_symbol, 0);
+	auto* line_symbol = new LineSymbol();
+	map.addSymbol(line_symbol, 1);
+	auto const ring = [&map, area_symbol](std::initializer_list<MapCoord> coords) {
+		auto* object = new PathObject(area_symbol);
+		for (auto const& coord : coords)
+			object->addCoordinate(coord);
+		object->parts().front().setClosed(true);
+		map.addObject(object);
+		return object;
+	};
+	auto const vertices = [](const Object* object) {
+		std::vector<QPointF> out;
+		auto const& coords = object->asPath()->getRawCoordinateVector();
+		for (std::size_t i = 0; i + 1 < coords.size(); ++i)  // without the close point
+			out.emplace_back(coords[i].x(), coords[i].y());
+		return out;
+	};
+	auto const area = [](const std::vector<QPointF>& ring) {
+		auto sum = 0.0;
+		for (std::size_t i = 0; i < ring.size(); ++i)
+			sum += ring[i].x() * ring[(i + 1) % ring.size()].y() - ring[(i + 1) % ring.size()].x() * ring[i].y();
+		return std::abs(sum) / 2;
+	};
+	// Coordinates have a resolution of 0.001 mm, so positions are compared within 0.01 mm and areas within 0.05 mm².
+	auto const near = [](double a, double b, double tolerance = 0.01) { return std::abs(a - b) <= tolerance; };
+	auto const has_vertex = [&near](const std::vector<QPointF>& ring, double x, double y) {
+		for (auto const& p : ring)
+		{
+			if (near(p.x(), x) && near(p.y(), y))
+				return true;
+		}
+		return false;
+	};
+
+	// Make rectangular with a reference line.
+	auto* reference = new PathObject(line_symbol, { MapCoord(0.0, 20.0), MapCoord(10.0, 20.0) });
+	map.addObject(reference);
+	auto* skewed = ring({ MapCoord(0.0, 0.0), MapCoord(10.0, 0.2), MapCoord(10.2, 5.0), MapCoord(0.0, 5.1) });
+	ops::RectangularParams rectangular;
+	rectangular.reference = reference;
+	auto squared = ops::makeRectangular(map, { reference, skewed }, rectangular);
+	QVERIFY2(squared.error.isEmpty(), squared.error.toLatin1());
+	QVERIFY(squared.warning.isEmpty());
+	QCOMPARE(squared.out.size(), std::size_t(1));
+	QCOMPARE(squared.consumed, (std::vector<const Object*>{ skewed }));
+	QCOMPARE(squared.out.front()->uuid(), skewed->uuid());
+	auto corners = vertices(squared.out.front().get());
+	QCOMPARE(corners.size(), std::size_t(4));
+	for (auto const& p : { QPointF(0.0, 0.1), QPointF(10.1, 0.1), QPointF(10.1, 5.05), QPointF(0.0, 5.05) })
+		QVERIFY2(has_vertex(corners, p.x(), p.y()), qPrintable(QString::number(p.x()) + QLatin1Char(' ') + QString::number(p.y())));
+	rectangular.place_at_distance = true;
+	rectangular.distance_mm = 2.0;
+	auto placed = ops::makeRectangular(map, { reference, skewed }, rectangular);
+	QVERIFY(placed.error.isEmpty());
+	corners = vertices(placed.out.front().get());
+	QVERIFY(has_vertex(corners, 0.0, 18.0) && has_vertex(corners, 10.1, 18.0) && has_vertex(corners, 0.0, 13.05));
+
+	// Without a reference: right angles and a close area.
+	ops::RectangularParams own;
+	auto own_result = ops::makeRectangular(map, { skewed }, own);
+	QVERIFY2(own_result.error.isEmpty(), own_result.error.toLatin1());
+	QCOMPARE(own_result.out.size(), std::size_t(1));
+	corners = vertices(own_result.out.front().get());
+	QCOMPARE(corners.size(), std::size_t(4));
+	for (std::size_t i = 0; i < 4; ++i)
+	{
+		auto const a = corners[(i + 3) % 4] - corners[i];
+		auto const b = corners[(i + 1) % 4] - corners[i];
+		auto const angle = std::abs(qRadiansToDegrees(std::acos((a.x() * b.x() + a.y() * b.y()) / (std::hypot(a.x(), a.y()) * std::hypot(b.x(), b.y())))));
+		QVERIFY2(std::abs(angle - 90.0) < 0.01, qPrintable(QString::number(angle)));
+	}
+	QVERIFY(std::abs(area(corners) - area(vertices(skewed))) < 0.05 * area(vertices(skewed)));
+
+	// A chamfer is a free edge: nothing changes.
+	auto* chamfered = ring({ MapCoord(0.0, 30.0), MapCoord(8.0, 30.0), MapCoord(10.0, 32.0), MapCoord(10.0, 35.0), MapCoord(0.0, 35.0) });
+	auto unchanged = ops::makeRectangular(map, { chamfered }, own);
+	QVERIFY(unchanged.error.isEmpty());
+	QVERIFY(unchanged.out.empty());
+
+	// Rejection.
+	auto* triangle = ring({ MapCoord(0.0, 40.0), MapCoord(10.0, 40.0), MapCoord(10.0, 41.0) });
+	auto rejected = ops::makeRectangular(map, { triangle }, own);
+	QVERIFY(!rejected.error.isEmpty());
+	auto partly = ops::makeRectangular(map, { triangle, skewed }, own);
+	QVERIFY(partly.error.isEmpty());
+	QVERIFY(!partly.warning.isEmpty());
+	QCOMPARE(partly.out.size(), std::size_t(1));
+	auto* open_line = new PathObject(line_symbol, { MapCoord(0.0, 50.0), MapCoord(10.0, 50.2), MapCoord(10.0, 55.0) });
+	map.addObject(open_line);
+	QVERIFY(!ops::makeRectangular(map, { open_line }, own).error.isEmpty());
+
+	// Simplify.
+	auto* jogged = ring({ MapCoord(0.0, 60.0), MapCoord(3.0, 60.0), MapCoord(3.0, 60.04), MapCoord(10.0, 60.04), MapCoord(10.0, 65.0), MapCoord(0.0, 65.0) });
+	ops::SimplifyBuildingParams simplify;
+	simplify.offset_mm = 0.05;
+	auto simplified = ops::simplifyBuildings(map, { jogged }, simplify);
+	QVERIFY2(simplified.error.isEmpty(), simplified.error.toLatin1());
+	QCOMPARE(simplified.out.size(), std::size_t(1));
+	QCOMPARE(vertices(simplified.out.front().get()).size(), std::size_t(4));
+	QVERIFY(near(area(vertices(simplified.out.front().get())), area(vertices(jogged)), 0.05));
+	simplify.compensate_area = false;
+	auto uncompensated = ops::simplifyBuildings(map, { jogged }, simplify);
+	QVERIFY(!near(area(vertices(uncompensated.out.front().get())), area(vertices(jogged)), 0.05));
+	simplify.compensate_area = true;
+	jogged->getCoordinateRef(1).setDashPoint(true);
+	auto kept = ops::simplifyBuildings(map, { jogged }, simplify);
+	QCOMPARE(vertices(kept.out.front().get()).size(), std::size_t(5));
+	QVERIFY(kept.out.front()->asPath()->getCoordinate(1).isDashPoint());
+	auto* flat = ring({ MapCoord(0.0, 70.0), MapCoord(5.0, 70.001), MapCoord(10.0, 70.0), MapCoord(10.0, 75.0), MapCoord(0.0, 75.0) });
+	simplify.offset_mm = 0.0;
+	auto by_angle = ops::simplifyBuildings(map, { flat }, simplify);
+	QCOMPARE(by_angle.out.size(), std::size_t(1));
+	QCOMPARE(vertices(by_angle.out.front().get()).size(), std::size_t(4));
+
+	// Rectangles: each.
+	auto const c = std::cos(qDegreesToRadians(30.0));
+	auto const s = std::sin(qDegreesToRadians(30.0));
+	auto const rotate = [c, s](double x, double y) { return MapCoord(c * x - s * y + 50.0, s * x + c * y + 100.0); };
+	auto* rotated_box = ring({ rotate(0.0, 0.0), rotate(10.0, 0.0), rotate(10.0, 4.0), rotate(0.0, 4.0) });
+	ops::RectangleParams rectangle;
+	auto boxed = ops::buildingRectangles(map, { rotated_box }, rectangle);
+	QVERIFY2(boxed.error.isEmpty(), boxed.error.toLatin1());
+	QCOMPARE(boxed.out.size(), std::size_t(1));
+	corners = vertices(boxed.out.front().get());
+	QCOMPARE(corners.size(), std::size_t(4));
+	for (auto const& coord : vertices(rotated_box))
+		QVERIFY(has_vertex(corners, coord.x(), coord.y()));
+	rectangle.area_factor = 2.0;
+	auto doubled = ops::buildingRectangles(map, { rotated_box }, rectangle);
+	QVERIFY(near(area(vertices(doubled.out.front().get())), 80.0, 0.05));
+
+	// Rectangles: all and series.
+	auto* square_a = ring({ MapCoord(0.0, 200.0), MapCoord(4.0, 200.0), MapCoord(4.0, 204.0), MapCoord(0.0, 204.0) });
+	auto* square_b = ring({ MapCoord(6.0, 200.0), MapCoord(10.0, 200.0), MapCoord(10.0, 204.0), MapCoord(6.0, 204.0) });
+	rectangle.area_factor = 1.0;
+	rectangle.mode = ops::RectangleParams::All;
+	auto all = ops::buildingRectangles(map, { square_a, square_b }, rectangle);
+	QVERIFY2(all.error.isEmpty(), all.error.toLatin1());
+	QCOMPARE(all.out.size(), std::size_t(1));
+	QCOMPARE(all.consumed, (std::vector<const Object*>{ square_a, square_b }));
+	QCOMPARE(all.out.front()->uuid(), square_a->uuid());
+	corners = vertices(all.out.front().get());
+	QVERIFY(near(area(corners), 32.0, 0.05));
+	QPointF centre;
+	for (auto const& p : corners)
+		centre += p / 4.0;
+	QVERIFY(near(centre.x(), 5.0) && near(centre.y(), 202.0));
+	rectangle.mode = ops::RectangleParams::Series;
+	rectangle.count = 2;
+	auto series = ops::buildingRectangles(map, { square_a, square_b }, rectangle);
+	QVERIFY2(series.error.isEmpty(), series.error.toLatin1());
+	QCOMPARE(series.out.size(), std::size_t(2));
+	for (auto const& output : series.out)
+	{
+		auto const piece = vertices(output.get());
+		QVERIFY(near(area(piece), 16.0, 0.05));
+		auto min_x = 1e9, max_x = -1e9, sum_y = 0.0;
+		for (auto const& p : piece)
+		{
+			min_x = std::min(min_x, p.x());
+			max_x = std::max(max_x, p.x());
+			sum_y += p.y();
+		}
+		QVERIFY(near(max_x - min_x, 5.0) && (near(min_x, 0.0) || near(min_x, 5.0)));
+		QVERIFY(near(sum_y / 4, 202.0));
+	}
+	QCOMPARE(series.out[0]->uuid(), square_a->uuid());
+	QCOMPARE(series.out[1]->derivedFrom(), square_a->uuid());
 }
 
 

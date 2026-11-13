@@ -127,6 +127,7 @@ set(Mapper_Common_SRCS
   core/ops/replace_text.cpp
   core/ops/reshape.cpp
   core/ops/topology.cpp
+  core/ops/buildings.cpp
   check/issue.cpp
   check/legibility.cpp
   tools/legibility_feedback.cpp
