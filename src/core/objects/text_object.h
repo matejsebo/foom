@@ -165,6 +165,12 @@ public:
 	 */
 	bool hasSingleAnchor() const;
 	
+	/** foom: Returns whether this text follows its anchor path (the symbol says so). */
+	bool followsPath() const;
+	
+	/** foom: Sets the anchor path of a text which follows it; the object counts as single-anchored. */
+	void setAnchorPath(const MapCoordVector& path);
+	
 	/** Sets the position of the anchor point to (x,y). 
 	 *  This will drop an existing word wrap box.
 	 */

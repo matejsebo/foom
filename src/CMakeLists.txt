@@ -129,6 +129,8 @@ set(Mapper_Common_SRCS
   core/ops/topology.cpp
   core/ops/buildings.cpp
   core/ops/smooth.cpp
+  core/renderables/path_text_renderable.cpp
+  core/symbols/text_symbol_path.cpp
   check/issue.cpp
   check/legibility.cpp
   tools/legibility_feedback.cpp

@@ -66,7 +66,12 @@ QRectF boundingRect(const std::vector<const Object*>& in)
 			if (coords.empty())
 				continue;
 			auto const anchor = QPointF(text->getAnchorCoordF());
-			if (text->hasSingleAnchor())
+			if (text->followsPath())
+			{
+				for (auto const& coord : coords)
+					include(QPointF(coord.x(), coord.y()));
+			}
+			else if (text->hasSingleAnchor())
 			{
 				include(anchor);
 			}

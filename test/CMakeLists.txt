@@ -219,6 +219,8 @@ target_link_libraries(style_t  PRIVATE scaling-icon-engine)
 add_system_test(symbol_set_t)
 add_system_test(symbol_t)
 target_link_libraries(symbol_t PRIVATE MapperTestUtils)
+add_system_test(path_text_t)
+target_link_libraries(path_text_t PRIVATE MapperTestUtils)
 add_system_test(template_t)
 add_system_test(tools_t)
 add_system_test(track_t)  # Could be unit test, but needs Georeferencing

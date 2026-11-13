@@ -127,7 +127,18 @@ OpResult stretch(const Map& /*map*/, const std::vector<const Object*>& in, const
 			{
 				auto* text = output.asText();
 				auto const anchor = stretchCoord(MapCoord(text->getAnchorCoordF()));
-				if (text->hasSingleAnchor())
+				if (text->followsPath())
+				{
+					auto path = text->getRawCoordinateVector();
+					for (auto& coord : path)
+					{
+						auto const moved = stretchCoord(coord);
+						coord.setX(moved.x());
+						coord.setY(moved.y());
+					}
+					text->setAnchorPath(path);
+				}
+				else if (text->hasSingleAnchor())
 				{
 					text->setAnchorPosition(anchor);
 				}

@@ -80,6 +80,8 @@ TextSymbol::TextSymbol()
 , kerning { true }
 , framing { false }
 , line_below { false }
+, follows_path { false }
+, path_alignment { 0 }
 {
 	setRotatable(true);
 	updateQFont();
@@ -111,6 +113,8 @@ TextSymbol::TextSymbol(const TextSymbol& proto)
 , italic { proto.italic }
 , underline { proto.underline }
 , kerning { proto.kerning }
+, follows_path { proto.follows_path }
+, path_alignment { proto.path_alignment }
 , framing { proto.framing }
 , line_below { proto.line_below }
 {
@@ -142,6 +146,10 @@ void TextSymbol::createRenderables(
 	if (options.testFlag(Symbol::RenderBaselines))
 	{
 		createBaselineRenderables(text_object, coords, output);
+	}
+	else if (follows_path)  // foom
+	{
+		createPathTextRenderables(text_object, output);
 	}
 	else
 	{
@@ -340,6 +348,11 @@ void TextSymbol::saveImpl(QXmlStreamWriter& xml, const Map& map) const
 	xml.writeAttribute(QStringLiteral("icon_text"), icon_text);
 	if (isRotatable())
 		xml.writeAttribute(QString::fromLatin1("rotatable"), QString::fromLatin1("true"));
+	if (follows_path)  // foom
+	{
+		xml.writeAttribute(QStringLiteral("follows_path"), QStringLiteral("true"));
+		xml.writeAttribute(QStringLiteral("path_alignment"), QString::number(path_alignment));
+	}
 	
 	xml.writeStartElement(QStringLiteral("font"));
 	xml.writeAttribute(QStringLiteral("family"), font_family);
@@ -404,6 +417,8 @@ bool TextSymbol::loadImpl(QXmlStreamReader& xml, const Map& map, SymbolDictionar
 		setRotatable(xml.attributes().value(QLatin1String("rotatable")) == QLatin1String("true"));
 	else
 		setRotatable(version < 9); // always rotatable before version 9
+	follows_path = xml.attributes().value(QLatin1String("follows_path")) == QLatin1String("true");  // foom
+	path_alignment = xml.attributes().value(QLatin1String("path_alignment")).toInt();  // foom
 	framing = false;
 	line_below = false;
 	custom_tabs.clear();
@@ -479,6 +494,8 @@ bool TextSymbol::equalsImpl(const Symbol* other, Qt::CaseSensitivity case_sensit
 	if (!MapColor::equal(color, text->color))
 		return false;
 	if (font_family.compare(text->font_family, Qt::CaseInsensitive) != 0)
+		return false;
+	if (follows_path != text->follows_path || (follows_path && path_alignment != text->path_alignment))  // foom
 		return false;
 	if (font_size != text->font_size ||
 		bold != text->bold ||

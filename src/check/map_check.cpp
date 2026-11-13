@@ -44,6 +44,7 @@
 #include "core/ops/op.h"
 #include "core/ops/topology.h"
 #include "core/symbols/line_symbol.h"
+#include "core/symbols/path_text_layout.h"
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
 #include "core/symbols/text_symbol.h"
@@ -138,6 +139,17 @@ void checkObjects(const Map& map, const MapPart& part, std::vector<Issue>& issue
 		case Object::Text:
 			if (object->asText()->getText().trimmed().isEmpty())
 				issues.push_back(objectIssue(rule::text_empty, Issue::Warning, *object, tr("The text object is empty.")));
+			else if (object->asText()->followsPath())
+			{
+				auto const layout = static_cast<const TextSymbol*>(symbol)->layoutPathText(object->asText());
+				if (layout.overflow)
+				{
+					auto issue = objectIssue(rule::text_path_overflow, Issue::Warning, *object, tr("The text is longer than its path."));
+					issue.measured = layout.text_advance;
+					issue.limit = layout.path_length;
+					issues.push_back(issue);
+				}
+			}
 			break;
 		case Object::Path:
 			{

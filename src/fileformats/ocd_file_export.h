@@ -214,6 +214,10 @@ protected:
 	template< class Format, class OcdTextSymbol >
 	void exportTextSymbol(OcdFile<Format>& file, const TextSymbol* text_symbol);
 	
+	/** foom: Exports a text symbol whose objects follow their path as a line text symbol. */
+	template< class Format, class OcdLineTextSymbol >
+	void exportLineTextSymbol(OcdFile<Format>& file, const TextSymbol* text_symbol);
+	
 	template< class OcdTextSymbol >
 	QByteArray exportTextSymbol(const TextSymbol* text_symbol, quint32 symbol_number, int alignment);
 	

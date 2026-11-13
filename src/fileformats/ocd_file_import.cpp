@@ -1722,8 +1722,9 @@ TextSymbol* OcdFileImport::importLineTextSymbol(const S& ocd_symbol)
 	setBasicAttributes(symbol, convertOcdString(ocd_symbol.font_name), ocd_symbol.basic);
 	setFraming(symbol, ocd_symbol.framing);
 	
-	addSymbolWarning(symbol, OcdFileImport::tr("Line text symbols are not yet supported. Marking the symbol as hidden."));
-	symbol->setHidden(true);
+	// foom: text on a path, see the design notes.
+	symbol->setFollowsPath(true);
+	symbol->setPathAlignment(ocd_symbol.basic.alignment & 0x0f);
 	return symbol;
 }
 
@@ -1968,6 +1969,16 @@ Object* OcdFileImport::importObject(const O& ocd_object, MapPart* part)
 		t->setHorizontalAlignment(text_halign_map.value(symbol));
 		// Vertical alignment is set in fillTextPathCoords().
 		
+		// foom: text on a path takes the whole coordinate list
+		if (reinterpret_cast<TextSymbol*>(symbol)->followsPath())
+		{
+			OcdImportedPathObject anchor_path;
+			fillPathCoords(&anchor_path, false, ocd_object.num_items, reinterpret_cast<const Ocd::OcdPoint32 *>(ocd_object.coords));
+			t->setAnchorPath(anchor_path.getRawCoordinateVector());
+			t->setVerticalAlignment(TextObject::AlignBaseline);
+			t->setMap(map);
+			return t;
+		}
 		// Text objects need special path translation
 		if (!fillTextPathCoords(t, reinterpret_cast<TextSymbol*>(symbol), ocd_object.num_items, reinterpret_cast<const Ocd::OcdPoint32 *>(ocd_object.coords)))
 		{

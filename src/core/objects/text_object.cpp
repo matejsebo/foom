@@ -205,11 +205,36 @@ MapCoordF TextObject::getAnchorCoordF() const
 }
 
 
+// foom
+bool TextObject::followsPath() const
+{
+	return symbol && symbol->getType() == Symbol::Text && static_cast<const TextSymbol*>(symbol)->followsPath();
+}
+
+// foom
+void TextObject::setAnchorPath(const MapCoordVector& path)
+{
+	has_single_anchor = true;
+	coords = path;
+	setOutputDirty();
+}
+
 void TextObject::transform(const QTransform& t)
 {
 	if (t.isIdentity())
 		return;
 	
+	if (followsPath())  // foom: every coordinate of the anchor path moves
+	{
+		for (auto& c : coords)
+		{
+			const auto p = t.map(MapCoordF{c});
+			c.setX(p.x());
+			c.setY(p.y());
+		}
+		setOutputDirty();
+		return;
+	}
 	auto& coord = coords.front();
 	const auto p = t.map(MapCoordF{coord});
 	coord.setX(p.x());

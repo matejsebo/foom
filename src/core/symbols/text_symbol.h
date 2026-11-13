@@ -45,6 +45,7 @@ class ObjectRenderables;
 class SymbolPropertiesWidget;
 class SymbolSettingDialog;
 class TextObject;
+struct PathTextLayout;  // foom
 class VirtualCoordVector;
 
 
@@ -144,6 +145,21 @@ public:
 	
 	double getNextTab(double pos) const;
 	
+	/** foom: Returns whether objects of this symbol follow their anchor path. */
+	bool followsPath() const { return follows_path; }
+	/** foom: Sets whether objects follow their anchor path. */
+	void setFollowsPath(bool value) { follows_path = value; }
+	/** foom: Returns the alignment of text on a path, in the bit layout of OCD files (see the design notes). */
+	int getPathAlignment() const { return path_alignment; }
+	/** foom: Sets the alignment of text on a path. */
+	void setPathAlignment(int value) { path_alignment = value; }
+	/** foom: Lays the text object out along its anchor path. */
+	PathTextLayout layoutPathText(const TextObject* text_object) const;
+	/** foom: Sets the font family and updates the font. */
+	void setFontFamily(const QString& family) { font_family = family; updateQFont(); }
+	/** foom: Sets the font size in 1/1000 mm and updates the font. */
+	void setFontSize(int size) { font_size = size; updateQFont(); }
+	
 	constexpr static qreal internal_point_size = 256;
 	
 	SymbolPropertiesWidget* createPropertiesWidget(SymbolSettingDialog* dialog) override;
@@ -151,6 +167,9 @@ public:
 protected:
 	void saveImpl(QXmlStreamWriter& xml, const Map& map) const override;
 	bool loadImpl(QXmlStreamReader& xml, const Map& map, SymbolDictionary& symbol_dict, int version) override;
+	
+	/** foom: Creates the renderables of a text object which follows its anchor path. */
+	void createPathTextRenderables(const TextObject* text_object, ObjectRenderables& output) const;
 	bool equalsImpl(const Symbol* other, Qt::CaseSensitivity case_sensitivity) const override;
 	
 	
@@ -184,6 +203,8 @@ protected:
 	bool kerning;
 	bool framing;
 	bool line_below;
+	bool follows_path;     // foom: text on a path, see the design notes
+	int path_alignment;    // foom: the alignment bits for text on a path, as in OCD files
 	
 };
 

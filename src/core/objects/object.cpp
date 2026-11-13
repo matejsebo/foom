@@ -318,7 +318,11 @@ void Object::save(QXmlStreamWriter& xml) const
 		// For compatibility, we must keep the box size in the second coord ATM.
 		/// \todo From Mapper 1.0, save just the single anchor coordinate.
 		auto* object = const_cast<Object*>(this);
-		if (text->hasSingleAnchor())
+		if (text->followsPath())  // foom: the anchor path is the coordinate list
+		{
+			// keep all coordinates
+		}
+		else if (text->hasSingleAnchor())
 		{
 			object->coords.resize(1);
 		}
@@ -455,7 +459,7 @@ Object* Object::load(QXmlStreamReader& xml, Map* map, const SymbolDictionary& sy
 				if (object_type == Text)
 				{
 					coords_element.readForText(object->coords);
-					if (object->coords.size() > 1)
+					if (object->coords.size() > 1 && !static_cast<TextObject*>(object)->followsPath())  // foom
 						static_cast<TextObject*>(object)->setBoxSize(object->coords[1]);
 				}
 				else

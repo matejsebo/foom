@@ -1089,7 +1089,10 @@ void OcdFileExport::exportSymbols(OcdFile<Format>& file)
 			break;
 			
 		case Symbol::Text:
-			exportTextSymbol<Format, typename Format::TextSymbol>(file, static_cast<const TextSymbol*>(symbol));
+			if (static_cast<const TextSymbol*>(symbol)->followsPath())  // foom
+				exportLineTextSymbol<Format, typename Format::LineTextSymbol>(file, static_cast<const TextSymbol*>(symbol));
+			else
+				exportTextSymbol<Format, typename Format::TextSymbol>(file, static_cast<const TextSymbol*>(symbol));
 			continue;  // already added to file
 			
 		case Symbol::Combined:
@@ -1862,6 +1865,50 @@ void OcdFileExport::exportTextSymbol(OcdFile<Format>& file, const TextSymbol* te
 		FILEFORMAT_ASSERT(!ocd_symbol.isEmpty());
 		file.symbols().insert(ocd_symbol);
 	}
+}
+
+
+namespace {
+
+// foom: line text symbols are type 6 since version 9, and type 2 with type2 1 in version 8.
+template< class OcdBaseSymbol >
+void setLineTextSymbolType(OcdBaseSymbol& base)
+{
+	base.type = Ocd::SymbolTypeLineText;
+}
+
+template< >
+void setLineTextSymbolType<Ocd::BaseSymbolV8>(Ocd::BaseSymbolV8& base)
+{
+	base.type = Ocd::SymbolTypeLine;
+	base.type2 = 1;
+}
+
+}  // namespace
+
+
+// foom
+template< class Format, class OcdLineTextSymbol >
+void OcdFileExport::exportLineTextSymbol(OcdFile<Format>& file, const TextSymbol* text_symbol)
+{
+	// the design notes, "Text on a path".
+	auto const symbol_number = symbol_numbers.at(text_symbol);
+	text_format_mapping.push_back({text_symbol, TextObject::AlignLeft, 0, symbol_number});
+
+	OcdLineTextSymbol ocd_symbol = {};
+	setupBaseSymbol<typename OcdLineTextSymbol::BaseSymbol>(text_symbol, symbol_number, ocd_symbol.base);
+	setLineTextSymbolType(ocd_symbol.base);
+	ocd_symbol.font_name = toOcdString(text_symbol->getFontFamily());
+	setupTextSymbolBasic(text_symbol, text_symbol->getPathAlignment(), ocd_symbol.basic);
+	setupTextSymbolFraming(text_symbol, ocd_symbol.framing);
+
+	auto header_size = int(sizeof(OcdLineTextSymbol));
+	ocd_symbol.base.size = decltype(ocd_symbol.base.size)(header_size);
+	QByteArray data;
+	data.reserve(header_size);
+	data.append(reinterpret_cast<const char*>(&ocd_symbol), header_size);
+	FILEFORMAT_ASSERT(data.size() == header_size);
+	file.symbols().insert(data);
 }
 
 
@@ -2645,8 +2692,9 @@ QByteArray OcdFileExport::exportTextObject(const TextObject* text, typename OcdO
 {
 	auto symbol = static_cast<const TextSymbol*>(text->getSymbol());
 	auto alignment = text->getHorizontalAlignment();
-	auto text_format = std::find_if(begin(text_format_mapping), end(text_format_mapping), [symbol, alignment](const auto& m) {
-		return m.symbol == symbol && m.alignment == alignment;
+	auto const follows_path = text->followsPath();  // foom: one symbol record, whatever the object's alignment
+	auto text_format = std::find_if(begin(text_format_mapping), end(text_format_mapping), [symbol, alignment, follows_path](const auto& m) {
+		return m.symbol == symbol && (follows_path || m.alignment == alignment);
 	});
 
 	decltype(entry.symbol) symbol_number = -1;
@@ -2656,7 +2704,7 @@ QByteArray OcdFileExport::exportTextObject(const TextObject* text, typename OcdO
 		FILEFORMAT_ASSERT(map->findSymbolIndex(symbol) < -1); // -2 and below indicate objects with undefined symbols
 	
 	OcdObject ocd_object = {};
-	ocd_object.type = text->hasSingleAnchor() ? 4 : 5;
+	ocd_object.type = text->followsPath() ? 6 : (text->hasSingleAnchor() ? 4 : 5);  // foom: 6 is line text
 	ocd_object.symbol = entry.symbol = symbol_number;
 	ocd_object.angle = decltype(ocd_object.angle)(convertRotation(text->getRotation()));
 	return exportObjectCommon(text, ocd_object, entry);
@@ -2686,6 +2734,11 @@ QByteArray OcdFileExport::exportObjectCommon(const Object* object, OcdObject& oc
 			ocd_object.num_text = decltype(ocd_object.num_text)(text_data.size() / int(sizeof(Ocd::OcdPoint32)));
 		}
 		break;
+	case 6:  // foom: line text, the path plus the text data
+		ocd_object.num_items = decltype(ocd_object.num_items)(coords.size());
+		text_data = exportTextData(static_cast<const TextObject*>(object), sizeof(Ocd::OcdPoint32) * 8, 1024 / 8);
+		ocd_object.num_text = decltype(ocd_object.num_text)(text_data.size() / int(sizeof(Ocd::OcdPoint32)));
+		break;
 	default:
 		ocd_object.num_items = decltype(ocd_object.num_items)(coords.size());
 	}
@@ -2711,6 +2764,10 @@ QByteArray OcdFileExport::exportObjectCommon(const Object* object, OcdObject& oc
 			break;
 		case 5:
 			exportTextCoordinatesBox(static_cast<const TextObject*>(object), data, bottom_left, top_right);
+			data.append(text_data);
+			break;
+		case 6:  // foom
+			exportCoordinates(coords, object->getSymbol(), data, bottom_left, top_right);
 			data.append(text_data);
 			break;
 		default:

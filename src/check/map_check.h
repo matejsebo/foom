@@ -42,6 +42,7 @@ constexpr char area_open[] = "area-open";
 constexpr char symbol_unused[] = "symbol-unused";
 constexpr char color_unused[] = "color-unused";
 constexpr char template_missing[] = "template-missing";
+constexpr char text_path_overflow[] = "text-path-overflow";
 
 }  // namespace rule
 
