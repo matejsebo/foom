@@ -122,6 +122,7 @@ set(Mapper_Common_SRCS
   core/ops/flatten.cpp
   core/ops/bounds.cpp
   core/ops/mirror.cpp
+  core/ops/reshape.cpp
   core/ops/transform.cpp
   
   core/renderables/renderable.cpp
@@ -244,6 +245,7 @@ set(Mapper_Common_SRCS
   tools/box_zoom_tool.cpp
   tools/cut_tool.cpp
   tools/cut_hole_tool.cpp
+  tools/reshape_tool.cpp
   tools/cutout_operation.cpp
   tools/cutout_tool.cpp
   tools/distribute_points_tool.cpp

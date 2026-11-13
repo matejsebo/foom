@@ -504,6 +504,8 @@ public slots:
 	void distributeClicked();
 	/** foom: Spaces the centres of the selected objects equally between the two outermost. */
 	void distribute(bool horizontal);
+	/** foom: Activates the reshape tool. */
+	void reshapeClicked();
 	/** Activates the physical cutout tool */
 	void clipAreaClicked();
 	/** Activates the physical cutout tool (inversed) */
@@ -853,6 +855,7 @@ private:
 	QAction* align_acts[6] = {};  // foom: indexed by ops::AlignParams::Edge
 	QAction* distribute_h_act = {};  // foom
 	QAction* distribute_v_act = {};  // foom
+	QAction* reshape_act = {};  // foom
 	QAction* clip_area_act = {};
 	QAction* erase_area_act = {};
 	QAction* distribute_points_act = {};

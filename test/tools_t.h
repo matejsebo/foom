@@ -50,6 +50,9 @@ private slots:
 	
 	/** foom: Tests the align and distribute actions. */
 	void alignAndDistribute();
+	
+	/** foom: Tests the reshape tool. */
+	void reshape();
 };
 
 #endif

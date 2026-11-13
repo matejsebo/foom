@@ -47,7 +47,9 @@
 #include "core/ops/mirror.h"
 #include "core/ops/transform.h"
 #include "core/ops/op.h"
+#include "core/ops/reshape.h"
 #include "core/symbols/line_symbol.h"
+#include "core/symbols/area_symbol.h"
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
 #include "core/symbols/text_symbol.h"
@@ -109,6 +111,7 @@ private slots:
 	void transformTest();
 	void alignTest();
 	void distributeTest();
+	void reshapeTest();
 };
 
 
@@ -555,6 +558,126 @@ void OpsTest::distributeTest()
 	// Fewer than three objects is an error.
 	QVERIFY(!ops::distribute(map, { p0, p40 }, horizontal).error.isEmpty());
 	QVERIFY(!ops::distribute(map, {}, horizontal).error.isEmpty());
+}
+
+
+void OpsTest::reshapeTest()
+{
+	// the design notes, "Reshape".
+	Map map;
+	auto* symbol = new LineSymbol();
+	map.addSymbol(symbol, 0);
+	auto* area_symbol = new AreaSymbol();
+	map.addSymbol(area_symbol, 1);
+	auto const near = [](const MapCoordVector& actual, const MapCoordVector& expected, double tolerance) {
+		if (actual.size() != expected.size())
+			return false;
+		for (std::size_t i = 0; i < actual.size(); ++i)
+		{
+			if (actual[i].isCurveStart() != expected[i].isCurveStart()
+			    || std::abs(actual[i].x() - expected[i].x()) > tolerance
+			    || std::abs(actual[i].y() - expected[i].y()) > tolerance)
+				return false;
+		}
+		return true;
+	};
+	auto const area = [](const MapCoordVector& coords) {
+		auto sum = 0.0;
+		for (std::size_t i = 0; i + 1 < coords.size(); ++i)
+			sum += coords[i].x() * coords[i+1].y() - coords[i+1].x() * coords[i].y();
+		return std::abs(sum) / 2;
+	};
+	auto const curve = [](double x, double y) { auto c = MapCoord(x, y); c.setCurveStart(true); return c; };
+	
+	// An open line: the stretch between the snapped ends is replaced.
+	auto* line = new PathObject(symbol, { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0), MapCoord(20.0, 0.0), MapCoord(30.0, 0.0) });
+	map.addObject(line);
+	auto const uuid = line->uuid();
+	ops::ReshapeParams params;
+	params.stroke = { MapCoord(10.0, 0.1), MapCoord(15.0, 5.0), MapCoord(20.0, -0.1) };
+	params.snap_distance = 1.0;
+	auto const expected = MapCoordVector{ MapCoord(0.0, 0.0), MapCoord(10.0, 0.0), MapCoord(15.0, 5.0), MapCoord(20.0, 0.0), MapCoord(30.0, 0.0) };
+	auto result = ops::reshape(map, { line }, params);
+	QVERIFY2(result.error.isEmpty(), result.error.toLatin1());
+	QCOMPARE(result.out.size(), std::size_t(1));
+	QCOMPARE(result.consumed, (std::vector<const Object*>{ line }));
+	QCOMPARE(result.out.front()->uuid(), uuid);
+	QCOMPARE(result.out.front()->asPath()->getRawCoordinateVector(), expected);
+	// ... the reversed stroke gives the same.
+	std::reverse(begin(params.stroke), end(params.stroke));
+	auto reversed = ops::reshape(map, { line }, params);
+	QVERIFY(reversed.error.isEmpty());
+	QCOMPARE(reversed.out.front()->asPath()->getRawCoordinateVector(), expected);
+	// ... and a curved stroke keeps its curve.
+	params.stroke = { curve(10.0, 0.0), MapCoord(12.0, 3.0), MapCoord(18.0, 3.0), MapCoord(20.0, 0.0) };
+	auto curved = ops::reshape(map, { line }, params);
+	QVERIFY(curved.error.isEmpty());
+	QVERIFY(near(curved.out.front()->asPath()->getRawCoordinateVector(), { MapCoord(0.0, 0.0), curve(10.0, 0.0), MapCoord(12.0, 3.0), MapCoord(18.0, 3.0), MapCoord(20.0, 0.0), MapCoord(30.0, 0.0) }, 0.001));
+	
+	// A cut inside a curve keeps the curve's shape.
+	auto* bent = new PathObject(symbol, { curve(0.0, 0.0), MapCoord(0.0, 10.0), MapCoord(20.0, 10.0), MapCoord(20.0, 0.0), MapCoord(40.0, 0.0) });
+	map.addObject(bent);
+	params.stroke = { MapCoord(10.0, 7.5), MapCoord(30.0, 0.0) };
+	auto split = ops::reshape(map, { bent }, params);
+	QVERIFY2(split.error.isEmpty(), split.error.toLatin1());
+	QVERIFY(near(split.out.front()->asPath()->getRawCoordinateVector(), { curve(0.0, 0.0), MapCoord(0.0, 5.0), MapCoord(5.0, 7.5), MapCoord(10.0, 7.5), MapCoord(30.0, 0.0), MapCoord(40.0, 0.0) }, 0.01));
+	
+	// A closed path: the shorter arc is replaced, or the longer one on request.
+	auto* square = new PathObject(area_symbol);
+	for (auto const& coord : { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0), MapCoord(10.0, 10.0), MapCoord(0.0, 10.0) })
+		square->addCoordinate(coord);
+	square->parts().front().setClosed(true);
+	map.addObject(square);
+	params.stroke = { MapCoord(5.0, 0.0), MapCoord(10.0, 5.0) };
+	auto corner = ops::reshape(map, { square }, params);
+	QVERIFY2(corner.error.isEmpty(), corner.error.toLatin1());
+	auto const* corner_path = corner.out.front()->asPath();
+	QVERIFY(corner_path->parts().front().isClosed());
+	QCOMPARE(corner_path->getCoordinateCount(), MapCoordVector::size_type(6));
+	QCOMPARE(area(corner_path->getRawCoordinateVector()), 87.5);
+	params.other_arc = true;
+	auto other = ops::reshape(map, { square }, params);
+	QVERIFY(other.error.isEmpty());
+	auto const* other_path = other.out.front()->asPath();
+	QVERIFY(other_path->parts().front().isClosed());
+	QCOMPARE(other_path->getCoordinateCount(), MapCoordVector::size_type(4));
+	QCOMPARE(area(other_path->getRawCoordinateVector()), 12.5);
+	params.other_arc = false;
+	
+	// Errors.
+	params.stroke = { MapCoord(10.0, 5.0), MapCoord(20.0, 0.0) };
+	QVERIFY(!ops::reshape(map, { line }, params).error.isEmpty());  // starts 5 mm away
+	params.stroke = { MapCoord(10.0, 0.0) };
+	QVERIFY(!ops::reshape(map, { line }, params).error.isEmpty());  // one coordinate
+	params.stroke = { MapCoord(10.0, 0.0), MapCoord(20.0, 0.0) };
+	QVERIFY(!ops::reshape(map, {}, params).error.isEmpty());
+	QVERIFY(!ops::reshape(map, { line, bent }, params).error.isEmpty());
+	auto* holed = new PathObject(area_symbol);
+	for (auto const& coord : { MapCoord(0.0, 0.0), MapCoord(40.0, 0.0), MapCoord(40.0, 40.0), MapCoord(0.0, 40.0) })
+		holed->addCoordinate(coord);
+	holed->parts().front().setClosed(true);
+	holed->addCoordinate(MapCoord(10.0, 10.0), true);
+	for (auto const& coord : { MapCoord(20.0, 10.0), MapCoord(20.0, 20.0), MapCoord(10.0, 20.0) })
+		holed->addCoordinate(coord);
+	holed->parts().back().setClosed(true);
+	map.addObject(holed);
+	QCOMPARE(holed->parts().size(), std::size_t(2));
+	params.stroke = { MapCoord(5.0, 0.0), MapCoord(15.0, 10.0) };
+	QVERIFY(!ops::reshape(map, { holed }, params).error.isEmpty());  // outer boundary to hole
+	params.stroke = { MapCoord(15.0, 10.0), MapCoord(20.0, 15.0) };
+	auto hole = ops::reshape(map, { holed }, params);
+	QVERIFY2(hole.error.isEmpty(), hole.error.toLatin1());
+	QCOMPARE(hole.out.front()->asPath()->parts().size(), std::size_t(2));
+	QCOMPARE(hole.out.front()->asPath()->parts().front().size(), holed->parts().front().size());
+	
+	// Through applyOp, the output takes the input's place.
+	params.stroke = { MapCoord(10.0, 0.0), MapCoord(15.0, 5.0), MapCoord(20.0, 0.0) };
+	QVERIFY(ops::applyOp(map, ops::reshape(map, { line }, params)));
+	auto const* replaced = map.findObject(uuid);
+	QVERIFY(replaced && replaced != line);
+	QCOMPARE(replaced->asPath()->getRawCoordinateVector(), expected);
+	QVERIFY(map.undoManager().undo());
+	QCOMPARE(map.findObject(uuid), line);
 }
 
 

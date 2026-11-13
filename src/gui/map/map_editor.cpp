@@ -156,6 +156,7 @@
 #include "tools/box_zoom_tool.h"
 #include "tools/cut_tool.h"
 #include "tools/cut_hole_tool.h"
+#include "tools/reshape_tool.h"  // foom
 #include "tools/cutout_tool.h"
 #include "tools/distribute_points_tool.h"
 #include "tools/draw_circle_tool.h"
@@ -1072,6 +1073,7 @@ void MapEditorController::createActions()
 	connect_paths_act = newAction("connectpaths", tr("Connect paths"), this, SLOT(connectPathsClicked()), "tool-connect-paths.png", QString{}, "toolbars.html#connect");
 	
 	cut_tool_act = newToolAction("cutobject", tr("Cut object"), this, SLOT(cutClicked()), "tool-cut.png", QString{}, "toolbars.html#cut_tool");
+	reshape_act = newToolAction("reshape", tr("Reshape"), this, SLOT(reshapeClicked()));  // foom
 	cut_hole_act = newToolAction("cuthole", tr("Cut free form hole"), this, SLOT(cutHoleClicked()), "tool-cut-hole.png", QString{}, "toolbars.html#cut_hole"); // cut hole using a path
 	cut_hole_circle_act = newToolAction("cutholecircle", tr("Cut round hole"), this, SLOT(cutHoleCircleClicked()), "tool-cut-hole.png", QString{}, "toolbars.html#cut_hole");
 	cut_hole_rectangle_act = newToolAction("cutholerectangle", tr("Cut rectangular hole"), this, SLOT(cutHoleRectangleClicked()), "tool-cut-hole.png", QString{}, "toolbars.html#cut_hole");
@@ -1271,6 +1273,7 @@ void MapEditorController::createMenuAndToolbars()
 	tools_menu->addAction(boolean_xor_act);
 	tools_menu->addAction(boolean_merge_holes_act);
 	tools_menu->addAction(cut_tool_act);
+	tools_menu->addAction(reshape_act);  // foom
 	tools_menu->addMenu(cut_hole_menu);
 	tools_menu->addAction(rotate_act);
 	tools_menu->addAction(rotate_pattern_act);
@@ -3433,6 +3436,12 @@ void MapEditorController::cutClicked()
 {
 	setTool(new CutTool(this, cut_tool_act));
 }
+// foom
+void MapEditorController::reshapeClicked()
+{
+	setTool(new ReshapeTool(this, reshape_act));
+}
+
 void MapEditorController::cutHoleClicked()
 {
 	setTool(new CutHoleTool(this, cut_hole_act, CutHoleTool::Path));

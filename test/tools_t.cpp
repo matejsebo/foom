@@ -40,6 +40,7 @@
 #include "core/objects/object.h"
 #include "core/objects/object_query.h"
 #include "core/ops/align.h"
+#include "tools/reshape_tool.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
 #include "global.h"
@@ -460,6 +461,57 @@ void ToolsTest::alignAndDistribute()
 	QCOMPARE(map.map->findObject(second_uuid), second);
 	QCOMPARE(second->getRawCoordinateVector(), (MapCoordVector{ MapCoord(30.0, 30.0), MapCoord(40.0, 30.0) }));
 	QCOMPARE(map.map->findObject(third_uuid), third);
+}
+
+
+void ToolsTest::reshape()
+{
+	// the design notes, "Reshape", editor paragraphs.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* line = new PathObject(map.line_symbol, { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0), MapCoord(20.0, 0.0), MapCoord(30.0, 0.0) });
+	map.map->addObject(line);
+	auto const uuid = line->uuid();
+	auto* part = map.map->getCurrentPart();
+	auto const num_objects = part->getNumObjects();
+	auto const undo_steps = map.map->undoManager().undoStepCount();
+	
+	auto* action = editor.editor->getAction("reshape");
+	QVERIFY(action);
+	action->trigger();
+	auto* tool = dynamic_cast<ReshapeTool*>(editor.editor->getTool());
+	QVERIFY(tool);
+	
+	// A click away from every object starts nothing (the snap distance is 10 mm in this view).
+	auto const* map_widget = editor.map_widget;
+	editor.simulateClick(map_widget->mapToViewport(MapCoord(15.0, -15.0)));
+	QVERIFY(!tool->editingInProgress());
+	
+	// Three clicks on and above the line, then Return.
+	editor.simulateClick(map_widget->mapToViewport(MapCoord(10.0, 0.0)));
+	QVERIFY(tool->editingInProgress());
+	editor.simulateClick(map_widget->mapToViewport(MapCoord(15.0, 5.0)));
+	editor.simulateClick(map_widget->mapToViewport(MapCoord(20.0, 0.0)));
+	QTest::keyClick(editor.map_widget, Qt::Key_Return);
+	QVERIFY(!tool->editingInProgress());
+	QCOMPARE(part->getNumObjects(), num_objects);
+	auto const* reshaped = map.map->findObject(uuid);
+	QVERIFY(reshaped && reshaped != line);
+	auto const& coords = reshaped->asPath()->getRawCoordinateVector();
+	QCOMPARE(coords.size(), MapCoordVector::size_type(5));
+	QCOMPARE(coords.front(), MapCoord(0.0, 0.0));
+	QCOMPARE(coords.back(), MapCoord(30.0, 0.0));
+	auto const expected = MapCoordVector{ MapCoord(10.0, 0.0), MapCoord(15.0, 5.0), MapCoord(20.0, 0.0) };
+	for (std::size_t i = 0; i < 3; ++i)
+	{
+		QVERIFY(std::abs(coords[i+1].x() - expected[i].x()) < 0.2);
+		QVERIFY(std::abs(coords[i+1].y() - expected[i].y()) < 0.2);
+	}
+	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 1);
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(map.map->findObject(uuid), line);
+	
+	editor.editor->setTool(nullptr);
 }
 
 
