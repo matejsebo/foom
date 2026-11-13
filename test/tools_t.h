@@ -86,6 +86,9 @@ private slots:
 	
 	/** foom: Tests the map check command and the Issues window. */
 	void mapCheck();
+	
+	/** foom: Tests the legibility check command. */
+	void legibility();
 };
 
 #endif

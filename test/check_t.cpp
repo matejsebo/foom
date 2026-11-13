@@ -19,22 +19,30 @@
  */
 
 
+#include <cmath>
 #include <cstddef>
 #include <vector>
 
 #include <QtGlobal>
 #include <QtTest>
+#include <QBuffer>
 #include <QByteArray>
+#include <QFileInfo>
+#include <QIODevice>
+#include <QLatin1String>
 #include <QList>
 #include <QObject>
 #include <QSignalSpy>
+#include <QRectF>
 #include <QString>
 #include <QUuid>
 #include <QVariant>
 
 #include "global.h"
 #include "check/issue.h"
+#include "check/legibility.h"
 #include "check/map_check.h"
+#include "core/color_group.h"
 #include "core/map.h"
 #include "core/map_color.h"
 #include "core/map_coord.h"
@@ -45,6 +53,8 @@
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/text_symbol.h"
+#include "fileformats/file_import_export.h"
+#include "fileformats/xml_file_format.h"
 #include "undo/undo_manager.h"
 
 using namespace OpenOrienteering;
@@ -65,6 +75,8 @@ private slots:
 	void initTestCase();
 	void issueModelTest();
 	void mapCheckTest();
+	void legibilityTest();
+	void colourGroupTest();
 };
 
 
@@ -215,6 +227,247 @@ void CheckTest::mapCheckTest()
 		QVERIFY2(issue.rule == rule::symbol_unused, issue.rule.constData());
 	QCOMPARE(remaining.size(), std::size_t(2));
 	QVERIFY(!fixIssue(map, *find(rule::text_empty)));  // already gone
+}
+
+namespace {
+
+PathObject* addLine(Map& map, const Symbol* symbol, const MapCoord& from, const MapCoord& to)
+{
+	auto* line = new PathObject(symbol, { from, to });
+	map.addObject(line);
+	return line;
+}
+
+PathObject* addSquare(Map& map, const Symbol* symbol, double x, double y, double size, double hole = 0.0)
+{
+	auto* square = new PathObject(symbol);
+	for (auto const& coord : { MapCoord(x, y), MapCoord(x + size, y), MapCoord(x + size, y + size), MapCoord(x, y + size) })
+		square->addCoordinate(coord);
+	square->parts().front().setClosed(true);
+	if (hole > 0.0)
+	{
+		auto const offset = (size - hole) / 2;
+		auto first = true;
+		for (auto const& coord : { MapCoord(x + offset, y + offset), MapCoord(x + offset + hole, y + offset), MapCoord(x + offset + hole, y + offset + hole), MapCoord(x + offset, y + offset + hole) })
+		{
+			square->addCoordinate(coord, first);
+			first = false;
+		}
+		square->parts().back().setClosed(true);
+	}
+	map.addObject(square);
+	return square;
+}
+
+int countRule(const std::vector<Issue>& issues, const char* rule)
+{
+	int n = 0;
+	for (auto const& issue : issues)
+		n += issue.rule == rule;
+	return n;
+}
+
+const Issue* findObjectIssue(const std::vector<Issue>& issues, const char* rule, const Object* object)
+{
+	for (auto const& issue : issues)
+	{
+		if (issue.rule == rule && issue.objects.contains(object->uuid()))
+			return &issue;
+	}
+	return nullptr;
+}
+
+}  // namespace
+
+void CheckTest::legibilityTest()
+{
+	// the design notes, "Legibility", Accept.
+	Map map;
+	map.setScaleDenominator(15000);
+	auto* black = new MapColor(QStringLiteral("Black"), 0);
+	black->setCmyk(MapColorCmyk(0.0f, 0.0f, 0.0f, 1.0f));
+	map.addColor(black, 0);
+	auto* brown = new MapColor(QStringLiteral("Brown"), 1);
+	brown->setCmyk(MapColorCmyk(0.0f, 0.56f, 1.0f, 0.18f));
+	map.addColor(brown, 1);
+
+	auto const line_symbol = [&map](const MapColor* color, double width_mm, int minimum_length, int number) {
+		auto* symbol = new LineSymbol();
+		symbol->setColor(color);
+		symbol->setLineWidth(width_mm);
+		symbol->setMinimumLength(minimum_length);
+		symbol->setNumberComponent(0, number);
+		map.addSymbol(symbol, map.getNumSymbols());
+		return symbol;
+	};
+	auto* line = line_symbol(black, 0.5, 2000, 501);
+	auto* wide = line_symbol(black, 0.5, 0, 502);
+	auto* dashed = line_symbol(black, 0.25, 0, 503);
+	dashed->setDashed(true);
+	dashed->setDashLength(2000);
+	dashed->setBreakLength(500);
+	auto* brown_line = line_symbol(brown, 0.5, 0, 504);
+	auto* contour = line_symbol(brown, 0.14, 0, 101);
+	auto* form_line = line_symbol(brown, 0.14, 0, 103);
+	auto* cliff = line_symbol(black, 0.35, 0, 202);
+	auto* area = new AreaSymbol();
+	area->setColor(black);
+	area->setMinimumArea(1000);
+	area->setNumberComponent(0, 401);
+	map.addSymbol(area, map.getNumSymbols());
+
+	auto* short_line = addLine(map, line, MapCoord(0.0, 0.0), MapCoord(1.0, 0.0));
+	addLine(map, line, MapCoord(0.0, 100.0), MapCoord(10.0, 100.0));
+	auto* three_dashes = addLine(map, dashed, MapCoord(0.0, 110.0), MapCoord(3.0, 110.0));
+	addLine(map, dashed, MapCoord(0.0, 120.0), MapCoord(3.5, 120.0));
+	auto* small_square = addSquare(map, area, 0.0, 130.0, 0.5);
+	auto* holed_square = addSquare(map, area, 0.0, 140.0, 1.2, 0.8);
+	auto* gap_a = addLine(map, wide, MapCoord(0.0, 200.0), MapCoord(10.0, 200.0));
+	auto* gap_b = addLine(map, wide, MapCoord(0.0, 200.6), MapCoord(10.0, 200.6));
+	addLine(map, wide, MapCoord(0.0, 210.0), MapCoord(10.0, 210.0));
+	addLine(map, wide, MapCoord(0.0, 211.0), MapCoord(10.0, 211.0));
+	addLine(map, wide, MapCoord(0.0, 220.0), MapCoord(10.0, 220.0));
+	addLine(map, wide, MapCoord(0.0, 220.5), MapCoord(10.0, 220.5));
+	addLine(map, wide, MapCoord(0.0, 230.0), MapCoord(10.0, 230.0));
+	addLine(map, wide, MapCoord(5.0, 229.0), MapCoord(5.0, 231.0));
+	addLine(map, wide, MapCoord(0.0, 240.0), MapCoord(10.0, 240.0));
+	addLine(map, wide, MapCoord(10.0, 240.0), MapCoord(10.0, 250.0));
+	addLine(map, wide, MapCoord(0.0, 260.0), MapCoord(10.0, 260.0));
+	addLine(map, brown_line, MapCoord(0.0, 260.6), MapCoord(10.0, 260.6));
+	addLine(map, contour, MapCoord(0.0, 270.0), MapCoord(10.0, 270.0));
+	addLine(map, form_line, MapCoord(0.0, 270.25), MapCoord(10.0, 270.25));
+	addSquare(map, area, 0.0, 300.0, 5.0);
+	addSquare(map, area, 0.05, 300.05, 1.0);
+
+	LegibilityParams params;
+	QCOMPARE(defaultGap(map), 0.15);
+	params.gap_mm = defaultGap(map);
+	auto issues = checkLegibility(map, params);
+	QCOMPARE(countRule(issues, rule::line_short), 2);
+	QCOMPARE(countRule(issues, rule::area_small), 2);
+	QCOMPARE(countRule(issues, rule::gap), 1);
+	QCOMPARE(issues.size(), std::size_t(5));
+	auto const* issue = findObjectIssue(issues, rule::line_short, short_line);
+	QVERIFY(issue);
+	QCOMPARE(issue->measured, 1.0);
+	QCOMPARE(issue->limit, 2.0);
+	issue = findObjectIssue(issues, rule::line_short, three_dashes);
+	QVERIFY(issue);
+	QCOMPARE(issue->measured, 3.0);
+	QCOMPARE(issue->limit, 3.25);
+	issue = findObjectIssue(issues, rule::area_small, small_square);
+	QVERIFY(issue);
+	QCOMPARE(issue->measured, 0.25);
+	QCOMPARE(issue->limit, 1.0);
+	issue = findObjectIssue(issues, rule::area_small, holed_square);
+	QVERIFY(issue);
+	QVERIFY(std::abs(issue->measured - 0.8) < 1e-6);
+	issue = findObjectIssue(issues, rule::gap, gap_a);
+	QVERIFY(issue);
+	QVERIFY(issue->objects.contains(gap_b->uuid()));
+	QVERIFY(std::abs(issue->measured - 0.1) < 1e-6);
+	QCOMPARE(issue->limit, 0.15);
+	QVERIFY(std::abs(issue->where.y() - 200.3) < 1e-6);
+	QVERIFY(issue->where.x() >= 0.0 && issue->where.x() <= 10.0);
+
+	// The colour filter off: the black and brown pair is a conflict too.
+	params.same_colour_group_only = false;
+	issues = checkLegibility(map, params);
+	QCOMPARE(countRule(issues, rule::gap), 2);
+	params.same_colour_group_only = true;
+
+	// Between contours on: the contour pair is a conflict, until a cliff covers it.
+	params.between_contours = true;
+	issues = checkLegibility(map, params);
+	QCOMPARE(countRule(issues, rule::gap), 2);
+	addLine(map, cliff, MapCoord(0.0, 270.125), MapCoord(10.0, 270.125));
+	issues = checkLegibility(map, params);
+	QCOMPARE(countRule(issues, rule::gap), 1);
+	params.between_contours = false;
+
+	// Scope and extent.
+	params.symbols = { line };
+	issues = checkLegibility(map, params);
+	QCOMPARE(issues.size(), std::size_t(1));
+	QCOMPARE(issues.front().rule, QByteArray(rule::line_short));
+	params.symbols.clear();
+	params.extent = QRectF(-1.0, -1.0, 3.0, 3.0);
+	issues = checkLegibility(map, params);
+	QCOMPARE(issues.size(), std::size_t(1));
+	QVERIFY(issues.front().objects.contains(short_line->uuid()));
+	params.extent = QRectF();
+
+	// Checks can be switched off one by one.
+	params.gap = false;
+	params.minimum_area = false;
+	issues = checkLegibility(map, params);
+	QCOMPARE(issues.size(), std::size_t(2));
+
+	map.setScaleDenominator(10000);
+	QCOMPARE(defaultGap(map), 0.23);
+}
+
+void CheckTest::colourGroupTest()
+{
+	// the design notes, "Legibility", Accept: the colour group guess.
+	auto const guess = [](float c, float m, float y, float k) {
+		MapColor color(QStringLiteral("c"), 0);
+		color.setCmyk(MapColorCmyk(c, m, y, k));
+		return guessColourGroup(color);
+	};
+	QVERIFY(guess(0.0f, 0.0f, 0.0f, 1.0f) == ColourGroup::Black);
+	QVERIFY(guess(0.0f, 0.56f, 1.0f, 0.18f) == ColourGroup::Brown);
+	QVERIFY(guess(0.0f, 0.28f, 0.5f, 0.09f) == ColourGroup::Brown);
+	QVERIFY(guess(0.0f, 0.27f, 0.79f, 0.0f) == ColourGroup::Yellow);
+	QVERIFY(guess(0.0f, 0.14f, 0.4f, 0.0f) == ColourGroup::Yellow);
+	QVERIFY(guess(1.0f, 0.0f, 0.0f, 0.0f) == ColourGroup::Blue);
+	QVERIFY(guess(0.5f, 0.0f, 0.0f, 0.0f) == ColourGroup::Blue);
+	QVERIFY(guess(0.76f, 0.0f, 0.91f, 0.0f) == ColourGroup::Green);
+	QVERIFY(guess(0.38f, 0.0f, 0.46f, 0.0f) == ColourGroup::Green);
+	QVERIFY(guess(0.35f, 0.85f, 0.0f, 0.0f) == ColourGroup::Purple);
+	QVERIFY(guess(0.0f, 0.0f, 0.0f, 0.0f) == ColourGroup::Other);
+	QVERIFY(guess(0.0f, 0.0f, 0.0f, 0.3f) == ColourGroup::Black);
+
+	MapColor named(QStringLiteral("Upper purple"), 0);
+	QVERIFY(guessColourGroup(named) == ColourGroup::Purple);
+	QVERIFY(colourGroupOf(&named) == ColourGroup::Purple);
+	QVERIFY(named.getColourGroup() == ColourGroup::Undefined);
+	named.setColourGroup(ColourGroup::Brown);
+	QVERIFY(colourGroupOf(&named) == ColourGroup::Brown);
+	QCOMPARE(colourGroupKey(ColourGroup::Brown), QStringLiteral("brown"));
+	QVERIFY(colourGroupFromKey(QStringLiteral("yellow")) == ColourGroup::Yellow);
+	QVERIFY(colourGroupFromKey(QStringLiteral("?")) == ColourGroup::Undefined);
+
+	// A stored group survives saving and loading, and is not written without the foom additions.
+	Map map;
+	auto* stored = new MapColor(QStringLiteral("Stored"), 0);
+	stored->setColourGroup(ColourGroup::Brown);
+	map.addColor(stored, 0);
+	map.addColor(new MapColor(QStringLiteral("Guessed"), 1), 1);
+	XMLFileFormat format;
+	QBuffer buffer;
+	QVERIFY(buffer.open(QIODevice::ReadWrite));
+	auto exporter = format.makeExporter({}, &map, nullptr);
+	exporter->setDevice(&buffer);
+	QVERIFY(exporter->doExport());
+	auto const data = QString::fromUtf8(buffer.data());
+	QVERIFY(data.contains(QLatin1String(" group=\"brown\"")));
+	QVERIFY(buffer.seek(0));
+	Map reloaded;
+	auto importer = format.makeImporter({}, &reloaded, nullptr);
+	importer->setDevice(&buffer);
+	QVERIFY(importer->doImport());
+	QCOMPARE(reloaded.getNumColors(), 2);
+	QVERIFY(reloaded.getColor(0)->getColourGroup() == ColourGroup::Brown);
+	QVERIFY(reloaded.getColor(1)->getColourGroup() == ColourGroup::Undefined);
+
+	QBuffer plain_buffer;
+	QVERIFY(plain_buffer.open(QIODevice::ReadWrite));
+	auto plain_exporter = format.makeExporter({}, &map, nullptr);
+	plain_exporter->setOption(QString::fromLatin1("foom"), false);
+	plain_exporter->setDevice(&plain_buffer);
+	QVERIFY(plain_exporter->doExport());
+	QVERIFY(!QString::fromUtf8(plain_buffer.data()).contains(QLatin1String(" group=")));
 }
 
 

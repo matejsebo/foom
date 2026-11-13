@@ -89,6 +89,8 @@ protected slots:
 	
 	void knockoutChanged();
 	
+	void colourGroupChanged(int index);  // foom
+	
 	void cmykColorTypeChanged(int id);
 	
 	void cmykValueChanged();
@@ -121,6 +123,7 @@ protected:
 	QLineEdit* mc_name_edit;
 	QComboBox* language_combo;
 	QPushButton* name_edit_button;
+	QComboBox* colour_group_combo;  // foom
 	
 	QRadioButton* full_tone_option;
 	QRadioButton* composition_option;

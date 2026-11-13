@@ -21,6 +21,8 @@
 
 #include "map_color.h"
 
+#include "core/color_group.h"  // foom
+
 #include <algorithm>
 #include <iterator>
 
@@ -41,7 +43,8 @@ MapColor::MapColor()
   cmyk_color_method(MapColor::CustomColor),
   rgb_color_method(MapColor::CmykColor),
   flags(0),
-  spot_color_name()
+  spot_color_name(),
+  colour_group(ColourGroup::Undefined)
 {
 	Q_ASSERT(isBlack());
 }
@@ -55,7 +58,8 @@ MapColor::MapColor(int priority)
   cmyk_color_method(MapColor::CustomColor),
   rgb_color_method(MapColor::CmykColor),
   flags(0),
-  spot_color_name()
+  spot_color_name(),
+  colour_group(ColourGroup::Undefined)
 {
 	Q_ASSERT(isBlack());
 	
@@ -92,7 +96,8 @@ MapColor::MapColor(const QString& name, int priority)
   cmyk_color_method(MapColor::CustomColor),
   rgb_color_method(MapColor::CmykColor),
   flags(0),
-  spot_color_name()
+  spot_color_name(),
+  colour_group(ColourGroup::Undefined)
 {
 	Q_ASSERT(isBlack());
 }
@@ -145,6 +150,18 @@ bool MapColor::componentsEqual(const MapColor& other, bool compare_priority) con
 		return left.spot_color->equals(*right.spot_color, compare_priority)
 		       && qAbs(left.factor - right.factor) < 1e-03;
 	});
+}
+
+// foom
+ColourGroup MapColor::getColourGroup() const
+{
+	return colour_group;
+}
+
+// foom
+void MapColor::setColourGroup(ColourGroup group)
+{
+	colour_group = group;
 }
 
 bool MapColor::equals(const MapColor& other) const

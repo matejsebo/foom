@@ -47,7 +47,9 @@
 #include "core/extents.h"
 #include "gui/map/extent_dialog.h"
 #include "check/issue.h"
+#include "check/legibility.h"
 #include "check/map_check.h"
+#include "gui/map/legibility_dialog.h"
 #include "core/georeferencing.h"
 #include "core/map_view.h"
 #include "gui/map/view_history.h"
@@ -1098,6 +1100,44 @@ void ToolsTest::mapCheck()
 	// The check ran again: the rule is gone, and the dock has dropped the filter for it.
 	for (auto const& issue : editor.editor->issueModel()->issues())
 		QVERIFY(issue.rule != rule::text_empty);
+}
+
+void ToolsTest::legibility()
+{
+	// the design notes, "Legibility", the editor part.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("check-legibility"));
+	map.line_symbol->setMinimumLength(2000);
+	auto* short_line = new PathObject(map.line_symbol, { MapCoord(0.0, 0.0), MapCoord(1.0, 0.0) });
+	map.map->addObject(short_line);
+
+	LegibilityDialog dialog(editor.editor, editor.window);
+	auto params = dialog.params();
+	QCOMPARE(params.gap_mm, defaultGap(*map.map));
+	QVERIFY(params.minimum_length && params.minimum_area && params.gap);
+	QVERIFY(params.same_colour_group_only);
+	QVERIFY(!params.between_contours);
+	QVERIFY(params.symbols.empty());
+	QVERIFY(params.extent.isNull());
+
+	auto const count = editor.editor->runLegibilityCheck(params);
+	QVERIFY(count >= 1);
+	QVERIFY(editor.editor->getAction("issueswindow")->isChecked());
+	auto const has_short_line = [&editor, short_line]() {
+		for (auto const& issue : editor.editor->issueModel()->issues())
+		{
+			if (issue.rule == rule::line_short && issue.objects.contains(short_line->uuid()))
+				return true;
+		}
+		return false;
+	};
+	QVERIFY(has_short_line());
+	// Check again repeats the legibility scan, not the map check.
+	editor.editor->checkAgain();
+	QVERIFY(has_short_line());
+	editor.editor->runMapCheck();
+	QVERIFY(!has_short_line());
 }
 
 

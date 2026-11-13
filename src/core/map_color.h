@@ -35,6 +35,7 @@
 namespace OpenOrienteering {
 
 class MapColor;
+enum class ColourGroup : int;  // foom
 
 /**
  * The MapColorCmyk class provides a datatype for storing and transferring 
@@ -248,6 +249,13 @@ public:
 	
 	/** @deprecated Sets the color's opacity. */
 	void setOpacity(float opacity);
+	
+	
+	/** foom: Returns the stored colour group (Undefined when none is stored; see colourGroupOf()). */
+	ColourGroup getColourGroup() const;
+	
+	/** foom: Stores the colour group. */
+	void setColourGroup(ColourGroup group);
 	
 	
 	/** 
@@ -486,6 +494,7 @@ protected:
 	double screen_frequency = -1;  ///< Halftone screen frequency in lines per inch.
 	double screen_angle     =  0;  ///< Halftone screen angle in degrees.
 	SpotColorComponents components;
+	ColourGroup colour_group;  ///< foom: the stored colour group, Undefined when none is stored
 };
 
 /** Returns true if both MapColor are equal in all components. */

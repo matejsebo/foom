@@ -53,6 +53,7 @@
 #include <QVariant>
 #include <QWidget>
 
+#include "core/color_group.h"  // foom
 #include "core/map.h"
 #include "core/symbols/symbol.h"
 #include "gui/util_gui.h"
@@ -320,6 +321,14 @@ ColorDialog::ColorDialog(const Map& map, const MapColor& source_color, QWidget* 
 	layout->addWidget(new QLabel(tr("Name")), row, col, 1, 2); col+=2;
 	layout->addWidget(mc_name_edit, row, col, 1, 3);
 	row++; col = 0;
+	// foom: the colour group
+	colour_group_combo = new QComboBox();
+	for (auto group : { ColourGroup::Undefined, ColourGroup::Black, ColourGroup::Brown, ColourGroup::Blue, ColourGroup::Green, ColourGroup::Yellow, ColourGroup::Purple, ColourGroup::Other })
+		colour_group_combo->addItem(colourGroupName(group), int(group));
+	colour_group_combo->setToolTip(tr("Used by the legibility check: gaps are tested within one color group only."));
+	layout->addWidget(new QLabel(tr("Color group")), row, col, 1, 2); col+=2;
+	layout->addWidget(colour_group_combo, row, col, 1, 3);
+	row++; col = 0;
 	layout->addWidget(properties_widget, row, col, 1, 5);
 	row++;
 	layout->addWidget(button_box, row, col, 1, 5);
@@ -332,6 +341,7 @@ ColorDialog::ColorDialog(const Map& map, const MapColor& source_color, QWidget* 
 	connect(language_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ColorDialog::languageChanged);
 	connect(name_edit_button, &QPushButton::clicked, this, &ColorDialog::editClicked);
 	connect(mc_name_edit, &QLineEdit::textChanged, this, &ColorDialog::mapColorNameChanged);
+	connect(colour_group_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ColorDialog::colourGroupChanged);  // foom
 	
 	connect(spot_color_options, QOverload<int>::of(&QButtonGroup::buttonClicked), this, &ColorDialog::spotColorTypeChanged);
 	connect(sc_name_edit, &QLineEdit::textChanged, this, &ColorDialog::spotColorNameChanged);
@@ -393,6 +403,10 @@ void ColorDialog::updateWidgets()
 	k_edit->setValue(100.0 * double(cmyk.k));
 	
 	knockout_option->setChecked(color.getKnockout());
+	
+	// foom
+	colour_group_combo->setItemText(0, tr("Automatic (%1)").arg(colourGroupName(guessColourGroup(color))));
+	colour_group_combo->setCurrentIndex(qMax(0, colour_group_combo->findData(int(color.getColourGroup()))));
 	
 	if (color.getSpotColorMethod() == MapColor::SpotColor)
 	{
@@ -784,6 +798,16 @@ void ColorDialog::knockoutChanged()
 		return;
 	
 	color.setKnockout(knockout_option->isChecked());
+	setColorModified();
+}
+
+// foom
+void ColorDialog::colourGroupChanged(int index)
+{
+	if (!react_to_changes)
+		return;
+	
+	color.setColourGroup(ColourGroup(colour_group_combo->itemData(index).toInt()));
 	setColorModified();
 }
 

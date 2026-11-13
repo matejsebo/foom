@@ -145,8 +145,10 @@
 #include "gui/map/numeric_entry_bar.h"
 #include "gui/map/bookmark_dialog.h"
 #include "check/issue.h"
+#include "check/legibility.h"
 #include "check/map_check.h"
 #include "gui/map/extent_dialog.h"
+#include "gui/map/legibility_dialog.h"
 #include "gui/widgets/issues_widget.h"
 #include "gui/map/find_replace_text_dialog.h"
 #include "undo/map_data_undo.h"
@@ -1060,6 +1062,7 @@ void MapEditorController::createActions()
 	find_replace_text_act = newAction("find-replace-text", tr("Find and replace text..."), this, SLOT(findReplaceTextClicked()));  // foom
 	extent_define_act = newAction("extent-define", tr("Define extent..."), this, SLOT(extentDefineClicked()));  // foom
 	check_map_act = newAction("check-map", tr("Check map"), this, SLOT(runMapCheck()));  // foom
+	check_legibility_act = newAction("check-legibility", tr("Check legibility..."), this, SLOT(checkLegibilityClicked()));  // foom
 	issues_window_act = newCheckAction("issueswindow", tr("Issues window"), this, SLOT(showIssuesWindow(bool)));  // foom
 	issue_model = new IssueModel(this);
 	connect(issue_model, &IssueModel::issueActivated, this, &MapEditorController::issueActivated);
@@ -1405,6 +1408,7 @@ void MapEditorController::createMenuAndToolbars()
 	map_menu->addMenu(mappart_move_menu);
 	map_menu->addMenu(mappart_merge_menu);
 	map_menu->addAction(mappart_merge_act);
+	map_menu->addAction(check_legibility_act);  // foom
 	map_menu->addAction(check_map_act);  // foom
 	map_menu->addSeparator();  // foom: named extents
 	auto* extents_menu = map_menu->addMenu(tr("Extents"));
@@ -3973,9 +3977,35 @@ void MapEditorController::drawActiveExtent(QPainter* painter, MapWidget* widget)
 int MapEditorController::runMapCheck()
 {
 	// the design notes, "Map check".
-	issue_model->setIssues(checkMap(*map));
-	showIssuesWindow(true);
+	last_check = [this]() { return checkMap(*map); };
+	checkAgain();
 	return int(issue_model->issues().size());
+}
+
+// foom
+void MapEditorController::checkLegibilityClicked()
+{
+	LegibilityDialog dialog(this, window);
+	if (dialog.exec() == QDialog::Accepted)
+		runLegibilityCheck(dialog.params());
+}
+
+// foom
+int MapEditorController::runLegibilityCheck(const LegibilityParams& params)
+{
+	// the design notes, "Legibility".
+	last_check = [this, params]() { return checkLegibility(*map, params); };
+	checkAgain();
+	return int(issue_model->issues().size());
+}
+
+// foom
+void MapEditorController::checkAgain()
+{
+	if (!last_check)
+		last_check = [this]() { return checkMap(*map); };
+	issue_model->setIssues(last_check());
+	showIssuesWindow(true);
 }
 
 // foom
@@ -3999,7 +4029,7 @@ bool MapEditorController::fixIssueRow(int row)
 	if (row < 0 || row >= issue_model->rowCount())
 		return false;
 	auto const fixed = fixIssue(*map, issue_model->issueAt(row));
-	issue_model->setIssues(checkMap(*map));
+	checkAgain();
 	return fixed;
 }
 
@@ -4015,7 +4045,7 @@ int MapEditorController::fixShownIssues()
 		if (fixIssue(*map, issue))
 			++count;
 	}
-	issue_model->setIssues(checkMap(*map));
+	checkAgain();
 	return count;
 }
 

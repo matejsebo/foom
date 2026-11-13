@@ -127,7 +127,9 @@ set(Mapper_Common_SRCS
   core/ops/replace_text.cpp
   core/ops/reshape.cpp
   check/issue.cpp
+  check/legibility.cpp
   check/map_check.cpp
+  core/color_group.cpp
   core/extents.cpp
   core/lasso_query.cpp
   core/object_groups.cpp
@@ -189,6 +191,7 @@ set(Mapper_Common_SRCS
   gui/map/map_editor_activity.cpp
   gui/map/bookmark_dialog.cpp
   gui/map/extent_dialog.cpp
+  gui/map/legibility_dialog.cpp
   gui/map/find_replace_text_dialog.cpp
   gui/map/move_parallel_dialog.cpp
   gui/map/numeric_entry_bar.cpp

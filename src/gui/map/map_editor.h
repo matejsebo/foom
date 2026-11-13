@@ -27,6 +27,8 @@
 
 #include <QClipboard>
 #include <QHash>
+#include <functional>  // foom
+
 #include <QKeySequence>  // foom
 #include <QObject>
 #include <QPointer>
@@ -37,6 +39,7 @@
 #include <QTimer>
 
 #include "core/map.h"
+#include "check/issue.h"  // foom
 #include "core/bookmarks.h"  // foom
 #include "core/extents.h"  // foom
 #include "core/map_view.h"  // foom
@@ -76,6 +79,7 @@ class MapCoordF;
 class MapEditorActivity;
 class ExtentDialog;  // foom
 class IssueModel;  // foom
+struct LegibilityParams;  // foom
 class FindReplaceTextDialog;  // foom
 class MoveParallelDialog;  // foom
 class NumericEntryBar;  // foom
@@ -549,6 +553,12 @@ public slots:
 	void setVertexType(bool dash, bool keep_ends);
 	/** foom: Runs the map check and shows the issues; returns their number. */
 	int runMapCheck();
+	/** foom: Asks for the legibility parameters, then runs the scan. */
+	void checkLegibilityClicked();
+	/** foom: Runs the legibility scan and shows the issues; returns their number. */
+	int runLegibilityCheck(const LegibilityParams& params);
+	/** foom: Repeats whichever check ran last (the map check when none did). */
+	void checkAgain();
 	/** foom: Shows or hides the Issues window. */
 	void showIssuesWindow(bool show);
 	/** foom: Applies the fix of the issue shown in the row and checks again; returns false when nothing changed. */
@@ -970,6 +980,8 @@ private:
 	QAction* find_replace_text_act = {};  // foom
 	QAction* extent_define_act = {};  // foom
 	QAction* check_map_act = {};  // foom
+	QAction* check_legibility_act = {};  // foom
+	std::function<std::vector<Issue>()> last_check;  // foom: what Check again repeats
 	QAction* issues_window_act = {};  // foom
 	IssueModel* issue_model = nullptr;  // foom
 	QPointer<EditorDockWidget> issues_dock_widget;  // foom

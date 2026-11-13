@@ -77,7 +77,7 @@ IssuesWidget::IssuesWidget(MapEditorController* editor, IssueModel* model, QWidg
 	layout->addLayout(button_row);
 	
 	connect(filter_box, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &IssuesWidget::filterChanged);
-	connect(check_button, &QPushButton::clicked, editor, &MapEditorController::runMapCheck);
+	connect(check_button, &QPushButton::clicked, editor, &MapEditorController::checkAgain);
 	connect(table, &QTableView::activated, this, &IssuesWidget::rowActivated);
 	connect(fix_button, &QPushButton::clicked, this, &IssuesWidget::fixSelected);
 	connect(fix_all_button, &QPushButton::clicked, this, &IssuesWidget::fixAllShown);

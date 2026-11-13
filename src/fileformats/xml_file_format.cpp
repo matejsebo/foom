@@ -50,6 +50,7 @@
 #include "settings.h"
 #include "core/georeferencing.h"
 #include "core/map.h"
+#include "core/color_group.h"  // foom
 #include "core/map_color.h"
 #include "core/map_coord.h"
 #include "core/map_grid.h"
@@ -194,6 +195,7 @@ namespace literal
 	static const QLatin1String parts("parts");
 	static const QLatin1String object_groups("groups");  // foom
 	static const QLatin1String object_group("group");  // foom
+	static const QLatin1String color_group("group");  // foom
 	static const QLatin1String bookmarks("bookmarks");  // foom
 	static const QLatin1String bookmark("bookmark");  // foom
 	static const QLatin1String bookmark_x("x");  // foom
@@ -366,6 +368,8 @@ void XMLFileExporter::exportColors()
 		color_element.writeAttribute(literal::y, cmyk.y, 3);
 		color_element.writeAttribute(literal::k, cmyk.k, 3);
 		color_element.writeAttribute(literal::opacity, color->getOpacity(), 3);
+		if (XMLFileFormat::foom_revision > 0 && color->getColourGroup() != ColourGroup::Undefined)  // foom
+			color_element.writeAttribute(literal::color_group, colourGroupKey(color->getColourGroup()));
 		
 		if (color->getSpotColorMethod() != MapColor::UndefinedMethod)
 		{
@@ -861,6 +865,8 @@ void XMLFileImporter::importColors()
 			  color_element.attribute<int>(literal::priority) );
 			if (color_element.hasAttribute(literal::opacity))
 				color->setOpacity(color_element.attribute<float>(literal::opacity));
+			if (color_element.hasAttribute(literal::color_group))  // foom
+				color->setColourGroup(colourGroupFromKey(color_element.attribute<QString>(literal::color_group)));
 			
 			MapColorCmyk cmyk;
 			cmyk.c = color_element.attribute<float>(literal::c);
