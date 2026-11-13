@@ -22,6 +22,7 @@
 #include "xml_file_format.h"
 #include "xml_file_format_p.h"
 
+#include <algorithm>  // foom
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -191,6 +192,8 @@ namespace literal
 	static const QLatin1String symbol("symbol");
 	
 	static const QLatin1String parts("parts");
+	static const QLatin1String object_groups("groups");  // foom
+	static const QLatin1String object_group("group");  // foom
 	static const QLatin1String part("part");
 	
 	static const QLatin1String templates("templates");
@@ -286,6 +289,11 @@ bool XMLFileExporter::exportImplementation()
 		writeLineBreak(xml);
 		exportMapParts();
 		writeLineBreak(xml);
+		if (XMLFileFormat::foom_revision >= 1 && !map->objectGroupNames().isEmpty())  // foom
+		{
+			exportObjectGroups();
+			writeLineBreak(xml);
+		}
 		exportTemplates();
 		writeLineBreak(xml);
 		exportView();
@@ -437,6 +445,25 @@ void XMLFileExporter::exportMapParts()
 	{
 		writeLineBreak(xml);
 		map->getPart(i)->save(xml);
+	}
+	writeLineBreak(xml);
+}
+
+// foom
+void XMLFileExporter::exportObjectGroups()
+{
+	// the design notes, "Groups".
+	auto const& names = map->objectGroupNames();
+	XmlElementWriter groups_element(xml, literal::object_groups);
+	groups_element.writeAttribute(literal::count, std::size_t(names.size()));
+	auto keys = names.keys();
+	std::sort(keys.begin(), keys.end());
+	for (auto group : keys)
+	{
+		writeLineBreak(xml);
+		XmlElementWriter group_element(xml, literal::object_group);
+		group_element.writeAttribute(literal::id, group);
+		group_element.writeAttribute(literal::name, names.value(group));
 	}
 	writeLineBreak(xml);
 }
@@ -641,6 +668,8 @@ void XMLFileImporter::importElements()
 			importMapNotes();
 		else if (name == literal::parts)
 			importMapParts();
+		else if (name == literal::object_groups)  // foom
+			importObjectGroups();
 		else if (name == literal::templates)
 			importTemplates();
 		else if (name == literal::print)
@@ -1001,6 +1030,25 @@ void XMLFileImporter::importMapParts()
 	
 	emit map->currentMapPartIndexChanged(map->current_part_index);
 	emit map->currentMapPartChanged(map->getPart(map->current_part_index));
+}
+
+// foom
+void XMLFileImporter::importObjectGroups()
+{
+	XmlElementReader groups_element(xml);
+	while (xml.readNextStartElement())
+	{
+		if (xml.name() == literal::object_group)
+		{
+			XmlElementReader group_element(xml);
+			map->setObjectGroupName(group_element.attribute<int>(literal::id), group_element.attribute<QString>(literal::name));
+		}
+		else
+		{
+			addWarningUnsupportedElement();
+			xml.skipCurrentElement();
+		}
+	}
 }
 
 void XMLFileImporter::importTemplates()

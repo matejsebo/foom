@@ -86,6 +86,7 @@ private slots:
 	 * foom: Tests the foom marker and the object identity attributes.
 	 */
 	void foomIdentityTest();
+	void foomGroupTest();
 	
 	/**
 	 * foom: Tests that old files load without warnings and round-trip as .foom.

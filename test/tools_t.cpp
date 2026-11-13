@@ -672,4 +672,61 @@ void ToolsTest::lasso()
 }
 
 
+void ToolsTest::groups()
+{
+	// the design notes, "Groups", editor paragraphs.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* first = new PathObject(map.line_symbol, { MapCoord(0.0, 0.0), MapCoord(20.0, 0.0) });
+	map.map->addObject(first);
+	auto* second = new PathObject(map.line_symbol, { MapCoord(0.0, 40.0), MapCoord(20.0, 40.0) });
+	map.map->addObject(second);
+	auto const first_uuid = first->uuid();
+	auto const second_uuid = second->uuid();
+	auto* group_act = editor.editor->getAction("group");
+	auto* ungroup_act = editor.editor->getAction("ungroup");
+	auto* select_group_act = editor.editor->getAction("select-group");
+	QVERIFY(group_act && ungroup_act && select_group_act);
+	map.map->clearObjectSelection(true);
+	QVERIFY(!group_act->isEnabled() && !ungroup_act->isEnabled() && !select_group_act->isEnabled());
+	map.map->addObjectToSelection(first, true);
+	QVERIFY(!group_act->isEnabled() && ungroup_act->isEnabled() && select_group_act->isEnabled());
+	map.map->addObjectToSelection(second, true);
+	QVERIFY(group_act->isEnabled());
+	
+	auto const undo_steps = map.map->undoManager().undoStepCount();
+	editor.editor->groupSelection(QStringLiteral("fence"));
+	auto const group = map.map->findObject(first_uuid)->group();
+	QVERIFY(group > 0);
+	QCOMPARE(map.map->findObject(second_uuid)->group(), group);
+	QCOMPARE(map.map->objectGroupName(group), QStringLiteral("fence"));
+	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 1);
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(first->group(), 0);
+	QCOMPARE(second->group(), 0);
+	QVERIFY(map.map->undoManager().redo());
+	auto* grouped_first = map.map->findObject(first_uuid);
+	auto* grouped_second = map.map->findObject(second_uuid);
+	QCOMPARE(grouped_first->group(), group);
+	
+	// A click on a grouped object selects the group, Alt+click the object.
+	editor.editor->setTool(new EditPointTool(editor.editor, nullptr));
+	map.map->clearObjectSelection(true);
+	auto const* widget = editor.map_widget;
+	auto const on_first = widget->mapToViewport(MapCoord(10.0, 0.0)).toPoint();
+	editor.simulateClick(on_first);
+	QVERIFY(map.map->selectedObjects() == (Map::ObjectSelection{ grouped_first, grouped_second }));
+	map.map->clearObjectSelection(true);
+	QTest::mouseClick(editor.map_widget, Qt::LeftButton, Qt::AltModifier, on_first);
+	QVERIFY(map.map->selectedObjects() == (Map::ObjectSelection{ grouped_first }));
+	editor.editor->selectGroup();
+	QVERIFY(map.map->selectedObjects() == (Map::ObjectSelection{ grouped_first, grouped_second }));
+	
+	editor.editor->ungroupSelection();
+	QCOMPARE(map.map->findObject(first_uuid)->group(), 0);
+	QCOMPARE(map.map->findObject(second_uuid)->group(), 0);
+	editor.editor->setTool(nullptr);
+}
+
+
 QTEST_MAIN(ToolsTest)

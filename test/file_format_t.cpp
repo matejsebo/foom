@@ -490,6 +490,7 @@ namespace
 				auto const* actual_object = actual_part->getObject(i);
 				auto const* expected_object = expected_part->getObject(i);
 				QCOMPARE(actual_object->uuid(), expected_object->uuid());
+				QCOMPARE(actual_object->group(), expected_object->group());
 				QCOMPARE(actual_object->derivedFrom(), expected_object->derivedFrom());
 				QCOMPARE(actual_object->createdTime(), expected_object->createdTime());
 				QCOMPARE(actual_object->modifiedTime(), expected_object->modifiedTime());
@@ -2149,7 +2150,7 @@ void FileFormatTest::foomIdentityTest()
 	QVERIFY(!plain_data.contains(QLatin1String(" foom=")));
 	QVERIFY(!plain_data.contains(QLatin1String(" uuid=")));
 }
-	
+
 void FileFormatTest::oldFilesTest_data()
 {
 	QTest::addColumn<QString>("filepath");
@@ -2168,7 +2169,7 @@ void FileFormatTest::oldFilesTest_data()
 		QTest::newRow(name.toUtf8()) << dir.absoluteFilePath(name) << warnings_expected;
 	}
 }
-	
+
 void FileFormatTest::oldFilesTest()
 {
 	// the design notes, "File format version 10", Accept (2).
@@ -2198,7 +2199,54 @@ void FileFormatTest::oldFilesTest()
 	compareMaps(*reloaded, map);
 	compareObjectIdentity(*reloaded, map);
 }
+
+void FileFormatTest::foomGroupTest()
+{
+	// the design notes, "Groups".
+	Map map;
+	auto* symbol = new PointSymbol();
+	map.addSymbol(symbol, 0);
+	for (int i = 0; i < 3; ++i)
+	{
+		auto* object = new PointObject(symbol);
+		object->setPosition(MapCoord(i * 10.0, 0.0));
+		if (i < 2)
+			object->setGroup(3);
+		map.addObject(object);
+	}
+	map.setObjectGroupName(3, QStringLiteral("fence"));
 	
+	XMLFileFormat format;
+	QBuffer buffer;
+	QVERIFY(buffer.open(QIODevice::ReadWrite));
+	auto exporter = format.makeExporter({}, &map, nullptr);
+	exporter->setDevice(&buffer);
+	QVERIFY(exporter->doExport());
+	auto const data = QString::fromUtf8(buffer.data());
+	QVERIFY(data.contains(QLatin1String(" group=\"3\"")));
+	QVERIFY(data.contains(QLatin1String("<groups count=\"1\">")));
+	
+	QVERIFY(buffer.seek(0));
+	Map reloaded;
+	auto importer = format.makeImporter({}, &reloaded, nullptr);
+	importer->setDevice(&buffer);
+	QVERIFY(importer->doImport());
+	QVERIFY(importer->warnings().empty());
+	compareObjectIdentity(reloaded, map);
+	QCOMPARE(reloaded.objectGroupName(3), QStringLiteral("fence"));
+	QCOMPARE(reloaded.getPart(0)->getObject(2)->group(), 0);
+	
+	QBuffer plain_buffer;
+	QVERIFY(plain_buffer.open(QIODevice::ReadWrite));
+	auto plain_exporter = format.makeExporter({}, &map, nullptr);
+	plain_exporter->setOption(QString::fromLatin1("foom"), false);
+	plain_exporter->setDevice(&plain_buffer);
+	QVERIFY(plain_exporter->doExport());
+	auto const plain_data = QString::fromUtf8(plain_buffer.data());
+	QVERIFY(!plain_data.contains(QLatin1String(" group=")));
+	QVERIFY(!plain_data.contains(QLatin1String("<groups")));
+}
+
 void FileFormatTest::ocdDateTimeTest()
 {
 	// See the design notes, "Object identity and timestamps".
@@ -2209,7 +2257,7 @@ void FileFormatTest::ocdDateTimeTest()
 	QCOMPARE(Ocd::fromDelphiDateTime(0.0), qint64(0));
 	QCOMPARE(Ocd::toDelphiDateTime(0), 0.0);
 }
-	
+
 void FileFormatTest::ocdDatesTest()
 {
 	Map map;
@@ -2230,6 +2278,6 @@ void FileFormatTest::ocdDatesTest()
 		QCOMPARE(reloaded_part->getObject(i)->modifiedTime(), part->getObject(i)->modifiedTime());
 	}
 }
-	
-	
+
+
 QTEST_MAIN(FileFormatTest)

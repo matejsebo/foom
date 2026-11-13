@@ -43,6 +43,7 @@
 #include "core/ops/align.h"
 #include "core/ops/apply_op.h"
 #include "core/ops/flatten.h"
+#include "core/ops/group.h"
 #include "core/ops/bounds.h"
 #include "core/ops/mirror.h"
 #include "core/ops/offset.h"
@@ -116,6 +117,7 @@ private slots:
 	void reshapeTest();
 	void offsetTest();
 	void vertexTypeTest();
+	void groupTest();
 };
 
 
@@ -889,6 +891,35 @@ void OpsTest::vertexTypeTest()
 	QCOMPARE(mixed.out.size(), std::size_t(1));
 	QVERIFY(!ops::setVertexType(map, { point }, params).error.isEmpty());
 	QVERIFY(!ops::setVertexType(map, {}, params).error.isEmpty());
+}
+
+
+void OpsTest::groupTest()
+{
+	// the design notes, "Groups".
+	Map map;
+	auto* symbol = new PointSymbol();
+	map.addSymbol(symbol, 0);
+	auto* first = new PointObject(symbol);
+	map.addObject(first);
+	auto* second = new PointObject(symbol);
+	second->setGroup(5);
+	map.addObject(second);
+	ops::GroupParams params;
+	params.group = 5;
+	auto result = ops::setGroup(map, { first, second }, params);
+	QVERIFY(result.error.isEmpty());
+	QCOMPARE(result.out.size(), std::size_t(1));
+	QCOMPARE(result.consumed, (std::vector<const Object*>{ first }));
+	QCOMPARE(result.out.front()->group(), 5);
+	QCOMPARE(result.out.front()->uuid(), first->uuid());
+	QVERIFY(!ops::setGroup(map, {}, params).error.isEmpty());
+	auto const uuid = first->uuid();
+	QVERIFY(ops::applyOp(map, std::move(result)));
+	QCOMPARE(map.findObject(uuid)->group(), 5);
+	QVERIFY(map.undoManager().undo());
+	QCOMPARE(map.findObject(uuid), first);
+	QCOMPARE(first->group(), 0);
 }
 
 

@@ -120,11 +120,13 @@ set(Mapper_Common_SRCS
   core/ops/align.cpp
   core/ops/apply_op.cpp
   core/ops/flatten.cpp
+  core/ops/group.cpp
   core/ops/bounds.cpp
   core/ops/mirror.cpp
   core/ops/offset.cpp
   core/ops/reshape.cpp
   core/lasso_query.cpp
+  core/object_groups.cpp
   core/ops/transform.cpp
   core/ops/vertex_type.cpp
   

@@ -2188,6 +2188,14 @@ Object* Map::findObject(const QUuid& uuid) const
 	return objects_by_uuid.value(uuid, nullptr);
 }
 
+void Map::setObjectGroupName(int group, const QString& name)
+{
+	if (name.isEmpty())
+		object_group_names.remove(group);
+	else
+		object_group_names.insert(group, name);
+}
+
 void Map::registerObject(Object* object)
 {
 	auto const existing = objects_by_uuid.constFind(object->uuid());

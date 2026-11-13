@@ -54,6 +54,7 @@ protected:
 	void exportColors();
 	void exportSymbols();
 	void exportMapParts();
+	void exportObjectGroups();  // foom
 	void exportTemplates();
 	void exportView();
 	void exportPrint();
@@ -94,6 +95,7 @@ protected:
 	void importColors();
 	void importSymbols();
 	void importMapParts();
+	void importObjectGroups();  // foom
 	void importTemplates();
 	void importView();
 	void importPrint();

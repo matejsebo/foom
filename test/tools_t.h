@@ -62,6 +62,9 @@ private slots:
 	
 	/** foom: Tests the lasso selection tool. */
 	void lasso();
+	
+	/** foom: Tests the group commands and the click rule. */
+	void groups();
 };
 
 #endif

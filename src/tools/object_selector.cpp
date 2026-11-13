@@ -28,6 +28,7 @@
 #include <QRectF>
 
 #include "core/map.h"
+#include "core/object_groups.h"  // foom
 // IWYU pragma: no_include "core/map_part.h"
 #include "core/objects/object.h"
 
@@ -41,7 +42,7 @@ ObjectSelector::ObjectSelector(Map* map)
 }
 
 
-bool ObjectSelector::selectAt(const MapCoordF& position, qreal tolerance, bool toggle)
+bool ObjectSelector::selectAt(const MapCoordF& position, qreal tolerance, bool toggle, bool expand_groups)
 {
 	bool selection_changed;
 	
@@ -126,6 +127,9 @@ bool ObjectSelector::selectAt(const MapCoordF& position, qreal tolerance, bool t
 			selection_changed = true;
 		}
 	}
+	
+	if (expand_groups && !toggle && selection_changed)  // foom: a grouped object brings its group
+		expandSelectionToGroups(*map);
 	
 	return selection_changed;
 }

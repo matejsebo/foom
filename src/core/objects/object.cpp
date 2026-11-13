@@ -82,6 +82,7 @@ namespace literal
 	static const QLatin1String derived_from("derived_from");  // foom
 	static const QLatin1String created("created");  // foom
 	static const QLatin1String modified("modified");  // foom
+	static const QLatin1String group("group");  // foom
 }
 
 
@@ -134,6 +135,7 @@ Object::Object(const Object& proto)
  , object_derived_from(proto.object_derived_from)
  , object_created(proto.object_created)
  , object_modified(proto.object_modified)
+ , object_group(proto.object_group)
 {
 	// nothing
 }
@@ -166,6 +168,7 @@ void Object::copyFrom(const Object& other)
 	rotation = other.rotation;
 	// map unchanged!
 	object_tags = other.object_tags;
+	object_group = other.object_group;  // foom
 	output_dirty = true;
 	extent = other.extent;
 }
@@ -199,6 +202,8 @@ bool Object::equals(const Object* other, bool compare_symbol) const
 	}
 	
 	if (qAbs(getRotation() - other->getRotation()) >= 0.000001)  // six decimal places in XML
+		return false;
+	if (object_group != other->object_group)  // foom
 		return false;
 	
 	if (type == Path)
@@ -301,6 +306,8 @@ void Object::save(QXmlStreamWriter& xml) const
 			object_element.writeAttribute(literal::created, QDateTime::fromSecsSinceEpoch(object_created, Qt::UTC).toString(Qt::ISODate));
 		if (object_modified > 0)
 			object_element.writeAttribute(literal::modified, QDateTime::fromSecsSinceEpoch(object_modified, Qt::UTC).toString(Qt::ISODate));
+		if (object_group != 0)
+			object_element.writeAttribute(literal::group, object_group);
 	}
 	
 	if (type == Text)
@@ -381,6 +388,8 @@ Object* Object::load(QXmlStreamReader& xml, Map* map, const SymbolDictionary& sy
 		object->setIdentity(uuid, timeFromAttribute(object_element, literal::created), timeFromAttribute(object_element, literal::modified));
 		if (object_element.hasAttribute(literal::derived_from))
 			object->setDerivedFrom(QUuid(object_element.attribute<QString>(literal::derived_from)));
+		if (object_element.hasAttribute(literal::group))
+			object->setGroup(object_element.attribute<int>(literal::group));
 	}
 	
 	if (symbol)

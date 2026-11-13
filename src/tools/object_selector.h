@@ -53,7 +53,7 @@ public:
 	 * @param toggle corresponds to the shift key modifier.
 	 * @return true if the selection has changed.
 	 */
-	bool selectAt(const MapCoordF& position, qreal tolerance, bool toggle);
+	bool selectAt(const MapCoordF& position, qreal tolerance, bool toggle, bool expand_groups = false);  // foom: expand_groups
 	
 	/**
 	 * Applies box selection.

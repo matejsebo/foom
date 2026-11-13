@@ -946,6 +946,15 @@ public:
 	 */
 	void unregisterObject(Object* object);
 	
+	/** foom: Returns the name of the object group, empty when it has none. */
+	QString objectGroupName(int group) const { return object_group_names.value(group); }
+	
+	/** foom: Sets the name of the object group; an empty name removes it. */
+	void setObjectGroupName(int group, const QString& name);
+	
+	/** foom: Returns the group names by group number. */
+	const QHash<int, QString>& objectGroupNames() const { return object_group_names; }
+	
 	
 	// foom: spatial index.
 	// See the design notes, "Spatial index".
@@ -1683,6 +1692,7 @@ private:
 	int first_front_template = 0;		// index of the first template in templates which should be drawn in front of the map
 	PartVector parts;
 	QHash<QUuid, Object*> objects_by_uuid;  ///< foom: the objects in the parts
+	QHash<int, QString> object_group_names;  ///< foom: see the design notes, "Groups"
 	mutable std::unordered_set<const Object*> stale_index_objects;  ///< foom: to be re-entered into the spatial indexes
 	ObjectSelection object_selection;
 	Object* first_selected_object = nullptr;

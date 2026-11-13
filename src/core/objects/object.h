@@ -369,6 +369,12 @@ public:
 	 */
 	void touch(qint64 now) { object_modified = now; }
 	
+	/** foom: Returns the group number, 0 for none. See the design notes, "Groups". */
+	int group() const { return object_group; }
+	
+	/** foom: Sets the group number, 0 for none. */
+	void setGroup(int group) { object_group = group; }
+	
 	/** Returns the current time in the unit of the object timestamps. */
 	static qint64 currentTime();
 	
@@ -394,6 +400,7 @@ private:
 	QUuid object_derived_from;
 	qint64 object_created = currentTime();
 	qint64 object_modified = object_created;
+	int object_group = 0;  ///< foom: 0 for none
 };
 
 

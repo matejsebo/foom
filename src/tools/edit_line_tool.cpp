@@ -203,7 +203,7 @@ void EditLineTool::clickRelease()
 		return;
 	}
 	
-	object_selector->selectAt(cur_pos_map, cur_map_widget->getMapView()->pixelToLength(clickTolerance()), active_modifiers & Qt::ShiftModifier);
+	object_selector->selectAt(cur_pos_map, cur_map_widget->getMapView()->pixelToLength(clickTolerance()), active_modifiers & Qt::ShiftModifier, !(active_modifiers & Qt::AltModifier));  // foom: groups
 	updateHoverState(cur_pos_map);
 }
 

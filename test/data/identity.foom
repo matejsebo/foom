@@ -17,9 +17,12 @@
 <object type="4" uuid="0c9d8e7f-6a5b-4c4d-8e3f-2a1b0c9d8e7f" derived_from="6f3a2b1c-8d4e-4f50-9a61-0b72c83d94e5" created="2018-03-01T10:00:00Z" modified="2018-03-01T10:00:00Z" symbol="1" rotation="0.6" h_align="1" v_align="2"><coords count="1">-6000 0;</coords><text>single
 anchor</text></object>
 <object type="0" uuid="4d5e6f70-8192-4a3b-9c4d-5e6f70819203" created="2020-10-30T08:52:55Z" symbol="0" rotation="0.6"><coords count="1">-6000 -8000;</coords></object>
-<object type="1" uuid="a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d" created="2020-01-15T12:00:00Z" modified="2020-01-15T12:00:00Z" symbol="2"><coords count="5">3000 -13000 32;13000 -13000 32;13000 -7000 32;3000 -7000 32;3000 -13000 50;</coords><pattern rotation="0.693223"><coord x="7654" y="-9945"/></pattern></object>
+<object type="1" uuid="a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d" created="2020-01-15T12:00:00Z" group="1" modified="2020-01-15T12:00:00Z" symbol="2"><coords count="5">3000 -13000 32;13000 -13000 32;13000 -7000 32;3000 -7000 32;3000 -13000 50;</coords><pattern rotation="0.693223"><coord x="7654" y="-9945"/></pattern></object>
 </objects></part>
 </parts>
+<groups count="1">
+<group id="1" name="labels"/>
+</groups>
 <templates count="0" first_front_template="0">
 <defaults use_meters_per_pixel="true" meters_per_pixel="0" dpi="0" scale="0"/>
 </templates>

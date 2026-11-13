@@ -112,6 +112,8 @@
 #include "core/ops/apply_op.h"
 #include "core/ops/offset.h"
 #include "core/ops/vertex_type.h"
+#include "core/ops/group.h"
+#include "core/object_groups.h"
 #include "core/ops/flatten.h"
 #include "core/ops/mirror.h"
 #include "core/ops/transform.h"
@@ -1088,6 +1090,9 @@ void MapEditorController::createActions()
 	vertex_type_dash_act->setData(true);
 	vertex_type_keep_ends_act = newCheckAction("set-vertex-type-keep-ends", tr("Keep first and last vertex"), nullptr, nullptr);  // foom
 	vertex_type_keep_ends_act->setChecked(true);
+	group_act = newAction("group", tr("Group..."), this, SLOT(groupClicked()));  // foom
+	ungroup_act = newAction("ungroup", tr("Ungroup"), this, SLOT(ungroupSelection()));  // foom
+	select_group_act = newAction("select-group", tr("Select group"), this, SLOT(selectGroup()));  // foom
 	cut_hole_act = newToolAction("cuthole", tr("Cut free form hole"), this, SLOT(cutHoleClicked()), "tool-cut-hole.png", QString{}, "toolbars.html#cut_hole"); // cut hole using a path
 	cut_hole_circle_act = newToolAction("cutholecircle", tr("Cut round hole"), this, SLOT(cutHoleCircleClicked()), "tool-cut-hole.png", QString{}, "toolbars.html#cut_hole");
 	cut_hole_rectangle_act = newToolAction("cutholerectangle", tr("Cut rectangular hole"), this, SLOT(cutHoleRectangleClicked()), "tool-cut-hole.png", QString{}, "toolbars.html#cut_hole");
@@ -1314,6 +1319,9 @@ void MapEditorController::createMenuAndToolbars()
 	vertex_type_menu->addAction(vertex_type_dash_act);
 	vertex_type_menu->addSeparator();
 	vertex_type_menu->addAction(vertex_type_keep_ends_act);
+	tools_menu->addAction(group_act);  // foom
+	tools_menu->addAction(ungroup_act);  // foom
+	tools_menu->addAction(select_group_act);  // foom
 	tools_menu->addAction(clip_area_act);
 	tools_menu->addAction(erase_area_act);
 	tools_menu->addAction(distribute_points_act);
@@ -2755,6 +2763,13 @@ void MapEditorController::updateObjectDependentActions()
 		action->setEnabled(num_selected >= 3);
 		action->setStatusTip(action->isEnabled() ? QString{} : tr("Select at least three objects to activate this tool."));
 	}
+	group_act->setEnabled(num_selected >= 2);  // foom
+	group_act->setStatusTip(group_act->isEnabled() ? QString{} : tr("Select at least two objects to activate this tool."));
+	for (auto* action : { ungroup_act, select_group_act })  // foom
+	{
+		action->setEnabled(have_selection);
+		action->setStatusTip(action->isEnabled() ? QString{} : tr("Select at least one object to activate this tool."));
+	}
 	
 	// cut_hole_enabled
 	const bool cut_hole_enabled = single_object_selected && have_area;
@@ -3520,6 +3535,45 @@ void MapEditorController::setVertexType(bool dash, bool keep_ends)
 void MapEditorController::lassoClicked()
 {
 	setTool(new LassoTool(this, lasso_act));
+}
+
+// foom
+void MapEditorController::groupClicked()
+{
+	bool ok = false;
+	auto const name = QInputDialog::getText(window, tr("Group"), tr("Name of the group (may stay empty):"), QLineEdit::Normal, QString{}, &ok);
+	if (ok)
+		groupSelection(name);
+}
+
+// foom
+void MapEditorController::groupSelection(const QString& name)
+{
+	// the design notes, "Groups".
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	ops::GroupParams params;
+	params.group = nextObjectGroupId(*map);
+	auto result = ops::setGroup(*map, in, params);
+	if (result.error.isEmpty() && !result.out.empty())
+		map->setObjectGroupName(params.group, name);
+	applyOpResult(std::move(result));
+}
+
+// foom
+void MapEditorController::ungroupSelection()
+{
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	ops::GroupParams params;
+	params.group = 0;
+	applyOpResult(ops::setGroup(*map, in, params));
+}
+
+// foom
+void MapEditorController::selectGroup()
+{
+	expandSelectionToGroups(*map);
 }
 
 void MapEditorController::cutHoleClicked()

@@ -519,6 +519,14 @@ public slots:
 	void setVertexTypeClicked();
 	/** foom: Sets (dash) or clears the dash flag of every vertex of the selected paths. */
 	void setVertexType(bool dash, bool keep_ends);
+	/** foom: Asks for a name, then groups the selected objects. */
+	void groupClicked();
+	/** foom: Gives the selected objects the next free group number, and the group the name. */
+	void groupSelection(const QString& name);
+	/** foom: Clears the group of the selected objects. */
+	void ungroupSelection();
+	/** foom: Adds the groups of the selected objects to the selection. */
+	void selectGroup();
 	/** Activates the physical cutout tool */
 	void clipAreaClicked();
 	/** Activates the physical cutout tool (inversed) */
@@ -876,6 +884,9 @@ private:
 	QAction* vertex_type_normal_act = {};  // foom
 	QAction* vertex_type_dash_act = {};  // foom
 	QAction* vertex_type_keep_ends_act = {};  // foom
+	QAction* group_act = {};  // foom
+	QAction* ungroup_act = {};  // foom
+	QAction* select_group_act = {};  // foom
 	QAction* clip_area_act = {};
 	QAction* erase_area_act = {};
 	QAction* distribute_points_act = {};
