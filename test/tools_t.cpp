@@ -40,8 +40,10 @@
 #include "core/objects/object.h"
 #include "core/objects/object_query.h"
 #include "core/ops/align.h"
+#include "tools/lasso_tool.h"
 #include "tools/move_parallel_tool.h"
 #include "tools/reshape_tool.h"
+#include "core/symbols/area_symbol.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
 #include "global.h"
@@ -603,6 +605,70 @@ void ToolsTest::vertexType()
 	QVERIFY(map.map->undoManager().undo());
 	QCOMPARE(map.map->findObject(uuid), line);
 	QCOMPARE(part->getNumObjects(), 2);
+}
+
+
+void ToolsTest::lasso()
+{
+	// the design notes, "Lasso selection".
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* point_symbol = new PointSymbol();
+	map.map->addSymbol(point_symbol, 1);
+	auto* area_symbol = new AreaSymbol();
+	map.map->addSymbol(area_symbol, 2);
+	auto* point = new PointObject(point_symbol);
+	point->setPosition(MapCoord(5.0, 5.0));
+	map.map->addObject(point);
+	auto* line = new PathObject(map.line_symbol, { MapCoord(20.0, 0.0), MapCoord(30.0, 0.0) });
+	map.map->addObject(line);
+	auto* area = new PathObject(area_symbol);
+	for (auto const& coord : { MapCoord(0.0, 20.0), MapCoord(10.0, 20.0), MapCoord(10.0, 30.0), MapCoord(0.0, 30.0) })
+		area->addCoordinate(coord);
+	area->parts().front().setClosed(true);
+	map.map->addObject(area);
+	auto* far_point = new PointObject(point_symbol);
+	far_point->setPosition(MapCoord(50.0, 50.0));
+	map.map->addObject(far_point);
+	map.map->clearObjectSelection(true);
+	
+	auto* action = editor.editor->getAction("select-lasso");
+	QVERIFY(action);
+	action->trigger();
+	auto* tool = dynamic_cast<LassoTool*>(editor.editor->getTool());
+	QVERIFY(tool);
+	auto const selection = [&map]() { return map.map->selectedObjects(); };
+	
+	auto const triangle = std::vector<MapCoordF>{ MapCoordF(0.0, 0.0), MapCoordF(10.0, 0.0), MapCoordF(5.0, 10.0) };
+	QVERIFY(tool->selectPolygon(triangle, false));
+	QVERIFY(selection() == (Map::ObjectSelection{ point }));
+	QVERIFY(tool->selectPolygon({ MapCoordF(25.0, -2.0), MapCoordF(27.0, -2.0), MapCoordF(27.0, 2.0), MapCoordF(25.0, 2.0) }, false));
+	QVERIFY(selection() == (Map::ObjectSelection{ line }));
+	QVERIFY(tool->selectPolygon({ MapCoordF(3.0, 23.0), MapCoordF(6.0, 23.0), MapCoordF(6.0, 26.0), MapCoordF(3.0, 26.0) }, false));
+	QVERIFY(selection() == (Map::ObjectSelection{ area }));
+	QVERIFY(tool->selectPolygon({ MapCoordF(-5.0, -5.0), MapCoordF(35.0, -5.0), MapCoordF(35.0, 35.0), MapCoordF(-5.0, 35.0) }, false));
+	QVERIFY(selection() == (Map::ObjectSelection{ map.line_object, point, line, area }));
+	// Toggling with the triangle removes the point.
+	QVERIFY(tool->selectPolygon(triangle, true));
+	QVERIFY(selection() == (Map::ObjectSelection{ map.line_object, line, area }));
+	// Fewer than three points select nothing and change nothing.
+	QVERIFY(!tool->selectPolygon({ MapCoordF(0.0, 0.0), MapCoordF(10.0, 0.0) }, true));
+	map.map->clearObjectSelection(true);
+	
+	// The same triangle by mouse: press, two moves, release.
+	auto* widget = editor.map_widget;
+	auto const viewport = [widget](double x, double y) { return widget->mapToViewport(MapCoord(x, y)).toPoint(); };
+	auto const move = [widget](const QPoint& pos) {
+		QMouseEvent event(QEvent::MouseMove, pos, widget->mapToGlobal(pos), Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+		QApplication::sendEvent(widget, &event);
+	};
+	QTest::mousePress(widget, Qt::LeftButton, {}, viewport(0.0, 0.0));
+	move(viewport(10.0, 0.0));
+	move(viewport(5.0, 10.0));
+	QTest::mouseRelease(widget, Qt::LeftButton, {}, viewport(5.0, 10.0));
+	QVERIFY(selection() == (Map::ObjectSelection{ point }));
+	
+	editor.editor->setTool(nullptr);
 }
 
 

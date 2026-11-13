@@ -124,6 +124,7 @@ set(Mapper_Common_SRCS
   core/ops/mirror.cpp
   core/ops/offset.cpp
   core/ops/reshape.cpp
+  core/lasso_query.cpp
   core/ops/transform.cpp
   core/ops/vertex_type.cpp
   
@@ -248,6 +249,7 @@ set(Mapper_Common_SRCS
   tools/box_zoom_tool.cpp
   tools/cut_tool.cpp
   tools/cut_hole_tool.cpp
+  tools/lasso_tool.cpp
   tools/move_parallel_tool.cpp
   tools/reshape_tool.cpp
   tools/cutout_operation.cpp

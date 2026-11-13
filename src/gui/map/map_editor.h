@@ -507,6 +507,8 @@ public slots:
 	void distribute(bool horizontal);
 	/** foom: Activates the reshape tool. */
 	void reshapeClicked();
+	/** foom: Activates the lasso selection tool. */
+	void lassoClicked();
 	/** foom: Activates the move-parallel tool. */
 	void moveParallelClicked();
 	/** foom: Shows the move-parallel-by dialog, which stays open. */
@@ -867,6 +869,7 @@ private:
 	QAction* distribute_h_act = {};  // foom
 	QAction* distribute_v_act = {};  // foom
 	QAction* reshape_act = {};  // foom
+	QAction* lasso_act = {};  // foom
 	QAction* move_parallel_act = {};  // foom
 	QAction* move_parallel_by_act = {};  // foom
 	QPointer<MoveParallelDialog> move_parallel_dialog;  // foom

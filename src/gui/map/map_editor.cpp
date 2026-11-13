@@ -159,6 +159,7 @@
 #include "tools/box_zoom_tool.h"
 #include "tools/cut_tool.h"
 #include "tools/cut_hole_tool.h"
+#include "tools/lasso_tool.h"  // foom
 #include "tools/move_parallel_tool.h"  // foom
 #include "tools/reshape_tool.h"  // foom
 #include "tools/cutout_tool.h"
@@ -1063,6 +1064,7 @@ void MapEditorController::createActions()
 	
 	edit_tool_act = newToolAction("editobjects", tr("Edit objects"), this, SLOT(editToolClicked()), "tool-edit.png", QString{}, "toolbars.html#tool_edit_point");
 	edit_line_tool_act = newToolAction("editlines", tr("Edit lines"), this, SLOT(editLineToolClicked()), "tool-edit-line.png", QString{}, "toolbars.html#tool_edit_line");
+	lasso_act = newToolAction("select-lasso", tr("Lasso selection"), this, SLOT(lassoClicked()));  // foom
 	draw_point_act = newToolAction("drawpoint", tr("Set point objects"), this, SLOT(drawPointClicked()), "draw-point.png", QString{}, "toolbars.html#tool_draw_point");
 	draw_path_act = newToolAction("drawpath", tr("Draw paths"), this, SLOT(drawPathClicked()), "draw-path.png", QString{}, "toolbars.html#tool_draw_path");
 	draw_circle_act = newToolAction("drawcircle", tr("Draw circles and ellipses"), this, SLOT(drawCircleClicked()), "draw-circle.png", QString{}, "toolbars.html#tool_draw_circle");
@@ -1267,6 +1269,7 @@ void MapEditorController::createMenuAndToolbars()
 	tools_menu->setWhatsThis(Util::makeWhatThis("tools_menu.html"));
 	tools_menu->addAction(edit_tool_act);
 	tools_menu->addAction(edit_line_tool_act);
+	tools_menu->addAction(lasso_act);  // foom
 	tools_menu->addAction(draw_point_act);
 	tools_menu->addAction(draw_path_act);
 	tools_menu->addAction(draw_circle_act);
@@ -3511,6 +3514,12 @@ void MapEditorController::setVertexType(bool dash, bool keep_ends)
 	params.dash = dash;
 	params.keep_ends = keep_ends;
 	applyOpResult(ops::setVertexType(*map, in, params));
+}
+
+// foom
+void MapEditorController::lassoClicked()
+{
+	setTool(new LassoTool(this, lasso_act));
 }
 
 void MapEditorController::cutHoleClicked()

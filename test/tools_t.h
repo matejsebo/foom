@@ -59,6 +59,9 @@ private slots:
 	
 	/** foom: Tests the vertex type commands. */
 	void vertexType();
+	
+	/** foom: Tests the lasso selection tool. */
+	void lasso();
 };
 
 #endif
