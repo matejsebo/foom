@@ -84,6 +84,7 @@
 #include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_coord.h"
+#include "core/extents.h"  // foom
 #include "core/map_printer.h"
 #include "core/map_view.h"
 #include "fileformats/xml_file_format.h"
@@ -195,6 +196,10 @@ PrintWidget::PrintWidget(Map* map, MainWindow* main_window, MapView* main_view, 
 	policy_combo->addItem(tr("Single page"), SinglePage);
 	policy_combo->addItem(tr("Custom area"), CustomArea);
 	layout->addRow(Util::Headline::create(tr("Map area:")), policy_combo); // or print/export area
+	extent_combo = new QComboBox();  // foom: named extents
+	fillExtentCombo();
+	connect(extent_combo, QOverload<int>::of(&QComboBox::activated), this, &PrintWidget::extentSelected);
+	layout->addRow(tr("Extent:"), extent_combo);
 	
 	center_check = new QCheckBox(tr("Center print area"));
 	layout->addRow(center_check);
@@ -797,6 +802,37 @@ void PrintWidget::pageOrientationChanged(int id) const
 
 
 // slot
+// foom
+void PrintWidget::fillExtentCombo()
+{
+	extent_combo->clear();
+	extent_combo->addItem(tr("None"), QString{});
+	for (auto const& extent : map->extents())
+		extent_combo->addItem(extent.name, extent.name);
+}
+
+// foom
+void PrintWidget::extentSelected(int index)
+{
+	// the design notes, "Named extents and the paper frame".
+	auto const name = extent_combo->itemData(index).toString();
+	for (auto const& extent : map->extents())
+	{
+		if (extent.name != name)
+			continue;
+		policy_combo->setCurrentIndex(policy_combo->findData(CustomArea));
+		if (!extent.paper.isEmpty())
+		{
+			auto const id = pageSizeFromKey(extent.paper);
+			if (id != QPageSize::Custom)
+				map_printer->setPageSize(id);
+			map_printer->setPageOrientation(extent.rect_mm.width() > extent.rect_mm.height() ? MapPrinterPageFormat::Landscape : MapPrinterPageFormat::Portrait);
+		}
+		map_printer->setPrintArea(extent.rect_mm);
+		return;
+	}
+}
+
 void PrintWidget::printAreaPolicyChanged(int index)
 {
 	policy = PrintAreaPolicy(policy_combo->itemData(index).toInt());

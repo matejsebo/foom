@@ -57,6 +57,8 @@
 #include <QRectF>
 #include <QSize>
 #include <QSizeF>
+#include <QXmlStreamWriter>
+#include <QXmlStreamReader>
 #include <QString>
 #include <QStringList>
 #include <QStringRef>
@@ -70,6 +72,7 @@
 #include "core/georeferencing.h"
 #include "core/latlon.h"
 #include "core/bookmarks.h"
+#include "core/extents.h"
 #include "core/map.h"
 #include "core/map_color.h"
 #include "core/map_coord.h"
@@ -97,6 +100,9 @@
 #include "fileformats/ocd_types_v12.h"
 #include "fileformats/simple_course_export.h"
 #include "fileformats/ocd_bookmark.h"
+#include "undo/map_data_undo.h"
+#include "undo/undo.h"
+#include "undo/undo_manager.h"
 #include "fileformats/xml_file_format.h"
 #include "templates/template.h"
 #include "undo/undo.h"
@@ -482,6 +488,7 @@ namespace
 	void compareObjectIdentity(const Map& actual, const Map& expected)
 	{
 		QVERIFY(actual.bookmarks() == expected.bookmarks());
+		QVERIFY(actual.extents() == expected.extents());
 		QCOMPARE(actual.getNumParts(), expected.getNumParts());
 		for (int p = 0; p < actual.getNumParts(); ++p)
 		{
@@ -2301,6 +2308,101 @@ void FileFormatTest::foomBookmarkTest()
 	QCOMPARE(parsed.zoom, 4.0);
 	QCOMPARE(parsed.note, QStringLiteral("Note"));
 	QVERIFY(!parseOcdBookmark(QStringLiteral("\tx1\ty2"), parsed));
+}
+
+namespace {
+	
+std::vector<Extent> sampleExtents()
+{
+	Extent sheet;
+	sheet.name = QStringLiteral("sheet");
+	sheet.rect_mm = QRectF(0.0, 0.0, 100.0, 80.0);
+	sheet.scale = 10000;
+	sheet.paper = QStringLiteral("A4");
+	sheet.margin_mm = 5.0;
+	Extent back;
+	back.name = QStringLiteral("back");
+	back.rect_mm = QRectF(0.0, 100.0, 100.0, 80.0);
+	back.back_of = QStringLiteral("sheet");
+	return { sheet, back };
+}
+
+}  // namespace
+
+void FileFormatTest::foomExtentTest()
+{
+	// the design notes, "Named extents and the paper frame".
+	Map map;
+	auto* symbol = new PointSymbol();
+	map.addSymbol(symbol, 0);
+	map.addObject(new PointObject(symbol));
+	map.setExtents(sampleExtents());
+	
+	XMLFileFormat format;
+	QBuffer buffer;
+	QVERIFY(buffer.open(QIODevice::ReadWrite));
+	auto exporter = format.makeExporter({}, &map, nullptr);
+	exporter->setDevice(&buffer);
+	QVERIFY(exporter->doExport());
+	QVERIFY(QString::fromUtf8(buffer.data()).contains(QLatin1String("<extents count=\"2\">")));
+	QVERIFY(buffer.seek(0));
+	Map reloaded;
+	auto importer = format.makeImporter({}, &reloaded, nullptr);
+	importer->setDevice(&buffer);
+	QVERIFY(importer->doImport());
+	QVERIFY(importer->warnings().empty());
+	QVERIFY(reloaded.extents() == sampleExtents());
+	
+	QBuffer plain_buffer;
+	QVERIFY(plain_buffer.open(QIODevice::ReadWrite));
+	auto plain_exporter = format.makeExporter({}, &map, nullptr);
+	plain_exporter->setOption(QString::fromLatin1("foom"), false);
+	plain_exporter->setDevice(&plain_buffer);
+	QVERIFY(plain_exporter->doExport());
+	QVERIFY(!QString::fromUtf8(plain_buffer.data()).contains(QLatin1String("<extents")));
+	
+	QCOMPARE(extentSizeFromPaper(QPageSize::A4, false, 10000, 10000), QSizeF(210.0, 297.0));
+	QCOMPARE(extentSizeFromPaper(QPageSize::A4, true, 10000, 10000), QSizeF(297.0, 210.0));
+	QCOMPARE(extentSizeFromPaper(QPageSize::A4, false, 5000, 10000), QSizeF(105.0, 148.5));
+	QCOMPARE(pageSizeFromKey(QStringLiteral("A4")), QPageSize::A4);
+	QCOMPARE(pageSizeFromKey(QStringLiteral("no such paper")), QPageSize::Custom);
+}
+
+void FileFormatTest::mapDataUndoTest()
+{
+	// the design notes, undo for map-level data: byte-identical before, after undo, after redo.
+	Map map;
+	auto const extents = sampleExtents();
+	map.setExtents({ extents.front() });
+	auto const before = extentsToXml(map.extents());
+	auto* step = new MapDataUndoStep(&map, MapDataUndoStep::Extents, before);
+	QVERIFY(step->isValid());
+	map.setExtents(extents);
+	auto const after = extentsToXml(map.extents());
+	QVERIFY(after != before);
+	map.push(step);
+	QVERIFY(map.undoManager().undo());
+	QCOMPARE(extentsToXml(map.extents()), before);
+	QVERIFY(map.undoManager().redo());
+	QCOMPARE(extentsToXml(map.extents()), after);
+	
+	// The step survives the undo history's serialisation.
+	QByteArray data;
+	{
+		QXmlStreamWriter xml(&data);
+		MapDataUndoStep saved(&map, MapDataUndoStep::Extents, before);
+		saved.save(xml);
+	}
+	QXmlStreamReader xml(data);
+	QVERIFY(xml.readNextStartElement());
+	SymbolDictionary symbol_dict;
+	auto* loaded = UndoStep::load(xml, &map, symbol_dict);
+	QVERIFY(loaded);
+	auto* loaded_step = dynamic_cast<MapDataUndoStep*>(loaded);
+	QVERIFY(loaded_step);
+	QCOMPARE(loaded_step->section(), MapDataUndoStep::Extents);
+	QCOMPARE(loaded_step->xml(), before);
+	delete loaded;
 }
 
 void FileFormatTest::ocdDateTimeTest()

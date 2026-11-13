@@ -80,6 +80,9 @@ private slots:
 	
 	/** foom: Tests the find and replace text commands. */
 	void findReplaceText();
+	
+	/** foom: Tests the named extent commands. */
+	void extents();
 };
 
 #endif

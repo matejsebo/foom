@@ -21,6 +21,7 @@
 
 #include "steps.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <initializer_list>
 #include <utility>
@@ -312,20 +313,21 @@ QJsonObject parseRefPoint(const Params& p)
 
 // ### Printing ###
 
-struct Extent
+struct ExportExtent
 {
-	enum Kind { PrintArea, DrawnMap, Box };
+	enum Kind { PrintArea, DrawnMap, Box, Named };
 	Kind kind = PrintArea;
 	QRectF box;
+	QString name;  // foom: a named extent of the map
 };
 
 /**
  * Parses the `extent` parameter: `print-area` (default), `map`, or a box
  * [x, y, width, height] in millimetres on paper.
  */
-Extent parseExtent(const Params& p)
+ExportExtent parseExtent(const Params& p)
 {
-	Extent extent;
+	ExportExtent extent;
 	if (!p.has("extent"))
 		return extent;
 	
@@ -334,16 +336,21 @@ Extent parseExtent(const Params& p)
 	{
 		auto const name = v.toString();
 		if (name == QLatin1String("print-area"))
-			extent.kind = Extent::PrintArea;
+			extent.kind = ExportExtent::PrintArea;
 		else if (name == QLatin1String("map"))
-			extent.kind = Extent::DrawnMap;
+			extent.kind = ExportExtent::DrawnMap;
+		else if (!name.isEmpty())
+		{
+			extent.kind = ExportExtent::Named;
+			extent.name = name;
+		}
 		else
-			p.fail(QString::fromLatin1("unknown extent \"%1\": expected \"print-area\", \"map\" or [x, y, width, height]").arg(name));
+			p.fail(QString::fromLatin1("unknown extent \"%1\": expected \"print-area\", \"map\", a named extent or [x, y, width, height]").arg(name));
 	}
 	else
 	{
 		auto const numbers = p.numberArray(v, 4, QLatin1String("\"extent\""));
-		extent.kind = Extent::Box;
+		extent.kind = ExportExtent::Box;
 		extent.box = QRectF(numbers[0], numbers[1], numbers[2], numbers[3]);
 		if (extent.box.width() <= 0 || extent.box.height() <= 0)
 			p.fail(QLatin1String("the extent box needs a positive width and height"));
@@ -369,7 +376,7 @@ MapPrinterOptions::MapPrinterMode parseMode(const Params& p, MapPrinterOptions::
 /**
  * Applies the printing parameters to the printer: `scale`, `dpi`, `mode`, `extent`.
  */
-Extent configurePrinter(MapPrinter& printer, const Map& map, const Params& p, MapPrinterOptions::MapPrinterMode default_mode)
+ExportExtent configurePrinter(MapPrinter& printer, const Map& map, const Params& p, MapPrinterOptions::MapPrinterMode default_mode)
 {
 	if (p.has("scale"))
 		printer.setScale(p.requirePositiveInt("scale"));
@@ -380,13 +387,24 @@ Extent configurePrinter(MapPrinter& printer, const Map& map, const Params& p, Ma
 	auto const extent = parseExtent(p);
 	switch (extent.kind)
 	{
-	case Extent::PrintArea:
+	case ExportExtent::PrintArea:
 		break;
-	case Extent::DrawnMap:
+	case ExportExtent::DrawnMap:
 		printer.setPrintArea(map.calculateExtent(false, printer.getOptions().show_templates));
 		break;
-	case Extent::Box:
+	case ExportExtent::Box:
 		printer.setPrintArea(extent.box);
+		break;
+	case ExportExtent::Named:
+		{
+			auto const& extents = map.extents();
+			auto const named = std::find_if(begin(extents), end(extents), [&extent](const OpenOrienteering::Extent& e) { return e.name == extent.name; });
+			if (named == end(extents))
+				p.fail(QString::fromLatin1("unknown extent \"%1\": the map has no extent of that name").arg(extent.name));
+			printer.setPrintArea(named->rect_mm);
+			if (named->scale > 0)
+				printer.setScale(named->scale);
+		}
 		break;
 	}
 	return extent;
@@ -928,7 +946,7 @@ StepResult StepRunner::exportPdf(const Step& step, const QString& path)
 	MapPrinter printer(*map, nullptr);
 	printer.setTarget(MapPrinter::pdfTarget());
 	auto const extent = configurePrinter(printer, *map, p, MapPrinterOptions::Vector);
-	if (extent.kind != Extent::PrintArea)
+	if (extent.kind != ExportExtent::PrintArea)
 	{
 		// An explicit extent goes onto a single page of its size.
 		printer.setCustomPageSize(printer.getPrintAreaPaperSize());

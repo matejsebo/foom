@@ -67,6 +67,7 @@ public:
 		MapPartUndoStepType        =   8,
 		SwitchPartUndoStepTypeV0   =   9,
 		SwitchPartUndoStepType     =  10,
+		MapDataUndoStepType        =  11,  // foom
 		InvalidUndoStepType        = 999
 	};
 	

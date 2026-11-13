@@ -88,6 +88,8 @@ private slots:
 	void foomIdentityTest();
 	void foomGroupTest();
 	void foomBookmarkTest();
+	void foomExtentTest();
+	void mapDataUndoTest();
 	
 	/**
 	 * foom: Tests that old files load without warnings and round-trip as .foom.

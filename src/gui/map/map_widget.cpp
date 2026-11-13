@@ -172,6 +172,13 @@ void MapWidget::setTool(MapEditorTool* tool)
 		touch_cursor->updateMapWidget(false);
 }
 
+// foom
+void MapWidget::setOverlay(std::function<void (QPainter*, MapWidget*)> overlay)
+{
+	this->overlay = std::move(overlay);
+	update();
+}
+
 void MapWidget::setActivity(MapEditorActivity* activity)
 {
 	this->activity = activity;
@@ -935,6 +942,9 @@ void MapWidget::paintEvent(QPaintEvent* event)
 	
 	if (drawing_dirty_rect.isValid())
 		tool->draw(&painter, this);
+	
+	if (overlay)  // foom
+		overlay(&painter, this);
 	
 	
 	// Draw temporary GPS marker display

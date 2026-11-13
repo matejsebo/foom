@@ -26,6 +26,9 @@ anchor</text></object>
 <bookmarks count="1">
 <bookmark name="start" x="2000" y="0" zoom="8" note=""/>
 </bookmarks>
+<extents count="1">
+<extent name="default" x="0" y="0" width="100" height="80" scale="10000" paper="A4" margin="0" back_of=""/>
+</extents>
 <templates count="0" first_front_template="0">
 <defaults use_meters_per_pixel="true" meters_per_pixel="0" dpi="0" scale="0"/>
 </templates>

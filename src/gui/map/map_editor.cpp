@@ -74,6 +74,8 @@
 // IWYU pragma: no_include <QMetaObject>
 #include <QMimeData>
 #include <QPainter>
+#include <QColor>
+#include <QPen>
 #include <QPixmap>
 #include <QPoint>
 #include <QPointer>
@@ -104,6 +106,7 @@
 #include "core/map.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
+#include "core/map_printer.h"  // foom
 #include "core/map_view.h"
 #include "core/objects/boolean_tool.h"
 #include "core/objects/object.h"
@@ -141,7 +144,9 @@
 #include "gui/map/move_parallel_dialog.h"
 #include "gui/map/numeric_entry_bar.h"
 #include "gui/map/bookmark_dialog.h"
+#include "gui/map/extent_dialog.h"
 #include "gui/map/find_replace_text_dialog.h"
+#include "undo/map_data_undo.h"
 #include "gui/map/numeric_transform_dialogs.h"
 #include "gui/map/rotate_map_dialog.h"
 #include "gui/symbols/symbol_replacement.h"
@@ -807,6 +812,7 @@ void MapEditorController::attach(MainWindow* window)
 	map_widget->setMapView(main_view);
 	map_widget->setZoomDisplay(zoom_display_function);
 	recordView();  // foom: the opening view is the first entry of the view history
+	map_widget->setOverlay([this](QPainter* painter, MapWidget* widget) { drawActiveExtent(painter, widget); });  // foom
 	
 	// Create menu and toolbar together, so actions can be inserted into one or both
 	if (mode == MapEditor)
@@ -1049,6 +1055,8 @@ void MapEditorController::createActions()
 	view_forward_act = newAction("view-forward", tr("Forward"), this, SLOT(viewForward()));  // foom
 	bookmark_add_act = newAction("bookmark-add", tr("Add bookmark..."), this, SLOT(bookmarkAddClicked()));  // foom
 	find_replace_text_act = newAction("find-replace-text", tr("Find and replace text..."), this, SLOT(findReplaceTextClicked()));  // foom
+	extent_define_act = newAction("extent-define", tr("Define extent..."), this, SLOT(extentDefineClicked()));  // foom
+	extent_delete_act = newAction("extent-delete", tr("Delete extent..."), this, SLOT(extentDeleteClicked()));  // foom
 	bookmark_manage_act = newAction("bookmark-manage", tr("Manage bookmarks..."), this, SLOT(bookmarkManageClicked()));  // foom
 	view_history_timer.setSingleShot(true);  // foom
 	view_history_timer.setInterval(500);
@@ -1287,6 +1295,9 @@ void MapEditorController::createMenuAndToolbars()
 	bookmarks_menu = view_menu->addMenu(tr("Bookmarks"));
 	connect(bookmarks_menu, &QMenu::aboutToShow, this, &MapEditorController::updateBookmarksMenu);
 	updateBookmarksMenu();
+	active_extent_menu = view_menu->addMenu(tr("Active extent"));  // foom
+	connect(active_extent_menu, &QMenu::aboutToShow, this, &MapEditorController::updateExtentMenus);
+	updateExtentMenus();
 	view_menu->addSeparator();
 	view_menu->addAction(show_grid_act);
 	view_menu->addAction(hatch_areas_view_act);
@@ -1386,6 +1397,10 @@ void MapEditorController::createMenuAndToolbars()
 	map_menu->addMenu(mappart_move_menu);
 	map_menu->addMenu(mappart_merge_menu);
 	map_menu->addAction(mappart_merge_act);
+	map_menu->addSeparator();  // foom: named extents
+	auto* extents_menu = map_menu->addMenu(tr("Extents"));
+	extents_menu->addAction(extent_define_act);
+	extents_menu->addAction(extent_delete_act);
 	
 	// Symbols menu
 	QMenu* symbols_menu = window->menuBar()->addMenu(tr("Sy&mbols"));
@@ -3820,6 +3835,129 @@ int MapEditorController::deleteMatchingText(const ops::ReplaceTextParams& params
 	auto const count = int(result.consumed.size());
 	applyOpResult(std::move(result));
 	return count;
+}
+
+// foom
+void MapEditorController::extentDefineClicked()
+{
+	Extent extent;
+	extent.name = tr("Extent %1").arg(map->extents().size() + 1);
+	extent.rect_mm = map->printerConfig().print_area;
+	ExtentDialog dialog(this, extent, window);
+	if (dialog.exec() == QDialog::Accepted && !dialog.extent().name.isEmpty())
+		defineExtent(dialog.extent());
+}
+
+// foom
+void MapEditorController::defineExtent(const Extent& extent)
+{
+	// the design notes, "Named extents and the paper frame".
+	auto* step = new MapDataUndoStep(map, MapDataUndoStep::Extents, MapDataUndoStep::currentXml(*map, MapDataUndoStep::Extents));
+	auto extents = map->extents();
+	auto const existing = std::find_if(begin(extents), end(extents), [&extent](const Extent& other) { return other.name == extent.name; });
+	if (existing != end(extents))
+		*existing = extent;
+	else
+		extents.push_back(extent);
+	map->setExtents(std::move(extents));
+	map->push(step);
+	updateExtentMenus();
+	map_widget->update();
+}
+
+// foom
+void MapEditorController::extentDeleteClicked()
+{
+	QStringList names;
+	for (auto const& extent : map->extents())
+		names << extent.name;
+	if (names.isEmpty())
+		return;
+	bool ok = false;
+	auto const name = QInputDialog::getItem(window, tr("Delete extent"), tr("Extent:"), names, 0, false, &ok);
+	if (ok)
+		deleteExtent(name);
+}
+
+// foom
+bool MapEditorController::deleteExtent(const QString& name)
+{
+	auto extents = map->extents();
+	auto const existing = std::find_if(begin(extents), end(extents), [&name](const Extent& other) { return other.name == name; });
+	if (existing == end(extents))
+		return false;
+	auto* step = new MapDataUndoStep(map, MapDataUndoStep::Extents, MapDataUndoStep::currentXml(*map, MapDataUndoStep::Extents));
+	extents.erase(existing);
+	map->setExtents(std::move(extents));
+	map->push(step);
+	if (active_extent_name == name)
+		active_extent_name.clear();
+	updateExtentMenus();
+	map_widget->update();
+	return true;
+}
+
+// foom
+void MapEditorController::setActiveExtent(const QString& name)
+{
+	active_extent_name = name;
+	updateExtentMenus();
+	if (map_widget)
+		map_widget->update();
+}
+
+// foom
+void MapEditorController::activeExtentClicked()
+{
+	if (auto* action = qobject_cast<QAction*>(sender()))
+		setActiveExtent(action->data().toString());
+}
+
+// foom
+void MapEditorController::updateExtentMenus()
+{
+	if (!active_extent_menu)
+		return;
+	active_extent_menu->clear();
+	auto* none = active_extent_menu->addAction(tr("None"), this, SLOT(activeExtentClicked()));
+	none->setData(QString{});
+	none->setCheckable(true);
+	none->setChecked(active_extent_name.isEmpty());
+	for (auto const& extent : map->extents())
+	{
+		auto* action = active_extent_menu->addAction(extent.name, this, SLOT(activeExtentClicked()));
+		action->setData(extent.name);
+		action->setCheckable(true);
+		action->setChecked(extent.name == active_extent_name);
+	}
+	extent_delete_act->setEnabled(!map->extents().empty());
+}
+
+// foom
+void MapEditorController::drawActiveExtent(QPainter* painter, MapWidget* widget) const
+{
+	if (active_extent_name.isEmpty())
+		return;
+	for (auto const& extent : map->extents())
+	{
+		if (extent.name != active_extent_name)
+			continue;
+		auto const rect = widget->mapToViewport(extent.rect_mm);
+		painter->save();
+		painter->setBrush(Qt::NoBrush);
+		painter->setPen(QPen(QColor(80, 80, 80), 2));
+		painter->drawRect(rect);
+		if (extent.margin_mm > 0)
+		{
+			auto const m = extent.margin_mm;
+			painter->setPen(QPen(QColor(80, 80, 80), 1, Qt::DashLine));
+			painter->drawRect(widget->mapToViewport(extent.rect_mm.adjusted(m, m, -m, -m)));
+		}
+		painter->setPen(QPen(QColor(80, 80, 80)));
+		painter->drawText(rect.topLeft() + QPointF(4.0, -4.0), extent.name);
+		painter->restore();
+		return;
+	}
 }
 
 void MapEditorController::cutHoleClicked()

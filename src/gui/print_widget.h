@@ -166,6 +166,8 @@ protected slots:
 	
 	/** This slot reacts to changes of the print area policy combobox. */
 	void printAreaPolicyChanged(int index);
+	void extentSelected(int index);  // foom
+	void fillExtentCombo();  // foom
 	
 	/** This slot applies the map area policy to the current area. */
 	void applyPrintAreaPolicy() const;
@@ -309,6 +311,7 @@ private:
 	QComboBox* color_mode_combo;
 	
 	QComboBox* policy_combo;
+	QComboBox* extent_combo;  // foom
 	QCheckBox* center_check;
 	QDoubleSpinBox* left_edit;
 	QDoubleSpinBox* top_edit;

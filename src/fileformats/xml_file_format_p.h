@@ -56,6 +56,7 @@ protected:
 	void exportMapParts();
 	void exportObjectGroups();  // foom
 	void exportBookmarks();  // foom
+	void exportExtents();  // foom
 	void exportTemplates();
 	void exportView();
 	void exportPrint();
@@ -98,6 +99,7 @@ protected:
 	void importMapParts();
 	void importObjectGroups();  // foom
 	void importBookmarks();  // foom
+	void importExtents();  // foom
 	void importTemplates();
 	void importView();
 	void importPrint();

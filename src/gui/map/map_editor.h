@@ -36,6 +36,7 @@
 
 #include "core/map.h"
 #include "core/bookmarks.h"  // foom
+#include "core/extents.h"  // foom
 #include "core/map_view.h"  // foom
 #include "core/ops/align.h"  // foom
 #include "core/ops/replace_text.h"  // foom
@@ -44,6 +45,7 @@
 #include "gui/main_window_controller.h"
 
 class QAction;
+class QPainter;  // foom
 class QByteArray;
 class QComboBox;
 class QDockWidget;
@@ -70,6 +72,7 @@ class GeoreferencingDialog;
 class MainWindow;
 class MapCoordF;
 class MapEditorActivity;
+class ExtentDialog;  // foom
 class FindReplaceTextDialog;  // foom
 class MoveParallelDialog;  // foom
 class NumericEntryBar;  // foom
@@ -222,6 +225,9 @@ public:
 	
 	/** foom: Returns the shortcut an action had before the stored shortcuts were applied. */
 	QKeySequence defaultShortcut(const QByteArray& id) const { return default_shortcuts.value(id); }
+	
+	/** foom: Draws the active extent as a sheet outline; the map widget's overlay. */
+	void drawActiveExtent(QPainter* painter, MapWidget* widget) const;
 	
 	/** foom: Returns the numeric entry bar. */
 	inline NumericEntryBar* numericEntryBar() const {return numeric_entry_bar;}
@@ -535,6 +541,22 @@ public slots:
 	void setVertexTypeClicked();
 	/** foom: Sets (dash) or clears the dash flag of every vertex of the selected paths. */
 	void setVertexType(bool dash, bool keep_ends);
+	/** foom: Opens the extent dialog for a new extent. */
+	void extentDefineClicked();
+	/** foom: Adds the extent, or replaces the one of its name, as one undo step. */
+	void defineExtent(const Extent& extent);
+	/** foom: Asks which extent to delete. */
+	void extentDeleteClicked();
+	/** foom: Deletes the extent of the name as one undo step; returns false when there is none. */
+	bool deleteExtent(const QString& name);
+	/** foom: Makes the extent of the name the active one, drawn in the view; an empty name clears it. */
+	void setActiveExtent(const QString& name);
+	/** foom: Returns the name of the active extent, or an empty string. */
+	const QString& activeExtent() const { return active_extent_name; }
+	/** foom: Makes the extent the sending action names active. */
+	void activeExtentClicked();
+	/** foom: Rebuilds the active extent submenu. */
+	void updateExtentMenus();
 	/** foom: Opens the find-and-replace-text dialog, which stays open. */
 	void findReplaceTextClicked();
 	/** foom: Selects the next matching text object after the first selected one, wrapping round; returns false when nothing matches. */
@@ -930,6 +952,10 @@ private:
 	QAction* move_parallel_by_act = {};  // foom
 	QPointer<MoveParallelDialog> move_parallel_dialog;  // foom
 	QAction* find_replace_text_act = {};  // foom
+	QAction* extent_define_act = {};  // foom
+	QAction* extent_delete_act = {};  // foom
+	QMenu* active_extent_menu = nullptr;  // foom
+	QString active_extent_name;  // foom: view state
 	QPointer<FindReplaceTextDialog> find_replace_text_dialog;  // foom
 	NumericEntryBar* numeric_entry_bar = nullptr;  // foom
 	QAction* view_back_act = {};  // foom

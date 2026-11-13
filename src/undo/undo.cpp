@@ -26,6 +26,7 @@
 #include <QXmlStreamReader>
 
 #include "object_undo.h"
+#include "undo/map_data_undo.h"  // foom
 #include "map_part_undo.h"
 #include "util/xml_stream_util.h"
 
@@ -76,6 +77,9 @@ UndoStep* UndoStep::getUndoStepForType(Type type, Map* map)
 		
 	case MapPartUndoStepType:
 		return new MapPartUndoStep(map);
+		
+	case MapDataUndoStepType:  // foom
+		return new MapDataUndoStep(map);
 		
 	default:
 		qWarning("Undefined undo step type");

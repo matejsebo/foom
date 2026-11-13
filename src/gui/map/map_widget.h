@@ -136,6 +136,9 @@ public:
 	/** Sets the activity to use in this widget. Does not take ownership of the activity. */
 	void setActivity(MapEditorActivity* activity);
 	
+	/** foom: Sets a drawing which is painted over the map after the tool, for the active extent. */
+	void setOverlay(std::function<void (QPainter*, MapWidget*)> overlay);
+	
 	
 	/**
 	 * @brief Enables or disables gesture recognition.
@@ -471,6 +474,7 @@ private:
 	MapView* view;
 	MapEditorTool* tool;
 	MapEditorActivity* activity;
+	std::function<void (QPainter*, MapWidget*)> overlay;  // foom
 	
 	CoordsType coords_type;
 	

@@ -126,6 +126,7 @@ set(Mapper_Common_SRCS
   core/ops/offset.cpp
   core/ops/replace_text.cpp
   core/ops/reshape.cpp
+  core/extents.cpp
   core/lasso_query.cpp
   core/object_groups.cpp
   core/ops/transform.cpp
@@ -185,6 +186,7 @@ set(Mapper_Common_SRCS
   gui/map/map_editor.cpp
   gui/map/map_editor_activity.cpp
   gui/map/bookmark_dialog.cpp
+  gui/map/extent_dialog.cpp
   gui/map/find_replace_text_dialog.cpp
   gui/map/move_parallel_dialog.cpp
   gui/map/numeric_entry_bar.cpp
@@ -287,6 +289,7 @@ set(Mapper_Common_SRCS
   tools/tool_base.cpp
   tools/tool_helpers.cpp
   
+  undo/map_data_undo.cpp
   undo/map_part_undo.cpp
   undo/object_undo.cpp
   undo/undo.cpp

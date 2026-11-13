@@ -44,6 +44,7 @@
 #include "core/objects/object_query.h"
 #include "core/ops/align.h"
 #include "core/bookmarks.h"
+#include "core/extents.h"
 #include "core/georeferencing.h"
 #include "core/map_view.h"
 #include "gui/map/view_history.h"
@@ -1024,6 +1025,42 @@ void ToolsTest::findReplaceText()
 	QVERIFY(map.map->undoManager().undo());
 	QCOMPARE(part->getNumObjects(), num_objects);
 	QVERIFY(map.map->findObject(first_uuid));
+}
+
+
+void ToolsTest::extents()
+{
+	// the design notes, "Named extents and the paper frame", editor part.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("extent-define") && editor.editor->getAction("extent-delete"));
+	QVERIFY(!editor.editor->getAction("extent-delete")->isEnabled());
+	auto const undo_steps = map.map->undoManager().undoStepCount();
+	Extent sheet;
+	sheet.name = QStringLiteral("sheet");
+	sheet.rect_mm = QRectF(0.0, 0.0, 100.0, 80.0);
+	editor.editor->defineExtent(sheet);
+	QCOMPARE(map.map->extents().size(), std::size_t(1));
+	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 1);
+	QVERIFY(editor.editor->getAction("extent-delete")->isEnabled());
+	QVERIFY(map.map->undoManager().undo());
+	QVERIFY(map.map->extents().empty());
+	QVERIFY(map.map->undoManager().redo());
+	QCOMPARE(map.map->extents().size(), std::size_t(1));
+	
+	sheet.rect_mm = QRectF(10.0, 10.0, 50.0, 40.0);
+	editor.editor->defineExtent(sheet);  // the same name replaces
+	QCOMPARE(map.map->extents().size(), std::size_t(1));
+	QCOMPARE(map.map->extents().front().rect_mm, QRectF(10.0, 10.0, 50.0, 40.0));
+	
+	editor.editor->setActiveExtent(QStringLiteral("sheet"));
+	QCOMPARE(editor.editor->activeExtent(), QStringLiteral("sheet"));
+	QVERIFY(!editor.editor->deleteExtent(QStringLiteral("no such extent")));
+	QVERIFY(editor.editor->deleteExtent(QStringLiteral("sheet")));
+	QVERIFY(map.map->extents().empty());
+	QVERIFY(editor.editor->activeExtent().isEmpty());
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(map.map->extents().size(), std::size_t(1));
 }
 
 

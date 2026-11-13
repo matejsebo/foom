@@ -200,6 +200,7 @@ namespace literal
 	static const QLatin1String bookmark_y("y");  // foom
 	static const QLatin1String bookmark_zoom("zoom");  // foom
 	static const QLatin1String bookmark_note("note");  // foom
+	static const QLatin1String extents("extents");  // foom
 	static const QLatin1String part("part");
 	
 	static const QLatin1String templates("templates");
@@ -303,6 +304,11 @@ bool XMLFileExporter::exportImplementation()
 		if (XMLFileFormat::foom_revision >= 1 && !map->bookmarks().empty())  // foom
 		{
 			exportBookmarks();
+			writeLineBreak(xml);
+		}
+		if (XMLFileFormat::foom_revision >= 1 && !map->extents().empty())  // foom
+		{
+			exportExtents();
 			writeLineBreak(xml);
 		}
 		exportTemplates();
@@ -497,6 +503,13 @@ void XMLFileExporter::exportBookmarks()
 		bookmark_element.writeAttribute(literal::bookmark_note, bookmark.note);
 	}
 	writeLineBreak(xml);
+}
+
+// foom
+void XMLFileExporter::exportExtents()
+{
+	// the design notes, "Named extents and the paper frame".
+	saveExtents(map->extents(), xml);
 }
 
 void XMLFileExporter::exportTemplates()
@@ -703,6 +716,8 @@ void XMLFileImporter::importElements()
 			importObjectGroups();
 		else if (name == literal::bookmarks)  // foom
 			importBookmarks();
+		else if (name == literal::extents)  // foom
+			importExtents();
 		else if (name == literal::templates)
 			importTemplates();
 		else if (name == literal::print)
@@ -1106,6 +1121,12 @@ void XMLFileImporter::importBookmarks()
 			xml.skipCurrentElement();
 		}
 	}
+}
+
+// foom
+void XMLFileImporter::importExtents()
+{
+	map->setExtents(loadExtents(xml));
 }
 
 void XMLFileImporter::importTemplates()
