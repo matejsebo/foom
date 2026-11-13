@@ -92,6 +92,9 @@ private slots:
 	
 	/** foom: Tests the drawing-time legibility feedback of the path tool. */
 	void drawingFeedback();
+	
+	/** foom: Tests the topology commands of the editor. */
+	void topology();
 };
 
 #endif

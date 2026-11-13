@@ -126,6 +126,7 @@ set(Mapper_Common_SRCS
   core/ops/offset.cpp
   core/ops/replace_text.cpp
   core/ops/reshape.cpp
+  core/ops/topology.cpp
   check/issue.cpp
   check/legibility.cpp
   tools/legibility_feedback.cpp
@@ -193,6 +194,7 @@ set(Mapper_Common_SRCS
   gui/map/bookmark_dialog.cpp
   gui/map/extent_dialog.cpp
   gui/map/legibility_dialog.cpp
+  gui/map/topology_dialogs.cpp
   gui/map/find_replace_text_dialog.cpp
   gui/map/move_parallel_dialog.cpp
   gui/map/numeric_entry_bar.cpp

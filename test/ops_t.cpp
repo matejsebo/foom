@@ -19,8 +19,10 @@
  */
 
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <initializer_list>
 #include <memory>
 #include <type_traits>
 #include <utility>
@@ -53,6 +55,7 @@
 #include "core/ops/op.h"
 #include "core/ops/replace_text.h"
 #include "core/ops/reshape.h"
+#include "core/ops/topology.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/area_symbol.h"
 #include "core/symbols/point_symbol.h"
@@ -122,6 +125,7 @@ private slots:
 	void vertexTypeTest();
 	void groupTest();
 	void replaceTextTest();
+	void topologyTest();
 };
 
 
@@ -1018,6 +1022,176 @@ void OpsTest::replaceTextTest()
 	QVERIFY(!ops::replaceText(map, in, params).error.isEmpty());
 	QVERIFY(!ops::deleteMatchingText(map, in, params).error.isEmpty());
 	QVERIFY(!ops::textMatches(QStringLiteral("Hill"), params));
+}
+
+void OpsTest::topologyTest()
+{
+	// the design notes, "Topology commands", Accept.
+	Map map;
+	auto* symbol = new LineSymbol();
+	map.addSymbol(symbol, 0);
+	auto* other_symbol = new LineSymbol();
+	map.addSymbol(other_symbol, 1);
+	auto* area_symbol = new AreaSymbol();
+	map.addSymbol(area_symbol, 2);
+	auto* point_symbol = new PointSymbol();
+	map.addSymbol(point_symbol, 3);
+	auto const line = [&map](const Symbol* s, const MapCoord& a, const MapCoord& b) {
+		auto* object = new PathObject(s, { a, b });
+		map.addObject(object);
+		return object;
+	};
+	auto const ring = [&map, area_symbol](std::initializer_list<MapCoord> coords, bool close) {
+		auto* object = new PathObject(area_symbol);
+		for (auto const& coord : coords)
+			object->addCoordinate(coord);
+		if (close)
+			object->parts().front().setClosed(true);
+		map.addObject(object);
+		return object;
+	};
+	auto const positions = [](const Object* object) {
+		std::vector<QPointF> out;
+		for (auto const& coord : object->asPath()->getRawCoordinateVector())
+			out.emplace_back(coord.x(), coord.y());
+		return out;
+	};
+	auto const near = [](const QPointF& a, const QPointF& b) { return std::abs(a.x() - b.x()) < 1e-6 && std::abs(a.y() - b.y()) < 1e-6; };
+
+	// Join.
+	auto* a = line(symbol, MapCoord(0.0, 0.0), MapCoord(10.0, 0.0));
+	auto* b = line(symbol, MapCoord(10.1, 0.0), MapCoord(20.0, 0.0));
+	auto* c = line(symbol, MapCoord(30.0, 0.0), MapCoord(40.0, 0.0));
+	auto* d = line(other_symbol, MapCoord(20.0, 0.1), MapCoord(20.0, 10.0));
+	ops::JoinParams join;
+	auto joined = ops::joinLines(map, { a, b, c, d }, join);
+	QVERIFY2(joined.error.isEmpty(), joined.error.toLatin1());
+	QCOMPARE(joined.out.size(), std::size_t(1));
+	QCOMPARE(joined.consumed.size(), std::size_t(2));
+	QVERIFY(std::find(joined.consumed.begin(), joined.consumed.end(), a) != joined.consumed.end());
+	QVERIFY(std::find(joined.consumed.begin(), joined.consumed.end(), b) != joined.consumed.end());
+	QCOMPARE(joined.out.front()->uuid(), a->uuid());
+	auto const joined_positions = positions(joined.out.front().get());
+	QCOMPARE(joined_positions.size(), std::size_t(3));
+	QVERIFY(near(joined_positions[0], QPointF(0.0, 0.0)));
+	QVERIFY(near(joined_positions[1], QPointF(10.05, 0.0)));
+	QVERIFY(near(joined_positions[2], QPointF(20.0, 0.0)));
+	join.tolerance = 0.05;
+	auto const nothing = ops::joinLines(map, { a, b, c, d }, join);
+	QVERIFY(nothing.error.isEmpty() && nothing.out.empty() && nothing.consumed.empty());
+	QVERIFY(!ops::joinLines(map, { a }, join).error.isEmpty());
+
+	// Close areas.
+	auto* open_area = ring({ MapCoord(0.0, 50.0), MapCoord(10.0, 50.0), MapCoord(10.0, 60.0) }, false);
+	auto* closed_area = ring({ MapCoord(20.0, 50.0), MapCoord(30.0, 50.0), MapCoord(30.0, 60.0) }, true);
+	auto closed = ops::closeAreas(map, { open_area, closed_area, a }, ops::OpParams());
+	QVERIFY(closed.error.isEmpty());
+	QCOMPARE(closed.out.size(), std::size_t(1));
+	QCOMPARE(closed.consumed, (std::vector<const Object*>{ open_area }));
+	QVERIFY(closed.out.front()->asPath()->parts().front().isClosed());
+	QCOMPARE(closed.out.front()->asPath()->getCoordinateCount(), MapCoordVector::size_type(4));
+
+	// Areas anticlockwise.
+	auto* clockwise = ring({ MapCoord(0.0, 100.0), MapCoord(10.0, 100.0), MapCoord(10.0, 110.0), MapCoord(0.0, 110.0) }, true);
+	auto* anticlockwise = ring({ MapCoord(20.0, 100.0), MapCoord(20.0, 110.0), MapCoord(30.0, 110.0), MapCoord(30.0, 100.0) }, true);
+	auto* holed = ring({ MapCoord(40.0, 100.0), MapCoord(40.0, 110.0), MapCoord(50.0, 110.0), MapCoord(50.0, 100.0) }, true);
+	auto first = true;
+	for (auto const& coord : { MapCoord(42.0, 102.0), MapCoord(42.0, 108.0), MapCoord(48.0, 108.0), MapCoord(48.0, 102.0) })
+	{
+		holed->addCoordinate(coord, first);
+		first = false;
+	}
+	holed->parts().back().setClosed(true);
+	auto const& cw_coords = clockwise->getRawCoordinateVector();
+	QVERIFY(ops::signedAreaOnPaper(cw_coords, 0, cw_coords.size() - 1) < 0.0);
+	auto ccw = ops::areasAnticlockwise(map, { clockwise, anticlockwise, holed }, ops::OpParams());
+	QVERIFY(ccw.error.isEmpty());
+	QCOMPARE(ccw.out.size(), std::size_t(2));
+	QCOMPARE(ccw.consumed, (std::vector<const Object*>{ clockwise, holed }));
+	for (auto const& output : ccw.out)
+	{
+		auto const* path = output->asPath();
+		auto const& coords = path->getRawCoordinateVector();
+		QVERIFY(ops::signedAreaOnPaper(coords, path->parts()[0].first_index, path->parts()[0].last_index) > 0.0);
+		if (path->parts().size() > 1)
+			QVERIFY(ops::signedAreaOnPaper(coords, path->parts()[1].first_index, path->parts()[1].last_index) < 0.0);
+	}
+
+	// Duplicate vertices.
+	auto* stutter = new PathObject(symbol, { MapCoord(0.0, 150.0), MapCoord(5.0, 150.0), MapCoord(5.0, 150.0), MapCoord(10.0, 150.0) });
+	map.addObject(stutter);
+	auto cleaned = ops::removeDuplicateVertices(map, { stutter, a }, ops::OpParams());
+	QVERIFY(cleaned.error.isEmpty());
+	QCOMPARE(cleaned.out.size(), std::size_t(1));
+	QCOMPARE(cleaned.consumed, (std::vector<const Object*>{ stutter }));
+	QCOMPARE(cleaned.out.front()->asPath()->getCoordinateCount(), MapCoordVector::size_type(3));
+	QCOMPARE(cleaned.out.front()->uuid(), stutter->uuid());
+
+	// Overshoots and undershoots.
+	auto* h = line(symbol, MapCoord(0.0, 200.0), MapCoord(10.0, 200.0));
+	auto* v = line(symbol, MapCoord(5.0, 199.7), MapCoord(5.0, 210.0));
+	auto* u = line(symbol, MapCoord(7.0, 200.3), MapCoord(7.0, 210.0));
+	auto* w = line(symbol, MapCoord(3.0, 198.0), MapCoord(3.0, 210.0));
+	ops::OvershootParams overshoot;
+	overshoot.tolerance = 0.5;
+	auto fixed = ops::fixOvershoots(map, { h, v, u, w }, overshoot);
+	QVERIFY2(fixed.error.isEmpty(), fixed.error.toLatin1());
+	QCOMPARE(fixed.out.size(), std::size_t(2));
+	QCOMPARE(fixed.consumed, (std::vector<const Object*>{ v, u }));
+	QVERIFY(near(positions(fixed.out[0].get()).front(), QPointF(5.0, 200.0)));
+	QVERIFY(near(positions(fixed.out[0].get()).back(), QPointF(5.0, 210.0)));
+	QVERIFY(near(positions(fixed.out[1].get()).front(), QPointF(7.0, 200.0)));
+	QVERIFY(near(positions(fixed.out[1].get()).back(), QPointF(7.0, 210.0)));
+	overshoot.remove_overshoots = false;
+	auto extended_only = ops::fixOvershoots(map, { h, v, u, w }, overshoot);
+	QCOMPARE(extended_only.consumed, (std::vector<const Object*>{ u }));
+
+	// Intersections.
+	auto* x1 = line(symbol, MapCoord(0.0, 300.0), MapCoord(10.0, 300.0));
+	auto* x2 = line(symbol, MapCoord(5.0, 295.0), MapCoord(5.0, 305.0));
+	ops::IntersectionParams params;
+	auto inserted = ops::intersections(map, { x1, x2 }, params);
+	QVERIFY2(inserted.error.isEmpty(), inserted.error.toLatin1());
+	QCOMPARE(inserted.out.size(), std::size_t(2));
+	QCOMPARE(inserted.consumed, (std::vector<const Object*>{ x1, x2 }));
+	for (auto const& output : inserted.out)
+	{
+		auto const p = positions(output.get());
+		QCOMPARE(p.size(), std::size_t(3));
+		QVERIFY(near(p[1], QPointF(5.0, 300.0)));
+		QVERIFY(!output->asPath()->getCoordinate(1).isDashPoint());
+	}
+	params.dash = true;
+	auto dashed = ops::intersections(map, { x1, x2 }, params);
+	QVERIFY(dashed.out.front()->asPath()->getCoordinate(1).isDashPoint());
+	params.dash = false;
+	params.action = ops::IntersectionParams::Cut;
+	auto cut = ops::intersections(map, { x1, x2 }, params);
+	QVERIFY2(cut.error.isEmpty(), cut.error.toLatin1());
+	QCOMPARE(cut.out.size(), std::size_t(4));
+	QCOMPARE(cut.consumed, (std::vector<const Object*>{ x1, x2 }));
+	QCOMPARE(cut.out[0]->uuid(), x1->uuid());
+	QCOMPARE(cut.out[1]->derivedFrom(), x1->uuid());
+	QCOMPARE(cut.out[2]->uuid(), x2->uuid());
+	QVERIFY(near(positions(cut.out[0].get()).back(), QPointF(5.0, 300.0)));
+	QVERIFY(near(positions(cut.out[1].get()).front(), QPointF(5.0, 300.0)));
+	params.action = ops::IntersectionParams::AddPoint;
+	QVERIFY(!ops::intersections(map, { x1, x2 }, params).error.isEmpty());
+	params.point_symbol = point_symbol;
+	auto points = ops::intersections(map, { x1, x2 }, params);
+	QVERIFY2(points.error.isEmpty(), points.error.toLatin1());
+	QCOMPARE(points.out.size(), std::size_t(1));
+	QVERIFY(points.consumed.empty());
+	QCOMPARE(points.out.front()->getType(), Object::Point);
+	QVERIFY(near(QPointF(points.out.front()->asPoint()->getCoordF()), QPointF(5.0, 300.0)));
+	auto* t = line(symbol, MapCoord(8.0, 300.0), MapCoord(8.0, 305.0));
+	params.action = ops::IntersectionParams::InsertVertex;
+	auto touched = ops::intersections(map, { x1, t }, params);
+	QCOMPARE(touched.consumed, (std::vector<const Object*>{ x1 }));
+	QCOMPARE(touched.out.front()->asPath()->getCoordinateCount(), MapCoordVector::size_type(3));
+	params.include_touching = false;
+	auto untouched = ops::intersections(map, { x1, t }, params);
+	QVERIFY(untouched.error.isEmpty() && untouched.out.empty());
 }
 
 

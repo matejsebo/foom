@@ -46,6 +46,7 @@
 #include "core/ops/align.h"  // foom
 #include "core/ops/replace_text.h"  // foom
 #include "gui/map/view_history.h"  // foom
+#include "core/ops/topology.h"  // foom
 #include "core/ops/transform.h"  // foom
 #include "gui/main_window_controller.h"
 
@@ -551,6 +552,28 @@ public slots:
 	void setVertexTypeClicked();
 	/** foom: Sets (dash) or clears the dash flag of every vertex of the selected paths. */
 	void setVertexType(bool dash, bool keep_ends);
+	/** foom: Asks for the tolerance, then joins the selected lines. */
+	void joinLinesClicked();
+	/** foom: Joins the selected open lines of one symbol whose ends meet within the tolerance (mm). */
+	void joinLines(double tolerance);
+	/** foom: Asks for the scope, then closes open area outlines. */
+	void closeAreasClicked();
+	/** foom: Closes the open area outlines in the scope (a TopologyScope value). */
+	void closeAreas(int scope);
+	/** foom: Asks for the scope, then normalises the winding of areas. */
+	void areasAnticlockwiseClicked();
+	/** foom: Makes outer rings anticlockwise and holes clockwise in the scope (a TopologyScope value). */
+	void areasAnticlockwise(int scope);
+	/** foom: Asks for the parameters, then fixes overshoots and undershoots among the selected paths. */
+	void fixOvershootsClicked();
+	/** foom: Trims and extends the selected lines' ends against the other selected paths. */
+	void fixOvershoots(const ops::OvershootParams& params);
+	/** foom: Asks what to do at the intersections of the selected paths, then does it. */
+	void intersectionsClicked();
+	/** foom: Inserts vertices, cuts or adds points at the intersections of the selected paths. */
+	void intersections(const ops::IntersectionParams& params);
+	/** foom: Drops repeated vertices from the selected paths. */
+	void removeDuplicateVertices();
 	/** foom: Runs the map check and shows the issues; returns their number. */
 	int runMapCheck();
 	/** foom: Asks for the legibility parameters, then runs the scan. */
@@ -980,6 +1003,12 @@ private:
 	QAction* find_replace_text_act = {};  // foom
 	QAction* extent_define_act = {};  // foom
 	QAction* check_map_act = {};  // foom
+	QAction* topo_join_act = {};  // foom
+	QAction* close_areas_act = {};  // foom
+	QAction* areas_ccw_act = {};  // foom
+	QAction* fix_overshoots_act = {};  // foom
+	QAction* intersections_act = {};  // foom
+	QAction* remove_duplicate_vertices_act = {};  // foom
 	QAction* check_legibility_act = {};  // foom
 	std::function<std::vector<Issue>()> last_check;  // foom: what Check again repeats
 	QAction* issues_window_act = {};  // foom

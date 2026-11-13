@@ -42,6 +42,7 @@
 #include "core/objects/text_object.h"
 #include "core/ops/apply_op.h"
 #include "core/ops/op.h"
+#include "core/ops/topology.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
@@ -95,47 +96,10 @@ std::size_t countVertices(const MapCoordVector& coords, std::size_t first, std::
 	return count;
 }
 
-/** Returns the coordinates without consecutive repeated vertices; curve handles are left alone. */
-MapCoordVector withoutRepeatedVertices(const MapCoordVector& coords, bool& changed)
-{
-	MapCoordVector out;
-	out.reserve(coords.size());
-	changed = false;
-	auto handles_pending = 0;
-	auto previous_is_vertex = false;
-	for (auto const& coord : coords)
-	{
-		if (handles_pending > 0)
-		{
-			out.push_back(coord);
-			--handles_pending;
-			previous_is_vertex = false;
-			continue;
-		}
-		if (previous_is_vertex && !out.back().isCurveStart() && out.back().isPositionEqualTo(coord))
-		{
-			// Drop the repeated vertex, keeping the flags it carried.
-			auto& kept = out.back();
-			kept.setCurveStart(coord.isCurveStart());
-			kept.setClosePoint(kept.isClosePoint() || coord.isClosePoint());
-			kept.setHolePoint(kept.isHolePoint() || coord.isHolePoint());
-			kept.setDashPoint(kept.isDashPoint() || coord.isDashPoint());
-			changed = true;
-			handles_pending = coord.isCurveStart() ? 2 : 0;
-			previous_is_vertex = handles_pending == 0;
-			continue;
-		}
-		out.push_back(coord);
-		handles_pending = coord.isCurveStart() ? 2 : 0;
-		previous_is_vertex = handles_pending == 0;
-	}
-	return out;
-}
-
 bool hasRepeatedVertices(const MapCoordVector& coords)
 {
 	auto changed = false;
-	withoutRepeatedVertices(coords, changed);
+	ops::withoutRepeatedVertices(coords, changed);
 	return changed;
 }
 
@@ -340,7 +304,7 @@ bool fixIssue(Map& map, const Issue& issue)
 				continue;
 			auto const* path = object->asPath();
 			auto changed = false;
-			auto coords = issue.rule == rule::vertex_duplicate ? withoutRepeatedVertices(path->getRawCoordinateVector(), changed) : path->getRawCoordinateVector();
+			auto coords = issue.rule == rule::vertex_duplicate ? ops::withoutRepeatedVertices(path->getRawCoordinateVector(), changed) : path->getRawCoordinateVector();
 			auto output = replacement(*path, std::move(coords));
 			if (issue.rule == rule::area_open && !output->parts().empty() && !output->parts().front().isClosed())
 			{

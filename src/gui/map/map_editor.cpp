@@ -149,6 +149,7 @@
 #include "check/map_check.h"
 #include "gui/map/extent_dialog.h"
 #include "gui/map/legibility_dialog.h"
+#include "gui/map/topology_dialogs.h"
 #include "gui/widgets/issues_widget.h"
 #include "gui/map/find_replace_text_dialog.h"
 #include "undo/map_data_undo.h"
@@ -1063,6 +1064,12 @@ void MapEditorController::createActions()
 	extent_define_act = newAction("extent-define", tr("Define extent..."), this, SLOT(extentDefineClicked()));  // foom
 	check_map_act = newAction("check-map", tr("Check map"), this, SLOT(runMapCheck()));  // foom
 	check_legibility_act = newAction("check-legibility", tr("Check legibility..."), this, SLOT(checkLegibilityClicked()));  // foom
+	topo_join_act = newAction("topo-join", tr("Join lines..."), this, SLOT(joinLinesClicked()));  // foom
+	close_areas_act = newAction("close-areas", tr("Close areas..."), this, SLOT(closeAreasClicked()));  // foom
+	areas_ccw_act = newAction("areas-ccw", tr("Areas anticlockwise..."), this, SLOT(areasAnticlockwiseClicked()));  // foom
+	fix_overshoots_act = newAction("fix-overshoots", tr("Remove overshoots and undershoots..."), this, SLOT(fixOvershootsClicked()));  // foom
+	intersections_act = newAction("intersections", tr("Intersections..."), this, SLOT(intersectionsClicked()));  // foom
+	remove_duplicate_vertices_act = newAction("remove-duplicate-vertices", tr("Remove duplicate vertices"), this, SLOT(removeDuplicateVertices()));  // foom
 	issues_window_act = newCheckAction("issueswindow", tr("Issues window"), this, SLOT(showIssuesWindow(bool)));  // foom
 	issue_model = new IssueModel(this);
 	connect(issue_model, &IssueModel::issueActivated, this, &MapEditorController::issueActivated);
@@ -1408,6 +1415,13 @@ void MapEditorController::createMenuAndToolbars()
 	map_menu->addMenu(mappart_move_menu);
 	map_menu->addMenu(mappart_merge_menu);
 	map_menu->addAction(mappart_merge_act);
+	auto* topology_menu = map_menu->addMenu(tr("Topology"));  // foom
+	topology_menu->addAction(topo_join_act);
+	topology_menu->addAction(close_areas_act);
+	topology_menu->addAction(areas_ccw_act);
+	topology_menu->addAction(fix_overshoots_act);
+	topology_menu->addAction(intersections_act);
+	topology_menu->addAction(remove_duplicate_vertices_act);
 	map_menu->addAction(check_legibility_act);  // foom
 	map_menu->addAction(check_map_act);  // foom
 	map_menu->addSeparator();  // foom: named extents
@@ -2836,6 +2850,12 @@ void MapEditorController::updateObjectDependentActions()
 		action->setEnabled(num_selected >= 3);
 		action->setStatusTip(action->isEnabled() ? QString{} : tr("Select at least three objects to activate this tool."));
 	}
+	for (auto* action : { topo_join_act, fix_overshoots_act, intersections_act })  // foom
+	{
+		action->setEnabled(num_selected >= 2 && (have_line || have_area));
+		action->setStatusTip(action->isEnabled() ? QString{} : tr("Select at least two path objects to activate this tool."));
+	}
+	remove_duplicate_vertices_act->setEnabled(have_line || have_area);  // foom
 	group_act->setEnabled(num_selected >= 2);  // foom
 	group_act->setStatusTip(group_act->isEnabled() ? QString{} : tr("Select at least two objects to activate this tool."));
 	for (auto* action : { ungroup_act, select_group_act })  // foom
@@ -3608,6 +3628,94 @@ void MapEditorController::setVertexType(bool dash, bool keep_ends)
 void MapEditorController::lassoClicked()
 {
 	setTool(new LassoTool(this, lasso_act));
+}
+
+// foom
+void MapEditorController::joinLinesClicked()
+{
+	bool ok = false;
+	auto const tolerance = QInputDialog::getDouble(window, tr("Join lines"), tr("Join ends closer than:"), ops::JoinParams().tolerance, 0.0, 100.0, 2, &ok);
+	if (ok)
+		joinLines(tolerance);
+}
+
+// foom
+void MapEditorController::joinLines(double tolerance)
+{
+	// the design notes, "Topology commands".
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	ops::JoinParams params;
+	params.tolerance = tolerance;
+	applyOpResult(ops::joinLines(*map, in, params));
+}
+
+// foom
+void MapEditorController::closeAreasClicked()
+{
+	TopologyScopeDialog dialog(tr("Close areas"), this, window);
+	if (dialog.exec() == QDialog::Accepted)
+		closeAreas(int(dialog.scope()));
+}
+
+// foom
+void MapEditorController::closeAreas(int scope)
+{
+	applyOpResult(ops::closeAreas(*map, topologyScopeObjects(this, TopologyScope(scope)), ops::OpParams()));
+}
+
+// foom
+void MapEditorController::areasAnticlockwiseClicked()
+{
+	TopologyScopeDialog dialog(tr("Areas anticlockwise"), this, window);
+	if (dialog.exec() == QDialog::Accepted)
+		areasAnticlockwise(int(dialog.scope()));
+}
+
+// foom
+void MapEditorController::areasAnticlockwise(int scope)
+{
+	applyOpResult(ops::areasAnticlockwise(*map, topologyScopeObjects(this, TopologyScope(scope)), ops::OpParams()));
+}
+
+// foom
+void MapEditorController::fixOvershootsClicked()
+{
+	OvershootDialog dialog(window);
+	if (dialog.exec() == QDialog::Accepted)
+		fixOvershoots(dialog.params());
+}
+
+// foom
+void MapEditorController::fixOvershoots(const ops::OvershootParams& params)
+{
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	applyOpResult(ops::fixOvershoots(*map, in, params));
+}
+
+// foom
+void MapEditorController::intersectionsClicked()
+{
+	IntersectionDialog dialog(this, window);
+	if (dialog.exec() == QDialog::Accepted)
+		intersections(dialog.params());
+}
+
+// foom
+void MapEditorController::intersections(const ops::IntersectionParams& params)
+{
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	applyOpResult(ops::intersections(*map, in, params));
+}
+
+// foom
+void MapEditorController::removeDuplicateVertices()
+{
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	applyOpResult(ops::removeDuplicateVertices(*map, in, ops::OpParams()));
 }
 
 // foom

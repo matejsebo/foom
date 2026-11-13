@@ -53,6 +53,7 @@
 #include "check/legibility.h"
 #include "check/map_check.h"
 #include "gui/map/legibility_dialog.h"
+#include "gui/map/topology_dialogs.h"
 #include "tools/legibility_feedback.h"
 #include "settings.h"
 #include "core/georeferencing.h"
@@ -1203,6 +1204,41 @@ void ToolsTest::drawingFeedback()
 	settings.setSettingInCache(Settings::MapEditor_LegibilityMinimumCheck, old_check);
 	settings.setSettingInCache(Settings::MapEditor_LegibilityHalo, old_halo);
 	settings.setSettingInCache(Settings::MapEditor_LegibilityHaloMM, old_halo_mm);
+}
+
+void ToolsTest::topology()
+{
+	// the design notes, "Topology commands", the editor part.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	for (auto const* id : { "topo-join", "close-areas", "areas-ccw", "fix-overshoots", "intersections", "remove-duplicate-vertices" })
+		QVERIFY2(editor.editor->getAction(id), id);
+	auto* part = map.map->getCurrentPart();
+	auto const num_objects = part->getNumObjects();
+	auto* a = new PathObject(map.line_symbol, { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0) });
+	auto* b = new PathObject(map.line_symbol, { MapCoord(10.1, 0.0), MapCoord(20.0, 0.0) });
+	map.map->addObject(a);
+	map.map->addObject(b);
+	map.map->clearObjectSelection(false);
+	map.map->addObjectToSelection(a, false);
+	map.map->addObjectToSelection(b, true);
+	editor.editor->joinLines(0.25);
+	QCOMPARE(part->getNumObjects(), num_objects + 1);
+	QCOMPARE(map.map->getNumSelectedObjects(), 1);
+	QCOMPARE(map.map->getFirstSelectedObject()->asPath()->getCoordinateCount(), MapCoordVector::size_type(3));
+
+	auto* area_symbol = new AreaSymbol();
+	map.map->addSymbol(area_symbol, 1);
+	auto* open_area = new PathObject(area_symbol, { MapCoord(0.0, 50.0), MapCoord(10.0, 50.0), MapCoord(10.0, 60.0) });
+	map.map->addObject(open_area);
+	map.map->clearObjectSelection(false);
+	map.map->addObjectToSelection(open_area, true);
+	QCOMPARE(topologyScopeObjects(editor.editor, TopologyScope::Selection).size(), std::size_t(1));
+	QCOMPARE(topologyScopeObjects(editor.editor, TopologyScope::AllObjects).size(), std::size_t(part->getNumObjects()));
+	editor.editor->closeAreas(int(TopologyScope::Selection));
+	QCOMPARE(map.map->getNumSelectedObjects(), 1);
+	QVERIFY(map.map->getFirstSelectedObject()->asPath()->parts().front().isClosed());
+	QVERIFY(map.map->undoManager().undo());
 }
 
 
