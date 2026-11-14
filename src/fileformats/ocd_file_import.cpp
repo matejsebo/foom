@@ -1208,6 +1208,11 @@ Symbol* OcdFileImport::importLineSymbol(const S& ocd_symbol)
 	setupBaseSymbol(main_line, ocd_symbol.base);
 	importLineSymbolBase(main_line, ocd_symbol.common);
 	setupLineSymbolPointSymbols(main_line, ocd_symbol.common, ocd_symbol.begin_of_elements);
+	if (ocd_symbol.common.dec_mode == 1 || ocd_symbol.common.dec_mode == 2)  // foom: taper, same values
+	{
+		main_line->setTaperMode(ocd_symbol.common.dec_mode);
+		main_line->setTaperEndPercent(qBound(0, int(ocd_symbol.common.dec_last), 100));
+	}
 	
 	// Import a 'framing' line?
 	OcdImportedLineSymbol* framing_line = nullptr;
@@ -1495,9 +1500,13 @@ void OcdFileImport::setupLineSymbolPointSymbols(OcdFileImport::OcdImportedLineSy
 		line_symbol->show_at_least_one_symbol = true;
 		line_symbol->mid_symbol = new OcdImportedPointSymbol();
 		setupPointSymbolPattern(line_symbol->mid_symbol, attributes.primary_data_size, elements);
-		if (attributes.secondary_data_size > 0)
-			addSymbolWarning(line_symbol, tr("Skipped secondary point symbol."));
 		coords += attributes.primary_data_size;
+		if (attributes.secondary_data_size > 0)  // foom: the secondary mid symbol
+		{
+			auto* secondary = new OcdImportedPointSymbol();
+			setupPointSymbolPattern(secondary, attributes.secondary_data_size, reinterpret_cast<const Ocd::PointSymbolElementV8*>(coords));
+			line_symbol->setMidSymbol2(secondary);
+		}
 	}
 	else if (attributes.secondary_data_size > 0)
 	{

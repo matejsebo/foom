@@ -133,6 +133,7 @@ set(Mapper_Common_SRCS
   core/renderables/path_text_renderable.cpp
   core/symbols/text_symbol_path.cpp
   core/symbols/text_symbol_properties.cpp
+  core/symbols/line_symbol_taper.cpp
   check/issue.cpp
   check/legibility.cpp
   tools/legibility_feedback.cpp

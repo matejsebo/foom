@@ -121,6 +121,7 @@
 #include "core/ops/flatten.h"
 #include "core/ops/mirror.h"
 #include "core/ops/transform.h"
+#include "core/symbols/line_symbol.h"  // foom
 #include "core/symbols/symbol.h"
 #include "core/symbols/symbol_icon_decorator.h"
 #include "fileformats/file_format.h"
@@ -2661,6 +2662,7 @@ void MapEditorController::selectedSymbolsChanged()
 	}
 	
 	// FIXME: Postpone switch of active symbol while editing is progress
+	bool const symbol_changed = active_symbol != symbol;  // foom
 	if (active_symbol != symbol)
 	{
 		active_symbol = symbol;
@@ -2685,6 +2687,18 @@ void MapEditorController::selectedSymbolsChanged()
 	
 	updateSymbolDependentActions();
 	updateSymbolAndObjectDependentActions();
+	
+	// foom: the symbol's preferred tool, see the design notes, "Line symbol properties".
+	if (symbol_changed && symbol && symbol->getType() == Symbol::Line && !editing_in_progress
+	    && !symbol->isHidden() && !symbol->isProtected() && !symbol->asLine()->getPreferredTool().isEmpty())
+	{
+		auto const id = symbol->asLine()->getPreferredTool().toLatin1();
+		if (auto* action = findAction(id.constData()))
+		{
+			if (action->isEnabled() && (!current_tool || current_tool->toolAction() != action))
+				action->trigger();
+		}
+	}
 }
 
 void MapEditorController::objectSelectionChanged()

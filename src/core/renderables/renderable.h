@@ -285,6 +285,16 @@ public:
 	
 	const QRectF& getExtent() const;
 	
+	/** foom: Calls f(const Renderable&) for every renderable. */
+	template <typename F>
+	void forEach(F&& f) const
+	{
+		for (auto const& by_priority : *this)
+			for (auto const& by_config : *by_priority.second)
+				for (auto const* renderable : by_config.second)
+					f(*renderable);
+	}
+	
 private:
 	QRectF& extent;
 	const QPainterPath* clip_path = nullptr; // no memory management here!

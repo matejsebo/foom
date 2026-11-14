@@ -22,6 +22,7 @@
 #ifndef OPENORIENTEERING_LINE_SYMBOL_H
 #define OPENORIENTEERING_LINE_SYMBOL_H
 
+#include <utility>
 #include <vector>  // IWYU pragma: keep
 
 #include <Qt>
@@ -29,6 +30,7 @@
 #include <QString>
 
 #include "core/map_coord.h"  // IWYU pragma: keep
+#include "core/path_coord.h"
 #include "core/symbols/symbol.h"
 
 class QXmlStreamReader;
@@ -121,6 +123,15 @@ public:
 		CenterOfDashGroup = 1,  ///< Mid symbols on the center of a dash group
 		CenterOfGap       = 2,  ///< Mid symbols on the main gap (i.e. not between dashes in a group)
 		NoMidSymbols      = 99
+	};
+	
+	/** foom: Taper of the mid symbols (and the line width) toward the line ends; 1 and 2 as in OCD files. */
+	enum TaperMode
+	{
+		NoTaper          = 0,
+		TaperTowardEnd   = 1,
+		TaperBothEnds    = 2,
+		TaperTowardStart = 3
 	};
 	
 	/** Constructs an empty line symbol. */
@@ -263,6 +274,23 @@ public:
 	inline void setMinimumMidSymbolCount(int value) {minimum_mid_symbol_count = value;}
 	inline int getMinimumMidSymbolCountWhenClosed() const {return minimum_mid_symbol_count_when_closed;}
 	inline void setMinimumMidSymbolCountWhenClosed(int value) {minimum_mid_symbol_count_when_closed = value;}
+	
+	// foom: taper, secondary mid symbol and preferred tool, see the design notes, "Line symbol properties".
+	int getTaperMode() const { return taper_mode; }
+	void setTaperMode(int mode) { taper_mode = mode; }
+	/** Returns the size of the last symbol (and the line width at the tapered end) in percent. */
+	int getTaperEndPercent() const { return taper_end_percent; }
+	void setTaperEndPercent(int percent) { taper_end_percent = percent; }
+	bool tapersSpacing() const { return taper_spacing; }
+	void setTaperSpacing(bool value) { taper_spacing = value; }
+	bool tapersWidth() const { return taper_width; }
+	void setTaperWidth(bool value) { taper_width = value; }
+	/** Returns the secondary mid symbol, which alternates with the mid symbol, or nullptr. */
+	PointSymbol* getMidSymbol2() const { return mid_symbol_2; }
+	void setMidSymbol2(PointSymbol* symbol);
+	/** Returns the id of the tool action to activate with this symbol, or an empty string. */
+	const QString& getPreferredTool() const { return preferred_tool; }
+	void setPreferredTool(const QString& action_id) { preferred_tool = action_id; }
 	
 	inline int getDashLength() const {return dash_length;}
 	inline void setDashLength(int value) {dash_length = value;}
@@ -433,6 +461,16 @@ protected:
 	
 	void replaceSymbol(PointSymbol*& old_symbol, PointSymbol* replace_with, const QString& name);
 	
+	// foom: see the design notes, "Line symbol properties".
+	/** Records a mid symbol placement; flushMidSymbols() creates the renderables. */
+	void placeMidSymbol(const SplitPathCoord& split, qreal orientation, ObjectRenderables& output) const;
+	/** Creates the renderables of the placements recorded for one path, tapered and alternating. */
+	void flushMidSymbols(const VirtualPath& path, ObjectRenderables& output) const;
+	/** Creates the filled polygon of a line whose width tapers. */
+	void createTaperedLineRenderables(const VirtualPath& path, ObjectRenderables& output) const;
+	/** Returns the taper scale at a fraction (0 to 1) of the way from the start to the end. */
+	double taperScale(double fraction) const;
+	
 	// Members ordered for minimizing padding
 	
 	// Border line details
@@ -479,6 +517,15 @@ protected:
 	bool suppress_dash_symbol_at_ends;
 	bool scale_dash_symbol;
 	bool have_border_lines;
+	
+	// foom
+	PointSymbol* mid_symbol_2;  // the secondary mid symbol, alternating with mid_symbol
+	int taper_mode;             // TaperMode
+	int taper_end_percent;
+	bool taper_spacing;
+	bool taper_width;
+	QString preferred_tool;     // tool action id
+	mutable std::vector<std::pair<SplitPathCoord, qreal>> pending_mid_symbols;  // placements of the path being rendered
 };
 
 

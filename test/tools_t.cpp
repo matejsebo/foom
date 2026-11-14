@@ -1358,5 +1358,22 @@ void ToolsTest::rectangleBox()
 	editor.editor->setTool(nullptr);
 }
 
+void ToolsTest::preferredTool()
+{
+	// the design notes, "Line symbol properties", the editor part.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* preferring = new LineSymbol();
+	preferring->setColor(map.map->getColor(0));
+	preferring->setLineWidth(0.3);
+	preferring->setPreferredTool(QStringLiteral("drawrectangle"));
+	map.map->addSymbol(preferring, 1);
+	editor.editor->setTool(new EditPointTool(editor.editor, nullptr));
+	editor.editor->getSymbolWidget()->selectSingleSymbol(preferring);
+	QVERIFY(editor.editor->getTool());
+	QCOMPARE(editor.editor->getTool()->toolAction(), editor.editor->getAction("drawrectangle"));
+	editor.editor->setTool(nullptr);
+}
+
 
 QTEST_MAIN(ToolsTest)

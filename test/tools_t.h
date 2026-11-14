@@ -102,6 +102,7 @@ private slots:
 	/** foom: Tests the smooth command in the editor. */
 	void smooth();
 	void rectangleBox();
+	void preferredTool();
 };
 
 #endif

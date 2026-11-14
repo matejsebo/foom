@@ -1547,6 +1547,7 @@ QByteArray OcdFileExport::exportLineSymbol(const LineSymbol* line_symbol, quint3
 	extent = std::max(extent, getPointSymbolExtent(line_symbol->getStartSymbol()));
 	extent = std::max(extent, getPointSymbolExtent(line_symbol->getEndSymbol()));
 	extent = std::max(extent, getPointSymbolExtent(line_symbol->getMidSymbol()));
+	extent = std::max(extent, getPointSymbolExtent(line_symbol->getMidSymbol2()));  // foom
 	extent = std::max(extent, getPointSymbolExtent(line_symbol->getDashSymbol()));
 	ocd_symbol.base.extent = decltype(ocd_symbol.base.extent)(extent);
 	
@@ -1568,6 +1569,7 @@ QByteArray OcdFileExport::exportLineSymbol(const LineSymbol* line_symbol, quint3
 	data.reserve(int(header_size + pattern_size));
 	data.append(reinterpret_cast<const char*>(&ocd_symbol), int(header_size));
 	exportPattern<typename OcdLineSymbol::Element>(line_symbol->getMidSymbol(), data);
+	exportPattern<typename OcdLineSymbol::Element>(line_symbol->getMidSymbol2(), data);  // foom
 	exportPattern<typename OcdLineSymbol::Element>(line_symbol->getDashSymbol(), data);
 	exportPattern<typename OcdLineSymbol::Element>(line_symbol->getStartSymbol(), data);
 	exportPattern<typename OcdLineSymbol::Element>(line_symbol->getEndSymbol(), data);
@@ -1667,9 +1669,21 @@ quint32 OcdFileExport::exportLineSymbolCommon(const LineSymbol* line_symbol, Ocd
 	ocd_line_common.min_sym = line_symbol->getShowAtLeastOneSymbol() ? 0 : -1;
 	ocd_line_common.num_prim_sym = decltype(ocd_line_common.num_prim_sym)(line_symbol->getMidSymbolsPerSpot());
 	ocd_line_common.prim_sym_dist = convertSize(line_symbol->getMidSymbolDistance());
+	if (line_symbol->getTaperMode() != LineSymbol::NoTaper)  // foom: the file's decrease has no mode toward the start
+	{
+		auto mode = line_symbol->getTaperMode();
+		if (mode == LineSymbol::TaperTowardStart)
+		{
+			mode = LineSymbol::TaperTowardEnd;
+			addWarning(::OpenOrienteering::OcdFileExport::tr("In line symbol \"%1\", a taper toward the start is exported as toward the end.")
+			           .arg(line_symbol->getPlainTextName()));
+		}
+		ocd_line_common.dec_mode = decltype(ocd_line_common.dec_mode)(mode);
+		ocd_line_common.dec_last = decltype(ocd_line_common.dec_last)(line_symbol->getTaperEndPercent());
+	}
 	
 	ocd_line_common.primary_data_size = getPatternSize(line_symbol->getMidSymbol()) / 8;
-	ocd_line_common.secondary_data_size = 0;
+	ocd_line_common.secondary_data_size = getPatternSize(line_symbol->getMidSymbol2()) / 8;  // foom
 	ocd_line_common.corner_data_size = getPatternSize(line_symbol->getDashSymbol()) / 8;
 	ocd_line_common.start_data_size = getPatternSize(line_symbol->getStartSymbol()) / 8;
 	ocd_line_common.end_data_size = getPatternSize(line_symbol->getEndSymbol()) / 8;

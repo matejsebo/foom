@@ -264,6 +264,40 @@ LineSymbolSettings::LineSymbolSettings(LineSymbol* symbol, SymbolSettingDialog* 
 	    minimum_mid_symbol_count_when_closed_label, minimum_mid_symbol_count_when_closed_edit,
 	};
 	
+	// foom: taper and preferred tool, see the design notes, "Line symbol properties".
+	row++; col = 0;
+	layout->addWidget(new QWidget(), row, col, 1, -1);
+	row++; col = 0;
+	layout->addWidget(Util::Headline::create(tr("Taper")), row, col, 1, -1);
+	taper_mode_combo = new QComboBox();
+	taper_mode_combo->addItem(tr("None"), QVariant(LineSymbol::NoTaper));
+	taper_mode_combo->addItem(tr("Toward the end"), QVariant(LineSymbol::TaperTowardEnd));
+	taper_mode_combo->addItem(tr("Toward both ends"), QVariant(LineSymbol::TaperBothEnds));
+	taper_mode_combo->addItem(tr("Toward the start"), QVariant(LineSymbol::TaperTowardStart));
+	taper_percent_edit = Util::SpinBox::create(1, 100, tr("%"));
+	taper_spacing_check = new QCheckBox(tr("Taper the spacing too"));
+	taper_width_check = new QCheckBox(tr("Taper the line width too"));
+	row++; col = 0;
+	layout->addWidget(new QLabel(tr("Taper the mid symbols:")), row, col++);
+	layout->addWidget(taper_mode_combo, row, col, 1, -1);
+	row++; col = 0;
+	layout->addWidget(new QLabel(tr("Last symbol size:")), row, col++);
+	layout->addWidget(taper_percent_edit, row, col, 1, -1);
+	row++; col = 0;
+	layout->addWidget(taper_spacing_check, row, col, 1, -1);
+	row++; col = 0;
+	layout->addWidget(taper_width_check, row, col, 1, -1);
+	preferred_tool_combo = new QComboBox();
+	preferred_tool_combo->addItem(tr("None"), QString{});
+	preferred_tool_combo->addItem(tr("Draw paths"), QStringLiteral("drawpath"));
+	preferred_tool_combo->addItem(tr("Draw circles and ellipses"), QStringLiteral("drawcircle"));
+	preferred_tool_combo->addItem(tr("Draw rectangles"), QStringLiteral("drawrectangle"));
+	preferred_tool_combo->addItem(tr("Draw free-handedly"), QStringLiteral("drawfreehand"));
+	preferred_tool_combo->addItem(tr("Fill bounded areas"), QStringLiteral("drawfill"));
+	row++; col = 0;
+	layout->addWidget(new QLabel(tr("Preferred drawing tool:")), row, col++);
+	layout->addWidget(preferred_tool_combo, row, col, 1, -1);
+	
 	
 	row++; col = 0;
 	layout->addWidget(new QWidget(), row, col, 1, -1);
@@ -325,7 +359,7 @@ LineSymbolSettings::LineSymbolSettings(LineSymbol* symbol, SymbolSettingDialog* 
 	auto controller = dialog->getPreviewController();
 	
 	symbol->ensurePointSymbols(tr("Start symbol"), tr("Mid symbol"), tr("End symbol"), tr("Dash symbol"));
-	for (auto point_symbol : { symbol->getStartSymbol(), symbol->getMidSymbol(), symbol->getEndSymbol(), symbol->getDashSymbol() })
+	for (auto point_symbol : { symbol->getStartSymbol(), symbol->getMidSymbol(), symbol->getEndSymbol(), symbol->getDashSymbol(), symbol->getMidSymbol2() })  // foom: and the secondary mid symbol
 	{
 		point_symbol_editor = new PointSymbolEditorWidget(controller, point_symbol, PointSymbolEditorWidget::LineSymbolElement, 16);
 		addPropertiesGroup(point_symbol->getName(), point_symbol_editor);
@@ -336,6 +370,11 @@ LineSymbolSettings::LineSymbolSettings(LineSymbol* symbol, SymbolSettingDialog* 
 	updateContents();
 	
 	connect(width_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &LineSymbolSettings::widthChanged);
+	connect(taper_mode_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &LineSymbolSettings::taperModeChanged);  // foom
+	connect(taper_percent_edit, QOverload<int>::of(&QSpinBox::valueChanged), this, &LineSymbolSettings::taperSettingChanged);
+	connect(taper_spacing_check, &QAbstractButton::clicked, this, &LineSymbolSettings::taperSettingChanged);
+	connect(taper_width_check, &QAbstractButton::clicked, this, &LineSymbolSettings::taperSettingChanged);
+	connect(preferred_tool_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &LineSymbolSettings::preferredToolChanged);
 	connect(color_edit, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &LineSymbolSettings::colorChanged);
 	connect(minimum_length_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &LineSymbolSettings::minimumDimensionsEdited);
 	connect(line_cap_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &LineSymbolSettings::lineCapChanged);
@@ -562,6 +601,31 @@ void LineSymbolSettings::scaleDashSymbolClicked(bool checked)
 	emit propertiesModified();
 }
 
+// foom
+void LineSymbolSettings::taperModeChanged(int index)
+{
+	symbol->taper_mode = taper_mode_combo->itemData(index).toInt();
+	for (auto* widget : std::initializer_list<QWidget*>{ taper_percent_edit, taper_spacing_check, taper_width_check })
+		widget->setEnabled(symbol->taper_mode != LineSymbol::NoTaper);
+	emit propertiesModified();
+}
+
+// foom
+void LineSymbolSettings::taperSettingChanged()
+{
+	symbol->taper_end_percent = taper_percent_edit->value();
+	symbol->taper_spacing = taper_spacing_check->isChecked();
+	symbol->taper_width = taper_width_check->isChecked();
+	emit propertiesModified();
+}
+
+// foom
+void LineSymbolSettings::preferredToolChanged(int index)
+{
+	symbol->preferred_tool = preferred_tool_combo->itemData(index).toString();
+	emit propertiesModified();
+}
+
 void LineSymbolSettings::createBorderWidgets(LineSymbolBorder& border, Map* map, int& row, int col, QGridLayout* layout, BorderWidgets& widgets)
 {
 	auto width_label = new QLabel(tr("Border width:"));
@@ -783,6 +847,13 @@ void LineSymbolSettings::updateContents()
 	
 	supress_dash_symbol_check->setChecked(symbol->getSuppressDashSymbolAtLineEnds());
 	scale_dash_symbol_check->setChecked(symbol->getScaleDashSymbol());
+	taper_mode_combo->setCurrentIndex(taper_mode_combo->findData(QVariant(symbol->getTaperMode())));  // foom
+	taper_percent_edit->setValue(symbol->getTaperEndPercent());
+	taper_spacing_check->setChecked(symbol->tapersSpacing());
+	taper_width_check->setChecked(symbol->tapersWidth());
+	for (auto* widget : std::initializer_list<QWidget*>{ taper_percent_edit, taper_spacing_check, taper_width_check })
+		widget->setEnabled(symbol->getTaperMode() != LineSymbol::NoTaper);
+	preferred_tool_combo->setCurrentIndex(qMax(0, preferred_tool_combo->findData(symbol->getPreferredTool())));
 	
 	blockSignalsRecursively(this, false);
 /*	
@@ -816,7 +887,7 @@ void LineSymbolSettings::reset(Symbol* symbol)
 	int current = currentIndex();
 	setUpdatesEnabled(false);
 	this->symbol->ensurePointSymbols(tr("Start symbol"), tr("Mid symbol"), tr("End symbol"), tr("Dash symbol"));
-	for (auto point_symbol : { this->symbol->getStartSymbol(), this->symbol->getMidSymbol(), this->symbol->getEndSymbol(), this->symbol->getDashSymbol() })
+	for (auto point_symbol : { this->symbol->getStartSymbol(), this->symbol->getMidSymbol(), this->symbol->getEndSymbol(), this->symbol->getDashSymbol(), this->symbol->getMidSymbol2() })  // foom
 	{
 		point_symbol_editor = new PointSymbolEditorWidget(controller, point_symbol, PointSymbolEditorWidget::LineSymbolElement, 16);
 		connect(point_symbol_editor, &PointSymbolEditorWidget::symbolEdited, this, &LineSymbolSettings::pointSymbolEdited);

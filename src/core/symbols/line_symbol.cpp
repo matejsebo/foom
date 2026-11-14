@@ -179,6 +179,11 @@ LineSymbol::LineSymbol() noexcept
 , suppress_dash_symbol_at_ends ( false )
 , scale_dash_symbol ( true )
 , have_border_lines ( false )
+, mid_symbol_2 ( nullptr )
+, taper_mode ( NoTaper )
+, taper_end_percent ( 50 )
+, taper_spacing ( false )
+, taper_width ( false )
 {
 	// nothing else
 }
@@ -216,6 +221,12 @@ LineSymbol::LineSymbol(const LineSymbol& proto)
 , suppress_dash_symbol_at_ends ( proto.suppress_dash_symbol_at_ends )
 , scale_dash_symbol ( proto.scale_dash_symbol )
 , have_border_lines ( proto.have_border_lines )
+, mid_symbol_2 ( proto.mid_symbol_2 ? Symbol::duplicate(*proto.mid_symbol_2).release() : nullptr )
+, taper_mode ( proto.taper_mode )
+, taper_end_percent ( proto.taper_end_percent )
+, taper_spacing ( proto.taper_spacing )
+, taper_width ( proto.taper_width )
+, preferred_tool ( proto.preferred_tool )
 {
 	// nothing else
 }
@@ -227,6 +238,7 @@ LineSymbol::~LineSymbol()
 	delete mid_symbol;
 	delete end_symbol;
 	delete dash_symbol;
+	delete mid_symbol_2;  // foom
 }
 
 
@@ -243,7 +255,7 @@ bool LineSymbol::validate() const
 	using std::begin;
 	using std::end;
 	using MemberSymbol = PointSymbol* LineSymbol::*;
-	MemberSymbol members[4] = { &LineSymbol::start_symbol, &LineSymbol::mid_symbol, &LineSymbol::end_symbol, &LineSymbol::dash_symbol };
+	MemberSymbol members[5] = { &LineSymbol::start_symbol, &LineSymbol::mid_symbol, &LineSymbol::end_symbol, &LineSymbol::dash_symbol, &LineSymbol::mid_symbol_2 };
 	return std::all_of(begin(members), end(members), [this](auto& member) {
 		auto sub_symbol = this->*member;
 		return !sub_symbol || !sub_symbol->isEmpty() || sub_symbol->validate();
@@ -263,6 +275,7 @@ void LineSymbol::createRenderables(
 	for (const auto& part : path_parts)
 	{
 		createSinglePathRenderables(part, part.isClosed(), output);
+		flushMidSymbols(part, output);  // foom
 	}
 }
 
@@ -282,6 +295,7 @@ void LineSymbol::createRenderables(
 		for (const auto& part : path_parts)
 		{
 			createSinglePathRenderables(part, part.isClosed(), output);
+		flushMidSymbols(part, output);  // foom
 		}
 	}
 }
@@ -305,7 +319,9 @@ void LineSymbol::createSinglePathRenderables(const VirtualPath& path, bool path_
 	{
 		// This is a simple plain line (no pointed line ends, no dashes).
 		// It may be drawn directly from the given path.
-		if (create_line)
+		if (create_line && taper_mode != NoTaper && taper_width)  // foom
+			createTaperedLineRenderables(path, output);
+		else if (create_line)
 			output.insertRenderable(new LineRenderable(this, path, path_closed));
 		
 		auto create_mid_symbols = mid_symbol && !mid_symbol->isEmpty() && segment_length > 0;
@@ -811,14 +827,14 @@ void LineSymbol::processContinuousLine(
 		auto orientation = qreal(0);
 		if (mid_symbol_rotatable)
 			orientation = next_split.tangentVector().angle();
-		mid_symbol->createRenderablesScaled(next_split.pos, orientation, output);
+		placeMidSymbol(next_split, orientation, output);  // foom
 		for (auto i = 2; i <= mid_symbols_per_spot; ++i)
 		{
 			mid_position += mid_symbol_distance_f;
 			next_split = SplitPathCoord::at(mid_position, next_split);
 			if (mid_symbol_rotatable)
 				orientation = next_split.tangentVector().angle();
-			mid_symbol->createRenderablesScaled(next_split.pos, orientation, output);
+			placeMidSymbol(next_split, orientation, output);  // foom
 		}
 	}
 }
@@ -1101,7 +1117,7 @@ SplitPathCoord LineSymbol::createDashGroups(
 					auto next_split = SplitPathCoord::at(position, split);
 					if (mid_symbol_rotatable)
 						orientation = next_split.tangentVector().angle();
-					mid_symbol->createRenderablesScaled(next_split.pos, orientation, output);
+					placeMidSymbol(next_split, orientation, output);  // foom
 					split = next_split;
 				}
 				position  += mid_symbol_distance_f;
@@ -1118,7 +1134,7 @@ SplitPathCoord LineSymbol::createDashGroups(
 				auto next_split = SplitPathCoord::at(position, split);
 				if (mid_symbol_rotatable)
 					orientation = next_split.tangentVector().angle();
-				mid_symbol->createRenderablesScaled(next_split.pos, orientation, output);
+				placeMidSymbol(next_split, orientation, output);  // foom
 				
 				position  += mid_symbol_distance_f;
 				split = next_split;
@@ -1184,7 +1200,7 @@ SplitPathCoord LineSymbol::createDashGroups(
 					split = SplitPathCoord::at(position, split);
 					if (mid_symbol_rotatable)
 						orientation = split.tangentVector().angle();
-					mid_symbol->createRenderablesScaled(split.pos, orientation, output);
+					placeMidSymbol(split, orientation, output);  // foom
 				}
 			}
 			
@@ -1252,7 +1268,7 @@ SplitPathCoord LineSymbol::createDashGroups(
 						
 						if (mid_symbol_rotatable)
 							orientation = split.tangentVector().angle();
-						mid_symbol->createRenderablesScaled(split.pos, orientation, output);
+						placeMidSymbol(split, orientation, output);  // foom
 					}
 				}
 				
@@ -1271,7 +1287,7 @@ SplitPathCoord LineSymbol::createDashGroups(
 				auto next_split = SplitPathCoord::at(position, split);
 				if (mid_symbol_rotatable)
 					orientation = next_split.tangentVector().angle();
-				mid_symbol->createRenderablesScaled(next_split.pos, orientation, output);
+				placeMidSymbol(next_split, orientation, output);  // foom
 				
 				position  += mid_symbol_distance_f;
 				split = next_split;
@@ -1345,7 +1361,7 @@ void LineSymbol::createMidSymbolRenderables(
 		// Insert point at start coordinate
 		if (mid_symbol_rotatable)
 			orientation = start.tangentVector().angle();
-		mid_symbol->createRenderablesScaled(start.pos, orientation, output);
+		placeMidSymbol(start, orientation, output);  // foom
 	}
 	
 	auto groups_start = start;
@@ -1373,12 +1389,12 @@ void LineSymbol::createMidSymbolRenderables(
 					// Insert point at start coordinate
 					if (mid_symbol_rotatable)
 						orientation = groups_start.tangentVector().angle();
-					mid_symbol->createRenderablesScaled(groups_start.pos, orientation, output);
+					placeMidSymbol(groups_start, orientation, output);  // foom
 					
 					// Insert point at end coordinate
 					if (mid_symbol_rotatable)
 						orientation = groups_end.tangentVector().angle();
-					mid_symbol->createRenderablesScaled(groups_end.pos, orientation, output);
+					placeMidSymbol(groups_end, orientation, output);  // foom
 				}
 			}
 			else
@@ -1406,7 +1422,7 @@ void LineSymbol::createMidSymbolRenderables(
 							split = SplitPathCoord::at(position, split);
 							if (mid_symbol_rotatable)
 								orientation = split.tangentVector().angle();
-							mid_symbol->createRenderablesScaled(split.pos, orientation, output);
+							placeMidSymbol(split, orientation, output);  // foom
 						}
 					}
 				}
@@ -1442,7 +1458,7 @@ void LineSymbol::createMidSymbolRenderables(
 							split = SplitPathCoord::at(position, split);
 							if (mid_symbol_rotatable)
 								orientation = split.tangentVector().angle();
-							mid_symbol->createRenderablesScaled(split.pos, orientation, output);
+							placeMidSymbol(split, orientation, output);  // foom
 						}
 					}
 				}
@@ -1451,7 +1467,7 @@ void LineSymbol::createMidSymbolRenderables(
 			// Insert point at end coordinate
 			if (mid_symbol_rotatable)
 				orientation = groups_end.tangentVector().angle();
-			mid_symbol->createRenderablesScaled(groups_end.pos, orientation, output);
+			placeMidSymbol(groups_end, orientation, output);  // foom
 		}
 		
 		groups_start = groups_end; // Search then next split (node) after groups_end (current node).
@@ -1520,6 +1536,11 @@ void LineSymbol::colorDeletedEvent(const MapColor* color)
 		dash_symbol->colorDeletedEvent(color);
 		have_changes = true;
 	}
+	if (mid_symbol_2 && mid_symbol_2->containsColor(color))  // foom
+	{
+		mid_symbol_2->colorDeletedEvent(color);
+		have_changes = true;
+	}
     if (color == this->color)
 	{
 		this->color = nullptr;
@@ -1550,6 +1571,8 @@ bool LineSymbol::containsColor(const MapColor* color) const
 	if (end_symbol && end_symbol->containsColor(color))
 		return true;
     if (dash_symbol && dash_symbol->containsColor(color))
+		return true;
+	if (mid_symbol_2 && mid_symbol_2->containsColor(color))  // foom
 		return true;
     return false;
 }
@@ -1620,7 +1643,7 @@ void LineSymbol::replaceColors(const MapColorMap& color_map)
 	color = color_map.value(color);
 	border.color = color_map.value(border.color);
 	right_border.color = color_map.value(right_border.color);
-	for (auto member : { &LineSymbol::start_symbol, &LineSymbol::mid_symbol, &LineSymbol::end_symbol, &LineSymbol::dash_symbol })
+	for (auto member : { &LineSymbol::start_symbol, &LineSymbol::mid_symbol, &LineSymbol::end_symbol, &LineSymbol::dash_symbol, &LineSymbol::mid_symbol_2 })
 	{
 		if (auto sub_symbol = this->*member)
 			sub_symbol->replaceColors(color_map);
@@ -1645,6 +1668,8 @@ void LineSymbol::scale(double factor)
 		end_symbol->scale(factor);
 	if (dash_symbol)
 		dash_symbol->scale(factor);
+	if (mid_symbol_2)  // foom
+		mid_symbol_2->scale(factor);
 
 	segment_length = qRound(factor * segment_length);
 	end_length = qRound(factor * end_length);
@@ -1688,6 +1713,12 @@ void LineSymbol::ensurePointSymbols(const QString& start_name, const QString& mi
 		dash_symbol->setRotatable(true);
 	}
 	dash_symbol->setName(dash_name);
+	if (!mid_symbol_2)  // foom
+	{
+		mid_symbol_2 = new PointSymbol();
+		mid_symbol_2->setRotatable(true);
+	}
+	mid_symbol_2->setName(QCoreApplication::translate("OpenOrienteering::LineSymbolSettings", "Secondary mid symbol"));
 }
 
 void LineSymbol::cleanupPointSymbols()
@@ -1711,6 +1742,11 @@ void LineSymbol::cleanupPointSymbols()
 	{
 		delete dash_symbol;
 		dash_symbol = nullptr;
+	}
+	if (mid_symbol_2 && mid_symbol_2->isEmpty())  // foom
+	{
+		delete mid_symbol_2;
+		mid_symbol_2 = nullptr;
 	}
 }
 
@@ -1786,6 +1822,12 @@ void LineSymbol::setMidSymbol(PointSymbol* symbol)
 {
 	replaceSymbol(mid_symbol, symbol, QCoreApplication::translate("OpenOrienteering::LineSymbolSettings", "Mid symbol"));
 }
+
+// foom
+void LineSymbol::setMidSymbol2(PointSymbol* symbol)
+{
+	replaceSymbol(mid_symbol_2, symbol, QCoreApplication::translate("OpenOrienteering::LineSymbolSettings", "Secondary mid symbol"));
+}
 void LineSymbol::setEndSymbol(PointSymbol* symbol)
 {
 	replaceSymbol(end_symbol, symbol, QCoreApplication::translate("OpenOrienteering::LineSymbolSettings", "End symbol"));
@@ -1845,6 +1887,17 @@ void LineSymbol::saveImpl(QXmlStreamWriter& xml, const Map& map) const
 	xml.writeAttribute(QString::fromLatin1("mid_symbol_distance"), QString::number(mid_symbol_distance));
 	if (mid_symbol_placement != 0)
 		xml.writeAttribute(QString::fromLatin1("mid_symbol_placement"), QString::number(mid_symbol_placement));
+	if (taper_mode != NoTaper)  // foom
+	{
+		xml.writeAttribute(QStringLiteral("taper_mode"), QString::number(taper_mode));
+		xml.writeAttribute(QStringLiteral("taper_end_percent"), QString::number(taper_end_percent));
+		if (taper_spacing)
+			xml.writeAttribute(QStringLiteral("taper_spacing"), QStringLiteral("true"));
+		if (taper_width)
+			xml.writeAttribute(QStringLiteral("taper_width"), QStringLiteral("true"));
+	}
+	if (!preferred_tool.isEmpty())  // foom
+		xml.writeAttribute(QStringLiteral("preferred_tool"), preferred_tool);
 	if (suppress_dash_symbol_at_ends)
 		xml.writeAttribute(QString::fromLatin1("suppress_dash_symbol_at_ends"), QString::fromLatin1("true"));
 	if (!scale_dash_symbol)
@@ -1861,6 +1914,12 @@ void LineSymbol::saveImpl(QXmlStreamWriter& xml, const Map& map) const
 	{
 		xml.writeStartElement(QString::fromLatin1("mid_symbol"));
 		mid_symbol->save(xml, map);
+		xml.writeEndElement();
+	}
+	if (mid_symbol_2)  // foom
+	{
+		xml.writeStartElement(QStringLiteral("mid_symbol_2"));
+		mid_symbol_2->save(xml, map);
 		xml.writeEndElement();
 	}
 	
@@ -1933,6 +1992,11 @@ bool LineSymbol::loadImpl(QXmlStreamReader& xml, const Map& map, SymbolDictionar
 	mid_symbol_placement = static_cast<LineSymbol::MidSymbolPlacement>(attributes.value(QLatin1String("mid_symbol_placement")).toInt());
 	suppress_dash_symbol_at_ends = (attributes.value(QLatin1String("suppress_dash_symbol_at_ends")) == QLatin1String("true"));
 	scale_dash_symbol = (attributes.value(QLatin1String("scale_dash_symbol")) != QLatin1String("false"));
+	taper_mode = attributes.value(QLatin1String("taper_mode")).toInt();  // foom
+	taper_end_percent = attributes.hasAttribute(QLatin1String("taper_end_percent")) ? attributes.value(QLatin1String("taper_end_percent")).toInt() : 50;
+	taper_spacing = (attributes.value(QLatin1String("taper_spacing")) == QLatin1String("true"));
+	taper_width = (attributes.value(QLatin1String("taper_width")) == QLatin1String("true"));
+	preferred_tool = attributes.value(QLatin1String("preferred_tool")).toString();
 	
 	have_border_lines = false;
 	while (xml.readNextStartElement())
@@ -1941,6 +2005,8 @@ bool LineSymbol::loadImpl(QXmlStreamReader& xml, const Map& map, SymbolDictionar
 			start_symbol = loadPointSymbol(xml, map, symbol_dict, version);
 		else if (xml.name() == QLatin1String("mid_symbol"))
 			mid_symbol = loadPointSymbol(xml, map, symbol_dict, version);
+		else if (xml.name() == QLatin1String("mid_symbol_2"))  // foom
+			mid_symbol_2 = loadPointSymbol(xml, map, symbol_dict, version);
 		else if (xml.name() == QLatin1String("end_symbol"))
 			end_symbol = loadPointSymbol(xml, map, symbol_dict, version);
 		else if (xml.name() == QLatin1String("dash_symbol"))
@@ -2057,6 +2123,12 @@ bool LineSymbol::equalsImpl(const Symbol* other, Qt::CaseSensitivity case_sensit
 		return false;
 	
 	if (!symbols_are_equal(dash_symbol, line->dash_symbol))
+		return false;
+	if (!symbols_are_equal(mid_symbol_2, line->mid_symbol_2))  // foom
+		return false;
+	if (taper_mode != line->taper_mode ||  // foom
+		(taper_mode != NoTaper && (taper_end_percent != line->taper_end_percent || taper_spacing != line->taper_spacing || taper_width != line->taper_width)) ||
+		preferred_tool != line->preferred_tool)
 		return false;
 	if (suppress_dash_symbol_at_ends != line->suppress_dash_symbol_at_ends)
 		return false;

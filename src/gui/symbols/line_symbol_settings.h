@@ -132,6 +132,11 @@ protected slots:
 	void suppressDashSymbolClicked(bool checked);
 	void scaleDashSymbolClicked(bool checked);
 	
+	// foom
+	void taperModeChanged(int index);
+	void taperSettingChanged();
+	void preferredToolChanged(int index);
+	
 private slots:
 	/** Ensure that a predetermined widget is visible in the scroll area.
 	 *  The widget is set in advance by ensureWidgetVisible(QWidget* widget).
@@ -149,6 +154,11 @@ private:
 	// enabled if line_width > 0 && color
 	std::vector<QWidget*> line_settings_list;
 	QComboBox* line_cap_combo;
+	QComboBox* taper_mode_combo;  // foom
+	QSpinBox* taper_percent_edit;
+	QCheckBox* taper_spacing_check;
+	QCheckBox* taper_width_check;
+	QComboBox* preferred_tool_combo;
 	QComboBox* line_join_combo;
 	QLabel* start_offset_label;
 	QDoubleSpinBox* start_offset_edit;
