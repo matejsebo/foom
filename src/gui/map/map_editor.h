@@ -81,6 +81,7 @@ class GeoreferencingDialog;
 class MainWindow;
 class MapCoordF;
 class MapEditorActivity;
+class ElevationModel;  // foom
 class ExtentDialog;  // foom
 class IssueModel;  // foom
 struct LegibilityParams;  // foom
@@ -598,6 +599,18 @@ public slots:
 	void simplifyBuildings(const ops::SimplifyBuildingParams& params);
 	/** foom: Replaces the selected closed paths by rectangles. */
 	void buildingRectangles(const ops::RectangleParams& params);
+	/** foom: Asks for a grid file and options, then sets it as the map's elevation grid (dem-open). */
+	void elevationOpenClicked();
+	/** foom: Shows extent, cell size, minimum, maximum and void count of the terrain grid (dem-info). */
+	void elevationInfoClicked();
+	/** foom: Asks for the contour sets, then generates contour objects (dem-contours). */
+	void elevationContoursClicked();
+	/** foom: Asks for the parameters, then writes and attaches a hill shading (dem-hillshade). */
+	void elevationHillShadeClicked();
+	/** foom: Asks for the parameters, then writes and attaches a slope gradient raster (dem-slope). */
+	void elevationSlopeClicked();
+	/** foom: Saves the terrain grid in a chosen format (dem-export). */
+	void elevationExportClicked();
 	/** foom: Runs the map check and shows the issues; returns their number. */
 	int runMapCheck();
 	/** foom: Asks for the legibility parameters, then runs the scan. */
@@ -1035,6 +1048,12 @@ private:
 	QAction* topo_smooth_act = {};  // foom
 	QAction* make_rectangular_act = {};  // foom
 	QAction* generalize_buildings_act = {};  // foom
+	QAction* dem_open_act = {};  // foom
+	QAction* dem_info_act = {};  // foom
+	QAction* dem_contours_act = {};  // foom
+	QAction* dem_hillshade_act = {};  // foom
+	QAction* dem_slope_act = {};  // foom
+	QAction* dem_export_act = {};  // foom
 	QAction* check_legibility_act = {};  // foom
 	std::function<std::vector<Issue>()> last_check;  // foom: what Check again repeats
 	QAction* issues_window_act = {};  // foom

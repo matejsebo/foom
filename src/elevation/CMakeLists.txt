@@ -30,6 +30,7 @@ set(MAPPER_ELEVATION_SOURCES
   contours.cpp
   elevation_model.cpp
   elevation_set.cpp
+  raster_products.cpp
 )
 
 mapper_translations_sources(${MAPPER_ELEVATION_SOURCES})

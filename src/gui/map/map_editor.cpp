@@ -112,6 +112,10 @@
 #include "core/objects/object.h"
 #include "core/objects/object_operations.h"
 #include "core/objects/text_object.h"  // foom
+#include "elevation/contours.h"  // foom
+#include "elevation/elevation_model.h"  // foom
+#include "elevation/elevation_set.h"  // foom
+#include "elevation/raster_products.h"  // foom
 #include "core/ops/align.h"
 #include "core/ops/apply_op.h"
 #include "core/ops/offset.h"
@@ -149,6 +153,7 @@
 #include "check/map_check.h"
 #include "gui/map/extent_dialog.h"
 #include "gui/map/legibility_dialog.h"
+#include "gui/map/elevation_dialogs.h"  // foom
 #include "gui/map/rectangle_box_dialog.h"
 #include "gui/map/topology_dialogs.h"
 #include "gui/widgets/issues_widget.h"
@@ -1075,6 +1080,12 @@ void MapEditorController::createActions()
 	topo_smooth_act = newAction("topo-smooth", tr("Smooth..."), this, SLOT(smoothClicked()));  // foom
 	make_rectangular_act = newAction("make-rectangular", tr("Make rectangular..."), this, SLOT(makeRectangularClicked()));  // foom
 	generalize_buildings_act = newAction("generalize-buildings", tr("Generalize buildings..."), this, SLOT(generalizeBuildingsClicked()));  // foom
+	dem_open_act = newAction("dem-open", tr("Import elevation data..."), this, SLOT(elevationOpenClicked()));  // foom
+	dem_info_act = newAction("dem-info", tr("Elevation information..."), this, SLOT(elevationInfoClicked()));  // foom
+	dem_contours_act = newAction("dem-contours", tr("Contours..."), this, SLOT(elevationContoursClicked()));  // foom
+	dem_hillshade_act = newAction("dem-hillshade", tr("Hill shading..."), this, SLOT(elevationHillShadeClicked()));  // foom
+	dem_slope_act = newAction("dem-slope", tr("Slope gradient..."), this, SLOT(elevationSlopeClicked()));  // foom
+	dem_export_act = newAction("dem-export", tr("Export grid..."), this, SLOT(elevationExportClicked()));  // foom
 	issues_window_act = newCheckAction("issueswindow", tr("Issues window"), this, SLOT(showIssuesWindow(bool)));  // foom
 	issue_model = new IssueModel(this);
 	connect(issue_model, &IssueModel::issueActivated, this, &MapEditorController::issueActivated);
@@ -1462,6 +1473,15 @@ void MapEditorController::createMenuAndToolbars()
 	template_menu->addSeparator();
 	template_menu->addAction(open_template_act);
 	template_menu->addAction(reopen_template_act);
+	
+	QMenu* elevation_menu = window->menuBar()->addMenu(tr("&Elevation"));  // foom: the design notes, "Menu placement"
+	elevation_menu->addAction(dem_open_act);
+	elevation_menu->addAction(dem_info_act);
+	elevation_menu->addAction(dem_export_act);
+	elevation_menu->addSeparator();
+	elevation_menu->addAction(dem_contours_act);
+	elevation_menu->addAction(dem_hillshade_act);
+	elevation_menu->addAction(dem_slope_act);
 	
 	// Extend and activate general toolbar
 	QToolBar* main_toolbar = window->getGeneralToolBar();
@@ -5534,6 +5554,180 @@ void MapEditorToolAction::triggeredImpl(bool checked)
 		emit activated();
 	else
 		setChecked(true);
+}
+
+
+// foom: the Elevation menu, see the design notes.
+
+namespace {
+
+/** The terrain grid, loaded on demand; warns when there is none. */
+const ElevationModel* terrainModel(Map& map, QWidget* parent)
+{
+	auto const* model = map.elevationSet().model(ElevationSet::Terrain, map.getGeoreferencing().getProjectedCRSSpec());
+	if (!model)
+	{
+		auto const href = map.elevationSet().href(ElevationSet::Terrain);
+		QMessageBox::warning(parent, MapEditorController::tr("Elevation"),
+		                     href.isEmpty() ? MapEditorController::tr("Import elevation data first (Elevation > Import elevation data).")
+		                                    : MapEditorController::tr("The elevation grid %1 cannot be opened: %2").arg(href, ElevationModel::lastError()));
+	}
+	return model;
+}
+
+}  // namespace
+
+void MapEditorController::elevationOpenClicked()
+{
+	auto const filter = tr("Elevation grids") + QLatin1String(" (*.tif *.tiff *.asc *.xyz *.hgt *.ocdDem *.img *.vrt *.dem);;") + tr("All files") + QLatin1String(" (*.*)");
+	auto const start_dir = window->currentPath().isEmpty() ? QString{} : QFileInfo(window->currentPath()).absolutePath();
+	auto const path = FileDialog::getOpenFileName(window, tr("Import elevation data"), start_dir, filter);
+	if (path.isEmpty())
+		return;
+	ElevationOpenDialog dialog(window);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	auto options = dialog.options();
+	options.target_crs = map->getGeoreferencing().getProjectedCRSSpec();
+	auto grid = ElevationModel::open(path, options);
+	if (!grid)
+	{
+		QMessageBox::warning(window, tr("Import elevation data"), ElevationModel::lastError());
+		return;
+	}
+	auto href = path;
+	if (options.feet_to_metres || options.millimetres_to_metres || options.shift_below_sea_level)
+	{
+		// The converted grid is kept beside the map, so that it reloads as imported.
+		href = productPath(window->currentPath(), path, ElevationSet::kindName(dialog.kind()));
+		if (!grid->save(href))
+		{
+			QMessageBox::warning(window, tr("Import elevation data"), ElevationModel::lastError());
+			return;
+		}
+	}
+	auto const info = grid->info();
+	map->elevationSet().setModel(dialog.kind(), std::move(grid), href);
+	map->setHasUnsavedChanges(true);
+	window->showStatusBarMessage(tr("Elevation grid %1: %2 to %3 m").arg(QFileInfo(href).fileName(), QString::number(info.minimum, 'f', 1), QString::number(info.maximum, 'f', 1)), 5000);
+}
+
+void MapEditorController::elevationInfoClicked()
+{
+	auto const* model = terrainModel(*map, window);
+	if (!model)
+		return;
+	auto const info = model->info();
+	auto const extent = model->extent();
+	QMessageBox::information(window, tr("Elevation information"),
+	                         tr("File: %1\nCells: %2 by %3 of %4 m\nEasting: %5 to %6\nNorthing: %7 to %8\nHeight: %9 to %10 m\nVoid cells: %11")
+	                         .arg(map->elevationSet().href(ElevationSet::Terrain))
+	                         .arg(model->width()).arg(model->height()).arg(model->cellSize())
+	                         .arg(extent.left(), 0, 'f', 1).arg(extent.right(), 0, 'f', 1)
+	                         .arg(extent.top(), 0, 'f', 1).arg(extent.bottom(), 0, 'f', 1)
+	                         .arg(info.minimum, 0, 'f', 2).arg(info.maximum, 0, 'f', 2)
+	                         .arg(info.void_count));
+}
+
+void MapEditorController::elevationContoursClicked()
+{
+	auto const* model = terrainModel(*map, window);
+	if (!model)
+		return;
+	auto const info = model->info();
+	ContourDialog dialog(info.minimum, info.maximum, window);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	std::vector<std::unique_ptr<Object>> objects;
+	for (auto const& params : dialog.sets())
+	{
+		auto const symbols = contourSymbols(*map, params.smoothed);
+		auto result = makeContourObjects(*map, *model, params, symbols);
+		if (!result.error.isEmpty())
+		{
+			QMessageBox::warning(window, tr("Contours"), result.error);
+			return;
+		}
+		objects.insert(objects.end(), std::make_move_iterator(result.objects.begin()), std::make_move_iterator(result.objects.end()));
+	}
+	auto const count = objects.size();
+	if (!addContours(*map, std::move(objects)))
+	{
+		QMessageBox::information(window, tr("Contours"), tr("No contour lies in the chosen range."));
+		return;
+	}
+	window->showStatusBarMessage(tr("%n contour line(s) generated", nullptr, int(count)), 5000);
+}
+
+void MapEditorController::elevationHillShadeClicked()
+{
+	auto const* model = terrainModel(*map, window);
+	if (!model)
+		return;
+	HillShadeDialog dialog(model->cellSize(), window);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	auto const product = hillShade(*model, dialog.params());
+	auto const path = productPath(window->currentPath(), map->elevationSet().href(ElevationSet::Terrain), QStringLiteral("hillshade"));
+	QString error = product.error;
+	if (error.isEmpty() && !writeGeoTiff(product, path, &error))
+		error = tr("Cannot write %1: %2").arg(path, error);
+	if (error.isEmpty() && dialog.attach() && !attachProductTemplate(*map, path, &error))
+		error = tr("Cannot attach %1: %2").arg(path, error);
+	if (!error.isEmpty())
+	{
+		QMessageBox::warning(window, tr("Hill shading"), error);
+		return;
+	}
+	if (dialog.attach())
+	{
+		hideAllTemplates(false);
+		showTemplateWindow(true);
+	}
+	window->showStatusBarMessage(tr("Hill shading written to %1").arg(path), 5000);
+}
+
+void MapEditorController::elevationSlopeClicked()
+{
+	auto const* model = terrainModel(*map, window);
+	if (!model)
+		return;
+	SlopeDialog dialog(model->cellSize(), window);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	auto const product = slopeRaster(*model, dialog.params());
+	auto const path = productPath(window->currentPath(), map->elevationSet().href(ElevationSet::Terrain), QStringLiteral("slope"));
+	QString error = product.error;
+	if (error.isEmpty() && !writeGeoTiff(product, path, &error))
+		error = tr("Cannot write %1: %2").arg(path, error);
+	if (error.isEmpty() && dialog.attach() && !attachProductTemplate(*map, path, &error))
+		error = tr("Cannot attach %1: %2").arg(path, error);
+	if (!error.isEmpty())
+	{
+		QMessageBox::warning(window, tr("Slope gradient"), error);
+		return;
+	}
+	if (dialog.attach())
+	{
+		hideAllTemplates(false);
+		showTemplateWindow(true);
+	}
+	window->showStatusBarMessage(tr("Slope gradient written to %1").arg(path), 5000);
+}
+
+void MapEditorController::elevationExportClicked()
+{
+	auto const* model = terrainModel(*map, window);
+	if (!model)
+		return;
+	auto const filter = tr("GeoTIFF") + QLatin1String(" (*.tif);;") + tr("ESRI ASCII grid") + QLatin1String(" (*.asc);;")
+	                    + tr("XYZ grid") + QLatin1String(" (*.xyz);;") + tr("OCD grid") + QLatin1String(" (*.ocdDem)");
+	auto const start = productPath(window->currentPath(), map->elevationSet().href(ElevationSet::Terrain), QStringLiteral("dtm"));
+	auto const path = FileDialog::getSaveFileName(window, tr("Export grid"), start, filter);
+	if (path.isEmpty())
+		return;
+	if (!model->save(path))
+		QMessageBox::warning(window, tr("Export grid"), ElevationModel::lastError());
 }
 
 

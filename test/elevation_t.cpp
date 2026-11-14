@@ -51,9 +51,11 @@
 #include "elevation/contours.h"
 #include "elevation/elevation_model.h"
 #include "elevation/elevation_set.h"
+#include "elevation/raster_products.h"
 #include "fileformats/file_format.h"
 #include "fileformats/file_format_registry.h"
 #include "fileformats/file_import_export.h"
+#include "templates/template.h"
 #include "undo/undo_manager.h"
 
 using namespace OpenOrienteering;
@@ -456,6 +458,105 @@ private slots:
 			}
 		}
 		QVERIFY(curved > 0);
+	}
+
+	void hillShadeTest()
+	{
+		auto inclined = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double, double y) { return 100.0 + 0.1 * y; });  // rises to the north: faces south
+		auto flat = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double, double) { return 100.0; });
+
+		HillShadeParams params;
+		params.method = HillShadeParams::Oblique;
+		params.azimuth_deg = 315.0;
+		params.elevation_deg = 45.0;
+		params.exaggeration = 4.0;
+		struct { HillShadeParams::Method method; bool multi; int expected; } const cases[] = {
+		    { HillShadeParams::Oblique, false, 120 },
+		    { HillShadeParams::Oblique, true, 167 },
+		    { HillShadeParams::SlopeShading, false, 193 },
+		    { HillShadeParams::Combined, false, 91 } };
+		for (auto const& c : cases)
+		{
+			params.method = c.method;
+			params.multi_directional = c.multi;
+			auto product = OpenOrienteering::hillShade(*inclined, params);
+			QVERIFY2(product.error.isEmpty(), qPrintable(product.error));
+			QCOMPARE(product.image.size(), QSize(101, 101));
+			QCOMPARE(product.image.format(), QImage::Format_Grayscale8);
+			QCOMPARE(product.extent, inclined->extent());
+			for (int r = 1; r < 100; ++r)
+				for (int col = 1; col < 100; ++col)
+					QVERIFY2(qAbs(int(product.image.constScanLine(r)[col]) - c.expected) <= 1,
+					         qPrintable(QString::number(c.method) + QLatin1Char(' ') + QString::number(product.image.constScanLine(r)[col])));
+		}
+		params.method = HillShadeParams::Oblique;
+		params.multi_directional = false;
+		auto flat_product = OpenOrienteering::hillShade(*flat, params);
+		QVERIFY(qAbs(int(flat_product.image.constScanLine(50)[50]) - 180) <= 1);
+		params.method = HillShadeParams::SlopeShading;
+		QCOMPARE(int(OpenOrienteering::hillShade(*flat, params).image.constScanLine(50)[50]), 255);
+	}
+
+	void slopeRasterTest()
+	{
+		auto inclined = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double, double y) { return 100.0 - 0.1 * y; });
+		auto steep = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double, double y) { return 100.0 + 1.7320508 * y; });
+		auto flat = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double, double) { return 100.0; });
+
+		SlopeParams params;
+		params.binary = false;
+		params.threshold_deg = 45.0;
+		auto product = OpenOrienteering::slopeRaster(*inclined, params);
+		QVERIFY2(product.error.isEmpty(), qPrintable(product.error));
+		QCOMPARE(product.image.size(), QSize(101, 101));
+		for (int r = 1; r < 100; ++r)
+			for (int col = 1; col < 100; ++col)
+				QVERIFY2(qAbs(int(product.image.constScanLine(r)[col]) - 223) <= 1, qPrintable(QString::number(product.image.constScanLine(r)[col])));
+		QCOMPARE(int(OpenOrienteering::slopeRaster(*steep, params).image.constScanLine(50)[50]), 0);
+		QCOMPARE(int(OpenOrienteering::slopeRaster(*flat, params).image.constScanLine(50)[50]), 255);
+		params.binary = true;
+		QCOMPARE(int(OpenOrienteering::slopeRaster(*inclined, params).image.constScanLine(50)[50]), 255);
+		QCOMPARE(int(OpenOrienteering::slopeRaster(*steep, params).image.constScanLine(50)[50]), 0);
+	}
+
+	void productTemplate()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		Map map;
+		map.setGeoreferencing(utm32Georeferencing());
+		auto grid = makeGrid(101, 101, 500000.0, 5000101.0, 1.0, [](double, double y) { return 100.0 - 0.1 * (y - 5000000.0); });
+		grid->setCrsSpec(map.getGeoreferencing().getProjectedCRSSpec());
+
+		HillShadeParams params;
+		auto product = hillShade(*grid, params);
+		QVERIFY(product.error.isEmpty());
+		QCOMPARE(product.crs_spec, grid->crsSpec());
+		auto const path = QDir(dir.path()).absoluteFilePath(QStringLiteral("hillshade.tif"));
+		QString error;
+		QVERIFY2(writeGeoTiff(product, path, &error), qPrintable(error));
+		auto reopened = ElevationModel::open(path);
+		QVERIFY2(reopened, qPrintable(ElevationModel::lastError()));
+		QCOMPARE(reopened->width(), 101);
+		QCOMPARE(reopened->extent(), grid->extent());
+		QVERIFY(qAbs(reopened->value(50, 50) - product.image.constScanLine(50)[50]) < 1e-6);
+		QVERIFY(!reopened->crsSpec().isEmpty());
+
+		QCOMPARE(map.getNumTemplates(), 0);
+		auto* temp = attachProductTemplate(map, path, &error);
+		QVERIFY2(temp, qPrintable(error));
+		QCOMPARE(map.getNumTemplates(), 1);
+		QCOMPARE(map.getTemplate(0), temp);
+		QCOMPARE(temp->getTemplateState(), Template::Loaded);
+		QVERIFY(temp->isTemplateGeoreferenced());
+		auto const& georef = map.getGeoreferencing();
+		auto const top_left = georef.toMapCoordF(QPointF(500000.0, 5000101.0));
+		auto const bottom_right = georef.toMapCoordF(QPointF(500101.0, 5000000.0));
+		auto const bbox = temp->calculateTemplateBoundingBox();
+		QVERIFY2(qAbs(bbox.left() - top_left.x()) < 0.01, qPrintable(QString::number(bbox.left())));
+		QVERIFY2(qAbs(bbox.top() - top_left.y()) < 0.01, qPrintable(QString::number(bbox.top())));
+		QVERIFY2(qAbs(bbox.right() - bottom_right.x()) < 0.01, qPrintable(QString::number(bbox.right())));
+		QVERIFY2(qAbs(bbox.bottom() - bottom_right.y()) < 0.01, qPrintable(QString::number(bbox.bottom())));
 	}
 
 	void xmlRoundTrip()
