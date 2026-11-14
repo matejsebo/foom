@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstring>
 #include <iterator>
 #include <memory>
 #include <utility>
@@ -2577,6 +2578,7 @@ void OcdFileExport::exportObjects(OcdFile<Format>& file)
 			
 		}
 	}
+	exportForeignObjects(file);  // foom
 }
 
 
@@ -3045,9 +3047,82 @@ QString OcdFileExport::pathForTemplate(const Template& temp) const
 
 
 template<class Format>
-void OcdFileExport::exportExtras(OcdFile<Format>& /*file*/)
+void OcdFileExport::exportExtras(OcdFile<Format>& file)
 {
 	exportExtras();
+	exportForeignStrings(file);  // foom
+}
+
+
+// foom
+bool OcdFileExport::foreignDataApplies()
+{
+	// the design notes, "OCD round trip".
+	if (foreign_data_checked)
+		return foreign_data_applies;
+	foreign_data_checked = true;
+	auto const& foreign = map->foreignData();
+	if (foreign.isEmpty())
+		return false;
+	
+	auto const same_version = foreign.version == ocd_version || (foreign.version == 2018 && ocd_version == 12);
+	QString reason;
+	if (foreign.format != QLatin1String("OCD"))
+		reason = tr("they come from the format %1").arg(foreign.format);
+	else if (!same_version)
+		reason = tr("they come from OCD version %1 and this file is version %2").arg(foreign.version).arg(ocd_version);
+	else if (area_offset.nativeX() != 0 || area_offset.nativeY() != 0)
+		reason = tr("the map is exported with an offset");
+	if (!reason.isEmpty())
+	{
+		addWarning(tr("%n parameter string(s) and %1 object(s) kept from the imported file are not written, because %2.", nullptr, int(foreign.strings.size()))
+		           .arg(foreign.objects.size()).arg(reason));
+		return false;
+	}
+	foreign_data_applies = true;
+	return true;
+}
+
+
+// foom
+template< class Format >
+void OcdFileExport::exportForeignStrings(OcdFile<Format>& file)
+{
+	if (!foreignDataApplies())
+		return;
+	// The types the exporter writes itself are not written back a second time.
+	static const qint32 own_types[] = { 8, 9, 10, 11, 18, 1030, 1039, 1061 };
+	for (auto const& string : map->foreignData().strings)
+	{
+		if (string.data.isEmpty() || std::find(std::begin(own_types), std::end(own_types), string.type) != std::end(own_types))
+			continue;
+		Ocd::ParameterStringIndexEntry entry = { 0, quint32(string.data.size()), string.type, string.object_index };
+		file.strings().insert(string.data, entry);
+	}
+}
+
+
+// foom
+template< class Format >
+void OcdFileExport::exportForeignObjects(OcdFile<Format>& file)
+{
+	if (!foreignDataApplies())
+		return;
+	auto skipped = 0;
+	for (auto const& object : map->foreignData().objects)
+	{
+		typename Format::Object::IndexEntryType entry = {};
+		if (object.entry.size() != int(sizeof(entry)) || object.data.isEmpty())
+		{
+			++skipped;
+			continue;
+		}
+		memcpy(&entry, object.entry.constData(), sizeof(entry));
+		entry.pos = 0;
+		file.objects().insert(object.data, entry);
+	}
+	if (skipped)
+		addWarning(tr("%n object record(s) kept from the imported file do not fit this version and are not written.", nullptr, skipped));
 }
 
 

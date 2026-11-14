@@ -51,6 +51,7 @@
 #include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/color_group.h"  // foom
+#include "core/foreign_data.h"  // foom
 #include "core/map_color.h"
 #include "core/map_coord.h"
 #include "core/map_grid.h"
@@ -203,6 +204,14 @@ namespace literal
 	static const QLatin1String bookmark_zoom("zoom");  // foom
 	static const QLatin1String bookmark_note("note");  // foom
 	static const QLatin1String extents("extents");  // foom
+	static const QLatin1String foreign("foreign");  // foom
+	static const QLatin1String foreign_format("format");  // foom
+	static const QLatin1String foreign_version("version");  // foom
+	static const QLatin1String foreign_string("string");  // foom
+	static const QLatin1String foreign_object("object");  // foom
+	static const QLatin1String foreign_type("type");  // foom
+	static const QLatin1String foreign_obj("obj");  // foom
+	static const QLatin1String foreign_entry("entry");  // foom
 	static const QLatin1String part("part");
 	
 	static const QLatin1String templates("templates");
@@ -311,6 +320,11 @@ bool XMLFileExporter::exportImplementation()
 		if (XMLFileFormat::foom_revision >= 1 && !map->extents().empty())  // foom
 		{
 			exportExtents();
+			writeLineBreak(xml);
+		}
+		if (XMLFileFormat::foom_revision >= 1 && !map->foreignData().isEmpty())  // foom
+		{
+			exportForeignData();
 			writeLineBreak(xml);
 		}
 		exportTemplates();
@@ -485,6 +499,33 @@ void XMLFileExporter::exportObjectGroups()
 		XmlElementWriter group_element(xml, literal::object_group);
 		group_element.writeAttribute(literal::id, group);
 		group_element.writeAttribute(literal::name, names.value(group));
+	}
+	writeLineBreak(xml);
+}
+
+// foom
+void XMLFileExporter::exportForeignData()
+{
+	// the design notes, "OCD round trip".
+	auto const& foreign = map->foreignData();
+	XmlElementWriter foreign_element(xml, literal::foreign);
+	foreign_element.writeAttribute(literal::foreign_format, foreign.format);
+	foreign_element.writeAttribute(literal::foreign_version, foreign.version);
+	for (auto const& string : foreign.strings)
+	{
+		writeLineBreak(xml);
+		XmlElementWriter string_element(xml, literal::foreign_string);
+		string_element.writeAttribute(literal::foreign_type, string.type);
+		if (string.object_index)
+			string_element.writeAttribute(literal::foreign_obj, string.object_index);
+		xml.writeCharacters(QString::fromLatin1(string.data.toBase64()));
+	}
+	for (auto const& object : foreign.objects)
+	{
+		writeLineBreak(xml);
+		XmlElementWriter object_element(xml, literal::foreign_object);
+		object_element.writeAttribute(literal::foreign_entry, QString::fromLatin1(object.entry.toBase64()));
+		xml.writeCharacters(QString::fromLatin1(object.data.toBase64()));
 	}
 	writeLineBreak(xml);
 }
@@ -722,6 +763,8 @@ void XMLFileImporter::importElements()
 			importBookmarks();
 		else if (name == literal::extents)  // foom
 			importExtents();
+		else if (name == literal::foreign)  // foom
+			importForeignData();
 		else if (name == literal::templates)
 			importTemplates();
 		else if (name == literal::print)
@@ -1127,6 +1170,42 @@ void XMLFileImporter::importBookmarks()
 			xml.skipCurrentElement();
 		}
 	}
+}
+
+// foom
+void XMLFileImporter::importForeignData()
+{
+	// the design notes, "OCD round trip".
+	ForeignData foreign;
+	{
+		XmlElementReader foreign_element(xml);
+		foreign.format = foreign_element.attribute<QString>(literal::foreign_format);
+		foreign.version = foreign_element.attribute<int>(literal::foreign_version);
+		while (xml.readNextStartElement())
+		{
+			if (xml.name() == literal::foreign_string)
+			{
+				ForeignString string;
+				string.type = xml.attributes().value(literal::foreign_type).toInt();
+				string.object_index = xml.attributes().value(literal::foreign_obj).toUInt();
+				string.data = QByteArray::fromBase64(xml.readElementText().toLatin1());
+				foreign.strings.push_back(string);
+			}
+			else if (xml.name() == literal::foreign_object)
+			{
+				ForeignObject object;
+				object.entry = QByteArray::fromBase64(xml.attributes().value(literal::foreign_entry).toLatin1());
+				object.data = QByteArray::fromBase64(xml.readElementText().toLatin1());
+				foreign.objects.push_back(object);
+			}
+			else
+			{
+				addWarningUnsupportedElement();
+				xml.skipCurrentElement();
+			}
+		}
+	}
+	map->setForeignData(std::move(foreign));
 }
 
 // foom

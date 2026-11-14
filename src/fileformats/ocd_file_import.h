@@ -31,11 +31,13 @@
 #include <QByteArray>
 #include <QCoreApplication>
 #include <QHash>
+#include <set>
 #include <QLocale>
 #include <QString>
 
 #include "core/map_coord.h"
 #include "core/objects/object.h"
+#include "core/foreign_data.h"
 #include "core/objects/text_object.h"
 #include "core/symbols/area_symbol.h"
 #include "core/symbols/line_symbol.h"
@@ -181,6 +183,10 @@ protected:
 	
 	template< class F >
 	void handleStrings(const OcdFile< F >& file, std::initializer_list<StringHandler> handlers);
+	
+	/** foom: Keeps the strings of unhandled types and the unsupported objects for the round trip. */
+	template< class F >
+	void importForeignData(const OcdFile< F >& file);
 	
 	
 	void importGeoreferencing(const OcdFile<Ocd::FormatV8>& file);
@@ -369,6 +375,12 @@ protected:
 	
 	/// foom: the group number of the next rectangle box, 0 until the first one
 	int next_rectangle_group = 0;
+	
+	/// foom: the parameter string types a handler was registered for
+	std::set<qint32> handled_string_types;
+	
+	/// foom: the object records which produced no object, kept for the round trip
+	std::vector<ForeignObject> foreign_objects;
 	
 	/// The actual format version of the imported file
 	int ocd_version;

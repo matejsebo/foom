@@ -336,6 +336,7 @@ void OcdFileImport::importImplementation()
 			importView(file);
 		}
 		importBookmarks(file);  // foom
+		importForeignData(file);  // foom
 	}
 	
 	// No deep copy during import
@@ -895,6 +896,17 @@ void OcdFileImport::importObjects(const OcdFile< F >& file)
 			{
 				importObjectDates(*ocd_object.entity, object);  // foom
 				part->addObject(object, part->getNumObjects());
+			}
+			else  // foom: keep the record for the round trip
+			{
+				auto const* data = reinterpret_cast<const char*>(ocd_object.entity);
+				auto const offset = data - buffer.constData();
+				auto const size = int(ocd_object.entry->size);
+				if (offset >= 0 && size > 0 && offset + size <= buffer.size())
+				{
+					foreign_objects.push_back({ QByteArray(reinterpret_cast<const char*>(ocd_object.entry), int(sizeof(*ocd_object.entry))),
+					                            QByteArray(data, size) });
+				}
 			}
 		}
 	}
@@ -2448,6 +2460,8 @@ bool OcdFileImport::importImplementation()
 template< class F >
 void OcdFileImport::handleStrings(const OcdFile<F>& file, std::initializer_list<StringHandler> handlers)
 {
+	for (const auto& handler : handlers)  // foom
+		handled_string_types.insert(handler.type);
 	for (const auto ocd_string : file.strings())
 	{
 		for (const auto& handler : handlers)
@@ -2458,6 +2472,35 @@ void OcdFileImport::handleStrings(const OcdFile<F>& file, std::initializer_list<
 			}
 		}
 	}
+}
+
+
+// foom
+template< class F >
+void OcdFileImport::importForeignData(const OcdFile<F>& file)
+{
+	// the design notes, "OCD round trip".
+	ForeignData foreign;
+	foreign.format = QStringLiteral("OCD");
+	foreign.version = ocd_version;
+	for (const auto ocd_string : file.strings())
+	{
+		if (handled_string_types.count(ocd_string.entry->type))
+			continue;
+		auto const* data = reinterpret_cast<const char*>(ocd_string.entity);
+		auto const offset = data - buffer.constData();
+		auto const size = int(ocd_string.entry->size);
+		if (offset < 0 || size <= 0 || offset + size > buffer.size())
+			continue;
+		ForeignString string;
+		string.type = ocd_string.entry->type;
+		string.object_index = ocd_string.entry->obj_index;
+		string.data = QByteArray(data, size);
+		foreign.strings.push_back(std::move(string));
+	}
+	foreign.objects = std::move(foreign_objects);
+	foreign_objects.clear();
+	map->setForeignData(std::move(foreign));
 }
 
 

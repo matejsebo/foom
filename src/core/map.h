@@ -46,6 +46,7 @@
 
 #include "core/bookmarks.h"  // foom
 #include "core/extents.h"  // foom
+#include "core/foreign_data.h"  // foom
 #include "core/map_coord.h"
 #include "core/map_grid.h"
 #include "core/map_part.h"
@@ -972,6 +973,12 @@ public:
 	/** foom: Replaces the named extents; undo is the caller's business (MapDataUndoStep). */
 	void setExtents(std::vector<Extent> extents) { map_extents = std::move(extents); }
 	
+	/** foom: Returns the data of another file format kept for the round trip. See the design notes, "OCD round trip". */
+	const ForeignData& foreignData() const { return map_foreign_data; }
+	
+	/** foom: Replaces the foreign data. */
+	void setForeignData(ForeignData data) { map_foreign_data = std::move(data); }
+	
 	
 	// foom: spatial index.
 	// See the design notes, "Spatial index".
@@ -1711,6 +1718,7 @@ private:
 	QHash<QUuid, Object*> objects_by_uuid;  ///< foom: the objects in the parts
 	QHash<int, QString> object_group_names;  ///< foom: see the design notes, "Groups"
 	std::vector<Bookmark> map_bookmarks;  ///< foom: view state, see the design notes
+	ForeignData map_foreign_data;  ///< foom: see the design notes, "OCD round trip"
 	std::vector<Extent> map_extents;  ///< foom: see the design notes
 	mutable std::unordered_set<const Object*> stale_index_objects;  ///< foom: to be re-entered into the spatial indexes
 	ObjectSelection object_selection;

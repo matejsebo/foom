@@ -448,6 +448,7 @@ Map::~Map()
 void Map::clear()
 {
 	undo_manager->clear();
+	map_foreign_data = {};  // foom
 	
 	templates.clear();
 	first_front_template = 0;

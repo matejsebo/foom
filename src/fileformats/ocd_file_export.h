@@ -294,6 +294,17 @@ protected:
 	template< class Format >
 	void exportExtras(OcdFile<Format>& file);
 	
+	/** foom: Returns whether the map's foreign data can be written to this file, warning once when not. */
+	bool foreignDataApplies();
+	
+	/** foom: Writes the foreign parameter strings back. */
+	template< class Format >
+	void exportForeignStrings(OcdFile<Format>& file);
+	
+	/** foom: Writes the foreign object records back. */
+	template< class Format >
+	void exportForeignObjects(OcdFile<Format>& file);
+	
 	void exportExtras();
 	
 	
@@ -326,6 +337,8 @@ private:
 	QTextCodec *custom_8bit_encoding = nullptr;
 	
 	MapCoord area_offset;
+	bool foreign_data_checked = false;  // foom
+	bool foreign_data_applies = false;  // foom
 	
 	std::function<StringAppender> addParameterString;
 	
