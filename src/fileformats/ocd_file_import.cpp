@@ -59,7 +59,10 @@
 #include "core/map_grid.h"
 #include "core/map_part.h"
 #include "core/map_view.h"
+#include "core/object_groups.h"
 #include "core/objects/text_object.h"
+#include "core/ops/op.h"
+#include "core/ops/rectangle_box.h"
 #include "core/symbols/area_symbol.h"
 #include "core/symbols/combined_symbol.h"
 #include "core/symbols/line_symbol.h"
@@ -2069,122 +2072,44 @@ Object* OcdFileImport::importRectangleObject(const O& ocd_object, MapPart* part,
 
 Object* OcdFileImport::importRectangleObject(const Ocd::OcdPoint32* ocd_points, MapPart* part, const OcdFileImport::RectangleInfo& rect)
 {
-	// Convert corner points
-	MapCoord bottom_left = convertOcdPoint(ocd_points[0]);
-	MapCoord bottom_right = convertOcdPoint(ocd_points[1]);
-	MapCoord top_right = convertOcdPoint(ocd_points[2]);
-	MapCoord top_left = convertOcdPoint(ocd_points[3]);
+	// foom: through the rectangle box generator, see the design notes, "Rectangle objects".
+	ops::RectangleBoxGeometry geometry;
+	geometry.bottom_left = MapCoordF(convertOcdPoint(ocd_points[0]));
+	geometry.top_right = MapCoordF(convertOcdPoint(ocd_points[2]));
+	geometry.top_left = MapCoordF(convertOcdPoint(ocd_points[3]));
 	
-	MapCoordF top_left_f = MapCoordF(top_left);
-	MapCoordF top_right_f = MapCoordF(top_right);
-	MapCoordF bottom_left_f = MapCoordF(bottom_left);
-	MapCoordF bottom_right_f = MapCoordF(bottom_right);
-	MapCoordF right = MapCoordF(top_right.x() - top_left.x(), top_right.y() - top_left.y());
-	auto angle = right.angle();
-	MapCoordF down = MapCoordF(bottom_left.x() - top_left.x(), bottom_left.y() - top_left.y());
-	right.normalize();
-	down.normalize();
-	
-	// Create border line
-	MapCoordVector coords;
-	if (qIsNull(rect.corner_radius))
+	ops::RectangleBoxParams params;
+	params.frame = rect.border_line;
+	params.corner_radius = rect.corner_radius;
+	if (rect.has_grid)
 	{
-		coords.emplace_back(top_left);
-		coords.emplace_back(top_right);
-		coords.emplace_back(bottom_right);
-		coords.emplace_back(bottom_left);
+		params.grid = rect.inner_line;
+		params.cell_width = rect.cell_width;
+		params.cell_height = rect.cell_height;
+		params.numbering = rect.numbering_on;
+		params.number_from_bottom = rect.number_from_bottom;
+		params.number_text = rect.text;
+		params.unnumbered_cells = rect.unnumbered_cells;
+		params.unnumbered_text = rect.unnumbered_text;
 	}
-	else
-	{
-		double handle_radius = (1 - BEZIER_KAPPA) * rect.corner_radius;
-		coords.emplace_back(top_right_f - right * rect.corner_radius, MapCoord::CurveStart);
-		coords.emplace_back(top_right_f - right * handle_radius);
-		coords.emplace_back(top_right_f + down * handle_radius);
-		coords.emplace_back(top_right_f + down * rect.corner_radius);
-		coords.emplace_back(bottom_right_f - down * rect.corner_radius, MapCoord::CurveStart);
-		coords.emplace_back(bottom_right_f - down * handle_radius);
-		coords.emplace_back(bottom_right_f - right * handle_radius);
-		coords.emplace_back(bottom_right_f - right * rect.corner_radius);
-		coords.emplace_back(bottom_left_f + right * rect.corner_radius, MapCoord::CurveStart);
-		coords.emplace_back(bottom_left_f + right * handle_radius);
-		coords.emplace_back(bottom_left_f - down * handle_radius);
-		coords.emplace_back(bottom_left_f - down * rect.corner_radius);
-		coords.emplace_back(top_left_f + down * rect.corner_radius, MapCoord::CurveStart);
-		coords.emplace_back(top_left_f + down * handle_radius);
-		coords.emplace_back(top_left_f + right * handle_radius);
-		coords.emplace_back(top_left_f + right * rect.corner_radius);
-	}
-	auto border_path = new PathObject(rect.border_line, coords, map);
-	border_path->parts().front().setClosed(true, false);
+	if (next_rectangle_group <= 0)
+		next_rectangle_group = nextObjectGroupId(*map);
+	params.group = next_rectangle_group++;
 	
-	if (rect.has_grid && rect.cell_width > 0 && rect.cell_height > 0)
-	{
-		// Calculate grid sizes
-		auto width = top_left.distanceTo(top_right);
-		auto height = top_left.distanceTo(bottom_left);
-		int num_cells_x = qMax(1, qRound(width / rect.cell_width));
-		int num_cells_y = qMax(1, qRound(height / rect.cell_height));
-		
-		auto cell_width = width / num_cells_x;
-		auto cell_height = height / num_cells_y;
-		
-		// Create grid lines
-		coords.resize(2);
-		for (int x = 1; x < num_cells_x; ++x)
-		{
-			coords[0] = MapCoord(top_left_f + x * cell_width * right);
-			coords[1] = MapCoord(bottom_left_f + x * cell_width * right);
-			
-			auto path = new PathObject(rect.inner_line, coords, map);
-			part->addObject(path, part->getNumObjects());
-		}
-		for (int y = 1; y < num_cells_y; ++y)
-		{
-			coords[0] = MapCoord(top_left_f + y * cell_height * down);
-			coords[1] = MapCoord(top_right_f + y * cell_height * down);
-			
-			auto path = new PathObject(rect.inner_line, coords, map);
-			part->addObject(path, part->getNumObjects());
-		}
-		
-		// Create grid text
-		if (rect.numbering_on && height >= rect.cell_height / 2)
-		{
-			for (int y = 0; y < num_cells_y; ++y) 
-			{
-				for (int x = 0; x < num_cells_x; ++x)
-				{
-					int cell_num;
-					QString cell_text;
-					
-					if (rect.number_from_bottom)
-						cell_num = (num_cells_y - 1 - y) * num_cells_x + x + 1;
-					else
-						cell_num = y * num_cells_x + x + 1;
-					
-					if (cell_num > num_cells_x * num_cells_y - rect.unnumbered_cells)
-						cell_text = rect.unnumbered_text;
-					else
-						cell_text = QString::number(cell_num);
-					
-					auto object = new TextObject(rect.text);
-					object->setMap(map);
-					object->setText(cell_text);
-					object->setRotation(-angle);
-					object->setHorizontalAlignment(TextObject::AlignLeft);
-					object->setVerticalAlignment(TextObject::AlignTop);
-					auto position_x = (x + qreal(0.07)) * cell_width;
-					auto position_y = (y + qreal(0.04)) * cell_height + rect.text->getFontMetrics().ascent() / rect.text->calculateInternalScaling() - rect.text->getFontSize();
-					object->setAnchorPosition(top_left_f + position_x * right + position_y * down);
-					part->addObject(object, part->getNumObjects());
-					
-					//pts[0].Y -= rectinfo.gridText.FontAscent - rectinfo.gridText.FontEmHeight;
-				}
-			}
-		}
-	}
+	auto result = ops::rectangleBox(*map, geometry, params);
+	if (!result.error.isEmpty() || result.out.empty())
+		return nullptr;
 	
-	return border_path;
+	// The frame is returned to the caller, which adds it; the rest is added here.
+	for (std::size_t i = 1; i < result.out.size(); ++i)
+	{
+		auto* object = result.out[i].release();
+		object->setMap(map);
+		part->addObject(object, part->getNumObjects());
+	}
+	auto* frame = result.out.front().release();
+	frame->setMap(map);
+	return frame;
 }
 
 void OcdFileImport::setPathHolePoint(OcdImportedPathObject *object, quint32 pos)

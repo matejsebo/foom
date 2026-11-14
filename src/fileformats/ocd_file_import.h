@@ -367,6 +367,9 @@ protected:
 	/// maps OCD symbol number to rectangle information struct
 	QHash<int, RectangleInfo> rectangle_info;
 	
+	/// foom: the group number of the next rectangle box, 0 until the first one
+	int next_rectangle_group = 0;
+	
 	/// The actual format version of the imported file
 	int ocd_version;
 };

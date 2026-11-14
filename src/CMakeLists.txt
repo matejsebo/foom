@@ -129,6 +129,7 @@ set(Mapper_Common_SRCS
   core/ops/topology.cpp
   core/ops/buildings.cpp
   core/ops/smooth.cpp
+  core/ops/rectangle_box.cpp
   core/renderables/path_text_renderable.cpp
   core/symbols/text_symbol_path.cpp
   core/symbols/text_symbol_properties.cpp
@@ -200,6 +201,7 @@ set(Mapper_Common_SRCS
   gui/map/extent_dialog.cpp
   gui/map/legibility_dialog.cpp
   gui/map/topology_dialogs.cpp
+  gui/map/rectangle_box_dialog.cpp
   gui/map/find_replace_text_dialog.cpp
   gui/map/move_parallel_dialog.cpp
   gui/map/numeric_entry_bar.cpp
@@ -275,6 +277,7 @@ set(Mapper_Common_SRCS
   tools/cut_tool.cpp
   tools/cut_hole_tool.cpp
   tools/lasso_tool.cpp
+  tools/rectangle_box_tool.cpp
   tools/move_parallel_tool.cpp
   tools/reshape_tool.cpp
   tools/cutout_operation.cpp

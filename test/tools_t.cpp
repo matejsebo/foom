@@ -53,7 +53,9 @@
 #include "check/legibility.h"
 #include "check/map_check.h"
 #include "gui/map/legibility_dialog.h"
+#include "gui/map/rectangle_box_dialog.h"
 #include "gui/map/topology_dialogs.h"
+#include "core/ops/rectangle_box.h"
 #include "tools/legibility_feedback.h"
 #include "settings.h"
 #include "core/georeferencing.h"
@@ -1303,6 +1305,57 @@ void ToolsTest::smooth()
 	QCOMPARE(map.map->getNumSelectedObjects(), 1);
 	QCOMPARE(map.map->getFirstSelectedObject()->asPath()->getCoordinateCount(), MapCoordVector::size_type(2));
 	QVERIFY(map.map->undoManager().undo());
+}
+
+void ToolsTest::rectangleBox()
+{
+	// the design notes, "Rectangle objects", the editor part.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* action = editor.editor->getAction("draw-rectangle-box");
+	QVERIFY(action);
+	auto* text_symbol = new TextSymbol();
+	map.map->addSymbol(text_symbol, 1);
+	editor.editor->getSymbolWidget()->selectSingleSymbol(map.line_symbol);
+	QVERIFY(action->isEnabled());
+	
+	RectangleBoxDialog dialog(map.map, editor.window);
+	auto params = dialog.params();
+	QCOMPARE(params.corner_radius, 0.0);
+	QCOMPARE(params.cell_width, 0.0);
+	QVERIFY(!params.numbering);
+	QCOMPARE(params.number_text, text_symbol);
+	
+	params.cell_width = 10.0;
+	params.cell_height = 10.0;
+	params.numbering = true;
+	auto const objects_before = map.map->getNumObjects();
+	editor.editor->drawRectangleBox(params);
+	auto* widget = editor.map_widget;
+	auto const viewport = [widget](double x, double y) { return widget->mapToViewport(MapCoord(x, y)).toPoint(); };
+	auto const move = [widget](const QPoint& pos) {
+		QMouseEvent event(QEvent::MouseMove, pos, widget->mapToGlobal(pos), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+		QApplication::sendEvent(widget, &event);
+	};
+	QTest::mouseClick(widget, Qt::LeftButton, {}, viewport(0.0, 0.0));
+	move(viewport(30.0, 0.0));
+	QTest::mouseClick(widget, Qt::LeftButton, {}, viewport(30.0, 0.0));
+	move(viewport(30.0, 20.0));
+	QTest::mouseClick(widget, Qt::LeftButton, {}, viewport(30.0, 20.0));
+	QTest::keyClick(widget, Qt::Key_Return);  // drops the hover corner and finishes, as a right click does
+	QCOMPARE(map.map->getNumObjects(), objects_before + 10);
+	QCOMPARE(map.map->getNumSelectedObjects(), 10);
+	auto group = 0;
+	for (auto const* object : map.map->selectedObjects())
+	{
+		QVERIFY(object->group() != 0);
+		if (group == 0)
+			group = object->group();
+		QCOMPARE(object->group(), group);
+	}
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(map.map->getNumObjects(), objects_before);
+	editor.editor->setTool(nullptr);
 }
 
 

@@ -47,6 +47,7 @@
 #include "core/ops/replace_text.h"  // foom
 #include "gui/map/view_history.h"  // foom
 #include "core/ops/buildings.h"  // foom
+#include "core/ops/rectangle_box.h"  // foom
 #include "core/ops/smooth.h"  // foom
 #include "core/ops/topology.h"  // foom
 #include "core/ops/transform.h"  // foom
@@ -158,6 +159,9 @@ public:
 	 * consider setEditTool() instead.
 	 */
 	void setTool(MapEditorTool* new_tool);
+	
+	/** foom: Applies the result of a geometry operation, or shows its error. */
+	void applyOpResult(ops::OpResult&& result);
 	
 	/**
 	 * Shortcut to change to the point edit tool as new active tool.
@@ -446,6 +450,10 @@ public slots:
 	void drawCircleClicked();
 	/** Activates the draw rectangle tool. */
 	void drawRectangleClicked();
+	/** foom: Asks for the parameters of a rectangle box, then starts the box tool. */
+	void drawRectangleBoxClicked();
+	/** foom: Starts the rectangle box tool with the given parameters. */
+	void drawRectangleBox(const ops::RectangleBoxParams& params);
 	/** Activates the draw freehand tool. */
 	void drawFreehandClicked();
 	/** Activates the draw fill tool. */
@@ -820,8 +828,6 @@ protected:
 	 * The caller shall also call updateSymbolAndObjectDependentActions().
 	 */
 	void updateObjectDependentActions();
-	/** foom: Applies the result of a geometry operation, or shows its error. */
-	void applyOpResult(ops::OpResult&& result);
 	
 	/**
 	 * Adjusts the enabled state of various actions
@@ -971,6 +977,7 @@ private:
 	QAction* draw_path_act = {};
 	QAction* draw_circle_act = {};
 	QAction* draw_rectangle_act = {};
+	QAction* draw_rectangle_box_act = {};  // foom
 	QAction* draw_freehand_act = {};
 	QAction* draw_fill_act = {};
 	QAction* draw_text_act = {};

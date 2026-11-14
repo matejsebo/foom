@@ -149,6 +149,7 @@
 #include "check/map_check.h"
 #include "gui/map/extent_dialog.h"
 #include "gui/map/legibility_dialog.h"
+#include "gui/map/rectangle_box_dialog.h"
 #include "gui/map/topology_dialogs.h"
 #include "gui/widgets/issues_widget.h"
 #include "gui/map/find_replace_text_dialog.h"
@@ -188,6 +189,7 @@
 #include "tools/draw_point_tool.h"
 #include "tools/draw_point_gps_tool.h"
 #include "tools/draw_rectangle_tool.h"
+#include "tools/rectangle_box_tool.h"
 #include "tools/draw_text_tool.h"
 #include "tools/edit_point_tool.h"
 #include "tools/edit_line_tool.h"
@@ -1119,6 +1121,7 @@ void MapEditorController::createActions()
 	draw_path_act = newToolAction("drawpath", tr("Draw paths"), this, SLOT(drawPathClicked()), "draw-path.png", QString{}, "toolbars.html#tool_draw_path");
 	draw_circle_act = newToolAction("drawcircle", tr("Draw circles and ellipses"), this, SLOT(drawCircleClicked()), "draw-circle.png", QString{}, "toolbars.html#tool_draw_circle");
 	draw_rectangle_act = newToolAction("drawrectangle", tr("Draw rectangles"), this, SLOT(drawRectangleClicked()), "draw-rectangle.png", QString{}, "toolbars.html#tool_draw_rectangle");
+	draw_rectangle_box_act = newToolAction("draw-rectangle-box", tr("Rectangle box..."), this, SLOT(drawRectangleBoxClicked()), "draw-rectangle.png");  // foom
 	draw_freehand_act = newToolAction("drawfreehand", tr("Draw free-handedly"), this, SLOT(drawFreehandClicked()), "draw-freehand.png", QString{}, "toolbars.html#tool_draw_freehand"); // TODO: documentation
 	draw_fill_act = newToolAction("drawfill", tr("Fill bounded areas"), this, SLOT(drawFillClicked()), "tool-fill.png", QString{}, "toolbars.html#tool_draw_fill"); // TODO: documentation
 	draw_text_act = newToolAction("drawtext", tr("Write text"), this, SLOT(drawTextClicked()), "draw-text.png", QString{}, "toolbars.html#tool_draw_text");
@@ -1352,6 +1355,7 @@ void MapEditorController::createMenuAndToolbars()
 	tools_menu->addAction(draw_path_act);
 	tools_menu->addAction(draw_circle_act);
 	tools_menu->addAction(draw_rectangle_act);
+	tools_menu->addAction(draw_rectangle_box_act);  // foom
 	tools_menu->addAction(draw_freehand_act);
 	tools_menu->addAction(draw_fill_act);
 	tools_menu->addAction(draw_text_act);
@@ -2731,6 +2735,8 @@ void MapEditorController::updateSymbolDependentActions()
 	draw_circle_act->setStatusTip(tr("Draw circles and ellipses.") + (draw_circle_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a line, area or combined symbol to be able to use this tool."))));
 	draw_rectangle_act->setEnabled(draw_path_act->isEnabled());
 	draw_rectangle_act->setStatusTip(tr("Draw rectangles.") + (draw_rectangle_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a line, area or combined symbol to be able to use this tool."))));
+	draw_rectangle_box_act->setEnabled(draw_rectangle_act->isEnabled());  // foom
+	draw_rectangle_box_act->setStatusTip(tr("Draw a frame with an optional numbered grid.") + (draw_rectangle_box_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a line, area or combined symbol to be able to use this tool."))));
 	draw_freehand_act->setEnabled(draw_path_act->isEnabled());
 	draw_freehand_act->setStatusTip(tr("Draw paths free-handedly.") + (draw_freehand_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a line, area or combined symbol to be able to use this tool."))));
 	draw_fill_act->setEnabled(draw_path_act->isEnabled());
@@ -2996,6 +3002,21 @@ void MapEditorController::drawCircleClicked()
 void MapEditorController::drawRectangleClicked()
 {
 	setTool(new DrawRectangleTool(this, draw_rectangle_act, false));
+}
+
+// foom
+void MapEditorController::drawRectangleBoxClicked()
+{
+	RectangleBoxDialog dialog(map, window);
+	if (dialog.exec() == QDialog::Accepted)
+		drawRectangleBox(dialog.params());
+}
+
+// foom
+void MapEditorController::drawRectangleBox(const ops::RectangleBoxParams& params)
+{
+	// the design notes, "Rectangle objects".
+	setTool(new RectangleBoxTool(this, draw_rectangle_box_act, params));
 }
 
 void MapEditorController::drawFreehandClicked()

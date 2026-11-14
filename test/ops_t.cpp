@@ -58,6 +58,7 @@
 #include "core/ops/reshape.h"
 #include "core/ops/buildings.h"
 #include "core/ops/smooth.h"
+#include "core/ops/rectangle_box.h"
 #include "core/ops/topology.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/area_symbol.h"
@@ -66,6 +67,11 @@
 #include "core/symbols/text_symbol.h"
 #include "core/symbols/text_symbol.h"
 #include "undo/undo_manager.h"
+#include "fileformats/file_format.h"
+#include "fileformats/file_format_registry.h"
+#include "fileformats/file_import_export.h"
+#include <QDir>
+#include <QFileInfo>
 
 using namespace OpenOrienteering;
 
@@ -131,6 +137,7 @@ private slots:
 	void topologyTest();
 	void buildingsTest();
 	void smoothTest();
+	void rectangleBoxTest();
 };
 
 
@@ -1472,6 +1479,113 @@ void OpsTest::smoothTest()
 	auto* point = new PointObject(point_symbol);
 	map.addObject(point);
 	QVERIFY(!ops::smoothPaths(map, { point }, params).error.isEmpty());
+}
+
+void OpsTest::rectangleBoxTest()
+{
+	// the design notes, "Rectangle objects", Accept.
+	Map map;
+	auto* frame_symbol = new LineSymbol();
+	map.addSymbol(frame_symbol, 0);
+	auto* grid_symbol = new LineSymbol();
+	map.addSymbol(grid_symbol, 1);
+	auto* text_symbol = new TextSymbol();
+	map.addSymbol(text_symbol, 2);
+	auto const near = [](const MapCoord& coord, double x, double y) {
+		return std::abs(coord.x() - x) < 0.01 && std::abs(coord.y() - y) < 0.01;
+	};
+	
+	ops::RectangleBoxGeometry geometry;
+	geometry.top_left = MapCoordF(0.0, 0.0);
+	geometry.top_right = MapCoordF(30.0, 0.0);
+	geometry.bottom_left = MapCoordF(0.0, 20.0);
+	ops::RectangleBoxParams params;
+	params.frame = frame_symbol;
+	params.group = 7;
+	
+	auto plain = ops::rectangleBox(map, geometry, params);
+	QVERIFY2(plain.error.isEmpty(), plain.error.toLatin1());
+	QCOMPARE(plain.out.size(), std::size_t(1));
+	auto const* frame = plain.out.front()->asPath();
+	QVERIFY(frame && frame->getSymbol() == frame_symbol);
+	QVERIFY(frame->parts().front().isClosed());
+	QCOMPARE(frame->getCoordinateCount(), MapCoordVector::size_type(5));
+	QVERIFY(near(frame->getCoordinate(0), 0.0, 0.0));
+	QVERIFY(near(frame->getCoordinate(1), 30.0, 0.0));
+	QVERIFY(near(frame->getCoordinate(2), 30.0, 20.0));
+	QVERIFY(near(frame->getCoordinate(3), 0.0, 20.0));
+	QCOMPARE(frame->group(), 7);
+	
+	params.corner_radius = 2.0;
+	auto rounded = ops::rectangleBox(map, geometry, params);
+	QCOMPARE(rounded.out.size(), std::size_t(1));
+	auto const* rounded_frame = rounded.out.front()->asPath();
+	QCOMPARE(rounded_frame->getCoordinateCount(), MapCoordVector::size_type(17));
+	QVERIFY(rounded_frame->getCoordinate(0).isCurveStart());
+	QVERIFY(near(rounded_frame->getCoordinate(0), 28.0, 0.0));
+	QVERIFY(near(rounded_frame->getCoordinate(3), 30.0, 2.0));
+	QVERIFY(near(rounded_frame->getCoordinate(4), 30.0, 18.0));
+	QVERIFY(near(rounded_frame->getCoordinate(12), 0.0, 2.0));
+	QVERIFY(near(rounded_frame->getCoordinate(15), 2.0, 0.0));
+	params.corner_radius = 0.0;
+	
+	params.grid = grid_symbol;
+	params.cell_width = 10.0;
+	params.cell_height = 10.0;
+	auto gridded = ops::rectangleBox(map, geometry, params);
+	QCOMPARE(gridded.out.size(), std::size_t(4));
+	auto const* vertical = gridded.out[1]->asPath();
+	QVERIFY(vertical->getSymbol() == grid_symbol);
+	QVERIFY(near(vertical->getCoordinate(0), 10.0, 0.0) && near(vertical->getCoordinate(1), 10.0, 20.0));
+	QVERIFY(near(gridded.out[2]->asPath()->getCoordinate(0), 20.0, 0.0));
+	auto const* horizontal = gridded.out[3]->asPath();
+	QVERIFY(near(horizontal->getCoordinate(0), 0.0, 10.0) && near(horizontal->getCoordinate(1), 30.0, 10.0));
+	
+	params.numbering = true;
+	params.number_text = text_symbol;
+	auto numbered = ops::rectangleBox(map, geometry, params);
+	QCOMPARE(numbered.out.size(), std::size_t(10));
+	QStringList texts;
+	for (std::size_t i = 4; i < numbered.out.size(); ++i)
+	{
+		auto const* text = numbered.out[i]->asText();
+		QVERIFY(text && text->getSymbol() == text_symbol);
+		QCOMPARE(text->getRotation(), 0.0);
+		QCOMPARE(text->group(), 7);
+		auto const anchor = text->getAnchorCoordF();
+		auto const cell_x = int((i - 4) % 3);
+		auto const cell_y = int((i - 4) / 3);
+		QVERIFY(anchor.x() > cell_x * 10.0 && anchor.x() < (cell_x + 1) * 10.0);
+		QVERIFY(anchor.y() > cell_y * 10.0 && anchor.y() < (cell_y + 1) * 10.0);
+		texts << text->getText();
+	}
+	QCOMPARE(texts.join(QLatin1Char(' ')), QStringLiteral("1 2 3 4 5 6"));
+	
+	params.number_from_bottom = true;
+	params.unnumbered_cells = 2;
+	params.unnumbered_text = QStringLiteral("X");
+	auto from_bottom = ops::rectangleBox(map, geometry, params);
+	texts.clear();
+	for (std::size_t i = 4; i < from_bottom.out.size(); ++i)
+		texts << from_bottom.out[i]->asText()->getText();
+	QCOMPARE(texts.join(QLatin1Char(' ')), QStringLiteral("4 X X 1 2 3"));
+	params.number_from_bottom = false;
+	params.unnumbered_cells = 0;
+	
+	// The same box turned by 90 degrees.
+	geometry.top_right = MapCoordF(0.0, 30.0);
+	geometry.bottom_left = MapCoordF(-20.0, 0.0);
+	auto turned = ops::rectangleBox(map, geometry, params);
+	QCOMPARE(turned.out.size(), std::size_t(10));
+	auto const* turned_line = turned.out[1]->asPath();
+	QVERIFY(near(turned_line->getCoordinate(0), 0.0, 10.0) && near(turned_line->getCoordinate(1), -20.0, 10.0));
+	QVERIFY(std::abs(turned.out[4]->asText()->getRotation() + M_PI / 2) < 1e-6);
+	
+	params.frame = nullptr;
+	QVERIFY(!ops::rectangleBox(map, geometry, params).error.isEmpty());
+	params.frame = frame_symbol;
+	geometry.top_right = geometry.top_left;
+	QVERIFY(!ops::rectangleBox(map, geometry, params).error.isEmpty());
 }
 
 
