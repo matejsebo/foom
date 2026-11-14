@@ -46,7 +46,9 @@
 #include "core/map_coord.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
+#include "core/symbols/line_symbol.h"
 #include "core/symbols/symbol.h"
+#include "elevation/contours.h"
 #include "elevation/elevation_model.h"
 #include "elevation/elevation_set.h"
 #include "fileformats/file_format.h"
@@ -70,6 +72,46 @@ std::unique_ptr<ElevationModel> makeGrid(int width, int height, double x0, doubl
 	return std::make_unique<ElevationModel>(width, height, QPointF(x0, y_top), cell, std::move(values));
 }
 
+std::unique_ptr<ElevationModel> cone(double x0 = 0.0, double y0 = 0.0, bool inverted = false)
+{
+	auto const cx = x0 + 50.5, cy = y0 + 50.5;
+	return makeGrid(101, 101, x0, y0 + 101.0, 1.0, [cx, cy, inverted](double x, double y) {
+		auto const r = std::hypot(x - cx, y - cy);
+		return inverted ? 40.0 + 0.5 * r : 60.0 - 0.5 * r;
+	});
+}
+
+double signedArea(const std::vector<QPointF>& points)
+{
+	double a = 0.0;
+	for (std::size_t i = 0, n = points.size(); i < n; ++i)
+	{
+		auto const& p = points[i];
+		auto const& q = points[(i + 1) % n];
+		a += p.x() * q.y() - q.x() * p.y();
+	}
+	return 0.5 * a;
+}
+
+double length(const std::vector<QPointF>& points, bool closed)
+{
+	double l = 0.0;
+	for (std::size_t i = 1; i < points.size(); ++i)
+		l += std::hypot(points[i].x() - points[i-1].x(), points[i].y() - points[i-1].y());
+	if (closed && points.size() > 1)
+		l += std::hypot(points.front().x() - points.back().x(), points.front().y() - points.back().y());
+	return l;
+}
+
+ContourParams standardParams()
+{
+	ContourParams params;
+	params.interval = 1.0;
+	params.main_interval = 5.0;
+	params.index_interval = 25.0;
+	return params;
+}
+
 Georeferencing utm32Georeferencing()
 {
 	Georeferencing georef;
@@ -80,6 +122,12 @@ Georeferencing utm32Georeferencing()
 	georef.setGrivation(0.0);
 	georef.setCombinedScaleFactor(1.0);
 	return georef;
+}
+
+QString tagValue(const Object* object, const char* key)
+{
+	auto const it = object->tags().find(QString::fromLatin1(key));
+	return it == object->tags().end() ? QString{} : it->value;
 }
 
 }  // namespace
@@ -227,6 +275,187 @@ private slots:
 
 		QCOMPARE(a->info().minimum, 1.0);
 		QCOMPARE(a->info().maximum, 1.0);
+	}
+
+	void contourCone()
+	{
+		auto grid = cone();
+		auto lines = traceContours(*grid, standardParams());
+		std::map<int, int> count;
+		for (auto const& line : lines)
+			++count[qRound(line.level)];
+		for (int level = 35; level <= 59; ++level)
+		{
+			QVERIFY2(count[level] == 1, qPrintable(QString::number(level) + QLatin1String(": ") + QString::number(count[level])));
+			auto const it = std::find_if(lines.begin(), lines.end(), [level](const ContourLine& l) { return qRound(l.level) == level; });
+			QVERIFY2(it->closed, qPrintable(QString::number(level)));
+			QVERIFY(!it->depression);
+			QVERIFY(it->points.size() >= 4);
+			auto const radius = 2.0 * (60.0 - level);
+			for (auto const& p : it->points)
+				QVERIFY2(qAbs(std::hypot(p.x() - 50.5, p.y() - 50.5) - radius) < 0.5, qPrintable(QString::number(level)));
+			QVERIFY(signedArea(it->points) > 0.0);
+			QCOMPARE(it->tag, QString::number(level));
+		}
+		auto classOf = [&lines](int level) {
+			return std::find_if(lines.begin(), lines.end(), [level](const ContourLine& l) { return qRound(l.level) == level; })->cls;
+		};
+		QCOMPARE(classOf(50), ContourLine::Index);
+		QCOMPARE(classOf(55), ContourLine::Main);
+		QCOMPARE(classOf(59), ContourLine::Smallest);
+		// Levels which reach the border are open.
+		for (auto const& line : lines)
+			if (line.level < 34.5)
+				QVERIFY(!line.closed);
+	}
+
+	void contourInvertedCone()
+	{
+		auto grid = cone(0.0, 0.0, true);
+		auto lines = traceContours(*grid, standardParams());
+		std::map<int, int> count;
+		for (auto const& line : lines)
+			++count[qRound(line.level)];
+		for (int level = 41; level <= 65; ++level)
+		{
+			QCOMPARE(count[level], 1);
+			auto const it = std::find_if(lines.begin(), lines.end(), [level](const ContourLine& l) { return qRound(l.level) == level; });
+			QVERIFY(it->closed);
+			QVERIFY(it->depression);
+			QVERIFY(signedArea(it->points) < 0.0);
+		}
+	}
+
+	void contourPlane()
+	{
+		auto grid = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double x, double) { return 100.0 + 0.1 * x; });
+		auto lines = traceContours(*grid, standardParams());
+		std::map<int, int> count;
+		for (auto const& line : lines)
+			++count[qRound(line.level)];
+		for (int level = 101; level <= 110; ++level)
+		{
+			QCOMPARE(count[level], 1);
+			auto const it = std::find_if(lines.begin(), lines.end(), [level](const ContourLine& l) { return qRound(l.level) == level; });
+			QVERIFY(!it->closed);
+			QVERIFY(it->points.size() >= 2);
+			for (auto const& p : it->points)
+				QVERIFY2(qAbs(p.x() - 10.0 * (level - 100)) < 1e-6, qPrintable(QString::number(p.x())));
+			QVERIFY(it->points.front().y() > it->points.back().y());
+		}
+	}
+
+	void contourTiles()
+	{
+		auto grid = cone();
+		auto whole = traceContours(*grid, standardParams());
+		auto params = standardParams();
+		params.tile_size = 40;
+		auto tiled = traceContours(*grid, params);
+		std::map<int, std::pair<int, double>> whole_stats, tiled_stats;
+		for (auto const& line : whole)
+		{
+			auto& s = whole_stats[qRound(line.level)];
+			++s.first;
+			s.second += length(line.points, line.closed);
+		}
+		for (auto const& line : tiled)
+		{
+			auto& s = tiled_stats[qRound(line.level)];
+			++s.first;
+			s.second += length(line.points, line.closed);
+		}
+		QCOMPARE(tiled_stats.size(), whole_stats.size());
+		for (auto const& item : whole_stats)
+		{
+			QVERIFY2(tiled_stats[item.first].first == item.second.first, qPrintable(QString::number(item.first) + QLatin1String(": ") + QString::number(tiled_stats[item.first].first) + QLatin1String(" vs ") + QString::number(item.second.first)));
+			QVERIFY2(qAbs(tiled_stats[item.first].second - item.second.second) < 1e-6, qPrintable(QString::number(item.first)));
+		}
+	}
+
+	void contourObjects()
+	{
+		Map map;
+		map.setGeoreferencing(utm32Georeferencing());
+		map.setScaleDenominator(10000);
+		auto grid = cone(500000.0, 5000000.0);
+
+		auto const symbols = contourSymbols(map, false);
+		QVERIFY(symbols.hill[0] && symbols.hill[1] && symbols.hill[2]);
+		QVERIFY(symbols.depression[0] && symbols.depression[1] && symbols.depression[2]);
+		QCOMPARE(map.getNumSymbols(), 6);
+		QCOMPARE(symbols.hill[0]->getNumberComponent(0), 10050);
+		QCOMPARE(symbols.hill[2]->getNumberComponent(0), 10052);
+		QCOMPARE(symbols.depression[1]->getNumberComponent(1), 1);
+		auto const again = contourSymbols(map, false);
+		QCOMPARE(map.getNumSymbols(), 6);
+		QCOMPARE(again.hill[1], symbols.hill[1]);
+
+		auto result = makeContourObjects(map, *grid, standardParams(), symbols);
+		QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+		auto const num_objects = int(result.objects.size());
+		QVERIFY(num_objects >= 25);
+		int closed_lines = 0;
+		for (auto const& object : result.objects)
+		{
+			QCOMPARE(object->getType(), Object::Path);
+			QVERIFY(!tagValue(object.get(), "ele").isEmpty());
+			auto const* path = object->asPath();
+			if (path->parts().front().isClosed())
+			{
+				++closed_lines;
+				auto const level = tagValue(object.get(), "ele").toDouble();
+				auto const radius_mm = 2.0 * (60.0 - level) / 10.0;
+				QVERIFY2(level >= 35.0 && level <= 59.0, qPrintable(QString::number(level)));
+				for (auto const& coord : path->getRawCoordinateVector())
+					QVERIFY2(qAbs(std::hypot(coord.x() - 5.05, coord.y() + 5.05) - radius_mm) < 0.05, qPrintable(QString::number(level)));
+				if (qRound(level) == 50)
+					QCOMPARE(object->getSymbol(), symbols.hill[2]);
+				else if (qRound(level) == 55)
+					QCOMPARE(object->getSymbol(), symbols.hill[1]);
+				else if (qRound(level) == 59)
+					QCOMPARE(object->getSymbol(), symbols.hill[0]);
+			}
+		}
+		QCOMPARE(closed_lines, 25);
+
+		QCOMPARE(map.getNumObjects(), 0);
+		QVERIFY(addContours(map, std::move(result.objects)));
+		QCOMPARE(map.getNumObjects(), num_objects);
+		QVERIFY(map.undoManager().canUndo());
+		QVERIFY(map.undoManager().undo());
+		QCOMPARE(map.getNumObjects(), 0);
+		QVERIFY(map.undoManager().redo());
+		QCOMPARE(map.getNumObjects(), num_objects);
+
+		// The smoothed set with curves.
+		auto params = standardParams();
+		params.smoothed = true;
+		params.curves = true;
+		auto const smoothed_symbols = contourSymbols(map, true);
+		QCOMPARE(map.getNumSymbols(), 12);
+		QCOMPARE(smoothed_symbols.hill[0]->getNumberComponent(0), 10060);
+		auto smoothed = makeContourObjects(map, *grid, params, smoothed_symbols);
+		QVERIFY2(smoothed.error.isEmpty(), qPrintable(smoothed.error));
+		int curved = 0;
+		for (auto const& object : smoothed.objects)
+		{
+			auto const* path = object->asPath();
+			auto const level = tagValue(object.get(), "ele").toDouble();
+			bool has_curve = false;
+			for (auto const& coord : path->getRawCoordinateVector())
+				has_curve = has_curve || coord.isCurveStart();
+			if (has_curve)
+				++curved;
+			if (path->parts().front().isClosed())
+			{
+				auto const radius_mm = 2.0 * (60.0 - level) / 10.0;
+				for (auto const& coord : path->getRawCoordinateVector())
+					if (!coord.isCurveStart() && &coord != &path->getRawCoordinateVector().back())
+						QVERIFY2(qAbs(std::hypot(coord.x() - 5.05, coord.y() + 5.05) - radius_mm) < 0.05, qPrintable(QString::number(level)));
+			}
+		}
+		QVERIFY(curved > 0);
 	}
 
 	void xmlRoundTrip()
