@@ -538,6 +538,8 @@ QToolBar* TextObjectEditorHelper::makeAlignmentToolBar()
 	                      QCoreApplication::translate("OpenOrienteering::TextObjectAlignmentDockWidget", "Center"));
 	add_horizontal_option(TextObject::AlignRight, ":/images/text-align-right.png",
 	                      QCoreApplication::translate("OpenOrienteering::TextObjectAlignmentDockWidget", "Right"));
+	add_horizontal_option(TextObject::AlignJustify, ":/images/text-align-justify.png",  // foom
+	                      QCoreApplication::translate("OpenOrienteering::TextObjectAlignmentDockWidget", "Justified"));
 	
 	toolbar->addSeparator();
 	

@@ -47,6 +47,7 @@
 #include "core/renderables/renderable_implementation.h"
 #include "core/symbols/area_symbol.h"
 #include "core/symbols/line_symbol.h"
+#include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
 #include "core/virtual_coord_vector.h"
 #include "core/virtual_path.h"
@@ -82,6 +83,16 @@ TextSymbol::TextSymbol()
 , line_below { false }
 , follows_path { false }
 , path_alignment { 0 }
+, word_spacing { 1 }
+, font_weight { 0 }
+, indent_first { 0 }
+, indent_other { 0 }
+, framing_box_left { 0 }
+, framing_box_right { 0 }
+, framing_box_top { 0 }
+, framing_box_bottom { 0 }
+, frame_symbol { nullptr }
+, temp_frame_symbol_index { -1 }
 {
 	setRotatable(true);
 	updateQFont();
@@ -117,6 +128,16 @@ TextSymbol::TextSymbol(const TextSymbol& proto)
 , path_alignment { proto.path_alignment }
 , framing { proto.framing }
 , line_below { proto.line_below }
+, word_spacing { proto.word_spacing }
+, font_weight { proto.font_weight }
+, indent_first { proto.indent_first }
+, indent_other { proto.indent_other }
+, framing_box_left { proto.framing_box_left }
+, framing_box_right { proto.framing_box_right }
+, framing_box_top { proto.framing_box_top }
+, framing_box_bottom { proto.framing_box_bottom }
+, frame_symbol { proto.frame_symbol }
+, temp_frame_symbol_index { -1 }
 {
 	// nothing else
 }
@@ -173,7 +194,13 @@ void TextSymbol::createRenderables(
 			{
 				output.insertRenderable(new TextRenderable(this, text_object, framing_color, anchor_x + 0.001 * framing_shadow_x_offset, anchor_y + 0.001 * framing_shadow_y_offset));
 			}
+			else if (framing_mode == BoxFraming)  // foom
+			{
+				createBoxFramingRenderables(text_object, output);
+			}
 		}
+		if (frame_symbol)  // foom
+			createFrameSymbolRenderables(text_object, output);
 	}
 }
 
@@ -315,6 +342,12 @@ void TextSymbol::scale(double factor)
 	framing_line_half_width = qRound(factor * framing_line_half_width);
 	framing_shadow_x_offset = qRound(factor * framing_shadow_x_offset);
 	framing_shadow_y_offset = qRound(factor * framing_shadow_y_offset);
+	indent_first = qRound(factor * indent_first);  // foom
+	indent_other = qRound(factor * indent_other);
+	framing_box_left = qRound(factor * framing_box_left);
+	framing_box_right = qRound(factor * framing_box_right);
+	framing_box_top = qRound(factor * framing_box_top);
+	framing_box_bottom = qRound(factor * framing_box_bottom);
 	
 	updateQFont();
 	
@@ -325,6 +358,8 @@ void TextSymbol::updateQFont()
 {
 	qfont = QFont();
 	qfont.setBold(bold);
+	if (font_weight > 0)  // foom
+		qfont.setWeight(static_cast<QFont::Weight>(qfontWeight(font_weight)));
 	qfont.setItalic(italic);
 	qfont.setUnderline(underline);
 	qfont.setPixelSize(internal_point_size);
@@ -333,6 +368,7 @@ void TextSymbol::updateQFont()
 	qfont.setKerning(kerning);
 	metrics = QFontMetricsF(qfont);
 	qfont.setLetterSpacing(QFont::AbsoluteSpacing, metrics.horizontalAdvance(QString(QLatin1String{" "})) * character_spacing);
+	qfont.setWordSpacing(metrics.horizontalAdvance(QString(QLatin1String{" "})) * (word_spacing - 1));  // foom
 	
 	qfont.setStyleStrategy(QFont::ForceOutline);
 
@@ -353,6 +389,8 @@ void TextSymbol::saveImpl(QXmlStreamWriter& xml, const Map& map) const
 		xml.writeAttribute(QStringLiteral("follows_path"), QStringLiteral("true"));
 		xml.writeAttribute(QStringLiteral("path_alignment"), QString::number(path_alignment));
 	}
+	if (frame_symbol)  // foom
+		xml.writeAttribute(QStringLiteral("frame_symbol"), QString::number(map.findSymbolIndex(frame_symbol)));
 	
 	xml.writeStartElement(QStringLiteral("font"));
 	xml.writeAttribute(QStringLiteral("family"), font_family);
@@ -363,6 +401,8 @@ void TextSymbol::saveImpl(QXmlStreamWriter& xml, const Map& map) const
 		xml.writeAttribute(QStringLiteral("italic"), QStringLiteral("true"));
 	if (underline)
 		xml.writeAttribute(QStringLiteral("underline"), QStringLiteral("true"));
+	if (font_weight > 0)  // foom
+		xml.writeAttribute(QStringLiteral("weight"), QString::number(font_weight));
 	xml.writeEndElement(/*font*/);
 	
 	xml.writeStartElement(QStringLiteral("text"));
@@ -372,6 +412,12 @@ void TextSymbol::saveImpl(QXmlStreamWriter& xml, const Map& map) const
 	xml.writeAttribute(QStringLiteral("character_spacing"), QString::number(character_spacing));
 	if (kerning)
 		xml.writeAttribute(QStringLiteral("kerning"), QStringLiteral("true"));
+	if (word_spacing != 1)  // foom
+		xml.writeAttribute(QStringLiteral("word_spacing"), QString::number(word_spacing));
+	if (indent_first != 0)  // foom
+		xml.writeAttribute(QStringLiteral("indent_first"), QString::number(indent_first));
+	if (indent_other != 0)  // foom
+		xml.writeAttribute(QStringLiteral("indent_other"), QString::number(indent_other));
 	xml.writeEndElement(/*text*/);
 	
 	if (framing)
@@ -382,6 +428,13 @@ void TextSymbol::saveImpl(QXmlStreamWriter& xml, const Map& map) const
 		xml.writeAttribute(QStringLiteral("line_half_width"), QString::number(framing_line_half_width));
 		xml.writeAttribute(QStringLiteral("shadow_x_offset"), QString::number(framing_shadow_x_offset));
 		xml.writeAttribute(QStringLiteral("shadow_y_offset"), QString::number(framing_shadow_y_offset));
+		if (framing_mode == BoxFraming)  // foom
+		{
+			xml.writeAttribute(QStringLiteral("box_left"), QString::number(framing_box_left));
+			xml.writeAttribute(QStringLiteral("box_right"), QString::number(framing_box_right));
+			xml.writeAttribute(QStringLiteral("box_top"), QString::number(framing_box_top));
+			xml.writeAttribute(QStringLiteral("box_bottom"), QString::number(framing_box_bottom));
+		}
 		xml.writeEndElement(/*framing*/);
 	}
 	
@@ -419,6 +472,16 @@ bool TextSymbol::loadImpl(QXmlStreamReader& xml, const Map& map, SymbolDictionar
 		setRotatable(version < 9); // always rotatable before version 9
 	follows_path = xml.attributes().value(QLatin1String("follows_path")) == QLatin1String("true");  // foom
 	path_alignment = xml.attributes().value(QLatin1String("path_alignment")).toInt();  // foom
+	frame_symbol = nullptr;  // foom: resolved in loadingFinishedEvent()
+	temp_frame_symbol_index = xml.attributes().hasAttribute(QLatin1String("frame_symbol")) ? xml.attributes().value(QLatin1String("frame_symbol")).toInt() : -1;
+	word_spacing = 1;
+	font_weight = 0;
+	indent_first = 0;
+	indent_other = 0;
+	framing_box_left = 0;
+	framing_box_right = 0;
+	framing_box_top = 0;
+	framing_box_bottom = 0;
 	framing = false;
 	line_below = false;
 	custom_tabs.clear();
@@ -433,6 +496,7 @@ bool TextSymbol::loadImpl(QXmlStreamReader& xml, const Map& map, SymbolDictionar
 			bold = (attributes.value(QLatin1String("bold")) == QLatin1String("true"));
 			italic = (attributes.value(QLatin1String("italic")) == QLatin1String("true"));
 			underline = (attributes.value(QLatin1String("underline")) == QLatin1String("true"));
+			font_weight = attributes.value(QLatin1String("weight")).toInt();  // foom
 			xml.skipCurrentElement();
 		}
 		else if (xml.name() == QLatin1String("text"))
@@ -443,6 +507,10 @@ bool TextSymbol::loadImpl(QXmlStreamReader& xml, const Map& map, SymbolDictionar
 			paragraph_spacing = attributes.value(QLatin1String("paragraph_spacing")).toInt();
 			character_spacing = attributes.value(QLatin1String("character_spacing")).toFloat();
 			kerning = (attributes.value(QLatin1String("kerning")) == QLatin1String("true"));
+			if (attributes.hasAttribute(QLatin1String("word_spacing")))  // foom
+				word_spacing = attributes.value(QLatin1String("word_spacing")).toFloat();
+			indent_first = attributes.value(QLatin1String("indent_first")).toInt();  // foom
+			indent_other = attributes.value(QLatin1String("indent_other")).toInt();  // foom
 			xml.skipCurrentElement();
 		}
 		else if (xml.name() == QLatin1String("framing"))
@@ -454,6 +522,10 @@ bool TextSymbol::loadImpl(QXmlStreamReader& xml, const Map& map, SymbolDictionar
 			framing_line_half_width = attributes.value(QLatin1String("line_half_width")).toInt();
 			framing_shadow_x_offset = attributes.value(QLatin1String("shadow_x_offset")).toInt();
 			framing_shadow_y_offset = attributes.value(QLatin1String("shadow_y_offset")).toInt();
+			framing_box_left = attributes.value(QLatin1String("box_left")).toInt();  // foom
+			framing_box_right = attributes.value(QLatin1String("box_right")).toInt();
+			framing_box_top = attributes.value(QLatin1String("box_top")).toInt();
+			framing_box_bottom = attributes.value(QLatin1String("box_bottom")).toInt();
 			xml.skipCurrentElement();
 		}
 		else if (xml.name() == QLatin1String("line_below"))
@@ -497,6 +569,14 @@ bool TextSymbol::equalsImpl(const Symbol* other, Qt::CaseSensitivity case_sensit
 		return false;
 	if (follows_path != text->follows_path || (follows_path && path_alignment != text->path_alignment))  // foom
 		return false;
+	if (font_weight != text->font_weight ||  // foom
+		qAbs(word_spacing - text->word_spacing) > 0.0005f ||
+		indent_first != text->indent_first ||
+		indent_other != text->indent_other)
+		return false;
+	if ((!frame_symbol) != (!text->frame_symbol) ||  // foom
+		(frame_symbol && !frame_symbol->equals(text->frame_symbol, case_sensitivity)))
+		return false;
 	if (font_size != text->font_size ||
 		bold != text->bold ||
 		italic != text->italic ||
@@ -514,7 +594,9 @@ bool TextSymbol::equalsImpl(const Symbol* other, Qt::CaseSensitivity case_sensit
 			return false;
 		if (framing_mode != text->framing_mode ||
 			(framing_mode == LineFraming && framing_line_half_width != text->framing_line_half_width) ||
-			(framing_mode == ShadowFraming && (framing_shadow_x_offset != text->framing_shadow_x_offset || framing_shadow_y_offset != text->framing_shadow_y_offset)))
+			(framing_mode == ShadowFraming && (framing_shadow_x_offset != text->framing_shadow_x_offset || framing_shadow_y_offset != text->framing_shadow_y_offset)) ||
+			(framing_mode == BoxFraming && (framing_box_left != text->framing_box_left || framing_box_right != text->framing_box_right  // foom
+			                                || framing_box_top != text->framing_box_top || framing_box_bottom != text->framing_box_bottom)))
 			return false;
 	}
 	if (line_below)

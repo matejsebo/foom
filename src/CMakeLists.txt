@@ -131,6 +131,7 @@ set(Mapper_Common_SRCS
   core/ops/smooth.cpp
   core/renderables/path_text_renderable.cpp
   core/symbols/text_symbol_path.cpp
+  core/symbols/text_symbol_properties.cpp
   check/issue.cpp
   check/legibility.cpp
   tools/legibility_feedback.cpp

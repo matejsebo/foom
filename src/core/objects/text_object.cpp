@@ -24,6 +24,7 @@
 #include <QtMath>
 #include <QChar>
 #include <QLatin1Char>
+#include <QFontMetricsF>
 
 #include "settings.h"
 #include "core/symbols/symbol.h"
@@ -416,6 +417,53 @@ const TextObjectLineInfo& TextObject::findLineInfoForIndex(int index) const
 	return *line_info;
 }
 
+namespace {
+
+/**
+ * foom: Spreads a line over the box width by widening its spaces.
+ *
+ * The single part of the line is split into one part per word so that the
+ * cursor and the underline follow. See the design notes,
+ * "Text symbol properties".
+ */
+void justifyLine(std::vector<TextObjectPartInfo>& part_infos, double right_edge, const QFontMetricsF& metrics)
+{
+	auto const part = part_infos.front();
+	auto const num_gaps = part.part_text.count(QLatin1Char(' '));
+	if (num_gaps <= 0)
+		return;
+	
+	auto const space = metrics.horizontalAdvance(QString(QLatin1Char(' ')));
+	std::vector<TextObjectPartInfo> words;
+	words.reserve(std::size_t(num_gaps) + 1);
+	auto natural = num_gaps * space;
+	auto word_start = 0;
+	for (auto i = 0; i <= part.part_text.length(); ++i)
+	{
+		if (i < part.part_text.length() && part.part_text.at(i) != QLatin1Char(' '))
+			continue;
+		auto const word = part.part_text.mid(word_start, i - word_start);
+		auto const width = metrics.horizontalAdvance(word);
+		natural += width;
+		words.push_back({ word, part.start_index + word_start, part.start_index + i, 0.0, width, metrics });
+		word_start = i + 1;
+	}
+	
+	auto const extra = (right_edge - part.part_x - natural) / num_gaps;
+	if (extra <= 0.0)
+		return;
+	auto x = part.part_x;
+	for (auto& word : words)
+	{
+		word.part_x = x;
+		x += word.width + space + extra;
+	}
+	part_infos = std::move(words);
+}
+
+}  // namespace
+
+
 void TextObject::prepareLineInfos() const
 {
 	const TextSymbol* text_symbol = reinterpret_cast<const TextSymbol*>(symbol);
@@ -425,6 +473,12 @@ void TextObject::prepareLineInfos() const
 	double line_spacing = text_symbol->getLineSpacing() * metrics.lineSpacing();
 	double paragraph_spacing = scaling * text_symbol->getParagraphSpacing() + (text_symbol->hasLineBelow() ? (scaling * (text_symbol->getLineBelowDistance() + text_symbol->getLineBelowWidth())) : 0);
 	double ascent = metrics.ascent();
+	
+	// foom: indents and justification, see the design notes, "Text symbol properties".
+	bool const indented_alignment = h_align == TextObject::AlignLeft || h_align == TextObject::AlignJustify;
+	double const indent_first = indented_alignment ? scaling * 0.001 * text_symbol->getIndentFirst() : 0.0;
+	double const indent_other = indented_alignment ? scaling * 0.001 * text_symbol->getIndentOther() : 0.0;
+	bool paragraph_start = true;
 	
 	bool word_wrap = ! hasSingleAnchor();
 	double box_width  = word_wrap ? (scaling * getBoxWidth())  : 0.0;
@@ -440,7 +494,7 @@ void TextObject::prepareLineInfos() const
 	// Initialize offsets
 	
 	double line_x = 0.0;
-	if (h_align == TextObject::AlignLeft)
+	if (h_align == TextObject::AlignLeft || h_align == TextObject::AlignJustify)  // foom
 		line_x -= 0.5 * box_width;
 	else if (h_align == TextObject::AlignRight)
 		line_x += 0.5 * box_width;
@@ -468,7 +522,7 @@ void TextObject::prepareLineInfos() const
 		std::vector<TextObjectPartInfo> part_infos;
 		
 		int part_start = line_start;
-		double part_x = line_x;
+		double part_x = line_x + (paragraph_start ? indent_first : indent_other);  // foom
 		
 		while (part_start <= line_end)
 		{
@@ -527,6 +581,11 @@ void TextObject::prepareLineInfos() const
 		TextObjectPartInfo& last_part_info = part_infos.back();
 		line_end   = last_part_info.end_index;
 		line_width = last_part_info.part_x + last_part_info.width - line_x;
+		if (h_align == TextObject::AlignJustify && word_wrap && !paragraph_end && part_infos.size() == 1)  // foom
+		{
+			justifyLine(part_infos, line_x + box_width, metrics);
+			line_width = part_infos.back().part_x + part_infos.back().width - line_x;
+		}
 		
 		// Jump over whitespace after the end of the line and check if it contains a newline character to determine if it is a paragraph end
 		int next_line_start = line_end + 1;
@@ -550,6 +609,7 @@ void TextObject::prepareLineInfos() const
 			num_paragraphs++;
 		}
 		line_start = next_line_start;
+		paragraph_start = paragraph_end;  // foom
 	}
 	
 	// Update the line and part offset for every other alignment than top-left or baseline-left

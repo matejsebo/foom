@@ -223,6 +223,9 @@ protected:
 	
 	std::vector<TextFormatMapping>::iterator prepareTextSymbolExport(const TextSymbol* text_symbol);
 	
+	/** foom: Returns the OCD alignment bits for a text object (vertical bits since version 10). */
+	int ocdTextAlignment(const TextObject* text) const;
+	
 	template< class OcdTextSymbol >
 	void setupTextSymbolExtra(const TextSymbol* text_symbol, OcdTextSymbol& ocd_text_symbol);
 	

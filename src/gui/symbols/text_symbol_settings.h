@@ -36,6 +36,7 @@ class QLineEdit;
 class QListWidget;
 class QPushButton;
 class QRadioButton;
+class QSpinBox;
 class QWidget;
 
 namespace OpenOrienteering {
@@ -43,6 +44,7 @@ namespace OpenOrienteering {
 class ColorDropDown;
 class Symbol;
 class SymbolSettingDialog;
+class SymbolDropDown;
 class TextSymbol;
 
 
@@ -78,6 +80,11 @@ protected slots:
 	void framingModeChanged();
 	void framingSettingChanged();
 	
+	// foom
+	void fontWeightChanged(int value);
+	void frameSymbolChanged();
+	void indentChanged();
+	
 	void ocadCompatibilityButtonClicked(bool checked);
 	void lineBelowCheckClicked(bool checked);
 	void lineBelowSettingChanged();
@@ -107,6 +114,9 @@ private:
 	QDoubleSpinBox* paragraph_spacing_edit;
 	QDoubleSpinBox* character_spacing_edit;
 	QCheckBox*      kerning_check;
+	QDoubleSpinBox* word_spacing_edit;  // foom
+	QSpinBox*       font_weight_edit;   // foom
+	SymbolDropDown* frame_symbol_edit;  // foom
 	QLineEdit*      icon_text_edit;
 	QCheckBox*      framing_check;
 	QCheckBox*      ocad_compat_check;
@@ -118,12 +128,19 @@ private:
 	QRadioButton*   framing_shadow_radio;
 	QDoubleSpinBox* framing_shadow_x_offset_edit;
 	QDoubleSpinBox* framing_shadow_y_offset_edit;
+	QRadioButton*   framing_box_radio;  // foom
+	QDoubleSpinBox* framing_box_left_edit;
+	QDoubleSpinBox* framing_box_right_edit;
+	QDoubleSpinBox* framing_box_top_edit;
+	QDoubleSpinBox* framing_box_bottom_edit;
 	
 	QWidget*        ocad_compat_widget;
 	QCheckBox*      line_below_check;
 	QDoubleSpinBox* line_below_width_edit;
 	ColorDropDown*  line_below_color_edit;
 	QDoubleSpinBox* line_below_distance_edit;
+	QDoubleSpinBox* indent_first_edit;  // foom
+	QDoubleSpinBox* indent_other_edit;  // foom
 	QListWidget*    custom_tab_list;
 	QPushButton*    custom_tab_add;
 	QPushButton*    custom_tab_remove;

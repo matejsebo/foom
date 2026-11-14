@@ -827,6 +827,17 @@ void OcdFileImport::resolveSubsymbols()
 			}
 		}
 	}
+	
+	// foom: attached point symbols of text symbols (version 10 and later, number factor 1000)
+	for (auto it = frame_symbol_numbers.constBegin(); it != frame_symbol_numbers.constEnd(); ++it)
+	{
+		auto const* symbol = symbol_index.value(it.value(), nullptr);
+		if (symbol && symbol->getType() == Symbol::Point)
+			it.key()->setFrameSymbol(symbol->asPoint());
+		else
+			addSymbolWarning(it.key(), tr("Skipping unsupported reference to point symbol '%1.%2'.").arg(it.value() / 1000).arg(it.value() % 1000));
+	}
+	frame_symbol_numbers.clear();
 }
 
 
@@ -1703,13 +1714,8 @@ TextSymbol* OcdFileImport::importTextSymbol(const S& ocd_symbol)
 	setBasicAttributes(symbol, convertOcdString(ocd_symbol.font_name), ocd_symbol.basic);
 	setSpecialAttributes(symbol, ocd_symbol.special);
 	setFraming(symbol, ocd_symbol.framing);
-	if (ocd_version >= 10)
-	{
-		if (ocd_symbol.framing.point_symbol_on_V10)
-			addSymbolWarning(symbol, OcdFileImport::tr("Skipping unsupported reference to point symbol '%1.%2'.") .
-			                         arg(ocd_symbol.framing.point_symbol_number_V10 / S::BaseSymbol::symbol_number_factor) .
-			                         arg(ocd_symbol.framing.point_symbol_number_V10 % S::BaseSymbol::symbol_number_factor));
-	}
+	if (ocd_version >= 10 && ocd_symbol.framing.point_symbol_on_V10)
+		frame_symbol_numbers[symbol] = ocd_symbol.framing.point_symbol_number_V10;  // foom: resolved in resolveSubsymbols()
 	symbol->setRotatable(ocd_symbol.base.flags & Ocd::SymbolRotatable);
 	return symbol;
 }
@@ -2322,10 +2328,7 @@ void OcdFileImport::setBasicAttributes(OcdFileImport::OcdImportedTextSymbol* sym
 	symbol->line_below = false;
 	symbol->custom_tabs.resize(0);
 
-	if (attributes.font_weight != 400 && attributes.font_weight != 700)
-	{
-		addSymbolWarning(symbol, tr("Ignoring custom weight (%1).").arg(attributes.font_weight));
-	}
+	symbol->font_weight = (attributes.font_weight != 400 && attributes.font_weight != 700) ? attributes.font_weight : 0;  // foom
 	
 	switch (attributes.alignment & Ocd::HAlignMask)
 	{
@@ -2336,9 +2339,8 @@ void OcdFileImport::setBasicAttributes(OcdFileImport::OcdImportedTextSymbol* sym
 		text_halign_map[symbol] = TextObject::AlignRight;
 		break;
 	case Ocd::HAlignJustified:
-		/// \todo Implement justified alignment
-		addSymbolWarning(symbol, tr("Justified alignment is not supported."));
-		Q_FALLTHROUGH();
+		text_halign_map[symbol] = TextObject::AlignJustify;  // foom
+		break;
 	default:
 		text_halign_map[symbol] = TextObject::AlignHCenter;
 	}
@@ -2364,10 +2366,7 @@ void OcdFileImport::setBasicAttributes(OcdFileImport::OcdImportedTextSymbol* sym
 		addSymbolWarning(symbol, tr("Custom character spacing may be incorrect."));
 	}
 	
-	if (attributes.word_spacing != 100)
-	{
-		addSymbolWarning(symbol, tr("Ignoring custom word spacing (%1 %).").arg(attributes.word_spacing));
-	}
+	symbol->word_spacing = attributes.word_spacing / 100.0f;  // foom
 	
 	symbol->updateQFont();
 }
@@ -2388,10 +2387,8 @@ void OcdFileImport::setSpecialAttributes(OcdFileImport::OcdImportedTextSymbol* s
 	for (auto i = 0u; i < attributes.num_tabs; ++i)
 		symbol->custom_tabs[i] = convertLength<quint32, int>(attributes.tab_pos[i]);
 	
-	if (attributes.indent_first_line != 0 || attributes.indent_other_lines != 0)
-	{
-		addSymbolWarning(symbol, tr("Ignoring custom indents (%1/%2).").arg(attributes.indent_first_line).arg(attributes.indent_other_lines));
-	}
+	symbol->indent_first = convertLength(attributes.indent_first_line);  // foom
+	symbol->indent_other = convertLength(attributes.indent_other_lines);
 }
 
 void OcdFileImport::setFraming(OcdFileImport::OcdImportedTextSymbol* symbol, const Ocd::FramingAttributesV8& framing)
@@ -2416,7 +2413,18 @@ void OcdFileImport::setFraming(OcdFileImport::OcdImportedTextSymbol* symbol, con
 				addSymbolWarning(symbol, tr("Ignoring text framing line style."));
 		}
 		break;
-	case Ocd::FramingRectangle:
+	case Ocd::FramingRectangle:  // foom: box framing
+		symbol->framing = true;
+		symbol->framing_mode = TextSymbol::BoxFraming;
+		symbol->framing_color = convertColor(framing.color);
+		if (ocd_version >= 9)
+		{
+			symbol->framing_box_left = convertLength(framing.border_left_V9);
+			symbol->framing_box_right = convertLength(framing.border_right_V9);
+			symbol->framing_box_top = convertLength(framing.border_top_V9);
+			symbol->framing_box_bottom = convertLength(framing.border_bottom_V9);
+		}
+		break;
 	default:
 		addSymbolWarning(symbol, tr("Ignoring text framing (mode %1).").arg(framing.mode));
 		Q_FALLTHROUGH();

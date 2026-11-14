@@ -42,6 +42,7 @@ class MapColor;
 class MapColorMap;
 class Object;
 class ObjectRenderables;
+class PointSymbol;
 class SymbolPropertiesWidget;
 class SymbolSettingDialog;
 class TextObject;
@@ -78,7 +79,10 @@ public:
 		 * The text is drawn a second time with a slight offset to the main
 		 * text, creating a shadow effect.
 		 */
-		ShadowFraming = 2
+		ShadowFraming = 2,
+		
+		/** foom: A filled rectangle around the text, offset by the box margins. */
+		BoxFraming = 3
 	};
 	
 	/** Creates an empty text symbol. */
@@ -160,6 +164,44 @@ public:
 	/** foom: Sets the font size in 1/1000 mm and updates the font. */
 	void setFontSize(int size) { font_size = size; updateQFont(); }
 	
+	// foom: text symbol properties, see the design notes, "Text symbol properties".
+	/** Returns the word spacing as a factor of the space advance (1 = normal). */
+	double getWordSpacing() const { return double(word_spacing); }
+	/** Sets the word spacing factor and updates the font. */
+	void setWordSpacing(double factor) { word_spacing = float(factor); updateQFont(); }
+	/** Returns the font weight, 100 to 900; 400 or 700 from the bold flag when no weight is set. */
+	int getFontWeight() const { return font_weight > 0 ? font_weight : (bold ? 700 : 400); }
+	/** Sets the font weight (100 to 900); 0 follows the bold flag. */
+	void setFontWeight(int weight) { font_weight = weight; updateQFont(); }
+	/** Sets the bold flag and updates the font. */
+	void setBold(bool value) { bold = value; updateQFont(); }
+	/** Returns the indent of the first line of a paragraph in 1/1000 mm. */
+	int getIndentFirst() const { return indent_first; }
+	/** Returns the indent of the other lines of a paragraph in 1/1000 mm. */
+	int getIndentOther() const { return indent_other; }
+	/** Sets the indents in 1/1000 mm. */
+	void setIndents(int first, int other) { indent_first = first; indent_other = other; }
+	void setFraming(bool value) { framing = value; }
+	void setFramingColor(const MapColor* value) { framing_color = value; }
+	void setFramingMode(int mode) { framing_mode = mode; }
+	/** Returns the left margin of the box framing in 1/1000 mm. */
+	int getFramingBoxLeft() const { return framing_box_left; }
+	int getFramingBoxRight() const { return framing_box_right; }
+	int getFramingBoxTop() const { return framing_box_top; }
+	int getFramingBoxBottom() const { return framing_box_bottom; }
+	/** Sets the margins of the box framing in 1/1000 mm. */
+	void setFramingBox(int left, int right, int top, int bottom) { framing_box_left = left; framing_box_right = right; framing_box_top = top; framing_box_bottom = bottom; }
+	/** Returns the point symbol drawn at the centre of the text, or nullptr. */
+	const PointSymbol* getFrameSymbol() const { return frame_symbol; }
+	/** Sets the point symbol drawn at the centre of the text. */
+	void setFrameSymbol(const PointSymbol* symbol) { frame_symbol = symbol; }
+	/** Converts an OpenType weight (100 to 900) to QFont's weight scale. */
+	static int qfontWeight(int weight);
+	
+	bool symbolChangedEvent(const Symbol* old_symbol, const Symbol* new_symbol) override;
+	bool containsSymbol(const Symbol* symbol) const override;
+	bool loadingFinishedEvent(Map* map) override;
+	
 	constexpr static qreal internal_point_size = 256;
 	
 	SymbolPropertiesWidget* createPropertiesWidget(SymbolSettingDialog* dialog) override;
@@ -170,6 +212,10 @@ protected:
 	
 	/** foom: Creates the renderables of a text object which follows its anchor path. */
 	void createPathTextRenderables(const TextObject* text_object, ObjectRenderables& output) const;
+	/** foom: Creates the filled rectangle of the box framing. */
+	void createBoxFramingRenderables(const TextObject* text_object, ObjectRenderables& output) const;
+	/** foom: Creates the renderables of the attached point symbol. */
+	void createFrameSymbolRenderables(const TextObject* text_object, ObjectRenderables& output) const;
 	bool equalsImpl(const Symbol* other, Qt::CaseSensitivity case_sensitivity) const override;
 	
 	
@@ -205,6 +251,16 @@ protected:
 	bool line_below;
 	bool follows_path;     // foom: text on a path, see the design notes
 	int path_alignment;    // foom: the alignment bits for text on a path, as in OCD files
+	float word_spacing;    // foom: as a factor of the space advance
+	int font_weight;       // foom: 100 to 900, or 0 for the bold flag
+	int indent_first;      // foom: in 1/1000 mm
+	int indent_other;      // foom: in 1/1000 mm
+	int framing_box_left;  // foom: box framing margins in 1/1000 mm
+	int framing_box_right;
+	int framing_box_top;
+	int framing_box_bottom;
+	const PointSymbol* frame_symbol;  // foom: drawn at the centre of the text
+	int temp_frame_symbol_index;      // foom: used just for loading
 	
 };
 

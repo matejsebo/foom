@@ -1812,33 +1812,30 @@ void OcdFileExport::exportLineSymbolDoubleLine(const LineSymbol* line_symbol, qu
 std::vector<OcdFileExport::TextFormatMapping>::iterator OcdFileExport::prepareTextSymbolExport(const TextSymbol* text_symbol)
 {
 	auto const symbol_number = symbol_numbers.at(text_symbol);
+	auto const first_index = text_format_mapping.size();
 	
+	// foom: one variant per combination of horizontal and vertical alignment
+	// in use (the design notes, "Text symbol properties").
 	// Default (if unused) is center.
-	text_format_mapping.push_back({text_symbol, TextObject::AlignHCenter, 0, symbol_number});
-	text_format_mapping.push_back({text_symbol, TextObject::AlignLeft, 0, symbol_number});
-	text_format_mapping.push_back({text_symbol, TextObject::AlignRight, 0, symbol_number});
-	
-	auto const last = end(text_format_mapping);
-	auto count = [align_center = last - 3, align_left = last - 2, align_right = last - 1](const auto* object) {
-		auto const alignment = static_cast<const TextObject*>(object)->getHorizontalAlignment();
-		switch (alignment)
+	text_format_mapping.push_back({text_symbol, Ocd::HAlignCenter, 0, symbol_number});
+	auto count = [this, text_symbol, first_index, symbol_number](const auto* object) {
+		auto const alignment = ocdTextAlignment(static_cast<const TextObject*>(object));
+		auto variant = std::find_if(begin(text_format_mapping) + first_index, end(text_format_mapping), [alignment](const auto& m) {
+			return m.alignment == alignment;
+		});
+		if (variant == end(text_format_mapping))
 		{
-		case TextObject::AlignLeft:
-			align_left->count++;
-			break;
-		case TextObject::AlignHCenter:
-			align_center->count++;
-			break;
-		case TextObject::AlignRight:
-			align_right->count++;
-			break;
+			text_format_mapping.push_back({text_symbol, alignment, 0, symbol_number});
+			variant = end(text_format_mapping) - 1;
 		}
+		variant->count++;
 	};
 	map->applyOnMatchingObjects(count, ObjectOp::HasSymbol{text_symbol});
 	
 	// The most frequent alignment variant shall get the regular symbol number,
 	// but "center" shall remain first if no alignment variant is used at all.
-	auto const first = last - 3;
+	auto const first = begin(text_format_mapping) + first_index;
+	auto const last = end(text_format_mapping);
 	std::stable_sort(first, last, [](const auto& a, const auto& b) { return a.count > b.count; });
 	
 	// Always keep the first alignment variant (regular symbol number),
@@ -1852,7 +1849,7 @@ std::vector<OcdFileExport::TextFormatMapping>::iterator OcdFileExport::prepareTe
 	}
 	text_format_mapping.erase(variant, last);
 	
-	return first;
+	return begin(text_format_mapping) + first_index;
 }
 
 
@@ -1926,6 +1923,20 @@ QByteArray OcdFileExport::exportTextSymbol(const TextSymbol* text_symbol, quint3
 	setupTextSymbolBasic(text_symbol, alignment, ocd_symbol.basic);
 	setupTextSymbolSpecial(text_symbol, ocd_symbol.special);
 	setupTextSymbolFraming(text_symbol, ocd_symbol.framing);
+	if (auto const* frame_symbol = text_symbol->getFrameSymbol())  // foom: attached point symbol, since version 10
+	{
+		auto const number = symbol_numbers.find(frame_symbol);
+		if (ocd_version >= 10 && number != symbol_numbers.end())
+		{
+			ocd_symbol.framing.point_symbol_on_V10 = 1;
+			ocd_symbol.framing.point_symbol_number_V10 = number->second;
+		}
+		else
+		{
+			addWarning(::OpenOrienteering::OcdFileExport::tr("In text symbol %1: the attached point symbol needs OCD version 10 or later")
+			           .arg(text_symbol->getPlainTextName()));
+		}
+	}
 	
 	auto header_size = int(sizeof(OcdTextSymbol));
 	ocd_symbol.base.size = decltype(ocd_symbol.base.size)(header_size);
@@ -1958,14 +1969,14 @@ void OcdFileExport::setupTextSymbolBasic(const TextSymbol* text_symbol, int alig
 {
 	ocd_text_basic.color = convertColor(text_symbol->getColor());
 	ocd_text_basic.font_size = decltype(ocd_text_basic.font_size)(qRound(10 * text_symbol->getFontSize() / 25.4 * 72.0));
-	ocd_text_basic.font_weight = text_symbol->isBold() ? 700 : 400;
+	ocd_text_basic.font_weight = decltype(ocd_text_basic.font_weight)(text_symbol->getFontWeight());  // foom
 	ocd_text_basic.font_italic = text_symbol->isItalic() ? 1 : 0;
 	ocd_text_basic.char_spacing = decltype(ocd_text_basic.char_spacing)(convertSize(qRound(1000 * text_symbol->getCharacterSpacing())));
 	if (ocd_text_basic.char_spacing != 0)
 		addWarning(::OpenOrienteering::OcdFileExport::tr("In text symbol %1: custom character spacing is set,"
 		                                                 "its implementation does not match OCAD's behavior yet")
 		           .arg(text_symbol->getPlainTextName()));
-	ocd_text_basic.word_spacing = 100;
+	ocd_text_basic.word_spacing = decltype(ocd_text_basic.word_spacing)(qRound(100 * text_symbol->getWordSpacing()));  // foom
 	ocd_text_basic.alignment = alignment;	// Default value, we might have to change this or even create copies of this symbol with other alignments later
 }
 
@@ -1977,6 +1988,8 @@ void OcdFileExport::setupTextSymbolSpecial(const TextSymbol* text_symbol, OcdTex
 	                             * (text_symbol->getFontMetrics().lineSpacing() / text_symbol->calculateInternalScaling());
 	ocd_text_special.line_spacing = decltype(ocd_text_special.line_spacing)(qRound(absolute_line_spacing / (text_symbol->getFontSize() * 0.01)));
 	ocd_text_special.para_spacing = convertSize(qRound(1000 * text_symbol->getParagraphSpacing()));
+	ocd_text_special.indent_first_line = decltype(ocd_text_special.indent_first_line)(convertSize(text_symbol->getIndentFirst()));  // foom
+	ocd_text_special.indent_other_lines = decltype(ocd_text_special.indent_other_lines)(convertSize(text_symbol->getIndentOther()));
 	if (text_symbol->isUnderlined())
 		addWarning(::OpenOrienteering::OcdFileExport::tr("In text symbol %1: ignoring underlining")
 		           .arg(text_symbol->getPlainTextName()));
@@ -2027,6 +2040,16 @@ void OcdFileExport::setupTextSymbolFraming(const TextSymbol* text_symbol, OcdTex
 		case TextSymbol::LineFraming:
 			ocd_text_framing.mode = 2;
 			ocd_text_framing.line_width = convertSize(text_symbol->getFramingLineHalfWidth());
+			break;
+		case TextSymbol::BoxFraming:  // foom
+			ocd_text_framing.mode = 3;
+			if (ocd_version >= 9)
+			{
+				ocd_text_framing.border_left_V9 = decltype(ocd_text_framing.border_left_V9)(convertSize(text_symbol->getFramingBoxLeft()));
+				ocd_text_framing.border_right_V9 = decltype(ocd_text_framing.border_right_V9)(convertSize(text_symbol->getFramingBoxRight()));
+				ocd_text_framing.border_top_V9 = decltype(ocd_text_framing.border_top_V9)(convertSize(text_symbol->getFramingBoxTop()));
+				ocd_text_framing.border_bottom_V9 = decltype(ocd_text_framing.border_bottom_V9)(convertSize(text_symbol->getFramingBoxBottom()));
+			}
 			break;
 		}
 	}
@@ -2687,11 +2710,33 @@ void OcdFileExport::exportPathObject(OcdFile<Format>& file, const PathObject* pa
 }
 
 
+int OcdFileExport::ocdTextAlignment(const TextObject* text) const
+{
+	// foom: TextObject's horizontal values equal the file's; bottom and baseline both map to the file's bottom.
+	auto alignment = int(text->getHorizontalAlignment());
+	if (ocd_version >= 10)
+	{
+		switch (text->getVerticalAlignment())
+		{
+		case TextObject::AlignTop:
+			alignment |= Ocd::VAlignTop;
+			break;
+		case TextObject::AlignVCenter:
+			alignment |= Ocd::VAlignMiddle;
+			break;
+		default:
+			break;
+		}
+	}
+	return alignment;
+}
+
+
 template< class OcdObject >
 QByteArray OcdFileExport::exportTextObject(const TextObject* text, typename OcdObject::IndexEntryType& entry)
 {
 	auto symbol = static_cast<const TextSymbol*>(text->getSymbol());
-	auto alignment = text->getHorizontalAlignment();
+	auto const alignment = ocdTextAlignment(text);  // foom: horizontal and vertical bits
 	auto const follows_path = text->followsPath();  // foom: one symbol record, whatever the object's alignment
 	auto text_format = std::find_if(begin(text_format_mapping), end(text_format_mapping), [symbol, alignment, follows_path](const auto& m) {
 		return m.symbol == symbol && (follows_path || m.alignment == alignment);
@@ -3097,8 +3142,13 @@ quint16 OcdFileExport::exportTextCoordinatesSingle(const TextObject* object, QBy
 		rectIncludeSafe(bounding_box_text, QPointF(info->line_x + info->width, info->line_y + info->descent));
 	}
 	
+	// foom: with the vertical alignment bits (version 10 and later), top and middle
+	// aligned text keeps its anchor point, as the importer reads it; see
+	// the design notes, "Text symbol properties".
+	auto const v_align = object->getVerticalAlignment();
+	auto const keep_anchor = ocd_version >= 10 && (v_align == TextObject::AlignTop || v_align == TextObject::AlignVCenter);
 	MapCoord coords[5] = {
-	    MapCoord(text_to_map.map(QPointF(anchor_text.x(), object->getLineInfo(0)->line_y))),
+	    keep_anchor ? MapCoord(anchor) : MapCoord(text_to_map.map(QPointF(anchor_text.x(), object->getLineInfo(0)->line_y))),
 	    MapCoord(text_to_map.map(bounding_box_text.bottomLeft())),
 	    MapCoord(text_to_map.map(bounding_box_text.bottomRight())),
 	    MapCoord(text_to_map.map(bounding_box_text.topRight())),

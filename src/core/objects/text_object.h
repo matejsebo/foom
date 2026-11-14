@@ -125,7 +125,8 @@ public:
 	{
 		AlignLeft = 0,
 		AlignHCenter = 1,
-		AlignRight = 2
+		AlignRight = 2,
+		AlignJustify = 3  // foom: spread over the box width, see the design notes
 	};
 	
 	enum VerticalAlignment

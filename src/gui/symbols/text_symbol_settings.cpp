@@ -44,6 +44,7 @@
 #include <QPainterPath>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QSpinBox>
 #include <QRectF>
 #include <QSignalBlocker>
 // IWYU pragma: no_include <QSpacerItem>
@@ -51,11 +52,13 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
 #include "core/symbols/text_symbol.h"
 #include "gui/util_gui.h"
 #include "gui/symbols/symbol_setting_dialog.h"
 #include "gui/widgets/color_dropdown.h"
+#include "gui/widgets/symbol_dropdown.h"
 #include "util/backports.h"  // IWYU pragma: keep
 
 
@@ -143,6 +146,10 @@ TextSymbolSettings::TextSymbolSettings(TextSymbol* symbol, SymbolSettingDialog* 
 	
 	layout->addRow(tr("Text style:"), text_style_layout);
 	
+	font_weight_edit = Util::SpinBox::create(0, 900, QString{}, 100);  // foom
+	font_weight_edit->setSpecialValueText(tr("From bold"));
+	layout->addRow(tr("Font weight:"), font_weight_edit);
+	
 	layout->addItem(Util::SpacerItem::create(this));
 	
 	line_spacing_edit = Util::SpinBox::create(1, 0.0, 999999.9, tr("%"));
@@ -154,6 +161,9 @@ TextSymbolSettings::TextSymbolSettings(TextSymbol* symbol, SymbolSettingDialog* 
 	character_spacing_edit = Util::SpinBox::create(1, -999999.9, 999999.9, tr("%"));
 	layout->addRow(tr("Character spacing:"), character_spacing_edit);
 	
+	word_spacing_edit = Util::SpinBox::create(1, 0.0, 999999.9, tr("%"));  // foom
+	layout->addRow(tr("Word spacing:"), word_spacing_edit);
+	
 	kerning_check = new QCheckBox(tr("Kerning"));
 	layout->addRow(QString{}, kerning_check);
 	
@@ -162,6 +172,9 @@ TextSymbolSettings::TextSymbolSettings(TextSymbol* symbol, SymbolSettingDialog* 
 	icon_text_edit = new QLineEdit();
 	icon_text_edit->setMaxLength(3);
 	layout->addRow(tr("Symbol icon text:"), icon_text_edit);
+	
+	frame_symbol_edit = new SymbolDropDown(map, Symbol::Point, symbol->getFrameSymbol());  // foom
+	layout->addRow(tr("Frame symbol:"), frame_symbol_edit);
 	
 	layout->addItem(Util::SpacerItem::create(this));
 	
@@ -196,6 +209,18 @@ TextSymbolSettings::TextSymbolSettings(TextSymbol* symbol, SymbolSettingDialog* 
 	framing_shadow_y_offset_edit = Util::SpinBox::create(1, -999999.9, 999999.9);
 	framing_layout->addRow(tr("Top/Down Offset:"), framing_shadow_y_offset_edit);
 	
+	framing_box_radio = new QRadioButton(tr("Box framing"));  // foom
+	framing_layout->addRow(framing_box_radio);
+	
+	framing_box_left_edit = Util::SpinBox::create(2, 0.0, 999999.9, tr("mm"));
+	framing_layout->addRow(tr("Left offset:"), framing_box_left_edit);
+	framing_box_right_edit = Util::SpinBox::create(2, 0.0, 999999.9, tr("mm"));
+	framing_layout->addRow(tr("Right offset:"), framing_box_right_edit);
+	framing_box_top_edit = Util::SpinBox::create(2, 0.0, 999999.9, tr("mm"));
+	framing_layout->addRow(tr("Top offset:"), framing_box_top_edit);
+	framing_box_bottom_edit = Util::SpinBox::create(2, 0.0, 999999.9, tr("mm"));
+	framing_layout->addRow(tr("Bottom offset:"), framing_box_bottom_edit);
+	
 	
 	ocad_compat_widget = new QWidget();
 	addPropertiesGroup(tr("OCAD compatibility"), ocad_compat_widget);
@@ -216,6 +241,16 @@ TextSymbolSettings::TextSymbolSettings(TextSymbol* symbol, SymbolSettingDialog* 
 	
 	line_below_distance_edit = Util::SpinBox::create(2, 0.0, 999999.9, tr("mm"));
 	ocad_compat_layout->addRow(tr("Distance from baseline:"), line_below_distance_edit);
+	
+	ocad_compat_layout->addItem(Util::SpacerItem::create(this));
+	
+	ocad_compat_layout->addRow(Util::Headline::create(tr("Indents")));  // foom
+	
+	indent_first_edit = Util::SpinBox::create(2, 0.0, 999999.9, tr("mm"));
+	ocad_compat_layout->addRow(tr("First line:"), indent_first_edit);
+	
+	indent_other_edit = Util::SpinBox::create(2, 0.0, 999999.9, tr("mm"));
+	ocad_compat_layout->addRow(tr("Other lines:"), indent_other_edit);
 	
 	ocad_compat_layout->addItem(Util::SpacerItem::create(this));
 	
@@ -252,6 +287,9 @@ TextSymbolSettings::TextSymbolSettings(TextSymbol* symbol, SymbolSettingDialog* 
 	connect(paragraph_spacing_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &TextSymbolSettings::spacingChanged);
 	connect(character_spacing_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &TextSymbolSettings::spacingChanged);
 	connect(kerning_check, &QAbstractButton::clicked, this, &TextSymbolSettings::checkToggled);
+	connect(word_spacing_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &TextSymbolSettings::spacingChanged);  // foom
+	connect(font_weight_edit, QOverload<int>::of(&QSpinBox::valueChanged), this, &TextSymbolSettings::fontWeightChanged);
+	connect(frame_symbol_edit, QOverload<int>::of(&SymbolDropDown::currentIndexChanged), this, &TextSymbolSettings::frameSymbolChanged);
 	connect(icon_text_edit, &QLineEdit::textEdited, this, &TextSymbolSettings::iconTextEdited);
 	connect(framing_check, &QAbstractButton::clicked, this, &TextSymbolSettings::framingCheckClicked);
 	connect(ocad_compat_check, &QAbstractButton::clicked, this, &TextSymbolSettings::ocadCompatibilityButtonClicked);
@@ -262,11 +300,16 @@ TextSymbolSettings::TextSymbolSettings(TextSymbol* symbol, SymbolSettingDialog* 
 	connect(framing_shadow_radio, &QAbstractButton::clicked, this, &TextSymbolSettings::framingModeChanged);
 	connect(framing_shadow_x_offset_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &TextSymbolSettings::framingSettingChanged);
 	connect(framing_shadow_y_offset_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &TextSymbolSettings::framingSettingChanged);
+	connect(framing_box_radio, &QAbstractButton::clicked, this, &TextSymbolSettings::framingModeChanged);  // foom
+	for (auto* edit : { framing_box_left_edit, framing_box_right_edit, framing_box_top_edit, framing_box_bottom_edit })
+		connect(edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &TextSymbolSettings::framingSettingChanged);
 	
 	connect(line_below_check, &QAbstractButton::clicked, this, &TextSymbolSettings::lineBelowCheckClicked);
 	connect(line_below_color_edit, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &TextSymbolSettings::lineBelowSettingChanged);
 	connect(line_below_width_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &TextSymbolSettings::lineBelowSettingChanged);
 	connect(line_below_distance_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &TextSymbolSettings::lineBelowSettingChanged);
+	connect(indent_first_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &TextSymbolSettings::indentChanged);  // foom
+	connect(indent_other_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &TextSymbolSettings::indentChanged);
 	connect(custom_tab_list, &QListWidget::currentRowChanged, this, &TextSymbolSettings::customTabRowChanged);
 	connect(custom_tab_add, &QAbstractButton::clicked, this, &TextSymbolSettings::addCustomTabClicked);
 	connect(custom_tab_remove, &QAbstractButton::clicked, this, &TextSymbolSettings::removeCustomTabClicked);
@@ -374,6 +417,7 @@ void TextSymbolSettings::spacingChanged(double value)
 	symbol->line_spacing = 0.01 * line_spacing_edit->value();
 	symbol->paragraph_spacing = qRound(1000.0 * paragraph_spacing_edit->value());
 	symbol->character_spacing = 0.01 * character_spacing_edit->value();
+	symbol->word_spacing = 0.01 * word_spacing_edit->value();  // foom
 	symbol->updateQFont();
 	emit propertiesModified();
 }
@@ -385,6 +429,41 @@ void TextSymbolSettings::iconTextEdited(const QString& text)
 	
 	symbol->icon_text = text;
 	emit propertiesModified();
+}
+
+// foom
+void TextSymbolSettings::fontWeightChanged(int value)
+{
+	if (!react_to_changes)
+		return;
+	
+	symbol->font_weight = value;
+	symbol->updateQFont();
+	updateLetterSizeEdit();
+	emit propertiesModified();
+}
+
+// foom
+void TextSymbolSettings::frameSymbolChanged()
+{
+	if (!react_to_changes)
+		return;
+	
+	auto const* frame_symbol = frame_symbol_edit->symbol();
+	symbol->frame_symbol = (frame_symbol && frame_symbol->getType() == Symbol::Point) ? frame_symbol->asPoint() : nullptr;
+	emit propertiesModified();
+}
+
+// foom
+void TextSymbolSettings::indentChanged()
+{
+	if (!react_to_changes)
+		return;
+	
+	symbol->indent_first = qRound(1000.0 * indent_first_edit->value());
+	symbol->indent_other = qRound(1000.0 * indent_other_edit->value());
+	emit propertiesModified();
+	updateCompatibilityCheckEnabled();
 }
 
 void TextSymbolSettings::framingColorChanged()
@@ -406,6 +485,8 @@ void TextSymbolSettings::framingModeChanged()
 		symbol->framing_mode = TextSymbol::LineFraming;
 	else if (framing_shadow_radio->isChecked())
 		symbol->framing_mode = TextSymbol::ShadowFraming;
+	else if (framing_box_radio->isChecked())  // foom
+		symbol->framing_mode = TextSymbol::BoxFraming;
 	updateFramingContents();
 	emit propertiesModified();
 }
@@ -418,6 +499,10 @@ void TextSymbolSettings::framingSettingChanged()
 	symbol->framing_line_half_width = qRound(1000.0 * framing_line_half_width_edit->value());
 	symbol->framing_shadow_x_offset = qRound(1000.0 * framing_shadow_x_offset_edit->value());
 	symbol->framing_shadow_y_offset = qRound(-1000.0 * framing_shadow_y_offset_edit->value());
+	symbol->framing_box_left = qRound(1000.0 * framing_box_left_edit->value());  // foom
+	symbol->framing_box_right = qRound(1000.0 * framing_box_right_edit->value());
+	symbol->framing_box_top = qRound(1000.0 * framing_box_top_edit->value());
+	symbol->framing_box_bottom = qRound(1000.0 * framing_box_bottom_edit->value());
 	emit propertiesModified();
 }
 
@@ -542,10 +627,13 @@ void TextSymbolSettings::updateGeneralContents()
 	paragraph_spacing_edit->setValue(0.001 * symbol->paragraph_spacing);
 	character_spacing_edit->setValue(100 * symbol->character_spacing);
 	kerning_check->setChecked(symbol->kerning);
+	word_spacing_edit->setValue(100 * symbol->word_spacing);  // foom
+	font_weight_edit->setValue(symbol->font_weight);
+	frame_symbol_edit->setSymbol(symbol->frame_symbol);
 	icon_text_edit->setText(symbol->getIconText());
 	framing_check->setChecked(symbol->framing);
 	setTabEnabled(indexOf(framing_widget), symbol->framing);
-	ocad_compat_check->setChecked(symbol->line_below || symbol->getNumCustomTabs() > 0);
+	ocad_compat_check->setChecked(symbol->line_below || symbol->getNumCustomTabs() > 0 || symbol->indent_first != 0 || symbol->indent_other != 0);
 	react_to_changes = true;
 	
 	ocadCompatibilityButtonClicked(ocad_compat_check->isChecked());
@@ -553,7 +641,7 @@ void TextSymbolSettings::updateGeneralContents()
 
 void TextSymbolSettings::updateCompatibilityCheckEnabled()
 {
-	ocad_compat_check->setEnabled(!symbol->line_below && symbol->getNumCustomTabs() == 0);
+	ocad_compat_check->setEnabled(!symbol->line_below && symbol->getNumCustomTabs() == 0 && symbol->indent_first == 0 && symbol->indent_other == 0);
 }
 
 void TextSymbolSettings::updateFramingContents()
@@ -566,10 +654,18 @@ void TextSymbolSettings::updateFramingContents()
 	framing_shadow_radio->setChecked(symbol->framing_mode == TextSymbol::ShadowFraming);
 	framing_shadow_x_offset_edit->setValue(0.001 * symbol->framing_shadow_x_offset);
 	framing_shadow_y_offset_edit->setValue(-0.001 * symbol->framing_shadow_y_offset);
+	framing_box_radio->setChecked(symbol->framing_mode == TextSymbol::BoxFraming);  // foom
+	framing_box_left_edit->setValue(0.001 * symbol->framing_box_left);
+	framing_box_right_edit->setValue(0.001 * symbol->framing_box_right);
+	framing_box_top_edit->setValue(0.001 * symbol->framing_box_top);
+	framing_box_bottom_edit->setValue(0.001 * symbol->framing_box_bottom);
 	
 	
 	framing_line_radio->setEnabled(symbol->framing_color);
 	framing_shadow_radio->setEnabled(symbol->framing_color);
+	framing_box_radio->setEnabled(symbol->framing_color);  // foom
+	for (auto* edit : { framing_box_left_edit, framing_box_right_edit, framing_box_top_edit, framing_box_bottom_edit })
+		edit->setEnabled(symbol->framing_color && symbol->framing_mode == TextSymbol::BoxFraming);
 	if (!symbol->framing_color)
 	{
 		framing_line_half_width_edit->setEnabled(false);
@@ -597,6 +693,8 @@ void TextSymbolSettings::updateCompatibilityContents()
 	line_below_color_edit->setEnabled(symbol->line_below);
 	line_below_width_edit->setEnabled(symbol->line_below);
 	line_below_distance_edit->setEnabled(symbol->line_below);
+	indent_first_edit->setValue(0.001 * symbol->indent_first);  // foom
+	indent_other_edit->setValue(0.001 * symbol->indent_other);
 
 	custom_tab_list->clear();
 	for (int i = 0; i < symbol->getNumCustomTabs(); ++i)

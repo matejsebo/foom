@@ -361,6 +361,9 @@ protected:
 	/// maps OO Mapper text symbol pointer to OCD defined vertical alignment (stored in objects instead of symbols in OO Mapper)
 	QHash<Symbol*, TextObject::VerticalAlignment> text_valign_map;
 	
+	/// foom: attached point symbol numbers of text symbols, resolved in resolveSubsymbols()
+	QHash<TextSymbol*, quint32> frame_symbol_numbers;
+	
 	/// maps OCD symbol number to rectangle information struct
 	QHash<int, RectangleInfo> rectangle_info;
 	
