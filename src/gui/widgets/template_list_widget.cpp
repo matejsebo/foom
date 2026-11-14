@@ -240,6 +240,7 @@ TemplateListWidget::TemplateListWidget(Map& map, MapView& main_view, MapEditorCo
 	{
 		new_button_menu->addAction(QIcon(QString::fromLatin1(":/images/open.png")), tr("Open..."), this, &TemplateListWidget::openTemplate);
 		new_button_menu->addAction(controller.getAction("reopentemplate"));
+		new_button_menu->addAction(controller.getAction("template-add-service"));  // foom
 	}
 	duplicate_action = new_button_menu->addAction(QIcon(QString::fromLatin1(":/images/tool-duplicate.png")), tr("Duplicate"), this, &TemplateListWidget::duplicateTemplate);
 #if 0

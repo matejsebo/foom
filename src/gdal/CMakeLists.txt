@@ -20,6 +20,7 @@ find_package(GDAL MODULE REQUIRED)
 find_package(Qt5Core REQUIRED)
 find_package(Qt5Gui REQUIRED)
 find_package(Qt5Widgets REQUIRED)
+find_package(Qt5Network REQUIRED)  # foom: tile service templates
 set(CMAKE_AUTOMOC ON)
  
 # Extra header to be shown in the IDE or to be translated
@@ -34,8 +35,14 @@ set(MAPPER_GDAL_SOURCES
   gdal_settings_page.cpp
   gdal_template.cpp
   kmz_groundoverlay_export.cpp
+  map_service.cpp
+  map_service_capabilities.cpp
+  map_service_dialog.cpp
   ogr_file_format.cpp
   ogr_template.cpp
+  tile_pyramid.cpp
+  tile_service_template.cpp
+  tile_worker.cpp
   mapper-osmconf.ini
 )
 	
@@ -54,7 +61,7 @@ target_compile_definitions(mapper-gdal INTERFACE MAPPER_USE_GDAL)
 target_include_directories(mapper-gdal SYSTEM PRIVATE ${GDAL_INCLUDE_DIRS})
 target_include_directories(mapper-gdal PRIVATE "${PROJECT_SOURCE_DIR}/src")
 
-target_link_libraries(mapper-gdal ${GDAL_LIBRARIES} Qt5::Core Qt5::Gui Qt5::Widgets Mapper_Common)
+target_link_libraries(mapper-gdal ${GDAL_LIBRARIES} Qt5::Core Qt5::Gui Qt5::Widgets Qt5::Network Mapper_Common)
 
 set_target_properties(mapper-gdal PROPERTIES PREFIX "")
 
