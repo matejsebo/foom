@@ -464,6 +464,7 @@ void Map::clear()
 	parts.clear();
 	objects_by_uuid.clear();
 	stale_index_objects.clear();
+	map_elevation.clear();  // foom
 	current_part_index = 0;
 	
 	for (auto symbol : symbols)

@@ -221,6 +221,13 @@ add_system_test(symbol_t)
 target_link_libraries(symbol_t PRIVATE MapperTestUtils)
 add_system_test(path_text_t)
 target_link_libraries(path_text_t PRIVATE MapperTestUtils)
+if(TARGET mapper-elevation)
+	add_system_test(elevation_t)  # foom: the design notes
+	target_link_libraries(elevation_t PRIVATE mapper-elevation)
+	# foom: larger fixtures are kept outside the repository; the tests which need them skip without them
+	set(FOOM_FIXTURES_DIR "" CACHE PATH "A folder with further test fixtures")
+	target_compile_definitions(elevation_t PRIVATE "FOOM_FIXTURES_DIR=\"${FOOM_FIXTURES_DIR}\"")
+endif()
 add_system_test(text_symbol_t)
 add_system_test(template_t)
 add_system_test(tools_t)

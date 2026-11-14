@@ -57,6 +57,7 @@ protected:
 	void exportObjectGroups();  // foom
 	void exportBookmarks();  // foom
 	void exportExtents();  // foom
+	void exportElevation();  // foom
 	void exportTemplates();
 	void exportView();
 	void exportPrint();
@@ -100,6 +101,7 @@ protected:
 	void importObjectGroups();  // foom
 	void importBookmarks();  // foom
 	void importExtents();  // foom
+	void importElevation();  // foom
 	void importTemplates();
 	void importView();
 	void importPrint();

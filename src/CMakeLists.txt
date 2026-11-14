@@ -370,6 +370,7 @@ foreach(lib
   cove
   mapper-config
   mapper-gdal
+  mapper-elevation
   mapper-sensors
   printsupport
   scaling-icon-engine
