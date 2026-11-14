@@ -1597,6 +1597,32 @@ Symbol* OcdFileImport::importAreaSymbol(const Ocd::AreaSymbolV8& ocd_symbol)
 	return symbol;
 }
 
+namespace {
+
+// foom: the irregular pattern fields exist in version 12 only; see the design notes, "Area symbol properties".
+template< class S >
+void setAreaPatternVariation(AreaSymbol* /*symbol*/, const S& /*ocd_symbol*/)
+{
+	// nothing
+}
+
+void setAreaPatternVariation(AreaSymbol* symbol, const Ocd::AreaSymbolV12& ocd_symbol)
+{
+	if (!ocd_symbol.structure_variation_x && !ocd_symbol.structure_variation_y && !ocd_symbol.structure_minimum_dist)
+		return;
+	for (int i = 0; i < symbol->getNumFillPatterns(); ++i)
+	{
+		auto& pattern = symbol->getFillPattern(i);
+		if (pattern.type != AreaSymbol::FillPattern::PointPattern)
+			continue;
+		pattern.variation_x = qBound(0, int(ocd_symbol.structure_variation_x), 100);
+		pattern.variation_y = qBound(0, int(ocd_symbol.structure_variation_y), 100);
+		pattern.minimum_distance = 10 * int(ocd_symbol.structure_minimum_dist);  // 0.01 mm to 1/1000 mm
+	}
+}
+
+}  // namespace
+
 template< class S >
 Symbol* OcdFileImport::importAreaSymbol(const S& ocd_symbol)
 {
@@ -1610,6 +1636,7 @@ Symbol* OcdFileImport::importAreaSymbol(const S& ocd_symbol)
 	            ocd_symbol.common,
 	            ocd_symbol.data_size,
 	            ocd_symbol.begin_of_elements);
+	setAreaPatternVariation(symbol, ocd_symbol);  // foom
 	if (!ocd_symbol.common.border_on_V9)
 	{
 		return symbol;

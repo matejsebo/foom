@@ -1516,6 +1516,23 @@ void OcdFileExport::exportAreaSymbolSpecial<Ocd::AreaSymbolV8>(const AreaSymbol*
 }
 
 
+template< >
+void OcdFileExport::exportAreaSymbolSpecial<Ocd::AreaSymbolV12>(const AreaSymbol* area_symbol, Ocd::AreaSymbolV12& ocd_area_symbol)
+{
+	// foom: the irregular pattern, see the design notes, "Area symbol properties".
+	for (int i = 0; i < area_symbol->getNumFillPatterns(); ++i)
+	{
+		auto const& pattern = area_symbol->getFillPattern(i);
+		if (pattern.type != AreaSymbol::FillPattern::PointPattern || !pattern.isIrregular())
+			continue;
+		ocd_area_symbol.structure_variation_x = decltype(ocd_area_symbol.structure_variation_x)(qBound(0, pattern.variation_x, 100));
+		ocd_area_symbol.structure_variation_y = decltype(ocd_area_symbol.structure_variation_y)(qBound(0, pattern.variation_y, 100));
+		ocd_area_symbol.structure_minimum_dist = decltype(ocd_area_symbol.structure_minimum_dist)(convertSize(pattern.minimum_distance));
+		break;
+	}
+}
+
+
 template< class OcdAreaSymbol >
 void OcdFileExport::exportAreaSymbolSpecial(const AreaSymbol* /*area_symbol*/, OcdAreaSymbol& /*ocd_area_symbol*/)
 {

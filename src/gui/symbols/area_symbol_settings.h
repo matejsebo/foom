@@ -33,6 +33,7 @@
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
+class QSpinBox;
 class QLabel;
 class QListWidget;
 class QPushButton;
@@ -92,6 +93,8 @@ protected slots:
 	void patternColorChanged();
 	void patternLineWidthChanged(double value);
 	void patternPointDistChanged(double value);
+	/** foom: Applies the random variation and the minimum distance of the irregular pattern. */
+	void patternVariationChanged();
 	
 private:
 	AreaSymbol* symbol;
@@ -117,6 +120,9 @@ private:
 	ColorDropDown*  pattern_color_edit;
 	QDoubleSpinBox* pattern_linewidth_edit;
 	QDoubleSpinBox* pattern_pointdist_edit;
+	QSpinBox*       pattern_variation_x_edit;  // foom
+	QSpinBox*       pattern_variation_y_edit;
+	QDoubleSpinBox* pattern_minimum_distance_edit;
 	
 	QComboBox*      pattern_clipping_edit;
 	

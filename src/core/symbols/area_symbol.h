@@ -23,6 +23,7 @@
 #define OPENORIENTEERING_AREA_SYMBOL_H
 
 #include <cstddef>
+#include <unordered_map>
 #include <vector>
 
 #include <Qt>
@@ -31,6 +32,7 @@
 #include <QRectF>
 #include <QString>
 
+#include "core/map_coord.h"
 #include "symbol.h"
 
 class QRectF;
@@ -123,6 +125,31 @@ public:
 		
 		/** Display name (transient) */
 		QString name;
+		
+		// foom: irregular pattern, see the design notes, "Area symbol properties".
+		/** Random displacement along the row in percent of the pattern interval (point patterns). */
+		int variation_x;
+		/** Random displacement across the rows in percent of the row spacing (point patterns). */
+		int variation_y;
+		/** Elements closer than this (1/1000 mm) to a neighbour already placed are skipped; 0 for none. */
+		int minimum_distance;
+		/** The cells placed while one object is rendered, keyed by row and column. */
+		mutable std::unordered_map<qint64, MapCoordF> placed_cells;
+		
+		/** foom: Returns true when the pattern is irregular. */
+		bool isIrregular() const { return variation_x > 0 || variation_y > 0 || minimum_distance > 0; }
+		
+		/** foom: Places the elements of one row with the random displacement and the minimum distance. */
+		void createIrregularPointPatternLine(
+		        const MapCoordF& first,
+		        const MapCoordF& direction,
+		        qreal start_length,
+		        qreal length,
+		        qreal step_length,
+		        qreal rotation,
+		        const AreaRenderable& outline,
+		        ObjectRenderables& output
+		) const;
 		
 		
 		/** Creates a default fill pattern */

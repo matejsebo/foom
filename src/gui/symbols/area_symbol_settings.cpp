@@ -32,6 +32,7 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QSpinBox>
 #include <QLatin1String>
 #include <QListWidget>
 #include <QListWidgetItem>
@@ -159,6 +160,16 @@ AreaSymbolSettings::AreaSymbolSettings(AreaSymbol* symbol, SymbolSettingDialog* 
 	pattern_spacing_edit = Util::SpinBox::create(3, 0.0, 999999.9, tr("mm"));
 	fill_pattern_layout->addRow(parallel_lines_label1, pattern_spacing_edit);
 	
+	// foom: irregular pattern, see the design notes, "Area symbol properties".
+	pattern_variation_x_edit = Util::SpinBox::create(0, 100, tr("%"));
+	pattern_variation_y_edit = Util::SpinBox::create(0, 100, tr("%"));
+	auto variation_layout = new QHBoxLayout();
+	variation_layout->addWidget(pattern_variation_x_edit);
+	variation_layout->addWidget(pattern_variation_y_edit);
+	fill_pattern_layout->addRow(tr("Random variation:"), variation_layout);
+	pattern_minimum_distance_edit = Util::SpinBox::create(3, 0.0, 999999.9, tr("mm"));
+	fill_pattern_layout->addRow(tr("Minimum distance:"), pattern_minimum_distance_edit);
+	
 	/* Stacked widgets, index 0: line pattern fields */
 	single_line_headline->addWidget(Util::Headline::create(tr("Single line")));
 	
@@ -264,6 +275,9 @@ AreaSymbolSettings::AreaSymbolSettings(AreaSymbol* symbol, SymbolSettingDialog* 
 	connect(pattern_color_edit, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &AreaSymbolSettings::patternColorChanged);
 	connect(pattern_linewidth_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &AreaSymbolSettings::patternLineWidthChanged);
 	connect(pattern_pointdist_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &AreaSymbolSettings::patternPointDistChanged);
+	connect(pattern_variation_x_edit, QOverload<int>::of(&QSpinBox::valueChanged), this, &AreaSymbolSettings::patternVariationChanged);  // foom
+	connect(pattern_variation_y_edit, QOverload<int>::of(&QSpinBox::valueChanged), this, &AreaSymbolSettings::patternVariationChanged);
+	connect(pattern_minimum_distance_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &AreaSymbolSettings::patternVariationChanged);
 	
 	connect(pattern_clipping_edit, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](){
 		active_pattern->setClipping(AreaSymbol::FillPattern::Options(pattern_clipping_edit->currentData(Qt::UserRole).toInt()));
@@ -403,6 +417,9 @@ void AreaSymbolSettings::updatePatternWidgets()
 			pattern_linewidth_edit->setEnabled(pattern_active);
 			pattern_color_edit->setColor(pattern->line_color);
 			pattern_color_edit->setEnabled(pattern_active);
+			pattern_variation_x_edit->setEnabled(false);  // foom
+			pattern_variation_y_edit->setEnabled(false);
+			pattern_minimum_distance_edit->setEnabled(false);
 			break;
 		}
 	case AreaSymbol::FillPattern::PointPattern:
@@ -418,6 +435,15 @@ void AreaSymbolSettings::updatePatternWidgets()
 			pattern_offset_along_line_edit->setEnabled(pattern_active);
 			pattern_pointdist_edit->setValue(0.001 * pattern->point_distance);
 			pattern_pointdist_edit->setEnabled(pattern_active);
+			{
+				ScopedMultiSignalsBlocker variation_block(pattern_variation_x_edit, pattern_variation_y_edit, pattern_minimum_distance_edit);  // foom
+				pattern_variation_x_edit->setValue(pattern->variation_x);
+				pattern_variation_y_edit->setValue(pattern->variation_y);
+				pattern_minimum_distance_edit->setValue(0.001 * pattern->minimum_distance);
+				pattern_variation_x_edit->setEnabled(pattern_active);
+				pattern_variation_y_edit->setEnabled(pattern_active);
+				pattern_minimum_distance_edit->setEnabled(pattern_active);
+			}
 			pattern_clipping_edit->setCurrentIndex(pattern_clipping_edit->findData(int(pattern->clipping())));
 			break;
 		}
@@ -578,6 +604,16 @@ void AreaSymbolSettings::patternLineWidthChanged(double value)
 {
 	Q_ASSERT(active_pattern->type == AreaSymbol::FillPattern::LinePattern);
 	active_pattern->line_width = qRound(1000.0 * value);
+	emit propertiesModified();
+}
+
+// foom
+void AreaSymbolSettings::patternVariationChanged()
+{
+	Q_ASSERT(active_pattern->type == AreaSymbol::FillPattern::PointPattern);
+	active_pattern->variation_x = pattern_variation_x_edit->value();
+	active_pattern->variation_y = pattern_variation_y_edit->value();
+	active_pattern->minimum_distance = qRound(1000.0 * pattern_minimum_distance_edit->value());
 	emit propertiesModified();
 }
 

@@ -63,6 +63,9 @@ AreaSymbol::FillPattern::FillPattern() noexcept
 , point_distance { 5000 } // 5 mm
 , point { nullptr }
 , name {}
+, variation_x { 0 }
+, variation_y { 0 }
+, minimum_distance { 0 }
 {
 	// nothing else
 }
@@ -91,6 +94,12 @@ void AreaSymbol::FillPattern::save(QXmlStreamWriter& xml, const Map& map) const
 		
 	case PointPattern:
 		element.writeAttribute(QLatin1String("point_distance"), point_distance);
+		if (variation_x != 0)  // foom
+			element.writeAttribute(QLatin1String("variation_x"), variation_x);
+		if (variation_y != 0)
+			element.writeAttribute(QLatin1String("variation_y"), variation_y);
+		if (minimum_distance != 0)
+			element.writeAttribute(QLatin1String("minimum_distance"), minimum_distance);
 		if (point)
 			point->save(xml, map);
 		break;
@@ -121,6 +130,9 @@ void AreaSymbol::FillPattern::load(QXmlStreamReader& xml, const Map& map, Symbol
 		
 	case PointPattern:
 		point_distance = element.attribute<int>(QLatin1String("point_distance"));
+		variation_x = element.attribute<int>(QLatin1String("variation_x"));  // foom
+		variation_y = element.attribute<int>(QLatin1String("variation_y"));
+		minimum_distance = element.attribute<int>(QLatin1String("minimum_distance"));
 		while (xml.readNextStartElement())
 		{
 			if (xml.name() == QLatin1String("symbol"))
@@ -151,6 +163,8 @@ bool AreaSymbol::FillPattern::equals(const AreaSymbol::FillPattern& other, Qt::C
 		if (offset_along_line != other.offset_along_line)
 			return false;
 		if (point_distance != other.point_distance)
+			return false;
+		if (variation_x != other.variation_x || variation_y != other.variation_y || minimum_distance != other.minimum_distance)  // foom
 			return false;
 		if (bool(point) != bool(other.point))
 			return false;
@@ -422,6 +436,7 @@ void AreaSymbol::FillPattern::createRenderables(const AreaRenderable& outline, q
 {
 	if (line_spacing <= 0)
 		return;
+	placed_cells.clear();  // foom: one object at a time
 	
 	if (!rotatable())
 		delta_rotation = 0;
@@ -486,6 +501,12 @@ void AreaSymbol::FillPattern::createPointPatternLine(
 	auto step_length  = 0.001 * point_distance;
 	auto start_length = ceil((offset) / step_length) * step_length - offset;
 	
+	if (isIrregular())  // foom
+	{
+		createIrregularPointPatternLine(first, direction, start_length, length, step_length, rotation, outline, output);
+		return;
+	}
+	
 	auto to_next = direction * step_length;
 	auto coord = first + direction * start_length;
 	
@@ -525,6 +546,7 @@ void AreaSymbol::FillPattern::scale(double factor)
 	line_offset = qRound(factor * line_offset);
 	offset_along_line = qRound(factor * offset_along_line);
 	point_distance = qRound(factor * point_distance);
+	minimum_distance = qRound(factor * minimum_distance);  // foom
 	
 	if (point)
 		point->scale(factor);
