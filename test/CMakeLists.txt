@@ -225,6 +225,7 @@ add_system_test(text_symbol_t)
 add_system_test(line_taper_t)
 add_system_test(area_pattern_t)
 add_system_test(foreign_data_t)
+add_system_test(ocd2018_t)
 add_system_test(template_t)
 add_system_test(tools_t)
 add_system_test(track_t)  # Could be unit test, but needs Georeferencing

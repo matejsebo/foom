@@ -877,6 +877,31 @@ void importObjectDates(const Ocd::ObjectV12& ocd_object, Object* object)
 	                    Ocd::fromDelphiDateTime(Ocd::delphiDateTimeFromBits(ocd_object.modification_date)));
 }
 
+// foom: the height and the object string of the version 12 object header,
+// see the design notes, "OCD 2018 writer".
+template< class O, class E >
+void importObjectFieldsV12(const O& /*ocd_object*/, const E& /*entry*/, Object* /*object*/)
+{
+	// nothing before version 12
+}
+
+void importObjectFieldsV12(const Ocd::ObjectV12& ocd_object, const Ocd::ObjectV12::IndexEntryType& entry, Object* object)
+{
+	if (ocd_object.height)
+		object->setTag(QStringLiteral("ele"), QString::number(ocd_object.height / 256000.0, 'g', 10));
+	if (ocd_object.object_string_length)
+	{
+		auto const header_size = sizeof(Ocd::ObjectV12) - sizeof(Ocd::OcdPoint32);
+		auto const offset = header_size + sizeof(Ocd::OcdPoint32) * (std::size_t(ocd_object.num_items) + ocd_object.num_text);
+		if (offset + ocd_object.object_string_length <= entry.size)
+		{
+			auto const* bytes = reinterpret_cast<const char*>(&ocd_object) + offset;
+			object->setTag(QStringLiteral("ocd:object_string_type"), QString::number(ocd_object.object_string_type));
+			object->setTag(QStringLiteral("ocd:object_string"), QString::fromLatin1(bytes, int(ocd_object.object_string_length)));
+		}
+	}
+}
+
 }  // namespace
 
 
@@ -895,6 +920,7 @@ void OcdFileImport::importObjects(const OcdFile< F >& file)
 			if (auto object = importObject(*ocd_object.entity, part))
 			{
 				importObjectDates(*ocd_object.entity, object);  // foom
+				importObjectFieldsV12(*ocd_object.entity, *ocd_object.entry, object);  // foom
 				part->addObject(object, part->getNumObjects());
 			}
 			else  // foom: keep the record for the round trip
@@ -2443,11 +2469,9 @@ bool OcdFileImport::importImplementation()
 	case 12:
 		importImplementation<Ocd::FormatV12>();
 		break;
-	case 2018:
-		addWarning(tr("Support for OCD version %1 files is experimental.").arg(ocd_version));
+	case 2018:  // foom: written back as 2018, see the design notes, "OCD 2018 writer"
 		Q_STATIC_ASSERT((std::is_same<Ocd::FormatV2018, Ocd::FormatV12>::value));
 		importImplementation<Ocd::FormatV12>();
-		map->setProperty(OcdFileFormat::versionProperty(), 12);  // save as V12 for now
 		break;
 	default:
 		throw FileFormatException(tr("OCD files of version %1 are not supported!").arg(ocd_version));

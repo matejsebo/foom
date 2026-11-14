@@ -86,6 +86,7 @@
 #include "fileformats/ocd_types_v9.h"
 #include "fileformats/ocd_types_v11.h"  // IWYU pragma: keep
 #include "fileformats/ocd_types_v12.h"  // IWYU pragma: keep
+#include "fileformats/ocd_types_v2018.h"  // foom
 #include "templates/template.h"
 #include "templates/template_map.h"
 #include "util/encoding.h"
@@ -652,6 +653,10 @@ bool OcdFileExport::exportImplementation()
 	case 12:
 		return exportImplementation<Ocd::FormatV12>();
 		
+	case 2018:  // foom: the design notes, "OCD 2018 writer"
+		Q_STATIC_ASSERT((std::is_same<Ocd::FormatV2018, Ocd::FormatV12>::value));
+		return exportImplementation<Ocd::FormatV12>();
+		
 	default:
 		throw FileFormatException(
 		            ::OpenOrienteering::Exporter::tr("Could not write file: %1").
@@ -682,6 +687,10 @@ void setupFileHeaderGeneric(quint16 actual_version, Ocd::FileHeaderGeneric& head
 		break;
 	case 11:
 		header.subversion = 3;
+		break;
+	case 2018:  // foom: the numbers of OCD 2018 files
+		header.subversion = 8;
+		header.subsubversion_V10 = 4;
 		break;
 	default:
 		; // nothing
@@ -2598,6 +2607,48 @@ void exportObjectDates(const Object* object, Ocd::ObjectV12& ocd_object)
 	ocd_object.modification_date = Ocd::delphiDateTimeToBits(Ocd::toDelphiDateTime(object->modifiedTime()));
 }
 
+// foom: the height and the object string of the version 12 object header,
+// see the design notes, "OCD 2018 writer".
+QByteArray objectStringBytes(const Object* object)
+{
+	return object->getTag(QStringLiteral("ocd:object_string")).toLatin1();
+}
+
+template< class O >
+void exportObjectFieldsV12(const Object* /*object*/, O& /*ocd_object*/)
+{
+	// nothing before version 12
+}
+
+void exportObjectFieldsV12(const Object* object, Ocd::ObjectV12& ocd_object)
+{
+	bool ok = false;
+	auto const ele = object->getTag(QStringLiteral("ele")).toDouble(&ok);
+	if (ok && ele > 0.0)
+		ocd_object.height = quint32(qRound64(ele * 256000.0));
+	auto const string = objectStringBytes(object);
+	if (!string.isEmpty())
+	{
+		ocd_object.object_string_length = decltype(ocd_object.object_string_length)(string.size());
+		ocd_object.object_string_type = decltype(ocd_object.object_string_type)(object->getTag(QStringLiteral("ocd:object_string_type")).toInt());
+	}
+}
+
+template< class O >
+int appendObjectString(const Object* /*object*/, const O& /*ocd_object*/, QByteArray& /*data*/)
+{
+	return 0;
+}
+
+int appendObjectString(const Object* object, const Ocd::ObjectV12& ocd_object, QByteArray& data)
+{
+	if (!ocd_object.object_string_length)
+		return 0;
+	auto const string = objectStringBytes(object);
+	data.append(string.constData(), int(ocd_object.object_string_length));
+	return int(ocd_object.object_string_length);
+}
+
 }  // namespace
 
 
@@ -2612,6 +2663,7 @@ void OcdFileExport::handleObjectExtras(const Object* object, OcdObject& ocd_obje
 	entry.status = Ocd::ObjectNormal;
 	entry.color = convertColor(object->getSymbol()->guessDominantColor());
 	exportObjectDates(object, ocd_object);  // foom
+	exportObjectFieldsV12(object, ocd_object);  // foom
 }
 
 
@@ -2852,6 +2904,8 @@ QByteArray OcdFileExport::exportObjectCommon(const Object* object, OcdObject& oc
 			exportCoordinates(coords, object->getSymbol(), data, bottom_left, top_right);
 		}
 	}
+	FILEFORMAT_ASSERT(data.size() == header_size + items_size);
+	items_size += appendObjectString(object, ocd_object, data);  // foom
 	FILEFORMAT_ASSERT(data.size() == header_size + items_size);
 	
 	entry.bottom_left_bound = convertPoint(bottom_left);

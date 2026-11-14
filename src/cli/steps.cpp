@@ -492,7 +492,10 @@ const FileFormat* resolveSaveFormat(const Params& p, const QString& path, const 
 		if (!id.startsWith(QLatin1String("OCD")))
 			p.fail(QLatin1String("parameter \"version\" applies to OCD files only"));
 		auto const versioned_id = QString::fromLatin1("OCD%1").arg(version);
-		if (id != QLatin1String("OCD") && versioned_id != id)
+		// A conflict needs a format name which itself names a version, such as "ocd12";
+		// "ocd" alone matches by extension and may resolve to any OCD version.
+		auto const named_version = format.size() > 3;
+		if (named_version && id != QLatin1String("OCD") && versioned_id != id)
 			p.fail(QString::fromLatin1("format \"%1\" conflicts with version %2").arg(format, QString::number(version)));
 		file_format = FileFormats.findFormat(versioned_id.toLatin1().constData());
 		if (!file_format)

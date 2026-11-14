@@ -92,6 +92,8 @@ const char* OcdFileFormat::idForVersion(quint16 version)
 		return "OCD11";
 	case 12:
 		return "OCD12";
+	case 2018:  // foom
+		return "OCD2018";
 	default:
 		qFatal("Unsupported OCD version");
 	}
@@ -102,8 +104,9 @@ const char* OcdFileFormat::idForVersion(quint16 version)
 std::vector<std::unique_ptr<OcdFileFormat>> OcdFileFormat::makeAll()
 {
 	std::vector<std::unique_ptr<OcdFileFormat>> result;
-	result.reserve(7);
+	result.reserve(8);
 	result.push_back(std::make_unique<OcdFileFormat>(autoDeterminedVersion()));
+	result.push_back(std::make_unique<OcdFileFormat>(2018));  // foom
 	result.push_back(std::make_unique<OcdFileFormat>(12));
 	result.push_back(std::make_unique<OcdFileFormat>(11));
 	result.push_back(std::make_unique<OcdFileFormat>(10));

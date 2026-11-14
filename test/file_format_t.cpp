@@ -1722,6 +1722,7 @@ void FileFormatTest::ocdAreaSymbolTest_data()
 	    { 10, "OCD10" },
 	    { 11, "OCD11" },
 	    { 12, "OCD12" },
+	    { 2018, "OCD2018" },  // foom
 	};
 	for (auto& t : tests)
 	{
@@ -1844,6 +1845,7 @@ void FileFormatTest::ocdTextSymbolTest_data()
 	    { 10, "OCD10" },
 	    { 11, "OCD11" },
 	    { 12, "OCD12" },
+	    { 2018, "OCD2018" },  // foom
 	};
 	for (auto& t : tests)
 	{
