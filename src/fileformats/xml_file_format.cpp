@@ -212,6 +212,9 @@ namespace literal
 	static const QLatin1String foreign_type("type");  // foom
 	static const QLatin1String foreign_obj("obj");  // foom
 	static const QLatin1String foreign_entry("entry");  // foom
+	static const QLatin1String elevation("elevation");  // foom
+	static const QLatin1String elevation_href("href");  // foom
+	static const QLatin1String elevation_kind("kind");  // foom
 	static const QLatin1String part("part");
 	
 	static const QLatin1String templates("templates");
@@ -320,6 +323,11 @@ bool XMLFileExporter::exportImplementation()
 		if (XMLFileFormat::foom_revision >= 1 && !map->extents().empty())  // foom
 		{
 			exportExtents();
+			writeLineBreak(xml);
+		}
+		if (XMLFileFormat::foom_revision >= 1 && !map->elevationSet().isEmpty())  // foom
+		{
+			exportElevation();
 			writeLineBreak(xml);
 		}
 		if (XMLFileFormat::foom_revision >= 1 && !map->foreignData().isEmpty())  // foom
@@ -557,6 +565,22 @@ void XMLFileExporter::exportExtents()
 	saveExtents(map->extents(), xml);
 }
 
+// foom
+void XMLFileExporter::exportElevation()
+{
+	// the design notes, "Core classes": one element per grid, href relative to the map when possible.
+	auto const& set = map->elevationSet();
+	for (int kind = 0; kind < ElevationSet::kind_count; ++kind)
+	{
+		auto const href = set.href(ElevationSet::Kind(kind));
+		if (href.isEmpty())
+			continue;
+		XmlElementWriter element(xml, literal::elevation);
+		element.writeAttribute(literal::elevation_href, ElevationSet::relativeHref(href, path));
+		element.writeAttribute(literal::elevation_kind, ElevationSet::kindName(ElevationSet::Kind(kind)));
+	}
+}
+
 void XMLFileExporter::exportTemplates()
 {
 	QDir map_dir;
@@ -765,6 +789,8 @@ void XMLFileImporter::importElements()
 			importExtents();
 		else if (name == literal::foreign)  // foom
 			importForeignData();
+		else if (name == literal::elevation)  // foom
+			importElevation();
 		else if (name == literal::templates)
 			importTemplates();
 		else if (name == literal::print)
@@ -1212,6 +1238,19 @@ void XMLFileImporter::importForeignData()
 void XMLFileImporter::importExtents()
 {
 	map->setExtents(loadExtents(xml));
+}
+
+// foom
+void XMLFileImporter::importElevation()
+{
+	XmlElementReader element(xml);
+	ElevationSet::Kind kind;
+	if (!ElevationSet::kindFromName(element.attribute<QString>(literal::elevation_kind), kind))
+	{
+		addWarning(::OpenOrienteering::ImportExport::tr("Unknown elevation grid kind: %1").arg(element.attribute<QString>(literal::elevation_kind)));
+		return;
+	}
+	map->elevationSet().setHref(kind, ElevationSet::absoluteHref(element.attribute<QString>(literal::elevation_href), path));
 }
 
 void XMLFileImporter::importTemplates()

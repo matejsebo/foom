@@ -201,6 +201,7 @@ set(Mapper_Common_SRCS
   gui/map/map_editor_activity.cpp
   gui/map/bookmark_dialog.cpp
   gui/map/extent_dialog.cpp
+  gui/map/elevation_dialogs.cpp
   gui/map/legibility_dialog.cpp
   gui/map/topology_dialogs.cpp
   gui/map/rectangle_box_dialog.cpp
@@ -372,6 +373,7 @@ foreach(lib
   cove
   mapper-config
   mapper-gdal
+  mapper-elevation
   mapper-sensors
   printsupport
   scaling-icon-engine

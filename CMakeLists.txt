@@ -298,6 +298,7 @@ if(NOT ANDROID)
 endif()
 if (Mapper_USE_GDAL)
 	add_subdirectory("src/gdal")
+	add_subdirectory("src/elevation")  # foom
 endif()
 if(NOT ANDROID)
 	add_subdirectory("src/printsupport")

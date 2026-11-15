@@ -226,6 +226,13 @@ if (Mapper_USE_GDAL)
 	target_include_directories(tile_template_t SYSTEM PRIVATE ${GDAL_INCLUDE_DIRS})
 	target_link_libraries(tile_template_t PRIVATE ${GDAL_LIBRARIES} Qt5::Network)
 endif()
+if(TARGET mapper-elevation)
+	add_system_test(elevation_t)  # foom: the design notes
+	target_link_libraries(elevation_t PRIVATE mapper-elevation)
+	# foom: larger fixtures are kept outside the repository; the tests which need them skip without them
+	set(FOOM_FIXTURES_DIR "" CACHE PATH "A folder with further test fixtures")
+	target_compile_definitions(elevation_t PRIVATE "FOOM_FIXTURES_DIR=\"${FOOM_FIXTURES_DIR}\"")
+endif()
 add_system_test(text_symbol_t)
 add_system_test(line_taper_t)
 add_system_test(area_pattern_t)

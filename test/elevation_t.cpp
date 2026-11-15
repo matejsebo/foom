@@ -1,0 +1,623 @@
+/*
+ *    Copyright 2026 Matej Šebo
+ *
+ *    This file is part of FOOM, the Fantastic Open Orienteering Mapper,
+ *    a fork of OpenOrienteering Mapper.
+ *
+ *    FOOM is free software: you can redistribute it and/or modify
+ *    it under the terms of the GNU General Public License as published by
+ *    the Free Software Foundation, either version 3 of the License, or
+ *    (at your option) any later version.
+ *
+ *    FOOM is distributed in the hope that it will be useful,
+ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *    GNU General Public License for more details.
+ *
+ *    You should have received a copy of the GNU General Public License
+ *    along with FOOM.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <functional>
+#include <map>
+#include <memory>
+#include <vector>
+
+#include <QtGlobal>
+#include <QtMath>
+#include <QtTest>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QImage>
+#include <QObject>
+#include <QPointF>
+#include <QRectF>
+#include <QString>
+#include <QTemporaryDir>
+
+#include "global.h"
+#include "core/georeferencing.h"
+#include "core/map.h"
+#include "core/map_coord.h"
+#include "core/map_part.h"
+#include "core/objects/object.h"
+#include "core/symbols/line_symbol.h"
+#include "core/symbols/symbol.h"
+#include "elevation/contours.h"
+#include "elevation/elevation_model.h"
+#include "elevation/elevation_set.h"
+#include "elevation/raster_products.h"
+#include "fileformats/file_format.h"
+#include "fileformats/file_format_registry.h"
+#include "fileformats/file_import_export.h"
+#include "templates/template.h"
+#include "undo/undo_manager.h"
+
+using namespace OpenOrienteering;
+
+
+namespace {
+
+/// A grid of width by height cells of the given size, left edge x0 and top edge y_top,
+/// filled from the function of the cell centre.
+std::unique_ptr<ElevationModel> makeGrid(int width, int height, double x0, double y_top, double cell, const std::function<double(double, double)>& f)
+{
+	std::vector<float> values(std::size_t(width) * std::size_t(height));
+	for (int r = 0; r < height; ++r)
+		for (int c = 0; c < width; ++c)
+			values[std::size_t(r) * std::size_t(width) + std::size_t(c)] = float(f(x0 + (c + 0.5) * cell, y_top - (r + 0.5) * cell));
+	return std::make_unique<ElevationModel>(width, height, QPointF(x0, y_top), cell, std::move(values));
+}
+
+std::unique_ptr<ElevationModel> cone(double x0 = 0.0, double y0 = 0.0, bool inverted = false)
+{
+	auto const cx = x0 + 50.5, cy = y0 + 50.5;
+	return makeGrid(101, 101, x0, y0 + 101.0, 1.0, [cx, cy, inverted](double x, double y) {
+		auto const r = std::hypot(x - cx, y - cy);
+		return inverted ? 40.0 + 0.5 * r : 60.0 - 0.5 * r;
+	});
+}
+
+double signedArea(const std::vector<QPointF>& points)
+{
+	double a = 0.0;
+	for (std::size_t i = 0, n = points.size(); i < n; ++i)
+	{
+		auto const& p = points[i];
+		auto const& q = points[(i + 1) % n];
+		a += p.x() * q.y() - q.x() * p.y();
+	}
+	return 0.5 * a;
+}
+
+double length(const std::vector<QPointF>& points, bool closed)
+{
+	double l = 0.0;
+	for (std::size_t i = 1; i < points.size(); ++i)
+		l += std::hypot(points[i].x() - points[i-1].x(), points[i].y() - points[i-1].y());
+	if (closed && points.size() > 1)
+		l += std::hypot(points.front().x() - points.back().x(), points.front().y() - points.back().y());
+	return l;
+}
+
+ContourParams standardParams()
+{
+	ContourParams params;
+	params.interval = 1.0;
+	params.main_interval = 5.0;
+	params.index_interval = 25.0;
+	return params;
+}
+
+Georeferencing utm32Georeferencing()
+{
+	Georeferencing georef;
+	georef.setScaleDenominator(10000);
+	georef.setProjectedCRS(QStringLiteral("UTM 13"), QStringLiteral("+proj=utm +zone=13 +datum=WGS84"));
+	georef.setProjectedRefPoint(QPointF(500000.0, 5000000.0), false, false);
+	georef.setMapRefPoint(MapCoord(0, 0));
+	georef.setGrivation(0.0);
+	georef.setCombinedScaleFactor(1.0);
+	return georef;
+}
+
+QString tagValue(const Object* object, const char* key)
+{
+	auto const it = object->tags().find(QString::fromLatin1(key));
+	return it == object->tags().end() ? QString{} : it->value;
+}
+
+}  // namespace
+
+
+/**
+ * @test Tests the elevation module: grids, contours and raster products.
+ * See the design notes.
+ */
+class ElevationTest : public QObject
+{
+Q_OBJECT
+private slots:
+	void initTestCase()
+	{
+		QCoreApplication::setOrganizationName(QString::fromLatin1("OpenOrienteering.org"));
+		QCoreApplication::setApplicationName(QString::fromLatin1(metaObject()->className()));
+		doStaticInitializations();
+	}
+
+	void gridBasics()
+	{
+		auto grid = makeGrid(11, 11, 0.0, 11.0, 1.0, [](double x, double y) { return 100.0 + 0.1 * x + 0.2 * y; });
+		QCOMPARE(grid->width(), 11);
+		QCOMPARE(grid->height(), 11);
+		QCOMPARE(grid->extent(), QRectF(0.0, 0.0, 11.0, 11.0));
+		QCOMPARE(grid->cellSize(), 1.0);
+		QVERIFY(qAbs(grid->at(QPointF(5.5, 5.5)) - 101.65) < 1e-5);
+		QVERIFY(qAbs(grid->at(QPointF(5.0, 5.0)) - 101.5) < 1e-5);
+		QVERIFY(std::isnan(grid->at(QPointF(20.0, 5.0))));
+		QVERIFY(std::isnan(grid->at(QPointF(5.0, -1.0))));
+		auto const g = grid->gradient(QPointF(5.0, 5.0));
+		QVERIFY(qAbs(g.x() - 0.1) < 1e-5);
+		QVERIFY(qAbs(g.y() - 0.2) < 1e-5);
+
+		auto const info = grid->info();
+		QVERIFY(qAbs(info.minimum - grid->at(QPointF(0.5, 0.5))) < 1e-6);
+		QVERIFY(qAbs(info.maximum - grid->at(QPointF(10.5, 10.5))) < 1e-6);
+		QCOMPARE(info.void_count, qint64(0));
+		grid->setValue(3, 4, std::numeric_limits<float>::quiet_NaN());
+		QCOMPARE(grid->info().void_count, qint64(1));
+		QVERIFY(std::isnan(grid->at(grid->cellCenter(3, 4))));
+	}
+
+	void gridFiles()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		auto grid = makeGrid(11, 11, 0.0, 11.0, 1.0, [](double x, double y) { return 100.0 + 0.1 * x + 0.2 * y; });
+		grid->setValue(3, 4, std::numeric_limits<float>::quiet_NaN());
+		grid->setCrsSpec(QStringLiteral("+proj=utm +zone=13 +datum=WGS84"));
+
+		// GeoTIFF
+		auto const tif = QDir(dir.path()).absoluteFilePath(QStringLiteral("grid.tif"));
+		QVERIFY(grid->save(tif));
+		auto reopened = ElevationModel::open(tif);
+		QVERIFY2(reopened, qPrintable(ElevationModel::lastError()));
+		QCOMPARE(reopened->width(), 11);
+		QCOMPARE(reopened->height(), 11);
+		QCOMPARE(reopened->extent(), grid->extent());
+		QCOMPARE(reopened->cellSize(), 1.0);
+		for (int r = 0; r < 11; ++r)
+			for (int c = 0; c < 11; ++c)
+			{
+				if (c == 3 && r == 4)
+					QVERIFY(std::isnan(reopened->value(c, r)));
+				else
+					QVERIFY(qAbs(reopened->value(c, r) - grid->value(c, r)) < 1e-6);
+			}
+		QVERIFY(std::isnan(reopened->at(reopened->cellCenter(3, 4))));
+		QVERIFY(!reopened->crsSpec().isEmpty());
+		auto const metadata = ElevationModel::geoTiffMetadata(tif);
+		QVERIFY2(metadata.contains(QLatin1String("Float32")), qPrintable(metadata));
+		QVERIFY2(metadata.contains(QLatin1String("DEFLATE")), qPrintable(metadata));
+		QVERIFY2(metadata.contains(QLatin1String("TILED")), qPrintable(metadata));
+
+		// Options
+		ElevationModel::OpenOptions options;
+		options.feet_to_metres = true;
+		auto feet = ElevationModel::open(tif, options);
+		QVERIFY(feet);
+		QVERIFY(qAbs(feet->value(0, 0) - 0.3048 * grid->value(0, 0)) < 1e-4);
+
+		auto below = makeGrid(11, 11, 0.0, 11.0, 1.0, [](double x, double) { return -5.0 + 0.5 * x; });
+		auto const below_tif = QDir(dir.path()).absoluteFilePath(QStringLiteral("below.tif"));
+		QVERIFY(below->save(below_tif));
+		options = {};
+		options.shift_below_sea_level = true;
+		auto shifted = ElevationModel::open(below_tif, options);
+		QVERIFY(shifted);
+		QVERIFY(qAbs(shifted->info().minimum) < 1e-5);
+		QVERIFY(qAbs(shifted->value(10, 0) - (below->value(10, 0) + 4.75)) < 1e-4);
+
+		// ESRI ASCII grid, XYZ and OCD grid
+		grid->setValue(3, 4, 101.0f);
+		struct { const char* name; double tolerance; } const formats[] = {
+		    { "grid.asc", 0.001 }, { "grid.xyz", 0.001 }, { "grid.ocdDem", 0.005 } };
+		for (auto const& format : formats)
+		{
+			auto const path = QDir(dir.path()).absoluteFilePath(QString::fromUtf8(format.name));
+			QVERIFY2(grid->save(path), format.name);
+			auto again = ElevationModel::open(path);
+			QVERIFY2(again, qPrintable(QString::fromUtf8(format.name) + QLatin1String(": ") + ElevationModel::lastError()));
+			QCOMPARE(again->width(), 11);
+			QCOMPARE(again->height(), 11);
+			QVERIFY2(qAbs(again->extent().left() - 0.0) < 1e-6 && qAbs(again->extent().top() - 0.0) < 1e-6
+			         && qAbs(again->extent().width() - 11.0) < 1e-6 && qAbs(again->extent().height() - 11.0) < 1e-6, format.name);
+			for (int r = 0; r < 11; ++r)
+				for (int c = 0; c < 11; ++c)
+					QVERIFY2(qAbs(again->value(c, r) - grid->value(c, r)) <= format.tolerance, format.name);
+		}
+	}
+
+	void utilities()
+	{
+		auto a = makeGrid(11, 11, 0.0, 11.0, 1.0, [](double, double) { return 1.0; });
+		auto b = makeGrid(11, 11, 5.0, 11.0, 1.0, [](double, double) { return 2.0; });
+
+		auto merged = ElevationModel::merge({ a.get(), b.get() });
+		QVERIFY(merged);
+		QCOMPARE(merged->extent(), QRectF(0.0, 0.0, 16.0, 11.0));
+		QCOMPARE(merged->info().void_count, qint64(0));
+		QCOMPARE(merged->at(QPointF(2.0, 5.0)), 1.0);
+		QCOMPARE(merged->at(QPointF(8.0, 5.0)), 2.0);
+		QCOMPARE(merged->at(QPointF(14.0, 5.0)), 2.0);
+
+		auto difference = ElevationModel::difference(*b, *a);
+		QVERIFY(difference);
+		QCOMPARE(difference->extent(), QRectF(5.0, 0.0, 6.0, 11.0));
+		for (int r = 0; r < difference->height(); ++r)
+			for (int c = 0; c < difference->width(); ++c)
+				QCOMPARE(difference->value(c, r), 1.0f);
+
+		auto cropped = a->cropped(QRectF(2.0, 2.0, 3.0, 3.0));
+		QVERIFY(cropped);
+		QCOMPARE(cropped->width(), 3);
+		QCOMPARE(cropped->height(), 3);
+		QCOMPARE(cropped->extent(), QRectF(2.0, 2.0, 3.0, 3.0));
+		QCOMPARE(cropped->value(1, 1), 1.0f);
+
+		auto smoothed = a->smoothed(1);
+		for (int r = 0; r < 11; ++r)
+			for (int c = 0; c < 11; ++c)
+				QCOMPARE(smoothed->value(c, r), 1.0f);
+
+		QCOMPARE(a->info().minimum, 1.0);
+		QCOMPARE(a->info().maximum, 1.0);
+	}
+
+	void contourCone()
+	{
+		auto grid = cone();
+		auto lines = traceContours(*grid, standardParams());
+		std::map<int, int> count;
+		for (auto const& line : lines)
+			++count[qRound(line.level)];
+		for (int level = 35; level <= 59; ++level)
+		{
+			QVERIFY2(count[level] == 1, qPrintable(QString::number(level) + QLatin1String(": ") + QString::number(count[level])));
+			auto const it = std::find_if(lines.begin(), lines.end(), [level](const ContourLine& l) { return qRound(l.level) == level; });
+			QVERIFY2(it->closed, qPrintable(QString::number(level)));
+			QVERIFY(!it->depression);
+			QVERIFY(it->points.size() >= 4);
+			auto const radius = 2.0 * (60.0 - level);
+			for (auto const& p : it->points)
+				QVERIFY2(qAbs(std::hypot(p.x() - 50.5, p.y() - 50.5) - radius) < 0.5, qPrintable(QString::number(level)));
+			QVERIFY(signedArea(it->points) > 0.0);
+			QCOMPARE(it->tag, QString::number(level));
+		}
+		auto classOf = [&lines](int level) {
+			return std::find_if(lines.begin(), lines.end(), [level](const ContourLine& l) { return qRound(l.level) == level; })->cls;
+		};
+		QCOMPARE(classOf(50), ContourLine::Index);
+		QCOMPARE(classOf(55), ContourLine::Main);
+		QCOMPARE(classOf(59), ContourLine::Smallest);
+		// Levels which reach the border are open.
+		for (auto const& line : lines)
+			if (line.level < 34.5)
+				QVERIFY(!line.closed);
+	}
+
+	void contourInvertedCone()
+	{
+		auto grid = cone(0.0, 0.0, true);
+		auto lines = traceContours(*grid, standardParams());
+		std::map<int, int> count;
+		for (auto const& line : lines)
+			++count[qRound(line.level)];
+		for (int level = 41; level <= 65; ++level)
+		{
+			QCOMPARE(count[level], 1);
+			auto const it = std::find_if(lines.begin(), lines.end(), [level](const ContourLine& l) { return qRound(l.level) == level; });
+			QVERIFY(it->closed);
+			QVERIFY(it->depression);
+			QVERIFY(signedArea(it->points) < 0.0);
+		}
+	}
+
+	void contourPlane()
+	{
+		auto grid = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double x, double) { return 100.0 + 0.1 * x; });
+		auto lines = traceContours(*grid, standardParams());
+		std::map<int, int> count;
+		for (auto const& line : lines)
+			++count[qRound(line.level)];
+		for (int level = 101; level <= 110; ++level)
+		{
+			QCOMPARE(count[level], 1);
+			auto const it = std::find_if(lines.begin(), lines.end(), [level](const ContourLine& l) { return qRound(l.level) == level; });
+			QVERIFY(!it->closed);
+			QVERIFY(it->points.size() >= 2);
+			for (auto const& p : it->points)
+				QVERIFY2(qAbs(p.x() - 10.0 * (level - 100)) < 1e-6, qPrintable(QString::number(p.x())));
+			QVERIFY(it->points.front().y() > it->points.back().y());
+		}
+	}
+
+	void contourTiles()
+	{
+		auto grid = cone();
+		auto whole = traceContours(*grid, standardParams());
+		auto params = standardParams();
+		params.tile_size = 40;
+		auto tiled = traceContours(*grid, params);
+		std::map<int, std::pair<int, double>> whole_stats, tiled_stats;
+		for (auto const& line : whole)
+		{
+			auto& s = whole_stats[qRound(line.level)];
+			++s.first;
+			s.second += length(line.points, line.closed);
+		}
+		for (auto const& line : tiled)
+		{
+			auto& s = tiled_stats[qRound(line.level)];
+			++s.first;
+			s.second += length(line.points, line.closed);
+		}
+		QCOMPARE(tiled_stats.size(), whole_stats.size());
+		for (auto const& item : whole_stats)
+		{
+			QVERIFY2(tiled_stats[item.first].first == item.second.first, qPrintable(QString::number(item.first) + QLatin1String(": ") + QString::number(tiled_stats[item.first].first) + QLatin1String(" vs ") + QString::number(item.second.first)));
+			QVERIFY2(qAbs(tiled_stats[item.first].second - item.second.second) < 1e-6, qPrintable(QString::number(item.first)));
+		}
+	}
+
+	void contourObjects()
+	{
+		Map map;
+		map.setGeoreferencing(utm32Georeferencing());
+		map.setScaleDenominator(10000);
+		auto grid = cone(500000.0, 5000000.0);
+
+		auto const symbols = contourSymbols(map, false);
+		QVERIFY(symbols.hill[0] && symbols.hill[1] && symbols.hill[2]);
+		QVERIFY(symbols.depression[0] && symbols.depression[1] && symbols.depression[2]);
+		QCOMPARE(map.getNumSymbols(), 6);
+		QCOMPARE(symbols.hill[0]->getNumberComponent(0), 10050);
+		QCOMPARE(symbols.hill[2]->getNumberComponent(0), 10052);
+		QCOMPARE(symbols.depression[1]->getNumberComponent(1), 1);
+		auto const again = contourSymbols(map, false);
+		QCOMPARE(map.getNumSymbols(), 6);
+		QCOMPARE(again.hill[1], symbols.hill[1]);
+
+		auto result = makeContourObjects(map, *grid, standardParams(), symbols);
+		QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+		auto const num_objects = int(result.objects.size());
+		QVERIFY(num_objects >= 25);
+		int closed_lines = 0;
+		for (auto const& object : result.objects)
+		{
+			QCOMPARE(object->getType(), Object::Path);
+			QVERIFY(!tagValue(object.get(), "ele").isEmpty());
+			auto const* path = object->asPath();
+			if (path->parts().front().isClosed())
+			{
+				++closed_lines;
+				auto const level = tagValue(object.get(), "ele").toDouble();
+				auto const radius_mm = 2.0 * (60.0 - level) / 10.0;
+				QVERIFY2(level >= 35.0 && level <= 59.0, qPrintable(QString::number(level)));
+				for (auto const& coord : path->getRawCoordinateVector())
+					QVERIFY2(qAbs(std::hypot(coord.x() - 5.05, coord.y() + 5.05) - radius_mm) < 0.05, qPrintable(QString::number(level)));
+				if (qRound(level) == 50)
+					QCOMPARE(object->getSymbol(), symbols.hill[2]);
+				else if (qRound(level) == 55)
+					QCOMPARE(object->getSymbol(), symbols.hill[1]);
+				else if (qRound(level) == 59)
+					QCOMPARE(object->getSymbol(), symbols.hill[0]);
+			}
+		}
+		QCOMPARE(closed_lines, 25);
+
+		QCOMPARE(map.getNumObjects(), 0);
+		QVERIFY(addContours(map, std::move(result.objects)));
+		QCOMPARE(map.getNumObjects(), num_objects);
+		QVERIFY(map.undoManager().canUndo());
+		QVERIFY(map.undoManager().undo());
+		QCOMPARE(map.getNumObjects(), 0);
+		QVERIFY(map.undoManager().redo());
+		QCOMPARE(map.getNumObjects(), num_objects);
+
+		// The smoothed set with curves.
+		auto params = standardParams();
+		params.smoothed = true;
+		params.curves = true;
+		auto const smoothed_symbols = contourSymbols(map, true);
+		QCOMPARE(map.getNumSymbols(), 12);
+		QCOMPARE(smoothed_symbols.hill[0]->getNumberComponent(0), 10060);
+		auto smoothed = makeContourObjects(map, *grid, params, smoothed_symbols);
+		QVERIFY2(smoothed.error.isEmpty(), qPrintable(smoothed.error));
+		int curved = 0;
+		for (auto const& object : smoothed.objects)
+		{
+			auto const* path = object->asPath();
+			auto const level = tagValue(object.get(), "ele").toDouble();
+			bool has_curve = false;
+			for (auto const& coord : path->getRawCoordinateVector())
+				has_curve = has_curve || coord.isCurveStart();
+			if (has_curve)
+				++curved;
+			if (path->parts().front().isClosed())
+			{
+				auto const radius_mm = 2.0 * (60.0 - level) / 10.0;
+				for (auto const& coord : path->getRawCoordinateVector())
+					if (!coord.isCurveStart() && &coord != &path->getRawCoordinateVector().back())
+						QVERIFY2(qAbs(std::hypot(coord.x() - 5.05, coord.y() + 5.05) - radius_mm) < 0.05, qPrintable(QString::number(level)));
+			}
+		}
+		QVERIFY(curved > 0);
+	}
+
+	void hillShadeTest()
+	{
+		auto inclined = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double, double y) { return 100.0 + 0.1 * y; });  // rises to the north: faces south
+		auto flat = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double, double) { return 100.0; });
+
+		HillShadeParams params;
+		params.method = HillShadeParams::Oblique;
+		params.azimuth_deg = 315.0;
+		params.elevation_deg = 45.0;
+		params.exaggeration = 4.0;
+		struct { HillShadeParams::Method method; bool multi; int expected; } const cases[] = {
+		    { HillShadeParams::Oblique, false, 120 },
+		    { HillShadeParams::Oblique, true, 167 },
+		    { HillShadeParams::SlopeShading, false, 193 },
+		    { HillShadeParams::Combined, false, 91 } };
+		for (auto const& c : cases)
+		{
+			params.method = c.method;
+			params.multi_directional = c.multi;
+			auto product = OpenOrienteering::hillShade(*inclined, params);
+			QVERIFY2(product.error.isEmpty(), qPrintable(product.error));
+			QCOMPARE(product.image.size(), QSize(101, 101));
+			QCOMPARE(product.image.format(), QImage::Format_Grayscale8);
+			QCOMPARE(product.extent, inclined->extent());
+			for (int r = 1; r < 100; ++r)
+				for (int col = 1; col < 100; ++col)
+					QVERIFY2(qAbs(int(product.image.constScanLine(r)[col]) - c.expected) <= 1,
+					         qPrintable(QString::number(c.method) + QLatin1Char(' ') + QString::number(product.image.constScanLine(r)[col])));
+		}
+		params.method = HillShadeParams::Oblique;
+		params.multi_directional = false;
+		auto flat_product = OpenOrienteering::hillShade(*flat, params);
+		QVERIFY(qAbs(int(flat_product.image.constScanLine(50)[50]) - 180) <= 1);
+		params.method = HillShadeParams::SlopeShading;
+		QCOMPARE(int(OpenOrienteering::hillShade(*flat, params).image.constScanLine(50)[50]), 255);
+	}
+
+	void slopeRasterTest()
+	{
+		auto inclined = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double, double y) { return 100.0 - 0.1 * y; });
+		auto steep = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double, double y) { return 100.0 + 1.7320508 * y; });
+		auto flat = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double, double) { return 100.0; });
+
+		SlopeParams params;
+		params.binary = false;
+		params.threshold_deg = 45.0;
+		auto product = OpenOrienteering::slopeRaster(*inclined, params);
+		QVERIFY2(product.error.isEmpty(), qPrintable(product.error));
+		QCOMPARE(product.image.size(), QSize(101, 101));
+		for (int r = 1; r < 100; ++r)
+			for (int col = 1; col < 100; ++col)
+				QVERIFY2(qAbs(int(product.image.constScanLine(r)[col]) - 223) <= 1, qPrintable(QString::number(product.image.constScanLine(r)[col])));
+		QCOMPARE(int(OpenOrienteering::slopeRaster(*steep, params).image.constScanLine(50)[50]), 0);
+		QCOMPARE(int(OpenOrienteering::slopeRaster(*flat, params).image.constScanLine(50)[50]), 255);
+		params.binary = true;
+		QCOMPARE(int(OpenOrienteering::slopeRaster(*inclined, params).image.constScanLine(50)[50]), 255);
+		QCOMPARE(int(OpenOrienteering::slopeRaster(*steep, params).image.constScanLine(50)[50]), 0);
+	}
+
+	void productTemplate()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		Map map;
+		map.setGeoreferencing(utm32Georeferencing());
+		auto grid = makeGrid(101, 101, 500000.0, 5000101.0, 1.0, [](double, double y) { return 100.0 - 0.1 * (y - 5000000.0); });
+		grid->setCrsSpec(map.getGeoreferencing().getProjectedCRSSpec());
+
+		HillShadeParams params;
+		auto product = hillShade(*grid, params);
+		QVERIFY(product.error.isEmpty());
+		QCOMPARE(product.crs_spec, grid->crsSpec());
+		auto const path = QDir(dir.path()).absoluteFilePath(QStringLiteral("hillshade.tif"));
+		QString error;
+		QVERIFY2(writeGeoTiff(product, path, &error), qPrintable(error));
+		auto reopened = ElevationModel::open(path);
+		QVERIFY2(reopened, qPrintable(ElevationModel::lastError()));
+		QCOMPARE(reopened->width(), 101);
+		QCOMPARE(reopened->extent(), grid->extent());
+		QVERIFY(qAbs(reopened->value(50, 50) - product.image.constScanLine(50)[50]) < 1e-6);
+		QVERIFY(!reopened->crsSpec().isEmpty());
+
+		QCOMPARE(map.getNumTemplates(), 0);
+		auto* temp = attachProductTemplate(map, path, &error);
+		QVERIFY2(temp, qPrintable(error));
+		QCOMPARE(map.getNumTemplates(), 1);
+		QCOMPARE(map.getTemplate(0), temp);
+		QCOMPARE(temp->getTemplateState(), Template::Loaded);
+		QVERIFY(temp->isTemplateGeoreferenced());
+		auto const& georef = map.getGeoreferencing();
+		auto const top_left = georef.toMapCoordF(QPointF(500000.0, 5000101.0));
+		auto const bottom_right = georef.toMapCoordF(QPointF(500101.0, 5000000.0));
+		auto const bbox = temp->calculateTemplateBoundingBox();
+		QVERIFY2(qAbs(bbox.left() - top_left.x()) < 0.01, qPrintable(QString::number(bbox.left())));
+		QVERIFY2(qAbs(bbox.top() - top_left.y()) < 0.01, qPrintable(QString::number(bbox.top())));
+		QVERIFY2(qAbs(bbox.right() - bottom_right.x()) < 0.01, qPrintable(QString::number(bbox.right())));
+		QVERIFY2(qAbs(bbox.bottom() - bottom_right.y()) < 0.01, qPrintable(QString::number(bbox.bottom())));
+	}
+
+	void xmlRoundTrip()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		auto const* format = FileFormats.findFormat("XML");
+		QVERIFY(format);
+		auto const map_path = QDir(dir.path()).absoluteFilePath(QStringLiteral("map.xmap"));
+
+		{
+			Map map;
+			map.setGeoreferencing(utm32Georeferencing());
+			QVERIFY(map.elevationSet().isEmpty());
+			auto exporter = format->makeExporter(map_path, &map, nullptr);
+			QVERIFY(exporter->doExport());
+			QFile file(map_path);
+			QVERIFY(file.open(QIODevice::ReadOnly));
+			QVERIFY(!file.readAll().contains("<elevation"));
+		}
+
+		auto grid = makeGrid(11, 11, 500000.0, 5000011.0, 1.0, [](double, double) { return 100.0; });
+		auto const grid_path = QDir(dir.path()).absoluteFilePath(QStringLiteral("dtm.tif"));
+		QVERIFY(grid->save(grid_path));
+		auto const other_path = QDir(dir.path()).absoluteFilePath(QStringLiteral("sub/dsm.tif"));
+		QVERIFY(QDir(dir.path()).mkpath(QStringLiteral("sub")));
+		QVERIFY(grid->save(other_path));
+		{
+			Map map;
+			map.setGeoreferencing(utm32Georeferencing());
+			map.elevationSet().setHref(ElevationSet::Terrain, grid_path);
+			map.elevationSet().setHref(ElevationSet::Surface, other_path);
+			QVERIFY(!map.elevationSet().isEmpty());
+			auto exporter = format->makeExporter(map_path, &map, nullptr);
+			QVERIFY(exporter->doExport());
+			QFile file(map_path);
+			QVERIFY(file.open(QIODevice::ReadOnly));
+			auto const text = QString::fromUtf8(file.readAll());
+			QVERIFY2(text.contains(QLatin1String("<elevation href=\"dtm.tif\" kind=\"terrain\"/>")), qPrintable(text.mid(text.indexOf(QLatin1String("<elevation")), 120)));
+			QVERIFY(text.contains(QLatin1String("<elevation href=\"sub/dsm.tif\" kind=\"surface\"/>")));
+		}
+		{
+			Map map;
+			auto importer = format->makeImporter(map_path, &map, nullptr);
+			QVERIFY(importer->doImport());
+			QVERIFY(importer->warnings().empty());
+			QCOMPARE(map.elevationSet().href(ElevationSet::Terrain), QFileInfo(grid_path).absoluteFilePath());
+			QCOMPARE(map.elevationSet().href(ElevationSet::Surface), QFileInfo(other_path).absoluteFilePath());
+			QVERIFY(map.elevationSet().href(ElevationSet::Canopy).isEmpty());
+			auto const* model = map.elevationSet().model(ElevationSet::Terrain, map.getGeoreferencing().getProjectedCRSSpec());
+			QVERIFY2(model, qPrintable(ElevationModel::lastError()));
+			QCOMPARE(model->width(), 11);
+			QCOMPARE(model->at(QPointF(500005.0, 5000005.0)), 100.0);
+			map.clear();
+			QVERIFY(map.elevationSet().isEmpty());
+		}
+	}
+};
+
+
+QTEST_MAIN(ElevationTest)
+
+
+#include "elevation_t.moc"  // IWYU pragma: keep

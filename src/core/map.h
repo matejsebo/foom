@@ -47,6 +47,7 @@
 #include "core/bookmarks.h"  // foom
 #include "core/extents.h"  // foom
 #include "core/foreign_data.h"  // foom
+#include "elevation/elevation_set.h"  // foom
 #include "core/map_coord.h"
 #include "core/map_grid.h"
 #include "core/map_part.h"
@@ -979,6 +980,12 @@ public:
 	/** foom: Replaces the foreign data. */
 	void setForeignData(ForeignData data) { map_foreign_data = std::move(data); }
 	
+	/** foom: Returns the elevation grids. See the design notes. */
+	const ElevationSet& elevationSet() const { return map_elevation; }
+	
+	/** foom: Returns the elevation grids for editing; not undoable. */
+	ElevationSet& elevationSet() { return map_elevation; }
+	
 	
 	// foom: spatial index.
 	// See the design notes, "Spatial index".
@@ -1720,6 +1727,7 @@ private:
 	std::vector<Bookmark> map_bookmarks;  ///< foom: view state, see the design notes
 	ForeignData map_foreign_data;  ///< foom: see the design notes, "OCD round trip"
 	std::vector<Extent> map_extents;  ///< foom: see the design notes
+	ElevationSet map_elevation;  ///< foom: see the design notes
 	mutable std::unordered_set<const Object*> stale_index_objects;  ///< foom: to be re-entered into the spatial indexes
 	ObjectSelection object_selection;
 	Object* first_selected_object = nullptr;
