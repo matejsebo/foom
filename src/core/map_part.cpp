@@ -37,6 +37,7 @@
 #include "core/objects/object.h"
 #include "core/symbols/symbol.h"
 #include "undo/object_undo.h"
+#include "fileformats/xml_file_format.h"  // foom
 #include "util/util.h"
 #include "util/xml_stream_util.h"
 
@@ -48,6 +49,9 @@ namespace literal
 	const QLatin1String objects("objects");
 	const QLatin1String object("object");
 	const QLatin1String count("count");
+	const QLatin1String role("role");  // foom
+	const QLatin1String visible("visible");  // foom
+	const QLatin1String string_false("false");  // foom
 }
 
 
@@ -80,11 +84,89 @@ void MapPart::setName(const QString& new_name)
 }
 
 
+// foom
+void MapPart::setRole(Role role)
+{
+	part_role = role;
+	auto const index = map->findPartIndex(this);
+	if (index >= 0)
+		emit map->mapPartChanged(index, this);
+}
+
+// foom
+void MapPart::setVisible(bool visible)
+{
+	if (visible == part_visible)
+		return;
+	part_visible = visible;
+	for (auto* object : objects)
+	{
+		map->setObjectHidden(object, !visible);
+		if (visible)
+		{
+			map->insertRenderablesOfObject(object);
+			map->setObjectAreaDirty(object->getExtent());
+		}
+		else
+		{
+			map->removeRenderablesOfObject(object, true);
+		}
+	}
+	auto const index = map->findPartIndex(this);
+	if (index >= 0)
+	{
+		map->setHasUnsavedChanges(true);
+		emit map->mapPartChanged(index, this);
+	}
+}
+
+// foom, static
+QString MapPart::roleName(Role role)
+{
+	switch (role)
+	{
+	case Role::Map:
+		return QStringLiteral("map");
+	case Role::Layout:
+		return QStringLiteral("layout");
+	case Role::Sketch:
+		return QStringLiteral("sketch");
+	case Role::Issues:
+		return QStringLiteral("issues");
+	}
+	return QStringLiteral("map");
+}
+
+// foom, static
+MapPart::Role MapPart::roleFromName(const QString& name, bool* ok)
+{
+	for (auto role : { Role::Map, Role::Layout, Role::Sketch, Role::Issues })
+	{
+		if (name == roleName(role))
+		{
+			if (ok)
+				*ok = true;
+			return role;
+		}
+	}
+	if (ok)
+		*ok = false;
+	return Role::Map;
+}
+
+
 
 void MapPart::save(QXmlStreamWriter& xml) const
 {
 	XmlElementWriter part_element(xml, literal::part);
 	part_element.writeAttribute(literal::name, name);
+	if (XMLFileFormat::foom_revision >= 1)  // foom
+	{
+		if (part_role != Role::Map)
+			part_element.writeAttribute(literal::role, roleName(part_role));
+		if (!part_visible)
+			part_element.writeAttribute(literal::visible, literal::string_false);
+	}
 	{
 		XmlElementWriter objects_element(xml, literal::objects);
 		objects_element.writeAttribute(literal::count, objects.size());
@@ -103,6 +185,9 @@ MapPart* MapPart::load(QXmlStreamReader& xml, Map& map, SymbolDictionary& symbol
 	
 	XmlElementReader part_element(xml);
 	auto part = new MapPart(part_element.attribute<QString>(literal::name), &map);
+	if (part_element.hasAttribute(literal::role))  // foom
+		part->part_role = roleFromName(part_element.attribute<QString>(literal::role));
+	part->part_visible = part_element.attribute<QString>(literal::visible) != literal::string_false;  // foom
 	
 	while (xml.readNextStartElement())
 	{
@@ -120,6 +205,8 @@ MapPart* MapPart::load(QXmlStreamReader& xml, Map& map, SymbolDictionary& symbol
 				{
 					part->objects.push_back(Object::load(xml, &map, symbol_dict));
 					map.registerObject(part->objects.back());
+					if (!part->part_visible)  // foom
+						map.setObjectHidden(part->objects.back(), true);
 					part->spatial_index.add(part->objects.back());
 				}
 				else
@@ -161,6 +248,8 @@ void MapPart::setObject(Object* object, int pos, bool delete_old)
 	
 	objects[pos] = object;
 	map->registerObject(object);
+	if (!part_visible)  // foom
+		map->setObjectHidden(object, true);
 	object->setMap(map);
 	object->update();
 	spatial_index.enter(object);
@@ -176,6 +265,8 @@ void MapPart::addObject(Object* object, int pos)
 {
 	objects.insert(objects.begin() + pos, object);
 	map->registerObject(object);
+	if (!part_visible)  // foom
+		map->setObjectHidden(object, true);
 	object->setMap(map);
 	object->update();
 	spatial_index.enter(object);
@@ -226,6 +317,14 @@ Object* MapPart::releaseObject(Object* object)
 
 std::unique_ptr<UndoStep> MapPart::importPart(const MapPart* other, const QHash<const Symbol*, Symbol*>& symbol_map, const QTransform& transform, bool select_new_objects)
 {
+	if (!part_visible)  // foom: import as visible, then hide again
+	{
+		setVisible(true);
+		auto undo_step = importPart(other, symbol_map, transform, select_new_objects);
+		setVisible(false);
+		return undo_step;
+	}
+	
 	if (other->getNumObjects() == 0)
 		return {};
 	

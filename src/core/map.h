@@ -39,6 +39,7 @@
 #include <QPointer>
 #include <QRectF>
 #include <QScopedPointer>
+#include <QSet>  // foom
 #include <QSharedData>
 #include <QString>
 #include <QTransform>
@@ -841,6 +842,9 @@ public:
 	 */
 	int findPartIndex(const MapPart* part) const;
 	
+	/** foom: Returns the index of the first part with the role, or -1. */
+	int findPartIndexWithRole(MapPart::Role role) const;
+	
 	/**
 	 * Returns the current map part, i.e. the part where edit operations happen.
 	 */
@@ -1175,6 +1179,16 @@ public:
 	 * Inserts the renderables of the given object, so they will be displayed.
 	 */
 	void insertRenderablesOfObject(const Object* object);
+	
+	/**
+	 * foom: Marks an object of a hidden part; such objects get no renderables.
+	 * 
+	 * MapPart maintains this; unregisterObject() forgets the object.
+	 */
+	void setObjectHidden(const Object* object, bool hidden);
+	
+	/** foom: Returns true for an object of a hidden part. */
+	bool isObjectHidden(const Object* object) const { return hidden_objects.contains(object); }
 	
 	
 	/**
@@ -1758,6 +1772,7 @@ private:
 	bool unsaved_changes_signaled = false; // state of unsaved_changes before signals were blocked
 	
 	std::set<Object*> irregular_objects;
+	QSet<const Object*> hidden_objects;  ///< foom: objects of hidden parts
 	
 	// Static
 	

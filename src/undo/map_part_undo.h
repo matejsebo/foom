@@ -24,6 +24,7 @@
 
 #include "core/symbols/symbol.h"
 #include "undo/undo.h"
+#include "core/map_part.h"  // foom
 
 class QXmlStreamReader;
 class QXmlStreamWriter;
@@ -92,6 +93,9 @@ protected:
 	int index;
 	
 	QString name;
+	
+	MapPart::Role role = MapPart::Role::Map;  ///< foom: restored with the part
+	bool visible = true;                      ///< foom: restored with the part
 };
 
 

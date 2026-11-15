@@ -110,6 +110,37 @@ public:
 	
 	
 	/**
+	 * foom: The role of a part.
+	 * 
+	 * See the design notes, "Layout part".
+	 */
+	enum class Role { Map, Layout, Sketch, Issues };
+	
+	/** foom: Returns the role, map by default. */
+	Role role() const { return part_role; }
+	
+	/** foom: Sets the role. Not an undo step. */
+	void setRole(Role role);
+	
+	/** foom: Returns true unless the part is hidden. */
+	bool isVisible() const { return part_visible; }
+	
+	/**
+	 * foom: Shows or hides the part.
+	 * 
+	 * A hidden part's objects get no renderables in the map, so they are not
+	 * drawn, printed or exported to images. Not an undo step.
+	 */
+	void setVisible(bool visible);
+	
+	/** foom: Returns the file name of a role: map, layout, sketch, issues. */
+	static QString roleName(Role role);
+	
+	/** foom: Returns the role of a file name; map and ok false when unknown. */
+	static Role roleFromName(const QString& name, bool* ok = nullptr);
+	
+	
+	/**
 	 * Returns the number of objects in the part.
 	 */
 	int getNumObjects() const;
@@ -296,6 +327,8 @@ private:
 	ObjectList objects;  ///< @todo This could be a spatial representation optimized for quick access
 	Map* const map;
 	mutable SpatialIndex spatial_index;  ///< foom: maintained lazily, see query()
+	Role part_role = Role::Map;  ///< foom
+	bool part_visible = true;    ///< foom
 };
 
 

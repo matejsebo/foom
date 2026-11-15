@@ -26,6 +26,7 @@
 
 #include "core/map.h"
 #include "core/map_part.h"
+#include "fileformats/xml_file_format.h"  // foom
 #include "util/xml_stream_util.h"
 
 
@@ -38,6 +39,8 @@ namespace literal
 	const QLatin1String remove("remove");
 	const QLatin1String modify("modify");
 	const QLatin1String name("name");
+	const QLatin1String role("role");  // foom
+	const QLatin1String visible("visible");  // foom
 }
 
 
@@ -49,6 +52,8 @@ MapPartUndoStep::MapPartUndoStep(Map* map, MapPartChange change, const MapPart* 
 , change(change)
 , index(map->findPartIndex(part))
 , name(part->getName())
+, role(part->role())
+, visible(part->isVisible())
 {
 	// nothing else
 }
@@ -58,6 +63,8 @@ MapPartUndoStep::MapPartUndoStep(Map* map, MapPartChange change, int index)
 , change(change)
 , index(index)
 , name(map->getPart(index)->getName())
+, role(map->getPart(index)->role())
+, visible(map->getPart(index)->isVisible())
 {
 	// nothing else
 }
@@ -92,6 +99,8 @@ UndoStep* MapPartUndoStep::undo()
 	case AddMapPart:
 		Q_ASSERT(map->getNumParts()+1 > index);
 		map->addPart(new MapPart(name, map), index);
+		map->getPart(index)->setRole(role);  // foom
+		map->getPart(index)->setVisible(visible);  // foom
 		redo_step = new MapPartUndoStep(map, RemoveMapPart, index);
 	    break;
 	case RemoveMapPart:
@@ -154,6 +163,10 @@ void MapPartUndoStep::saveImpl(QXmlStreamWriter &xml) const
 	case AddMapPart:
 	case ModifyMapPart:
 		change_element.writeAttribute(literal::name, name);
+		if (XMLFileFormat::foom_revision >= 1 && role != MapPart::Role::Map)  // foom
+			change_element.writeAttribute(literal::role, MapPart::roleName(role));
+		if (XMLFileFormat::foom_revision >= 1 && !visible)  // foom
+			change_element.writeAttribute(literal::visible, QStringLiteral("false"));
 		break;
 	case RemoveMapPart:
 	case UndefinedChange:
@@ -173,6 +186,8 @@ void MapPartUndoStep::loadImpl(QXmlStreamReader &xml, SymbolDictionary &)
 			change = (MapPartChange)type;
 		index = change_element.attribute<int>(literal::part);
 		name  = change_element.attribute<QString>(literal::name);
+		role = MapPart::roleFromName(change_element.attribute<QString>(literal::role));  // foom
+		visible = change_element.attribute<QString>(literal::visible) != QLatin1String("false");  // foom
 	}
 }
 

@@ -867,9 +867,21 @@ void Map::removeRenderablesOfObject(const Object* object, bool mark_area_as_dirt
 }
 void Map::insertRenderablesOfObject(const Object* object)
 {
+	if (!hidden_objects.isEmpty() && hidden_objects.contains(object))  // foom: hidden part
+		return;
 	renderables->insertRenderablesOfObject(object);
 	if (isObjectSelected(object))
 		addSelectionRenderables(object);
+}
+
+
+// foom
+void Map::setObjectHidden(const Object* object, bool hidden)
+{
+	if (hidden)
+		hidden_objects.insert(object);
+	else
+		hidden_objects.remove(object);
 }
 
 
@@ -2098,6 +2110,17 @@ int Map::findPartIndex(const MapPart* part) const
 	return -1;
 }
 
+// foom
+int Map::findPartIndexWithRole(MapPart::Role role) const
+{
+	for (std::size_t i = 0; i < parts.size(); ++i)
+	{
+		if (parts[i]->role() == role)
+			return int(i);
+	}
+	return -1;
+}
+
 void Map::setCurrentPartIndex(std::size_t index)
 {
 	Q_ASSERT(index < parts.size());
@@ -2211,6 +2234,7 @@ void Map::registerObject(Object* object)
 
 void Map::unregisterObject(Object* object)
 {
+	hidden_objects.remove(object);  // foom
 	auto const existing = objects_by_uuid.constFind(object->uuid());
 	if (existing != objects_by_uuid.constEnd() && *existing == object)
 		objects_by_uuid.erase(existing);
@@ -2288,7 +2312,10 @@ QRectF Map::calculateExtent(bool include_helper_symbols, bool include_templates,
 	
 	// Objects
 	for (const MapPart* part : parts)
-		rectIncludeSafe(rect, part->calculateExtent(include_helper_symbols));
+	{
+		if (part->isVisible())  // foom: hidden parts are not drawn
+			rectIncludeSafe(rect, part->calculateExtent(include_helper_symbols));
+	}
 	
 	// Templates
 	if (include_templates)
