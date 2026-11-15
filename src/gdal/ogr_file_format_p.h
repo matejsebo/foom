@@ -30,6 +30,8 @@
 #include <QFlags>
 #include <QHash>
 #include <QString>
+#include <QStringList>  // foom
+#include <QTransform>  // foom
 #include <QtGlobal>
 
 // The GDAL/OGR C API is more stable than the C++ API.
@@ -180,6 +182,14 @@ namespace ogr
  * 
  * The option "separate_layers" will cause OGR layers to be imported as distinct
  * map parts if set to true.
+ * 
+ * foom: the import options set "foom layers" (QStringList, the layers to read;
+ * empty means all), "foom srs" (a coordinate system for every layer),
+ * "foom unreferenced" (ignore the data's coordinate system),
+ * "foom drawing transform" (QTransform from data units to paper millimetres,
+ * y up, for data read as drawing coordinates) and "foom layer name tag"
+ * (tag every object with its layer name). See "Import options" in
+ * the design notes.
  */
 class OgrFileImport : public Importer
 {
@@ -376,6 +386,13 @@ private:
 	
 	bool georeferencing_import_enabled = true;
 	bool clip_layers;
+	
+	// foom: the import options, see the class documentation.
+	QStringList layer_filter;
+	QTransform drawing_transform;
+	ogr::unique_srs srs_override;
+	bool ignore_srs = false;
+	bool layer_name_tag = false;
 };
 
 

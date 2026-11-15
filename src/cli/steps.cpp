@@ -49,6 +49,7 @@
 #include "job.h"
 #include "mapper_config.h"
 #include "core/crs_template.h"
+#include "core/crt_rules.h"
 #include "core/georeferencing.h"
 #include "core/latlon.h"
 #include "core/map.h"
@@ -60,6 +61,9 @@
 #include "fileformats/file_format.h"
 #include "fileformats/file_format_registry.h"
 #include "fileformats/file_import_export.h"
+#ifdef MAPPER_USE_GDAL
+#  include "gdal/geodata_import.h"  // foom
+#endif
 
 
 namespace OpenOrienteering {
@@ -325,6 +329,36 @@ struct ExportExtent
  * Parses the `extent` parameter: `print-area` (default), `map`, or a box
  * [x, y, width, height] in millimetres on paper.
  */
+/**
+ * Returns the layer names of the import step's "layer": a string or an array of strings.
+ */
+QStringList parseImportLayers(const Params& p)
+{
+	QStringList layers;
+	if (!p.has("layer"))
+		return layers;
+	auto const v = p.value("layer");
+	if (v.isString())
+	{
+		layers.push_back(v.toString());
+	}
+	else if (v.isArray())
+	{
+		for (auto const& item : v.toArray())
+		{
+			if (!item.isString())
+				p.fail(QLatin1String("\"layer\" must be a layer name or an array of layer names"));
+			layers.push_back(item.toString());
+		}
+	}
+	else
+	{
+		p.fail(QLatin1String("\"layer\" must be a layer name or an array of layer names"));
+	}
+	return layers;
+}
+
+
 ExportExtent parseExtent(const Params& p)
 {
 	ExportExtent extent;
@@ -506,37 +540,6 @@ const FileFormat* resolveSaveFormat(const Params& p, const QString& path, const 
 
 
 
-// ### CRT ###
-
-/**
- * Loads a CRT file. The replacement symbols come from symbol_set, the
- * patterns are matched against object_map's symbols, as in SymbolReplacement.
- */
-bool loadCrtRules(const QString& path, const Map& symbol_set, const Map& object_map, SymbolRuleSet& rules, QString& error)
-{
-	QFile file(path);
-	if (!file.open(QIODevice::ReadOnly))
-	{
-		error = QString::fromLatin1("cannot read the CRT file \"%1\": %2").arg(path, file.errorString());
-		return false;
-	}
-	
-	QTextStream stream(&file);
-	rules = SymbolRuleSet::loadCrt(stream, symbol_set);
-	if (stream.status() != QTextStream::Ok)
-	{
-		error = QString::fromLatin1("cannot parse the CRT file \"%1\"").arg(path);
-		return false;
-	}
-	
-	rules.recognizeSymbolPatterns(object_map);
-	if (auto const* ambiguous = rules.findDuplicateSymbolPattern())
-	{
-		error = QString::fromLatin1("the CRT file \"%1\" has multiple replacements for symbol %2").arg(path, ambiguous->getNumberAsString());
-		return false;
-	}
-	return true;
-}
 
 
 }  // namespace
@@ -569,8 +572,9 @@ void StepRunner::validate(const Step& step, bool& map_open)
 		p.checkKnown({ "path", "crt", "layer", "clip" });
 		p.requireString("path");
 		p.optionalString("crt");
-		p.unsupported("layer", "the import options are not built yet");
-		p.unsupported("clip", "the import options are not built yet");
+		parseImportLayers(p);
+		if (p.has("clip"))
+			p.numberArray(p.value("clip"), 4, QLatin1String("\"clip\""));
 	}
 	else if (name == QLatin1String("apply-crt"))
 	{
@@ -703,11 +707,46 @@ StepResult StepRunner::open(const Step& step)
 }
 
 
+#ifdef MAPPER_USE_GDAL
+// foom: the import step with the import options
+static StepResult importGeodataStep(Map& map, const Job& job, const Params& p, const QString& path, const QString& crt)
+{
+	auto const* format = FileFormats.findFormatForFilename(path, &FileFormat::supportsFileImport);
+	if (!format || qstrcmp(format->id(), "OGR") != 0)
+		return failure(QString::fromLatin1("\"layer\" and \"clip\" apply to geodata files, not to \"%1\"").arg(path));
+	
+	GeodataImportOptions options;
+	options.layers = parseImportLayers(p);
+	if (p.has("clip"))
+	{
+		auto const box = p.numberArray(p.value("clip"), 4, QLatin1String("\"clip\""));
+		options.clip = geodataClipBox(map, QRectF(QPointF(box[0], box[1]), QPointF(box[2], box[3])));
+	}
+	if (!crt.isEmpty())
+		options.crt_file = job.resolvePath(crt);
+	
+	auto const outcome = importGeodata(map, { path }, options);
+	if (!outcome.ok)
+		return failure(outcome.error);
+	StepResult result;
+	result.details.insert(QLatin1String("path"), path);
+	result.details.insert(QLatin1String("objects"), outcome.objects);
+	addWarnings(result, std::vector<QString>(outcome.warnings.begin(), outcome.warnings.end()));
+	return result;
+}
+#endif
+
+
 StepResult StepRunner::import(const Step& step)
 {
 	Params p(step);
 	auto const path = job.resolvePath(p.requireString("path"));
 	auto const crt = p.optionalString("crt");
+	
+#ifdef MAPPER_USE_GDAL
+	if (p.has("layer") || p.has("clip"))
+		return importGeodataStep(*map, job, p, path, crt);  // foom: the import options
+#endif
 	
 	Map imported;
 	imported.setScaleDenominator(map->getScaleDenominator());  // for non-scaled geodata

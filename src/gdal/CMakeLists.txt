@@ -34,6 +34,8 @@ set(MAPPER_GDAL_SOURCES
   gdal_manager.cpp
   gdal_settings_page.cpp
   gdal_template.cpp
+  geodata_import.cpp
+  geodata_import_dialog.cpp
   kmz_groundoverlay_export.cpp
   map_service.cpp
   map_service_capabilities.cpp

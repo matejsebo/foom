@@ -402,6 +402,8 @@ public slots:
 	/** Shows a file selector to open a template. */
 	void openTemplateClicked();
 	void addMapServiceClicked();  // foom
+	/** foom: Asks for geodata files, then imports them with the import options (import-geodata). */
+	void importGeodataClicked();
 	void updateMapServiceAction();  // foom
 	/** Shows the ReopenTemplateDialog. */
 	void reopenTemplateClicked();
@@ -782,6 +784,8 @@ public:
 	bool importMapFile(const QString& filename, bool show_errors);
 	/** Imports a data file supported by OGR into the map */
 	bool importOgrFile(const QString& filename);
+	/** foom: Shows the import options for the files, then imports them. */
+	bool importGeodataFiles(const QStringList& filenames);
 	
 public slots:
 	/** Sets the enabled state of actions which change how the map is rendered,
@@ -984,6 +988,7 @@ private:
 	QAction* open_template_act = {};
 	QAction* reopen_template_act = {};
 	QAction* add_map_service_act = {};  // foom
+	QAction* import_geodata_act = {};  // foom
 	
 	QAction* tags_window_act = {};
 	QPointer<EditorDockWidget> tags_dock_widget;

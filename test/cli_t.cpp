@@ -376,11 +376,11 @@ private slots:
 				{ QStringLiteral("course"), QStringLiteral("H21") },
 			}),
 		});
-		QTest::newRow("import clip is unsupported") << jobDocument({
+		QTest::newRow("import clip needs four numbers") << jobDocument({
 			step(QStringLiteral("open"), {{ QStringLiteral("path"), testData(QStringLiteral("rotated.omap")) }}),
 			step(QStringLiteral("import"), {
 				{ QStringLiteral("path"), testData(QStringLiteral("barrier.omap")) },
-				{ QStringLiteral("clip"), QJsonArray{ 0, 0, 10, 10 } },
+				{ QStringLiteral("clip"), QJsonArray{ 0, 0, 10 } },
 			}),
 		});
 	}

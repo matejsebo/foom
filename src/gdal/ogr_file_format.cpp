@@ -706,7 +706,14 @@ OgrFileImport::OgrFileImport(const QString& path, Map* map, MapView* view, UnitT
 	setOption(QString::fromLatin1("Clip layers"), clip_layers);
 	
 	setOption(QLatin1String{ "Separate layers" }, QVariant{ false });
-	
+
+	// foom: the import options, off by default
+	setOption(QString::fromLatin1("foom layers"), QStringList{});
+	setOption(QString::fromLatin1("foom srs"), QString{});
+	setOption(QString::fromLatin1("foom unreferenced"), false);
+	setOption(QString::fromLatin1("foom drawing transform"), QTransform{});
+	setOption(QString::fromLatin1("foom layer name tag"), false);
+
 	// OGR feature style defaults
 	default_pen_color = new MapColor(QLatin1String{"Purple"}, 0); 
 	default_pen_color->setSpotColorName(QLatin1String{"PURPLE"});
@@ -804,6 +811,12 @@ void OgrFileImport::prepare()
 {
 	Importer::prepare();
 	clip_layers = option(QString::fromLatin1("Clip layers")).toBool();
+	
+	// foom: the import options, see the design notes, "Import options"
+	layer_filter = option(QString::fromLatin1("foom layers")).toStringList();
+	drawing_transform = option(QString::fromLatin1("foom drawing transform")).value<QTransform>();
+	ignore_srs = option(QString::fromLatin1("foom unreferenced")).toBool();
+	layer_name_tag = option(QString::fromLatin1("foom layer name tag")).toBool();
 }
 
 bool OgrFileImport::importImplementation()
@@ -822,6 +835,20 @@ bool OgrFileImport::importImplementation()
 		if (!driver_name.isEmpty())
 		{
 			map->setSymbolSetId(QString::fromLatin1(driver_name));
+		}
+	}
+	
+	// foom: the coordinate system override of the import options
+	srs_override.reset();
+	auto const srs_spec = option(QString::fromLatin1("foom srs")).toString();
+	if (!srs_spec.isEmpty())
+	{
+		srs_override.reset(OSRNewSpatialReference(nullptr));
+		OSRSetAxisMappingStrategy(srs_override.get(), OAMS_TRADITIONAL_GIS_ORDER);
+		if (OSRSetFromUserInput(srs_override.get(), srs_spec.toUtf8().constData()) != OGRERR_NONE)
+		{
+			addWarning(tr("Unknown coordinate reference system: %1").arg(srs_spec));
+			return false;
 		}
 	}
 	
@@ -860,6 +887,9 @@ bool OgrFileImport::importImplementation()
 				continue;
 			}
 			
+			if (!layer_filter.isEmpty() && !layer_filter.contains(QString::fromUtf8(OGR_L_GetName(layer))))  // foom
+				continue;
+			
 			auto part = map->getCurrentPart();
 			if (option(QLatin1String("Separate layers")).toBool())
 			{
@@ -879,7 +909,14 @@ bool OgrFileImport::importImplementation()
 				}
 			}
 				
+			auto const objects_before = part->getNumObjects();  // foom
 			importLayer(part, layer);
+			if (layer_name_tag)  // foom: the layer name tag of the import options
+			{
+				auto const layer_name = QString::fromUtf8(OGR_L_GetName(layer));
+				for (auto i = objects_before; i < part->getNumObjects(); ++i)
+					part->getObject(i)->setTag(QString::fromLatin1("layer_name"), layer_name);
+			}
 		}
 		
 		const auto& offset = MapCoord::boundsOffset();
@@ -1068,6 +1105,10 @@ void OgrFileImport::importLayer(MapPart* map_part, OGRLayerH layer)
 void OgrFileImport::importFeature(MapPart* map_part, OGRFeatureDefnH feature_definition, OGRFeatureH feature, OGRGeometryH geometry, const Clipping* clipping)
 {
 	auto new_srs = OGR_G_GetSpatialReference(geometry);
+	if (ignore_srs)  // foom: unreferenced import
+		new_srs = nullptr;
+	else if (srs_override)  // foom: coordinate system override
+		new_srs = srs_override.get();
 	if (!setSRS(new_srs))
 		return;
 	
@@ -1760,7 +1801,8 @@ AreaSymbol* OgrFileImport::getSymbolForBrush(OGRStyleToolH tool, const QByteArra
 
 MapCoord OgrFileImport::fromDrawing(double x, double y) const
 {
-	return MapCoord::load(x, -y, MapCoord::Flags{});
+	auto const p = drawing_transform.map(QPointF{x, y});  // foom: identity unless the import options set it
+	return MapCoord::load(p.x(), -p.y(), MapCoord::Flags{});
 }
 
 MapCoord OgrFileImport::fromProjected(double x, double y) const

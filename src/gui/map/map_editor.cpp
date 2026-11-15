@@ -213,6 +213,8 @@
 
 #ifdef MAPPER_USE_GDAL
 #include "gdal/ogr_template.h"
+#include "gdal/geodata_import.h"  // foom
+#include "gdal/geodata_import_dialog.h"  // foom
 #include "gdal/map_service_dialog.h"  // foom
 #include "gdal/tile_service_template.h"  // foom
 #endif
@@ -1227,6 +1229,9 @@ void MapEditorController::createActions()
 	mappart_merge_act = newAction("mergemapparts", tr("Merge all parts"), this, SLOT(mergeAllMapParts()));
 	
 	import_act = newAction("import", tr("Import..."), this, SLOT(importClicked()), nullptr, QString{}, "file_menu.html");
+#ifdef MAPPER_USE_GDAL
+	import_geodata_act = newAction("import-geodata", tr("Import geodata..."), this, SLOT(importGeodataClicked()), nullptr, QString{}, "file_menu.html");  // foom
+#endif
 	
 	map_coordinates_act = new QAction(tr("Map coordinates"), this);
 	map_coordinates_act->setCheckable(true);
@@ -1277,6 +1282,8 @@ void MapEditorController::createMenuAndToolbars()
 	insertion_act = print_act;
 #endif
 	file_menu->insertAction(insertion_act, import_act);
+	if (import_geodata_act)  // foom
+		file_menu->insertAction(insertion_act, import_geodata_act);
 #ifdef QT_PRINTSUPPORT_LIB
 	QMenu* export_menu = new QMenu(tr("&Export as..."), file_menu);
 	export_menu->menuAction()->setMenuRole(QAction::NoRole);
@@ -5400,7 +5407,11 @@ void MapEditorController::importClicked()
 	
 	if (qstrcmp(format_id, "OGR") == 0)
 	{
+#ifdef MAPPER_USE_GDAL
+		importGeodataFiles({ filename });  // foom: the import options
+#else
 		importOgrFile(filename);
+#endif
 		return;
 	}
 	
@@ -5485,6 +5496,53 @@ bool MapEditorController::importOgrFile(const QString& filename)
 	
 	return importMapWithReplacement(*template_map, Map::MinimalObjectImport | Map::GeorefImport, filename);
 #else
+	return false;
+#endif
+}
+
+
+// foom
+void MapEditorController::importGeodataClicked()
+{
+#ifdef MAPPER_USE_GDAL
+	// the design notes, "Import options".
+	QSettings settings;
+	auto const import_directory = settings.value(QString::fromLatin1("importFileDirectory"), QDir::homePath()).toString();
+	auto const* format = FileFormats.findFormat("OGR");
+	if (!format)
+		return;
+	auto extensions = format->fileExtensions();
+	extensions.sort(Qt::CaseInsensitive);
+	QString const filter = tr("Geodata") + QLatin1String(" (*.") + extensions.join(QLatin1String(" *.")) + QLatin1String(");;") + tr("All files") + QLatin1String(" (*.*)");
+	auto const filenames = QFileDialog::getOpenFileNames(window, tr("Import geodata"), import_directory, filter);
+	if (filenames.isEmpty())
+		return;
+	settings.setValue(QString::fromLatin1("importFileDirectory"), QFileInfo(filenames.front()).canonicalPath());
+	importGeodataFiles(filenames);
+#endif
+}
+
+// foom
+bool MapEditorController::importGeodataFiles(const QStringList& filenames)
+{
+#ifdef MAPPER_USE_GDAL
+	auto const view_rect = main_view->calculateViewedRect(map_widget->viewportToView(map_widget->rect()));
+	GeodataImportDialog dialog(filenames, *map, view_rect, window);
+	if (dialog.exec() != QDialog::Accepted)
+		return false;
+	
+	auto const result = importGeodata(*map, filenames, dialog.options());
+	if (!result.ok)
+	{
+		QMessageBox::warning(window, tr("Import geodata"), result.error);
+		return false;
+	}
+	if (!result.warnings.isEmpty())
+		MainWindow::showMessageBox(window, tr("Warning"), tr("The import generated warnings."), std::vector<QString>(result.warnings.begin(), result.warnings.end()));
+	window->showStatusBarMessage(tr("Imported %n object(s).", nullptr, result.objects), 4000);
+	return true;
+#else
+	Q_UNUSED(filenames)
 	return false;
 #endif
 }
