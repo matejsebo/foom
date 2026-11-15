@@ -237,6 +237,7 @@ if(TARGET mapper-elevation)
 	set(FOOM_FIXTURES_DIR "" CACHE PATH "A folder with further test fixtures")
 	target_compile_definitions(elevation_t PRIVATE "FOOM_FIXTURES_DIR=\"${FOOM_FIXTURES_DIR}\"")
 endif()
+add_system_test(import_points_t)  # foom: the design notes, Delimited text
 add_system_test(text_symbol_t)
 add_system_test(line_taper_t)
 add_system_test(area_pattern_t)

@@ -129,6 +129,7 @@ set(Mapper_Common_SRCS
   core/ops/topology.cpp
   core/ops/buildings.cpp
   core/ops/smooth.cpp
+  core/ops/import_points.cpp
   core/ops/rectangle_box.cpp
   core/renderables/path_text_renderable.cpp
   core/symbols/text_symbol_path.cpp
@@ -205,6 +206,7 @@ set(Mapper_Common_SRCS
   gui/map/elevation_dialogs.cpp
   gui/map/legibility_dialog.cpp
   gui/map/topology_dialogs.cpp
+  gui/map/import_points_dialog.cpp
   gui/map/rectangle_box_dialog.cpp
   gui/map/find_replace_text_dialog.cpp
   gui/map/move_parallel_dialog.cpp

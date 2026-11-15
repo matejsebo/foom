@@ -146,6 +146,7 @@
 #include "gui/map/map_information_dialog.h"
 #include "gui/map/map_notes.h"
 #include "gui/map/map_widget.h"
+#include "gui/map/import_points_dialog.h"  // foom
 #include "gui/map/move_parallel_dialog.h"
 #include "gui/map/numeric_entry_bar.h"
 #include "gui/map/bookmark_dialog.h"
@@ -1232,6 +1233,7 @@ void MapEditorController::createActions()
 #ifdef MAPPER_USE_GDAL
 	import_geodata_act = newAction("import-geodata", tr("Import geodata..."), this, SLOT(importGeodataClicked()), nullptr, QString{}, "file_menu.html");  // foom
 #endif
+	import_points_act = newAction("import-points", tr("Import points..."), this, SLOT(importPointsClicked()), nullptr, QString{}, "file_menu.html");  // foom
 	
 	map_coordinates_act = new QAction(tr("Map coordinates"), this);
 	map_coordinates_act->setCheckable(true);
@@ -1284,6 +1286,7 @@ void MapEditorController::createMenuAndToolbars()
 	file_menu->insertAction(insertion_act, import_act);
 	if (import_geodata_act)  // foom
 		file_menu->insertAction(insertion_act, import_geodata_act);
+	file_menu->insertAction(insertion_act, import_points_act);  // foom
 #ifdef QT_PRINTSUPPORT_LIB
 	QMenu* export_menu = new QMenu(tr("&Export as..."), file_menu);
 	export_menu->menuAction()->setMenuRole(QAction::NoRole);
@@ -5520,6 +5523,42 @@ void MapEditorController::importGeodataClicked()
 	settings.setValue(QString::fromLatin1("importFileDirectory"), QFileInfo(filenames.front()).canonicalPath());
 	importGeodataFiles(filenames);
 #endif
+}
+
+// foom
+void MapEditorController::importPointsClicked()
+{
+	// the design notes, "Import options", Delimited text.
+	QSettings settings;
+	auto const import_directory = settings.value(QString::fromLatin1("importFileDirectory"), QDir::homePath()).toString();
+	QString const filter = tr("Delimited text") + QLatin1String(" (*.csv *.txt *.tsv *.xyz);;") + tr("All files") + QLatin1String(" (*.*)");
+	auto const filename = QFileDialog::getOpenFileName(window, tr("Import points"), import_directory, filter);
+	if (filename.isEmpty())
+		return;
+	settings.setValue(QString::fromLatin1("importFileDirectory"), QFileInfo(filename).canonicalPath());
+	
+	QFile file(filename);
+	if (!file.open(QIODevice::ReadOnly))
+	{
+		QMessageBox::warning(window, tr("Import points"), tr("Cannot open file:\n%1\n\n%2").arg(filename, file.errorString()));
+		return;
+	}
+	auto const text = QString::fromUtf8(file.readAll());
+	
+	ImportPointsDialog dialog(text, *map, activeSymbol(), window);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	auto result = ops::importPoints(*map, text, dialog.params());
+	auto const warning = result.warning;
+	result.warning.clear();
+	auto const objects = int(result.out.size());
+	auto const failed = !result.error.isEmpty();
+	applyOpResult(std::move(result));
+	if (failed)
+		return;
+	if (!warning.isEmpty())
+		QMessageBox::information(window, tr("Import points"), warning);
+	window->showStatusBarMessage(tr("Imported %n object(s).", nullptr, objects), 4000);
 }
 
 // foom

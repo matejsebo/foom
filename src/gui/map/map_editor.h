@@ -404,6 +404,8 @@ public slots:
 	void addMapServiceClicked();  // foom
 	/** foom: Asks for geodata files, then imports them with the import options (import-geodata). */
 	void importGeodataClicked();
+	/** foom: Asks for a delimited text file, then imports its rows as points (import-points). */
+	void importPointsClicked();
 	void updateMapServiceAction();  // foom
 	/** Shows the ReopenTemplateDialog. */
 	void reopenTemplateClicked();
@@ -989,6 +991,7 @@ private:
 	QAction* reopen_template_act = {};
 	QAction* add_map_service_act = {};  // foom
 	QAction* import_geodata_act = {};  // foom
+	QAction* import_points_act = {};  // foom
 	
 	QAction* tags_window_act = {};
 	QPointer<EditorDockWidget> tags_dock_widget;
