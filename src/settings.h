@@ -64,6 +64,7 @@ public:
 		RectangleTool_HelperCrossRadiusMM,
 		RectangleTool_PreviewLineWidth,
 		Templates_KeepSettingsOfClosed,
+		Templates_TileCacheMB,  // foom
 		SymbolWidget_IconSizeMM,
 		SymbolWidget_ShowCustomIcons,
 		ActionGridBar_ButtonSizeMM,

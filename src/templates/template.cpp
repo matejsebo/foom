@@ -57,6 +57,7 @@
 #include "fileformats/file_format.h"
 #include "gdal/gdal_template.h"
 #include "gdal/ogr_template.h"
+#include "gdal/tile_service_template.h"  // foom
 #include "gui/file_dialog.h"
 #include "templates/template_image.h"
 #include "templates/template_map.h"
@@ -1053,6 +1054,8 @@ std::unique_ptr<Template> Template::templateForType(const QStringRef& type, cons
 		t = std::make_unique<GdalTemplate>(path, map);
 	else if (type_cstring == "OgrTemplate" || type_cstring == "TemplateTrack")
 		t = std::make_unique<OgrTemplate>(path, map);
+	else if (type_cstring == TileServiceTemplate::templateType())  // foom
+		t = std::make_unique<TileServiceTemplate>(path, map);
 #endif
 	return t;
 }

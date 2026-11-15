@@ -208,6 +208,8 @@
 
 #ifdef MAPPER_USE_GDAL
 #include "gdal/ogr_template.h"
+#include "gdal/map_service_dialog.h"  // foom
+#include "gdal/tile_service_template.h"  // foom
 #endif
 
 
@@ -821,7 +823,7 @@ void MapEditorController::attach(MainWindow* window)
 	map_widget->setMapView(main_view);
 	map_widget->setZoomDisplay(zoom_display_function);
 	recordView();  // foom: the opening view is the first entry of the view history
-	map_widget->setOverlay([this](QPainter* painter, MapWidget* widget) { drawActiveExtent(painter, widget); });  // foom
+	map_widget->setOverlay([this](QPainter* painter, MapWidget* widget) { drawActiveExtent(painter, widget); drawTemplateAttributions(painter, widget); });  // foom
 	
 	// Create menu and toolbar together, so actions can be inserted into one or both
 	if (mode == MapEditor)
@@ -1112,6 +1114,8 @@ void MapEditorController::createActions()
 	//QAction* template_visibilities_window_act = newCheckAction("templatevisibilitieswindow", tr("Template visibilities window"), this, SLOT(showTemplateVisbilitiesWindow(bool)), "window-new", tr("Show/Hide the template visibilities window"));
 	open_template_act = newAction("opentemplate", tr("Open template..."), this, SLOT(openTemplateClicked()), nullptr, QString{}, "templates_menu.html");
 	reopen_template_act = newAction("reopentemplate", tr("Reopen template..."), this, SLOT(reopenTemplateClicked()), nullptr, QString{}, "templates_menu.html");
+	add_map_service_act = newAction("template-add-service", tr("Add map service..."), this, SLOT(addMapServiceClicked()));  // foom
+	updateMapServiceAction();  // foom
 	
 	tags_window_act = newCheckAction("tagswindow", tr("Tag editor"), this, SLOT(showTagsWindow(bool)), "tag-editor.png", tr("Show/Hide the tag editor window"), "tag_editor.html");
 	
@@ -1463,6 +1467,7 @@ void MapEditorController::createMenuAndToolbars()
 	template_menu->addSeparator();
 	template_menu->addAction(open_template_act);
 	template_menu->addAction(reopen_template_act);
+	template_menu->addAction(add_map_service_act);  // foom
 	
 	// Extend and activate general toolbar
 	QToolBar* main_toolbar = window->getGeneralToolBar();
@@ -2364,6 +2369,7 @@ void MapEditorController::copyDisplayedCoords()
 
 void MapEditorController::projectionChanged()
 {
+	updateMapServiceAction();  // foom
 	const Georeferencing& geo(map->getGeoreferencing());
 	
 	projected_coordinates_act->setText(geo.getProjectedCoordinatesName());
@@ -2528,6 +2534,82 @@ void MapEditorController::openTemplateClicked()
 		hideAllTemplates(false);
 		showTemplateWindow(true);
 	}
+}
+
+// foom
+void MapEditorController::addMapServiceClicked()
+{
+	// the design notes, "Tile and map service templates".
+#ifdef MAPPER_USE_GDAL
+	MapServiceDialog dialog(this, window);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	auto new_template = std::make_unique<TileServiceTemplate>(dialog.service(), map);
+	if (!new_template->setupAndLoad(window, main_view))
+	{
+		QMessageBox::warning(window, tr("Add map service"), tr("Cannot open the map service:\n%1").arg(new_template->errorString()));
+		return;
+	}
+	map->addTemplate(-1, std::move(new_template));
+	hideAllTemplates(false);
+	showTemplateWindow(true);
+#endif
+}
+
+// foom
+void MapEditorController::updateMapServiceAction()
+{
+	if (!add_map_service_act)
+		return;
+	QString reason;
+#ifdef MAPPER_USE_GDAL
+	if (!TileServiceTemplate::driversAvailable(&reason))
+		;  // reason is set
+	else if (map->getGeoreferencing().getState() != Georeferencing::Geospatial)
+		reason = tr("The map must be georeferenced with a projected coordinate system (Map > Georeferencing...).");
+#else
+	reason = tr("This build has no GDAL support.");
+#endif
+	add_map_service_act->setEnabled(reason.isEmpty());
+	add_map_service_act->setToolTip(reason);
+	add_map_service_act->setStatusTip(reason);
+}
+
+// foom
+void MapEditorController::drawTemplateAttributions(QPainter* painter, MapWidget* widget) const
+{
+	// the design notes, "Attribution and fair use".
+#ifdef MAPPER_USE_GDAL
+	QStringList attributions;
+	auto const* view = widget->getMapView();
+	for (int i = 0; i < map->getNumTemplates(); ++i)
+	{
+		auto const* temp = qobject_cast<const TileServiceTemplate*>(map->getTemplate(i));
+		if (!temp || temp->getTemplateState() != Template::Loaded || temp->service().attribution.isEmpty())
+			continue;
+		if (view->areAllTemplatesHidden() || !view->isTemplateVisible(temp))
+			continue;
+		if (!attributions.contains(temp->service().attribution))
+			attributions.append(temp->service().attribution);
+	}
+	if (attributions.isEmpty())
+		return;
+	auto const text = attributions.join(QLatin1String(" | "));
+	painter->save();
+	auto font = painter->font();
+	font.setPointSizeF(qMax(6.0, font.pointSizeF() * 0.8));
+	painter->setFont(font);
+	auto const metrics = painter->fontMetrics();
+	auto const rect = QRectF(widget->width() - metrics.horizontalAdvance(text) - 10, widget->height() - metrics.height() - 4,
+	                         metrics.horizontalAdvance(text) + 8, metrics.height() + 2);
+	painter->fillRect(rect, QColor(255, 255, 255, 180));
+	painter->setPen(QColor(40, 40, 40));
+	painter->drawText(rect, Qt::AlignCenter, text);
+	painter->restore();
+#else
+	Q_UNUSED(painter)
+	Q_UNUSED(widget)
+#endif
 }
 
 void MapEditorController::reopenTemplateClicked()

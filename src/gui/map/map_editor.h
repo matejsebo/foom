@@ -242,6 +242,7 @@ public:
 	
 	/** foom: Draws the active extent as a sheet outline; the map widget's overlay. */
 	void drawActiveExtent(QPainter* painter, MapWidget* widget) const;
+	void drawTemplateAttributions(QPainter* painter, MapWidget* widget) const;  // foom
 	
 	/** foom: Returns the issue model of the Issues window. */
 	IssueModel* issueModel() const { return issue_model; }
@@ -399,6 +400,8 @@ public slots:
 	void showTemplateWindow(bool show);
 	/** Shows a file selector to open a template. */
 	void openTemplateClicked();
+	void addMapServiceClicked();  // foom
+	void updateMapServiceAction();  // foom
 	/** Shows the ReopenTemplateDialog. */
 	void reopenTemplateClicked();
 	/** Adjusts action availability based on the presence of templates */
@@ -967,6 +970,7 @@ private:
 	TemplateListWidget* template_list_widget;
 	QAction* open_template_act = {};
 	QAction* reopen_template_act = {};
+	QAction* add_map_service_act = {};  // foom
 	
 	QAction* tags_window_act = {};
 	QPointer<EditorDockWidget> tags_dock_widget;
