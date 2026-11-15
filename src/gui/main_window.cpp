@@ -62,6 +62,9 @@
 #include "gui/util_gui.h"
 #include "gui/map/map_editor.h"
 #include "gui/map/new_map_dialog.h"
+#ifdef MAPPER_USE_GDAL
+#  include "gdal/new_map_wizard.h"  // foom
+#endif
 #include "gui/widgets/toast.h"
 #include "undo/undo_manager.h"
 #include "util/util.h"
@@ -382,6 +385,15 @@ void MainWindow::createFileMenu()
 	new_act->setWhatsThis(Util::makeWhatThis("file_menu.html"));
 	connect(new_act, &QAction::triggered, this, &MainWindow::showNewMapWizard);
 	
+#ifdef MAPPER_USE_GDAL
+	// foom: the design notes, "New map flow"
+	QAction* new_flow_act = new QAction(tr("New map wizard..."), this);
+	new_flow_act->setObjectName(QString::fromLatin1("file-new-wizard"));
+	new_flow_act->setMenuRole(QAction::NoRole);
+	new_flow_act->setStatusTip(tr("Create a new map for an area, with georeferencing and OpenStreetMap data"));
+	connect(new_flow_act, &QAction::triggered, this, &MainWindow::showNewMapFlow);
+#endif
+	
 	QAction* open_act = new QAction(QIcon(QString::fromLatin1(":/images/open.png")), tr("&Open..."), this);
 	open_act->setMenuRole(QAction::NoRole);
 	open_act->setShortcuts(QKeySequence::Open);
@@ -447,6 +459,9 @@ void MainWindow::createFileMenu()
 
 	file_menu->setWhatsThis(Util::makeWhatThis("file_menu.html"));
 	file_menu->addAction(new_act);
+#ifdef MAPPER_USE_GDAL
+	file_menu->addAction(new_flow_act);  // foom
+#endif
 	file_menu->addAction(open_act);
 	file_menu->addAction(save_act);
 	file_menu->addAction(save_as_act);
@@ -800,6 +815,22 @@ MainWindow* MainWindow::findMainWindow(const QString& file_name)
 	}
 	
 	return nullptr;
+}
+
+// foom
+void MainWindow::showNewMapFlow()
+{
+#ifdef MAPPER_USE_GDAL
+	NewMapDialog new_map_dialog(this);
+	new_map_dialog.setWindowModality(Qt::WindowModal);
+	if (new_map_dialog.exec() != QDialog::Accepted)
+		return;
+	
+	NewMapWizard wizard(new_map_dialog.getSelectedSymbolSetPath(), new_map_dialog.getSelectedScale(), this);
+	if (wizard.exec() != QDialog::Accepted)
+		return;
+	openPath(wizard.mapPath());
+#endif
 }
 
 void MainWindow::showNewMapWizard()

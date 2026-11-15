@@ -229,6 +229,9 @@ if (Mapper_USE_GDAL)
 	target_include_directories(geodata_import_t SYSTEM PRIVATE ${GDAL_INCLUDE_DIRS})
 	target_link_libraries(geodata_import_t PRIVATE ${GDAL_LIBRARIES})
 	target_compile_definitions(geodata_import_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
+	add_system_test(new_map_t)  # foom: new-map flow, the design notes
+	target_link_libraries(new_map_t PRIVATE Qt5::Network)
+	target_compile_definitions(new_map_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
 endif()
 if(TARGET mapper-elevation)
 	add_system_test(elevation_t)  # foom: the design notes

@@ -63,6 +63,7 @@
 #include "fileformats/file_import_export.h"
 #ifdef MAPPER_USE_GDAL
 #  include "gdal/geodata_import.h"  // foom
+#  include "gdal/new_map.h"  // foom
 #endif
 
 
@@ -576,6 +577,27 @@ void StepRunner::validate(const Step& step, bool& map_open)
 		if (p.has("clip"))
 			p.numberArray(p.value("clip"), 4, QLatin1String("\"clip\""));
 	}
+	else if (name == QLatin1String("new-map"))  // foom
+	{
+		p.checkKnown({ "box", "symbol_set", "scale", "crs", "declination", "rotate_to_magnetic", "osm", "osm_config", "endpoint", "crt", "tile_service", "path" });
+		if (!p.has("box"))
+			p.fail(QLatin1String("needs \"box\": [south, west, north, east] in degrees"));
+		p.numberArray(p.value("box"), 4, QLatin1String("\"box\""));
+		p.requireString("symbol_set");
+		p.requireString("path");
+		if (p.has("scale"))
+			p.requirePositiveInt("scale");
+		p.optionalString("crs");
+		if (p.has("declination"))
+			p.requireNumber("declination");
+		p.optionalBool("rotate_to_magnetic", true);
+		for (auto parameter : { "osm", "osm_config", "endpoint", "crt", "tile_service" })
+			p.optionalString(parameter);
+#ifndef MAPPER_USE_GDAL
+		p.fail(QLatin1String("step \"new-map\" needs GDAL"));
+#endif
+		map_open = true;
+	}
 	else if (name == QLatin1String("apply-crt"))
 	{
 		p.requireMap(map_open);
@@ -669,6 +691,8 @@ StepResult StepRunner::run(const Step& step)
 		return open(step);
 	if (name == QLatin1String("import"))
 		return import(step);
+	if (name == QLatin1String("new-map"))
+		return newMap(step);
 	if (name == QLatin1String("apply-crt"))
 		return applyCrt(step);
 	if (name == QLatin1String("replace-symbols"))
@@ -782,6 +806,51 @@ StepResult StepRunner::import(const Step& step)
 	map->importMap(imported, Map::MinimalObjectImport | Map::GeorefImport);
 	result.details.insert(QLatin1String("objects"), map->getNumObjects() - objects_before);
 	return result;
+}
+
+
+// foom: the design notes, "New map flow"
+StepResult StepRunner::newMap(const Step& step)
+{
+#ifdef MAPPER_USE_GDAL
+	Params p(step);
+	NewMapParams params;
+	auto const box = p.numberArray(p.value("box"), 4, QLatin1String("\"box\""));
+	params.box = { box[0], box[1], box[2], box[3] };
+	params.symbol_set_path = job.resolvePath(p.requireString("symbol_set"));
+	params.map_path = job.resolvePath(p.requireString("path"));
+	if (p.has("scale"))
+		params.scale = p.requirePositiveInt("scale");
+	params.crs_spec = p.optionalString("crs");
+	if (p.has("declination"))
+		params.declination = p.requireNumber("declination");
+	params.rotate_to_magnetic = p.optionalBool("rotate_to_magnetic", true);
+	auto const osm = p.optionalString("osm");
+	if (!osm.isEmpty())
+		params.osm_path = job.resolvePath(osm);
+	auto const osm_config = p.optionalString("osm_config");
+	if (!osm_config.isEmpty())
+		params.osm_config = job.resolvePath(osm_config);
+	params.endpoint = p.optionalString("endpoint");
+	auto const crt = p.optionalString("crt");
+	if (!crt.isEmpty())
+		params.crt_file = job.resolvePath(crt);
+	params.tile_service = p.optionalString("tile_service");
+	
+	auto outcome = createNewMap(params);
+	if (!outcome.ok)
+		return failure(outcome.error);
+	map = std::move(outcome.map);
+	StepResult result;
+	result.details.insert(QLatin1String("path"), params.map_path);
+	result.details.insert(QLatin1String("osm"), outcome.osm_path);
+	result.details.insert(QLatin1String("objects"), outcome.objects);
+	addWarnings(result, std::vector<QString>(outcome.warnings.begin(), outcome.warnings.end()));
+	return result;
+#else
+	Q_UNUSED(step)
+	return failure(QString::fromLatin1("step \"new-map\" needs GDAL"));
+#endif
 }
 
 

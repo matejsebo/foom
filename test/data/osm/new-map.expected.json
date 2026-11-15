@@ -1,0 +1,14 @@
+{
+  "comment": "Object count per symbol number for new-map.osm, ISOM 2017-2 at 1:10000 with OSM-ISOM 2017-2.crt. 1 is the importer's default point symbol (bicycle parking has no rule).",
+  "counts": {
+    "1": 1,
+    "301": 1,
+    "401": 1,
+    "417": 1,
+    "503": 1,
+    "504": 1,
+    "505": 1,
+    "521": 2,
+    "531": 1
+  }
+}

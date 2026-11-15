@@ -40,6 +40,8 @@ set(MAPPER_GDAL_SOURCES
   map_service.cpp
   map_service_capabilities.cpp
   map_service_dialog.cpp
+  new_map.cpp
+  new_map_wizard.cpp
   ogr_file_format.cpp
   ogr_template.cpp
   tile_pyramid.cpp

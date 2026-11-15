@@ -113,7 +113,7 @@ int main(int argc, char** argv)
 	parser.setApplicationDescription(QLatin1String(
 	  "foom-cli runs the steps of a job file without the editor window.\n"
 	  "The job file is JSON: {\"steps\": [{\"step\": \"open\", \"path\": \"map.foom\"}, ...]}.\n"
-	  "Steps: open, import, apply-crt, replace-symbols, change-scale,\n"
+	  "Steps: open, new-map, import, apply-crt, replace-symbols, change-scale,\n"
 	  "set-georeferencing, check, export, save-as. Paths are relative to the job file.\n"
 	  "One JSON line per executed step goes to standard output.\n"
 	  "Exit code 0 on success, 1 on a failed step, 2 on a malformed job."));

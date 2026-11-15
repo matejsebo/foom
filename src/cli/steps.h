@@ -84,6 +84,7 @@ public:
 private:
 	StepResult open(const Step& step);
 	StepResult import(const Step& step);
+	StepResult newMap(const Step& step);  // foom
 	StepResult applyCrt(const Step& step);
 	StepResult replaceSymbols(const Step& step);
 	StepResult changeScale(const Step& step);

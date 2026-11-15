@@ -306,6 +306,9 @@ public slots:
 	 */
 	void showNewMapWizard();
 	
+	/** foom: The new-map flow: OOM's New dialog, then area, georeferencing, data and run (file-new-wizard). */
+	void showNewMapFlow();
+	
 	/**
 	 * Show a file-open dialog and load the select file.
 	 * 

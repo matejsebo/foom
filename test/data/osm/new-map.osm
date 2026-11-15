@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  A synthetic response in the format of the Overpass API, written for
+  test/new_map_t.cpp. It is not OpenStreetMap data.
+  Box: south 51.2480, west -102.3550, north 51.2520, east -102.3490.
+  The track (way 103) and the meadow (way 106) reach outside the box.
+  As in the answer to the query of the new-map flow, every node comes
+  before the ways: GDAL's OSM driver drops nodes that follow them.
+-->
+<osm version="0.6" generator="foom test">
+  <node id="1" lat="51.2490" lon="-102.3540"/>
+  <node id="2" lat="51.2490" lon="-102.3535"/>
+  <node id="3" lat="51.2493" lon="-102.3535"/>
+  <node id="4" lat="51.2493" lon="-102.3540"/>
+  <node id="5" lat="51.2505" lon="-102.3530"/>
+  <node id="6" lat="51.2505" lon="-102.3526"/>
+  <node id="7" lat="51.2508" lon="-102.3526"/>
+  <node id="8" lat="51.2508" lon="-102.3530"/>
+  <node id="9" lat="51.2485" lon="-102.3545"/>
+  <node id="10" lat="51.2495" lon="-102.3530"/>
+  <node id="11" lat="51.2500" lon="-102.3520"/>
+  <node id="12" lat="51.2510" lon="-102.3510"/>
+  <node id="13" lat="51.2512" lon="-102.3495"/>
+  <node id="14" lat="51.2514" lon="-102.3470"/>
+  <node id="15" lat="51.2482" lon="-102.3548"/>
+  <node id="16" lat="51.2482" lon="-102.3500"/>
+  <node id="17" lat="51.2512" lon="-102.3545"/>
+  <node id="18" lat="51.2512" lon="-102.3538"/>
+  <node id="19" lat="51.2516" lon="-102.3538"/>
+  <node id="20" lat="51.2516" lon="-102.3545"/>
+  <node id="21" lat="51.2515" lon="-102.3515"/>
+  <node id="22" lat="51.2515" lon="-102.3505"/>
+  <node id="23" lat="51.2525" lon="-102.3505"/>
+  <node id="24" lat="51.2525" lon="-102.3515"/>
+  <node id="25" lat="51.2500" lon="-102.3540">
+    <tag k="natural" v="tree"/>
+  </node>
+  <node id="26" lat="51.2503" lon="-102.3510">
+    <tag k="amenity" v="bench"/>
+  </node>
+  <node id="27" lat="51.2488" lon="-102.3525">
+    <tag k="amenity" v="bicycle_parking"/>
+  </node>
+  <way id="101">
+    <nd ref="1"/>
+    <nd ref="2"/>
+    <nd ref="3"/>
+    <nd ref="4"/>
+    <nd ref="1"/>
+    <tag k="building" v="yes"/>
+  </way>
+  <way id="102">
+    <nd ref="5"/>
+    <nd ref="6"/>
+    <nd ref="7"/>
+    <nd ref="8"/>
+    <nd ref="5"/>
+    <tag k="building" v="house"/>
+  </way>
+  <way id="103">
+    <nd ref="12"/>
+    <nd ref="13"/>
+    <nd ref="14"/>
+    <tag k="highway" v="track"/>
+  </way>
+  <way id="104">
+    <nd ref="9"/>
+    <nd ref="10"/>
+    <nd ref="11"/>
+    <tag k="highway" v="footway"/>
+  </way>
+  <way id="105">
+    <nd ref="15"/>
+    <nd ref="16"/>
+    <tag k="highway" v="residential"/>
+  </way>
+  <way id="106">
+    <nd ref="21"/>
+    <nd ref="22"/>
+    <nd ref="23"/>
+    <nd ref="24"/>
+    <nd ref="21"/>
+    <tag k="landuse" v="meadow"/>
+  </way>
+  <way id="107">
+    <nd ref="17"/>
+    <nd ref="18"/>
+    <nd ref="19"/>
+    <nd ref="20"/>
+    <nd ref="17"/>
+    <tag k="natural" v="water"/>
+  </way>
+</osm>
