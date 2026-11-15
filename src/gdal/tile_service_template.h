@@ -93,6 +93,15 @@ public:
 
 	const char* getTemplateType() const override { return templateType(); }
 	bool isRasterGraphics() const override { return true; }
+	
+	/**
+	 * A finite square of 100 m of paper around the map origin.
+	 * 
+	 * A service covers whatever the views show; the base class's extent of
+	 * 10^11 mm overflows the pixel rectangle of a repaint, so loading would
+	 * repaint nothing.
+	 */
+	QRectF getTemplateExtent() const override;
 
 	const MapService& service() const { return service_; }
 

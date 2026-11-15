@@ -163,6 +163,13 @@ TileServiceTemplate* TileServiceTemplate::duplicate() const
 }
 
 
+QRectF TileServiceTemplate::getTemplateExtent() const
+{
+	constexpr double half = 100000.0;  // millimetres on paper
+	return { -half, -half, 2 * half, 2 * half };
+}
+
+
 Template::LookupResult TileServiceTemplate::tryToFindTemplateFile(const QString& /*map_path*/)
 {
 	if (getTemplateState() != Loaded)

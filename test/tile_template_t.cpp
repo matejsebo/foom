@@ -692,6 +692,19 @@ private slots:
 		QVERIFY(s == service);
 	}
 
+	void repaintExtentTest()
+	{
+		// Accept (10)
+		Map map;
+		setupMap(map);
+		auto* temp = new TileServiceTemplate(MapService::presets().front(), &map);
+		map.addTemplate(0, std::unique_ptr<Template>(temp));
+		auto const box = temp->calculateTemplateBoundingBox();
+		QVERIFY(box.isValid());
+		QVERIFY(QRectF(-1.0e6, -1.0e6, 2.0e6, 2.0e6).contains(box));
+		QVERIFY(box.contains(QRectF(-1.0e4, -1.0e4, 2.0e4, 2.0e4)));
+	}
+
 	void capabilitiesTest()
 	{
 		// Accept (6)
