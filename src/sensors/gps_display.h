@@ -27,6 +27,8 @@
 #include <QString>
 
 #include "core/map_coord.h"
+#include "sensors/fix_gate.h"  // foom
+#include "sensors/nmea_fix.h"  // foom
 
 class QGeoPositionInfo;
 class QGeoPositionInfoSource;
@@ -84,7 +86,8 @@ public:
 	void paint(QPainter* painter);
 	
 	/// Returns if a valid position was received since the last call to startUpdates().
-	bool hasValidPosition() const { return has_valid_position; }
+	/// foom: False while the latest fix did not pass the quality gate.
+	bool hasValidPosition() const { return has_valid_position && !fix_rejected; }
 	/// Returns the latest received GPS coord. Check hasValidPosition() beforehand!
 	const MapCoordF& getLatestGPSCoord() const { return latest_gps_coord; }
 	/// Returns the accuracy of the latest received GPS coord, or -1 if unknown. Check hasValidPosition() beforehand!
@@ -98,6 +101,14 @@ public:
 	
 	/// Returns true while blinking is active.
 	bool isBlinking() const { return blink_count > 0; }
+	
+	/// foom: The quality gate which a fix has to pass before it is passed on.
+	/// See the design notes, "GNSS sources: detail".
+	const FixGateSettings& fixGate() const { return fix_gate; }
+	/// foom: Sets the quality gate. It is read from the settings initially and when they change.
+	void setFixGate(const FixGateSettings& settings);
+	/// foom: The quality data of the latest fix, whether it passed the gate or not.
+	const FixInfo& latestFix() const { return latest_fix; }
 	
 protected:
 	/// Handles blinking.
@@ -117,6 +128,10 @@ signals:
 	/// due to loss of satellite reception or another error such as the user
 	/// turning off the GPS receiver.
 	void positionUpdatesInterrupted();
+	
+	/// foom: Is emitted for every fix, before it is passed on or held back.
+	/// The verdict is a FixGate::Verdict.
+	void fixChecked(const OpenOrienteering::FixInfo& fix, int verdict);
 	
 private slots:
     void positionUpdated(const QGeoPositionInfo& info);
@@ -170,6 +185,9 @@ private:
 	bool visible                   = false;
 	bool distance_rings_enabled    = false;
 	bool heading_indicator_enabled = false;
+	bool fix_rejected              = false;  // foom
+	FixGateSettings fix_gate;                // foom
+	FixInfo latest_fix;                      // foom
 };
 
 

@@ -59,6 +59,19 @@ target_include_directories(fake_position_source  PRIVATE "${PROJECT_SOURCE_DIR}/
 target_link_libraries(fake_position_source  ${FAKE_POSITION_LINK_LIBRARIES})
 
 
+# foom: the quality data of a fix as read from NMEA sentences,
+# for the NMEA plugin and for the quality gate in mapper-sensors.
+
+add_library(foom-nmea-fix STATIC  nmea_fix.cpp)
+target_compile_definitions(foom-nmea-fix
+  PRIVATE
+    QT_NO_CAST_FROM_ASCII
+    QT_NO_CAST_TO_ASCII
+    QT_USE_QSTRINGBUILDER
+)
+target_link_libraries(foom-nmea-fix  PUBLIC Qt5::Core)
+
+
 # OpenOrienteeringNmeaPlugin
 #
 # For testing purposes, we build this plugin on all platforms,
@@ -84,6 +97,7 @@ if(TARGET Qt5::Positioning)
 	)
 	list(APPEND NMEA_POSITION_LINK_LIBRARIES
 	  PRIVATE Qt5::Positioning
+	  PRIVATE foom-nmea-fix  # foom
 	)
 	if(TARGET Qt5::SerialPort)
 		list(APPEND NMEA_POSITION_LINK_LIBRARIES
@@ -137,6 +151,8 @@ target_link_libraries(powershell_position_source  ${POWERSHELL_POSITION_LINK_LIB
 
 set(MAPPER_SENSORS_SOURCES
   compass.cpp
+  fix_gate.cpp       # foom
+  fix_gate_rows.cpp  # foom
   gps_display.cpp
   gps_temporary_markers.cpp
   gps_track_recorder.cpp
@@ -159,6 +175,7 @@ target_compile_definitions(mapper-sensors  ${MAPPER_SENSORS_DEFINITIONS})
 target_include_directories(mapper-sensors  PRIVATE "${PROJECT_SOURCE_DIR}/src")
 target_link_libraries(mapper-sensors
   PUBLIC
+    foom-nmea-fix  # foom
     nmea_position_source
     powershell_position_source
     Qt5::Core

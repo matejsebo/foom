@@ -27,10 +27,13 @@
 #include <QList>
 #include <QNmeaPositionInfoSource>
 #include <QProcess>
+#include <QVariant>
 
 #ifdef QT_SERIALPORT_LIB
 #  include <QSerialPortInfo>
 #endif
+
+#include "nmea_fix.h"  // foom
 
 
 namespace OpenOrienteering
@@ -146,6 +149,20 @@ public:
 
 protected:
 	/**
+	 * foom: Reads the quality fields of GGA and GST in addition to the position,
+	 * and publishes them as a dynamic property of this object.
+	 * 
+	 * See the design notes, "GNSS sources: detail".
+	 */
+	bool parsePosInfoFromNmeaData(const char* data, int size, QGeoPositionInfo* posInfo, bool* hasFix) override
+	{
+		auto const result = fix_parser.feed(QByteArray::fromRawData(data, size));
+		if (result == NmeaFixParser::Gga || result == NmeaFixParser::Gst)
+			setProperty(FixInfo::propertyName(), QVariant::fromValue(fix_parser.fix()));
+		return QNmeaPositionInfoSource::parsePosInfoFromNmeaData(data, size, posInfo, hasFix);
+	}
+	
+	/**
 	 * Sets the error and emits the error signal (unless NoError).
 	 */
 	void setError(QGeoPositionInfoSource::Error value)
@@ -167,6 +184,7 @@ protected:
 private:
 	QProcess process;
 	Error position_error = NoError;
+	NmeaFixParser fix_parser;  // foom
 };
 
 

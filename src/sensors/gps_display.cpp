@@ -45,6 +45,7 @@
 #include <QPointF>
 #include <QTimer>  // IWYU pragma: keep
 #include <QTimerEvent>
+#include <QVariant>
 
 #include "settings.h"
 #include "core/georeferencing.h"
@@ -65,6 +66,21 @@ namespace {
 
 // Opacities as understood by QPainter::setOpacity().
 static qreal opacity_curve[] = { 0.8, 1.0, 0.8, 0.5, 0.2, 0.0, 0.2, 0.5 };
+
+#if defined(QT_POSITIONING_LIB)
+/// foom: The quality data of a fix: what the source read from its sentences,
+/// if it reads sentences, and the accuracy of the position.
+FixInfo fixInfoOf(const QObject* source, const QGeoPositionInfo& info)
+{
+	FixInfo fix;
+	auto const property = source ? source->property(FixInfo::propertyName()) : QVariant{};
+	if (property.canConvert<FixInfo>())
+		fix = property.value<FixInfo>();
+	if (info.hasAttribute(QGeoPositionInfo::HorizontalAccuracy))
+		fix.accuracy = info.attribute(QGeoPositionInfo::HorizontalAccuracy);
+	return fix;
+}
+#endif
 
 }  // namespace
 
@@ -108,6 +124,11 @@ GPSDisplay::GPSDisplay(MapWidget* widget, const Georeferencing& georeferencing, 
  , widget(widget)
  , georeferencing(georeferencing)
 {
+	// foom: the quality gate
+	qRegisterMetaType<FixInfo>();
+	fix_gate = FixGateSettings::load();
+	connect(&Settings::getInstance(), &Settings::settingsChanged, this, [this]() { setFixGate(FixGateSettings::load()); });
+	
 #if defined(QT_POSITIONING_LIB)
 	
 #if defined(MAPPER_USE_FAKE_POSITION_PLUGIN)
@@ -212,6 +233,16 @@ void GPSDisplay::setVisible(bool visible)
 	}
 }
 
+void GPSDisplay::setFixGate(const FixGateSettings& settings)
+{
+	fix_gate = settings;
+	if (has_valid_position)
+	{
+		fix_rejected = FixGate::check(latest_fix, fix_gate) != FixGate::Accepted;
+		updateMapWidget();
+	}
+}
+
 void GPSDisplay::enableDistanceRings(bool enable)
 {
 	distance_rings_enabled = enable;
@@ -233,6 +264,8 @@ void GPSDisplay::paint(QPainter* painter)
 {
 	if (!visible || !has_valid_position)
 		return;
+	if (fix_rejected && fix_gate.policy == FixGateSettings::Hide)  // foom
+		return;
 	
 	// Get GPS position on map widget
 	bool ok = true;
@@ -251,7 +284,7 @@ void GPSDisplay::paint(QPainter* painter)
 	
 	// Highlight markers by white framing.
 	const auto framing = QColor(Qt::white);
-	const auto foreground = QColor(tracking_lost ? Qt::gray : Qt::red);
+	const auto foreground = QColor((tracking_lost || fix_rejected) ? Qt::gray : Qt::red);  // foom: or a fix which failed the quality gate
 	
 	// Draw center dot or arrow
 	if (heading_indicator_enabled)
@@ -369,6 +402,21 @@ void GPSDisplay::timerEvent(QTimerEvent* e)
 void GPSDisplay::positionUpdated(const QGeoPositionInfo& info)
 {
 #if defined(QT_POSITIONING_LIB)
+	// foom: the quality gate. A fix which fails is not passed on;
+	// its marker is drawn in grey, or not at all.
+	latest_fix = fixInfoOf(source, info);
+	auto const verdict = FixGate::check(latest_fix, fix_gate);
+	fix_rejected = verdict != FixGate::Accepted;
+	emit fixChecked(latest_fix, int(verdict));
+	if (fix_rejected)
+	{
+		gps_updated = true;
+		tracking_lost = false;
+		has_valid_position = true;
+		updateMapWidget();
+		return;
+	}
+	
 	gps_updated = true;
 	tracking_lost = false;
 	has_valid_position = true;

@@ -39,6 +39,8 @@
 
 #include "settings.h"
 #include "gui/util_gui.h"
+#include "sensors/fix_gate.h"  // foom
+#include "sensors/fix_gate_rows.h"  // foom
 
 
 namespace OpenOrienteering {
@@ -66,6 +68,8 @@ SensorsSettingsPage::SensorsSettingsPage(QWidget* parent)
 #endif
 	
 	form_layout->addItem(Util::SpacerItem::create(this));
+	fix_gate_rows = new FixGateRows(form_layout, this);  // foom: the quality gate
+	form_layout->addItem(Util::SpacerItem::create(this));
 #endif
 	
 	updateWidgets();
@@ -90,6 +94,8 @@ void SensorsSettingsPage::apply()
 		auto const port = nmea_serialport_box->currentText().trimmed();
 		settings.setNmeaSerialPort(port == tr("Default") ? QString{} : port);
 	}
+	if (fix_gate_rows)  // foom
+		fix_gate_rows->settings().save();
 	
 	Settings::getInstance().applySettings();
 }
@@ -103,6 +109,9 @@ void SensorsSettingsPage::reset()
 
 void SensorsSettingsPage::updateWidgets()
 {
+	if (fix_gate_rows)  // foom
+		fix_gate_rows->setSettings(FixGateSettings::load());
+	
 #ifdef QT_POSITIONING_LIB
 	position_source_box->clear();
 	

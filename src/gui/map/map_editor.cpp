@@ -856,6 +856,10 @@ void MapEditorController::attach(MainWindow* window)
 	if (mode == MapEditor)
 	{
 		gps_display = new GPSDisplay(map_widget, map->getGeoreferencing());
+		connect(gps_display, &GPSDisplay::fixChecked, this, [this](const FixInfo& fix, int verdict) {  // foom: the quality gate
+			if (verdict != FixGate::Accepted)
+				this->window->showStatusBarMessage(FixGate::verdictText(FixGate::Verdict(verdict), fix, gps_display->fixGate()), 3000);
+		});
 		gps_marker_display = new GPSTemporaryMarkers(map_widget, gps_display);
 		
 		createActions();

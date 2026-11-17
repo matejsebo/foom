@@ -31,6 +31,8 @@ class QWidget;
 namespace OpenOrienteering {
 
 
+class FixGateRows;
+
 class SensorsSettingsPage : public SettingsPage
 {
 Q_OBJECT
@@ -51,6 +53,7 @@ protected:
 private:
 	QComboBox* position_source_box = nullptr;
 	QComboBox* nmea_serialport_box = nullptr;
+	FixGateRows* fix_gate_rows = nullptr;  // foom
 	
 };
 

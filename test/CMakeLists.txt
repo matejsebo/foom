@@ -275,6 +275,11 @@ add_system_test(transform_t)
 add_system_test(undo_manager_t)
 
 if(TARGET mapper-sensors)
+	add_system_test(gnss_gate_t)  # foom: the design notes, GNSS quality gate
+	target_link_libraries(gnss_gate_t  PRIVATE mapper-sensors fake_position_source)
+	if(TARGET Qt5::Positioning)
+		target_link_libraries(gnss_gate_t  PRIVATE Qt5::Positioning)
+	endif()
 	add_system_test(sensors_t)
 	target_link_libraries(sensors_t  PRIVATE mapper-sensors)
 	foreach(lib Qt5::Positioning Qt5::Sensors)
