@@ -406,6 +406,20 @@ public slots:
 	void importGeodataClicked();
 	/** foom: Asks for a delimited text file, then imports its rows as points (import-points). */
 	void importPointsClicked();
+	/** foom: Adds the layout part (layout-create). */
+	void createLayoutClicked();
+	/** foom: Hides or shows the layout part (layout-hide). */
+	void hideLayoutClicked(bool hide);
+	/** foom: Moves the selected objects to the layout part (to-layout). */
+	void moveToLayoutClicked();
+	/** foom: Moves the selected objects of the layout part to the map (to-map). */
+	void moveToMapClicked();
+	/** foom: Asks for a file, then writes the layout part to it (layout-save). */
+	void saveLayoutClicked();
+	/** foom: Asks for a file, then merges its layout part (layout-import). */
+	void importLayoutClicked();
+	/** foom: Adjusts the availability of the layout commands. */
+	void updateLayoutActions();
 	void updateMapServiceAction();  // foom
 	/** Shows the ReopenTemplateDialog. */
 	void reopenTemplateClicked();
@@ -992,6 +1006,12 @@ private:
 	QAction* add_map_service_act = {};  // foom
 	QAction* import_geodata_act = {};  // foom
 	QAction* import_points_act = {};  // foom
+	QAction* layout_create_act = {};  // foom
+	QAction* layout_hide_act = {};  // foom
+	QAction* to_layout_act = {};  // foom
+	QAction* to_map_act = {};  // foom
+	QAction* layout_save_act = {};  // foom
+	QAction* layout_import_act = {};  // foom
 	
 	QAction* tags_window_act = {};
 	QPointer<EditorDockWidget> tags_dock_widget;

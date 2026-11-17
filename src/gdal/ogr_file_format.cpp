@@ -80,6 +80,7 @@
 #include "gdal/gdal_file.h"
 #include "gdal/gdal_manager.h"
 #include "gdal/gdal_template.h"
+#include "layout/layout_part.h"  // foom
 #include "templates/template.h"
 #include "util/key_value_container.h"
 
@@ -2119,7 +2120,7 @@ bool OgrFileExport::exportImplementation()
 std::vector<const Symbol*> OgrFileExport::symbolsForExport() const
 {
 	std::vector<bool> symbols_in_use;
-	map->determineSymbolsInUse(symbols_in_use);
+	determineMapContentSymbolsInUse(*map, symbols_in_use);  // foom: not the layout
 	
 	const auto num_symbols = map->getNumSymbols();
 	std::vector<const Symbol*> symbols;
@@ -2247,7 +2248,7 @@ void OgrFileExport::addPointsToLayer(OGRLayerH layer, const std::function<bool (
 			throw FileFormatException(tr("Failed to create feature in layer: %1").arg(QString::fromLatin1(CPLGetLastErrorMsg())));
 	};
 
-	map->applyOnMatchingObjects(add_feature, condition);
+	applyOnMapContent(*map, add_feature, condition);  // foom: not the layout
 }
 
 void OgrFileExport::addTextToLayer(OGRLayerH layer, const std::function<bool (const Object*)>& condition)
@@ -2296,7 +2297,7 @@ void OgrFileExport::addTextToLayer(OGRLayerH layer, const std::function<bool (co
 			throw FileFormatException(tr("Failed to create feature in layer: %1").arg(QString::fromLatin1(CPLGetLastErrorMsg())));
 	};
 
-	map->applyOnMatchingObjects(add_feature, condition);
+	applyOnMapContent(*map, add_feature, condition);  // foom: not the layout
 }
 
 void OgrFileExport::addLinesToLayer(OGRLayerH layer, const std::function<bool (const Object*)>& condition)
@@ -2337,7 +2338,7 @@ void OgrFileExport::addLinesToLayer(OGRLayerH layer, const std::function<bool (c
 		}
 	};
 
-	map->applyOnMatchingObjects(add_feature, condition);
+	applyOnMapContent(*map, add_feature, condition);  // foom: not the layout
 }
 
 void OgrFileExport::addAreasToLayer(OGRLayerH layer, const std::function<bool (const Object*)>& condition)
@@ -2382,7 +2383,7 @@ void OgrFileExport::addAreasToLayer(OGRLayerH layer, const std::function<bool (c
 			throw FileFormatException(tr("Failed to create feature in layer: %1").arg(QString::fromLatin1(CPLGetLastErrorMsg())));
 	};
 
-	map->applyOnMatchingObjects(add_feature, condition);
+	applyOnMapContent(*map, add_feature, condition);  // foom: not the layout
 }
 
 OGRLayerH OgrFileExport::createLayer(const char* layer_name, OGRwkbGeometryType type)

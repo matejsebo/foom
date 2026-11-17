@@ -81,6 +81,7 @@ private:
 	QCheckBox* adjust_georeferencing_check;
 	QCheckBox* adjust_declination_check;
 	QCheckBox* adjust_templates_check;
+	QCheckBox* include_layout_check;  // foom
 };
 
 

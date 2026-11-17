@@ -1361,10 +1361,11 @@ public:
 	 * @param adjust_georeferencing Whether to adjust the georeferencing reference point.
 	 * @param adjust_declination Whether to adjust the georeferencing declination.
 	 * @param adjust_templates Whether to adjust non-georeferenced templates.
+	 * @param include_layout foom: Whether to rotate the objects of layout parts too.
 	 */
 	void rotateMap(double rotation, const MapCoord& center,
 		bool adjust_georeferencing, bool adjust_declination,
-		bool adjust_templates);
+		bool adjust_templates, bool include_layout = false);
 	
 	
 	/** Returns the map notes string. */

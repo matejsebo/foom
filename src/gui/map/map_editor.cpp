@@ -147,6 +147,7 @@
 #include "gui/map/map_notes.h"
 #include "gui/map/map_widget.h"
 #include "gui/map/import_points_dialog.h"  // foom
+#include "layout/layout_part.h"  // foom
 #include "gui/map/move_parallel_dialog.h"
 #include "gui/map/numeric_entry_bar.h"
 #include "gui/map/bookmark_dialog.h"
@@ -522,6 +523,7 @@ void MapEditorController::setEditingInProgress(bool value)
 		mappart_move_menu->setEnabled(!editing_in_progress && num_parts > 1);
 		mappart_merge_act->setEnabled(!editing_in_progress && num_parts > 1);
 		mappart_merge_menu->setEnabled(!editing_in_progress && num_parts > 1);
+		updateLayoutActions();  // foom
 		
 		// Symbol menu
 		symbol_set_id_act->setEnabled(!editing_in_progress);
@@ -1234,6 +1236,13 @@ void MapEditorController::createActions()
 	import_geodata_act = newAction("import-geodata", tr("Import geodata..."), this, SLOT(importGeodataClicked()), nullptr, QString{}, "file_menu.html");  // foom
 #endif
 	import_points_act = newAction("import-points", tr("Import points..."), this, SLOT(importPointsClicked()), nullptr, QString{}, "file_menu.html");  // foom
+	// foom: the design notes, "Layout part commands"
+	layout_create_act = newAction("layout-create", tr("Create layout part"), this, SLOT(createLayoutClicked()), nullptr, QString{}, "map_menu.html");
+	layout_hide_act = newCheckAction("layout-hide", tr("Hide layout"), this, SLOT(hideLayoutClicked(bool)), nullptr, QString{}, "view_menu.html");
+	to_layout_act = newAction("to-layout", tr("Move to layout"), this, SLOT(moveToLayoutClicked()), nullptr, tr("Moves the selected objects to the layout part."), "edit_menu.html");
+	to_map_act = newAction("to-map", tr("Move to map"), this, SLOT(moveToMapClicked()), nullptr, tr("Moves the selected objects of the layout part to the map."), "edit_menu.html");
+	layout_save_act = newAction("layout-save", tr("Save layout..."), this, SLOT(saveLayoutClicked()), nullptr, QString{}, "file_menu.html");
+	layout_import_act = newAction("layout-import", tr("Import layout..."), this, SLOT(importLayoutClicked()), nullptr, QString{}, "file_menu.html");
 	
 	map_coordinates_act = new QAction(tr("Map coordinates"), this);
 	map_coordinates_act->setCheckable(true);
@@ -1287,6 +1296,11 @@ void MapEditorController::createMenuAndToolbars()
 	if (import_geodata_act)  // foom
 		file_menu->insertAction(insertion_act, import_geodata_act);
 	file_menu->insertAction(insertion_act, import_points_act);  // foom
+	auto* layout_file_menu = new QMenu(tr("Layout"), file_menu);  // foom
+	layout_file_menu->menuAction()->setMenuRole(QAction::NoRole);
+	layout_file_menu->addAction(layout_save_act);
+	layout_file_menu->addAction(layout_import_act);
+	file_menu->insertMenu(insertion_act, layout_file_menu);
 #ifdef QT_PRINTSUPPORT_LIB
 	QMenu* export_menu = new QMenu(tr("&Export as..."), file_menu);
 	export_menu->menuAction()->setMenuRole(QAction::NoRole);
@@ -1311,6 +1325,8 @@ void MapEditorController::createMenuAndToolbars()
 	edit_menu->addAction(paste_act);
 	edit_menu->addAction(paste_original_act);
 	edit_menu->addAction(delete_act);
+	edit_menu->addAction(to_layout_act);  // foom
+	edit_menu->addAction(to_map_act);  // foom
 	edit_menu->addSeparator();
 	edit_menu->addAction(select_all_act);
 	edit_menu->addAction(select_nothing_act);
@@ -1353,6 +1369,7 @@ void MapEditorController::createMenuAndToolbars()
 	view_menu->addAction(baseline_view_act);
 	view_menu->addAction(overprinting_simulation_act);
 	view_menu->addAction(hide_all_templates_act);
+	view_menu->addAction(layout_hide_act);  // foom
 	view_menu->addSeparator();
 	QMenu* coordinates_menu = new QMenu(tr("Display coordinates as..."), view_menu);
 	coordinates_menu->menuAction()->setMenuRole(QAction::NoRole);
@@ -1443,6 +1460,7 @@ void MapEditorController::createMenuAndToolbars()
 	map_menu->addSeparator();
 	updateMapPartsUI();
 	map_menu->addAction(mappart_add_act);
+	map_menu->addAction(layout_create_act);  // foom
 	map_menu->addAction(mappart_rename_act);
 	map_menu->addAction(mappart_remove_act);
 	map_menu->addMenu(mappart_move_menu);
@@ -2945,6 +2963,7 @@ void MapEditorController::updateObjectDependentActions()
 	scale_act->setEnabled(have_selection);
 	scale_act->setStatusTip(tr("Scale the selected objects.") + (scale_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select at least one object to activate this tool."))));
 	mappart_move_menu->setEnabled(have_selection && have_multiple_parts);
+	updateLayoutActions();  // foom
 	
 	// have_rotatable_pattern || have_rotatable_point
 	rotate_pattern_act->setEnabled(have_rotatable_pattern || have_rotatable_object);
@@ -5087,6 +5106,7 @@ void MapEditorController::updateMapPartsUI()
 		
 		mappart_selector_box->setCurrentIndex(current);
 	}
+	updateLayoutActions();  // foom
 }
 
 void MapEditorController::addMapPart()
@@ -5526,6 +5546,80 @@ void MapEditorController::importGeodataClicked()
 }
 
 // foom
+void MapEditorController::createLayoutClicked()
+{
+	addLayoutPart(*map);
+}
+
+void MapEditorController::hideLayoutClicked(bool hide)
+{
+	if (setLayoutVisible(*map, !hide))
+		map->updateAllMapWidgets();
+	updateLayoutActions();
+}
+
+void MapEditorController::moveToLayoutClicked()
+{
+	moveSelectionToPart(*map, layoutPartIndex(*map));
+}
+
+void MapEditorController::moveToMapClicked()
+{
+	moveSelectionToPart(*map, mapContentPartIndex(*map));
+}
+
+void MapEditorController::saveLayoutClicked()
+{
+	QSettings settings;
+	auto const directory = settings.value(QString::fromLatin1("importFileDirectory"), QDir::homePath()).toString();
+	QString const filter = tr("Map files") + QLatin1String(" (*.foom *.omap *.xmap)");
+	auto filename = QFileDialog::getSaveFileName(window, tr("Save layout"), directory, filter);
+	if (filename.isEmpty())
+		return;
+	if (QFileInfo(filename).suffix().isEmpty())
+		filename += QLatin1String(".foom");
+	settings.setValue(QString::fromLatin1("importFileDirectory"), QFileInfo(filename).canonicalPath());
+	QString error;
+	if (!saveLayout(*map, filename, &error))
+		QMessageBox::warning(window, tr("Save layout"), error);
+}
+
+void MapEditorController::importLayoutClicked()
+{
+	QSettings settings;
+	auto const directory = settings.value(QString::fromLatin1("importFileDirectory"), QDir::homePath()).toString();
+	QString const filter = tr("Map files") + QLatin1String(" (*.foom *.omap *.xmap);;") + tr("All files") + QLatin1String(" (*.*)");
+	auto const filename = QFileDialog::getOpenFileName(window, tr("Import layout"), directory, filter);
+	if (filename.isEmpty())
+		return;
+	settings.setValue(QString::fromLatin1("importFileDirectory"), QFileInfo(filename).canonicalPath());
+	QString error;
+	auto const count = importLayoutFile(*map, filename, &error);
+	if (count < 0)
+		QMessageBox::warning(window, tr("Import layout"), error);
+	else
+		window->showStatusBarMessage(tr("Imported %n layout object(s).", nullptr, count), 2000);
+}
+
+void MapEditorController::updateLayoutActions()
+{
+	if (!layout_create_act || !map)
+		return;
+	auto const layout = layoutPartIndex(*map);
+	auto const current = int(map->getCurrentPartIndex());
+	auto const have_selection = map->getNumSelectedObjects() > 0;
+	layout_create_act->setEnabled(!editing_in_progress && layout < 0);
+	layout_hide_act->setEnabled(layout >= 0);
+	{
+		const QSignalBlocker blocker(layout_hide_act);
+		layout_hide_act->setChecked(layout >= 0 && !map->getPart(std::size_t(layout))->isVisible());
+	}
+	to_layout_act->setEnabled(!editing_in_progress && have_selection && layout >= 0 && current != layout);
+	to_map_act->setEnabled(!editing_in_progress && have_selection && layout >= 0 && current == layout && mapContentPartIndex(*map) >= 0);
+	layout_save_act->setEnabled(layout >= 0);
+	layout_import_act->setEnabled(!editing_in_progress);
+}
+
 void MapEditorController::importPointsClicked()
 {
 	// the design notes, "Import options", Delimited text.

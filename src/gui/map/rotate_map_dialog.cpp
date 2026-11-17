@@ -36,6 +36,7 @@
 #include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_coord.h"
+#include "core/map_part.h"  // foom
 #include "gui/util_gui.h"
 
 
@@ -99,6 +100,12 @@ RotateMapDialog::RotateMapDialog(const Map& map, QWidget* parent, Qt::WindowFlag
 	adjust_templates_check = new QCheckBox(tr("Rotate non-georeferenced templates"));
 	adjust_templates_check->setChecked(true);
 	layout->addRow(adjust_templates_check);
+	
+	// foom: the design notes, "Layout part commands"
+	include_layout_check = new QCheckBox(tr("Include layout objects"));
+	include_layout_check->setChecked(false);
+	include_layout_check->setEnabled(map.findPartIndexWithRole(MapPart::Role::Layout) >= 0);
+	layout->addRow(include_layout_check);
 	
 	
 	QDialogButtonBox* button_box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, Qt::Horizontal);
@@ -166,10 +173,11 @@ RotateMapDialog::RotationOp RotateMapDialog::makeRotation() const
 	auto adjust_georeferencing = adjust_georeferencing_check->isChecked();
 	auto adjust_declination = adjust_declination_check->isChecked();
 	auto adjust_templates = adjust_templates_check->isChecked();
+	auto include_layout = include_layout_check->isChecked();  // foom
 	auto center_georef = center_georef_radio->isChecked();
-	return [rotation, center, center_georef, adjust_georeferencing, adjust_declination, adjust_templates](Map& map) {
+	return [rotation, center, center_georef, adjust_georeferencing, adjust_declination, adjust_templates, include_layout](Map& map) {
 		auto actual_center = center_georef ? map.getGeoreferencing().getMapRefPoint() : center;
-		map.rotateMap(rotation, actual_center, adjust_georeferencing, adjust_declination, adjust_templates);
+		map.rotateMap(rotation, actual_center, adjust_georeferencing, adjust_declination, adjust_templates, include_layout);
 	};
 }
 

@@ -209,7 +209,10 @@ std::vector<Issue> checkMap(const Map& map)
 	// the design notes, "Map check".
 	std::vector<Issue> issues;
 	for (int p = 0; p < map.getNumParts(); ++p)
-		checkObjects(map, *map.getPart(p), issues);
+	{
+		if (map.getPart(p)->role() != MapPart::Role::Layout)  // the design notes
+			checkObjects(map, *map.getPart(p), issues);
+	}
 	
 	std::vector<bool> symbols_in_use;
 	map.determineSymbolsInUse(symbols_in_use);

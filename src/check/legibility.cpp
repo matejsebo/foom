@@ -535,7 +535,10 @@ std::vector<Issue> checkLegibility(const Map& map, const LegibilityParams& param
 	// the design notes, "Legibility".
 	std::vector<Issue> issues;
 	for (int p = 0; p < map.getNumParts(); ++p)
-		checkPart(*map.getPart(p), params, issues);
+	{
+		if (map.getPart(p)->role() != MapPart::Role::Layout)  // the design notes
+			checkPart(*map.getPart(p), params, issues);
+	}
 	return issues;
 }
 

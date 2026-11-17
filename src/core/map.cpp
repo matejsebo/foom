@@ -565,13 +565,24 @@ void Map::changeScale(unsigned int new_scale_denominator, double additional_stre
 	updateAllMapWidgets();
 }
 
-void Map::rotateMap(double rotation, const MapCoord& center, bool adjust_georeferencing, bool adjust_declination, bool adjust_templates)
+void Map::rotateMap(double rotation, const MapCoord& center, bool adjust_georeferencing, bool adjust_declination, bool adjust_templates, bool include_layout)
 {
 	if (std::fmod(rotation, 2 * M_PI) == 0)
 		return;
 	
 	undo_manager->clear();
-	rotateAllObjects(rotation, center);
+	if (include_layout || findPartIndexWithRole(MapPart::Role::Layout) < 0)
+	{
+		rotateAllObjects(rotation, center);
+	}
+	else  // foom: layout objects keep their coordinates
+	{
+		auto const rotate = ObjectOp::Rotate{rotation, MapCoordF{center}};
+		applyOnAllObjects([&rotate](Object* object, MapPart* part, int /*index*/) {
+			if (part->role() != MapPart::Role::Layout)
+				rotate(object);
+		});
+	}
 	
 	if (adjust_georeferencing)
 	{

@@ -140,6 +140,7 @@ set(Mapper_Common_SRCS
   check/legibility.cpp
   tools/legibility_feedback.cpp
   check/map_check.cpp
+  layout/layout_part.cpp
   core/color_group.cpp
   core/crt_rules.cpp
   core/extents.cpp
