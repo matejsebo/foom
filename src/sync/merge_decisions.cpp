@@ -1,0 +1,138 @@
+/*
+ *    Copyright 2026 Matej Šebo
+ *
+ *    This file is part of FOOM, the Fantastic Open Orienteering Mapper,
+ *    a fork of OpenOrienteering Mapper.
+ *
+ *    FOOM is free software: you can redistribute it and/or modify
+ *    it under the terms of the GNU General Public License as published by
+ *    the Free Software Foundation, either version 3 of the License, or
+ *    (at your option) any later version.
+ *
+ *    FOOM is distributed in the hope that it will be useful,
+ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *    GNU General Public License for more details.
+ *
+ *    You should have received a copy of the GNU General Public License
+ *    along with FOOM.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+
+#include "merge_decisions.h"
+
+#include <QCoreApplication>
+#include <QFile>
+#include <QFileInfo>
+#include <QIODevice>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonValue>
+#include <QLatin1Char>
+#include <QLatin1String>
+#include <QUuid>
+
+#include "sync/merge.h"
+
+
+namespace OpenOrienteering {
+
+namespace {
+
+QLatin1String actionName(MergeRow::Action action)
+{
+	switch (action)
+	{
+	case MergeRow::KeepTheirs:
+		return QLatin1String("theirs");
+	case MergeRow::KeepBoth:
+		return QLatin1String("both");
+	case MergeRow::KeepMine:
+		break;
+	}
+	return QLatin1String("mine");
+}
+
+MergeRow::Action actionNamed(const QString& name)
+{
+	if (name == QLatin1String("theirs"))
+		return MergeRow::KeepTheirs;
+	if (name == QLatin1String("both"))
+		return MergeRow::KeepBoth;
+	return MergeRow::KeepMine;
+}
+
+}  // namespace
+
+
+QString decisionsFilePath(const QString& map_path, const QString& id)
+{
+	const QFileInfo info(map_path);
+	QString path = info.path();
+	path += QLatin1Char('/');
+	path += info.completeBaseName();
+	path += QLatin1String(".merge-");
+	path += id;
+	path += QLatin1String(".json");
+	return path;
+}
+
+bool saveDecisions(const QString& path, const MergePlan& plan, QString* error)
+{
+	QJsonArray rows;
+	for (auto const& row : plan.rows)
+	{
+		QJsonObject entry;
+		entry.insert(QLatin1String("uuid"), row.uuid.toString(QUuid::WithoutBraces));
+		entry.insert(QLatin1String("status"), int(row.status));
+		entry.insert(QLatin1String("mine"), int(row.mine));
+		entry.insert(QLatin1String("theirs"), int(row.theirs));
+		entry.insert(QLatin1String("action"), actionName(row.action));
+		entry.insert(QLatin1String("decided"), row.resolved);
+		rows.append(entry);
+	}
+	QJsonObject document;
+	document.insert(QLatin1String("rows"), rows);
+	
+	QFile file(path);
+	if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write(QJsonDocument(document).toJson()) < 0)
+	{
+		if (error)
+			*error = QCoreApplication::translate("OpenOrienteering::Merge", "Cannot write %1.").arg(path);
+		return false;
+	}
+	return true;
+}
+
+int loadDecisions(const QString& path, MergePlan& plan)
+{
+	QFile file(path);
+	if (!file.open(QIODevice::ReadOnly))
+		return 0;
+	auto const rows = QJsonDocument::fromJson(file.readAll()).object().value(QLatin1String("rows")).toArray();
+	auto taken = 0;
+	for (auto const& value : rows)
+	{
+		auto const entry = value.toObject();
+		auto const uuid = QUuid(entry.value(QLatin1String("uuid")).toString());
+		for (auto& row : plan.rows)
+		{
+			if (row.uuid != uuid)
+				continue;
+			if (int(row.status) == entry.value(QLatin1String("status")).toInt(-1)
+			    && int(row.mine) == entry.value(QLatin1String("mine")).toInt(-1)
+			    && int(row.theirs) == entry.value(QLatin1String("theirs")).toInt(-1))
+			{
+				row.action = actionNamed(entry.value(QLatin1String("action")).toString());
+				row.resolved = entry.value(QLatin1String("decided")).toBool(row.resolved);
+				++taken;
+			}
+			break;
+		}
+	}
+	return taken;
+}
+
+
+}  // namespace OpenOrienteering

@@ -26,7 +26,18 @@
 #include <QtGlobal>
 #include <QtTest>
 #include <QBuffer>
+#include <QBrush>
 #include <QByteArray>
+#include <QColor>
+#include <QComboBox>
+#include <QDateTime>
+#include <QDialog>
+#include <QLabel>
+#include <QPointF>
+#include <QPushButton>
+#include <QRectF>
+#include <QSignalSpy>
+#include <QTableView>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -55,8 +66,10 @@
 #include "core/sync_record.h"
 #include "fileformats/file_import_export.h"
 #include "fileformats/xml_file_format.h"
+#include "gui/map/merge_dialog.h"
 #include "sync/field_copy.h"
 #include "sync/merge.h"
+#include "sync/merge_decisions.h"
 #include "undo/undo_manager.h"
 
 using namespace OpenOrienteering;
@@ -693,6 +706,164 @@ private slots:
 		QVERIFY(map.syncCopies().empty());
 		QVERIFY(!QFileInfo::exists(base_path));
 		QVERIFY(!closeFieldCopy(map, map_path, QString{}, &error));
+	}
+	
+	/// Accept (13), (14), (15)
+	void modelTest()
+	{
+		loadEdited();
+		MergeModel model(*mine, *theirs, compareMaps(base.get(), *mine, *theirs));
+		QCOMPARE(model.rowCount(), 10);
+		QCOMPARE(model.columnCount(), 6);
+		auto const rowOf = [&model](char letter) {
+			for (int i = 0; i < model.rowCount(); ++i)
+			{
+				if (model.plan().rows[std::size_t(i)].uuid == id(letter))
+					return i;
+			}
+			return -1;
+		};
+		auto const text = [&model](int row, int column) {
+			return model.index(row, column).data().toString();
+		};
+		auto const a = rowOf('a');
+		auto const h = rowOf('h');
+		QVERIFY(a >= 0 && h >= 0);
+		QCOMPARE(text(a, MergeModel::ObjectColumn), QStringLiteral("Path"));
+		QCOMPARE(text(a, MergeModel::SymbolColumn), QStringLiteral("1 Line"));
+		QVERIFY(text(a, MergeModel::MineColumn).startsWith(QLatin1String("unchanged")));
+		QVERIFY(text(a, MergeModel::TheirsColumn).startsWith(QLatin1String("changed, ")));
+		QVERIFY(text(a, MergeModel::TheirsColumn).endsWith(QDateTime::fromSecsSinceEpoch(3000).toString(Qt::ISODate)));
+		QCOMPARE(text(a, MergeModel::StatusColumn), QStringLiteral("Incoming"));
+		QCOMPARE(text(a, MergeModel::ActionColumn), QStringLiteral("Keep theirs"));
+		QVERIFY(!model.index(a, 0).data(Qt::ForegroundRole).isValid());
+		QCOMPARE(model.index(h, 0).data(Qt::ForegroundRole).value<QBrush>().color(), QColor(Qt::red));
+		QCOMPARE(text(h, MergeModel::StatusColumn), QStringLiteral("Conflict"));
+		QVERIFY(model.headerData(MergeModel::ActionColumn, Qt::Horizontal).isValid());
+		
+		MergeFilterModel filter;
+		filter.setSourceModel(&model);
+		QCOMPARE(filter.rowCount(), 10);
+		filter.setFilter(MergeFilterModel::Conflicts);
+		QCOMPARE(filter.rowCount(), 4);
+		filter.setFilter(MergeFilterModel::Undecided);
+		QCOMPARE(filter.rowCount(), 4);
+		
+		QSignalSpy changed(&model, &MergeModel::decisionsChanged);
+		model.setAction(h, MergeRow::KeepBoth);
+		QCOMPARE(changed.count(), 1);
+		QVERIFY(!model.index(h, 0).data(Qt::ForegroundRole).isValid());
+		QVERIFY(model.index(h, 0).data(MergeModel::ResolvedRole).toBool());
+		QCOMPARE(text(h, MergeModel::StatusColumn), QStringLiteral("Conflict, decided"));
+		QCOMPARE(text(h, MergeModel::ActionColumn), QStringLiteral("Keep both"));
+		filter.setFilter(MergeFilterModel::Undecided);
+		QCOMPARE(filter.rowCount(), 3);
+		filter.setFilter(MergeFilterModel::Conflicts);
+		QCOMPARE(filter.rowCount(), 4);
+		
+		model.rejectIncoming();
+		for (auto letter : { 'a', 'b', 'e' })
+			QCOMPARE(model.plan().row(id(letter))->action, MergeRow::KeepMine);
+		QCOMPARE(model.plan().row(id('h'))->action, MergeRow::KeepBoth);
+		model.acceptNonConflicting();
+		for (auto letter : { 'a', 'b', 'e' })
+			QCOMPARE(model.plan().row(id(letter))->action, MergeRow::KeepTheirs);
+		QCOMPARE(model.plan().row(id('i'))->action, MergeRow::KeepMine);
+		QCOMPARE(model.plan().unresolved(), 3);
+	}
+	
+	/// Accept (16)
+	void dialogTest()
+	{
+		loadEdited();
+		MergeDialog dialog(*mine, *theirs, compareMaps(base.get(), *mine, *theirs));
+		auto* apply = dialog.findChild<QPushButton*>(QStringLiteral("apply"));
+		auto* keep_theirs = dialog.findChild<QPushButton*>(QStringLiteral("keep-theirs"));
+		auto* view = dialog.findChild<QTableView*>(QStringLiteral("rows"));
+		auto* filter = dialog.findChild<QComboBox*>(QStringLiteral("filter"));
+		auto* notice = dialog.findChild<QLabel*>(QStringLiteral("two-way-notice"));
+		QVERIFY(apply && keep_theirs && view && filter && notice);
+		QVERIFY(!apply->isEnabled());
+		QVERIFY(notice->isHidden());
+		QCOMPARE(view->model()->rowCount(), 10);
+		
+		// The first row is the object a, which they made longer.
+		QSignalSpy shown(&dialog, &MergeDialog::showExtent);
+		view->selectRow(0);
+		QCOMPARE(shown.count(), 1);
+		auto const extent = shown.first().first().toRectF();
+		QVERIFY(extent.contains(QPointF(10, 0)));
+		QVERIFY(extent.contains(QPointF(35, 0)));
+		
+		filter->setCurrentIndex(1);
+		QCOMPARE(view->model()->rowCount(), 4);
+		view->selectAll();
+		keep_theirs->click();
+		QVERIFY(apply->isEnabled());
+		QCOMPARE(dialog.plan().unresolved(), 0);
+		for (auto letter : { 'h', 'i', 'j', 'm' })
+			QCOMPARE(dialog.plan().row(id(letter))->action, MergeRow::KeepTheirs);
+		QCOMPARE(dialog.plan().row(id('c'))->action, MergeRow::KeepMine);
+		QCOMPARE(view->model()->rowCount(), 4);
+		QSignalSpy accepted(&dialog, &QDialog::accepted);
+		apply->click();
+		QCOMPARE(accepted.count(), 1);
+		QCOMPARE(dialog.result(), int(QDialog::Accepted));
+		
+		// What the dialog decided can be carried out.
+		MergeResult result;
+		QString error;
+		QVERIFY2(applyMerge(*mine, *theirs, dialog.plan(), &result, &error), qPrintable(error));
+		QCOMPARE(endX(*mine, 'h'), 40.0);
+		
+		loadEdited();
+		MergeDialog second(*mine, *theirs, compareMaps(nullptr, *mine, *theirs));
+		QVERIFY(!second.findChild<QLabel*>(QStringLiteral("two-way-notice"))->isHidden());
+		QVERIFY(!second.findChild<QPushButton*>(QStringLiteral("apply"))->isEnabled());
+		QSignalSpy finished(&second, &QDialog::finished);
+		second.findChild<QPushButton*>(QStringLiteral("pause"))->click();
+		QCOMPARE(finished.count(), 1);
+		QCOMPARE(finished.first().first().toInt(), int(MergeDialog::Paused));
+	}
+	
+	/// Accept (17)
+	void decisionsTest()
+	{
+		loadEdited();
+		auto const path = decisionsFilePath(file("paused.foom"), QStringLiteral("abc"));
+		QCOMPARE(QFileInfo(path).fileName(), QStringLiteral("paused.merge-abc.json"));
+		QCOMPARE(QFileInfo(path).absolutePath(), QFileInfo(file("paused.foom")).absolutePath());
+		
+		auto plan = compareMaps(base.get(), *mine, *theirs);
+		QCOMPARE(loadDecisions(path, plan), 0);
+		for (auto& row : plan.rows)
+		{
+			if (row.uuid == id('h'))
+			{
+				row.action = MergeRow::KeepBoth;
+				row.resolved = true;
+			}
+			else if (row.uuid == id('a'))
+			{
+				row.action = MergeRow::KeepMine;
+			}
+		}
+		QString error;
+		QVERIFY2(saveDecisions(path, plan, &error), qPrintable(error));
+		
+		auto fresh = compareMaps(base.get(), *mine, *theirs);
+		QCOMPARE(fresh.row(id('a'))->action, MergeRow::KeepTheirs);
+		QCOMPARE(loadDecisions(path, fresh), 10);
+		QCOMPARE(fresh.row(id('h'))->action, MergeRow::KeepBoth);
+		QVERIFY(fresh.row(id('h'))->resolved);
+		QCOMPARE(fresh.row(id('a'))->action, MergeRow::KeepMine);
+		QCOMPARE(fresh.unresolved(), 3);
+		
+		// I delete c, which I had only changed: its row is another one now.
+		remove(*mine, 'c');
+		fresh = compareMaps(base.get(), *mine, *theirs);
+		QCOMPARE(fresh.row(id('c'))->mine, MergeRow::Deleted);
+		QCOMPARE(loadDecisions(path, fresh), 9);
 	}
 	
 	/// Accept (12)

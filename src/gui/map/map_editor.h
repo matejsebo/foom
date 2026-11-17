@@ -414,6 +414,12 @@ public slots:
 	void moveToLayoutClicked();
 	/** foom: Moves the selected objects of the layout part to the map (to-map). */
 	void moveToMapClicked();
+	/** foom: Writes a field copy and its base snapshot (field-copy-create). */
+	void fieldCopyCreateClicked();
+	/** foom: Merges the changes of a returned field copy (merge-from-file). */
+	void mergeFromFileClicked();
+	/** foom: Closes a field copy (field-copy-close). */
+	void fieldCopyCloseClicked();
 	/** foom: Asks for a file, then writes the layout part to it (layout-save). */
 	void saveLayoutClicked();
 	/** foom: Asks for a file, then merges its layout part (layout-import). */
@@ -1033,6 +1039,9 @@ private:
 	QAction* to_layout_act = {};  // foom
 	QAction* to_map_act = {};  // foom
 	QAction* layout_save_act = {};  // foom
+	QAction* field_copy_create_act = {};  // foom
+	QAction* merge_from_file_act = {};  // foom
+	QAction* field_copy_close_act = {};  // foom
 	QAction* layout_import_act = {};  // foom
 	QAction* to_graphic_act = {};  // foom
 	QAction* object_style_act = {};  // foom

@@ -150,10 +150,16 @@
 #include "gui/map/map_notes.h"
 #include "gui/map/map_widget.h"
 #include "gui/map/generator_dialog.h"  // foom
+#include "gui/map/merge_dialog.h"  // foom
 #include "gui/map/image_properties_dialog.h"  // foom
 #include "gui/map/import_points_dialog.h"  // foom
 #include "gui/symbols/symbol_setting_dialog.h"  // foom
 #include "layout/generator.h"  // foom
+#include "sync/field_copy.h"  // foom
+#include "sync/merge.h"  // foom
+#include "sync/merge_decisions.h"  // foom
+#include <QDateTime>  // foom
+#include <QInputDialog>  // foom
 #include "layout/layout_part.h"  // foom
 #include "gui/map/move_parallel_dialog.h"
 #include "gui/map/numeric_entry_bar.h"
@@ -1251,6 +1257,10 @@ void MapEditorController::createActions()
 	to_layout_act = newAction("to-layout", tr("Move to layout"), this, SLOT(moveToLayoutClicked()), nullptr, tr("Moves the selected objects to the layout part."), "edit_menu.html");
 	to_map_act = newAction("to-map", tr("Move to map"), this, SLOT(moveToMapClicked()), nullptr, tr("Moves the selected objects of the layout part to the map."), "edit_menu.html");
 	layout_save_act = newAction("layout-save", tr("Save layout..."), this, SLOT(saveLayoutClicked()), nullptr, QString{}, "file_menu.html");
+	// foom: the design notes, "Merge changes from file"
+	field_copy_create_act = newAction("field-copy-create", tr("Create field copy..."), this, SLOT(fieldCopyCreateClicked()), nullptr, QString{}, "file_menu.html");
+	merge_from_file_act = newAction("merge-from-file", tr("Merge changes..."), this, SLOT(mergeFromFileClicked()), nullptr, QString{}, "file_menu.html");
+	field_copy_close_act = newAction("field-copy-close", tr("Close field copy..."), this, SLOT(fieldCopyCloseClicked()), nullptr, QString{}, "file_menu.html");
 	// foom: the design notes, "Private symbols"
 	to_graphic_act = newAction("to-graphic", tr("Convert to graphic"), this, SLOT(convertToGraphicClicked()), nullptr, tr("Gives the selected objects their own copies of their symbols."), "edit_menu.html");
 	object_style_act = newAction("object-style", tr("Object style..."), this, SLOT(objectStyleClicked()), nullptr, tr("Edits the style of the selected graphic objects."), "edit_menu.html");
@@ -1338,6 +1348,12 @@ void MapEditorController::createMenuAndToolbars()
 	layout_file_menu->addAction(layout_save_act);
 	layout_file_menu->addAction(layout_import_act);
 	file_menu->insertMenu(insertion_act, layout_file_menu);
+	auto* field_copy_menu = new QMenu(tr("Field copy"), file_menu);  // foom
+	field_copy_menu->menuAction()->setMenuRole(QAction::NoRole);
+	field_copy_menu->addAction(field_copy_create_act);
+	field_copy_menu->addAction(merge_from_file_act);
+	field_copy_menu->addAction(field_copy_close_act);
+	file_menu->insertMenu(insertion_act, field_copy_menu);
 #ifdef QT_PRINTSUPPORT_LIB
 	QMenu* export_menu = new QMenu(tr("&Export as..."), file_menu);
 	export_menu->menuAction()->setMenuRole(QAction::NoRole);
@@ -5776,6 +5792,158 @@ void MapEditorController::moveToLayoutClicked()
 void MapEditorController::moveToMapClicked()
 {
 	moveSelectionToPart(*map, mapContentPartIndex(*map));
+}
+
+// foom: the design notes, "Merge changes from file"
+static bool isNativeMapFile(const QString& path)
+{
+	auto const suffix = QFileInfo(path).suffix().toLower();
+	return suffix == QLatin1String("foom") || suffix == QLatin1String("omap") || suffix == QLatin1String("xmap");
+}
+
+void MapEditorController::fieldCopyCreateClicked()
+{
+	auto const map_path = window->currentPath();
+	if (!isNativeMapFile(map_path))
+	{
+		QMessageBox::information(window, tr("Create field copy"), tr("A field copy needs a map which is saved as a .foom, .omap or .xmap file. Save the map first."));
+		return;
+	}
+	const QFileInfo map_file(map_path);
+	QString suggestion = map_file.path();
+	suggestion += QLatin1Char('/');
+	suggestion += map_file.completeBaseName();
+	suggestion += QLatin1String("-field.foom");
+	QString filter = tr("Map files");
+	filter += QLatin1String(" (*.foom *.omap *.xmap)");
+	auto filename = QFileDialog::getSaveFileName(window, tr("Create field copy"), suggestion, filter);
+	if (filename.isEmpty())
+		return;
+	if (QFileInfo(filename).suffix().isEmpty())
+		filename += QLatin1String(".foom");
+	
+	QString error;
+	auto const id = createFieldCopy(*map, map_path, filename, &error);
+	if (id.isEmpty())
+	{
+		QMessageBox::warning(window, tr("Create field copy"), error);
+		return;
+	}
+	if (!window->save() || map->hasUnsavedChanges())
+		QMessageBox::warning(window, tr("Create field copy"), tr("The field copy is written, but this map could not be saved with its record of the copy. Save the map before you close it."));
+	else
+		window->showStatusBarMessage(tr("Field copy written to %1").arg(filename), 4000);
+}
+
+void MapEditorController::mergeFromFileClicked()
+{
+	auto const map_path = window->currentPath();
+	if (!isNativeMapFile(map_path) || map->syncCopies().empty())
+	{
+		QMessageBox::information(window, tr("Merge changes"), tr("This map has no open field copy. Make one with File > Field copy > Create field copy."));
+		return;
+	}
+	QString filter = tr("Map files");
+	filter += QLatin1String(" (*.foom *.omap *.xmap);;");
+	filter += tr("All files");
+	filter += QLatin1String(" (*.*)");
+	auto const filename = QFileDialog::getOpenFileName(window, tr("Merge changes: the returned field copy"), QFileInfo(map_path).path(), filter);
+	if (filename.isEmpty())
+		return;
+	
+	QString error;
+	MergeInput input;
+	if (!loadForMerge(*map, map_path, filename, input, &error))
+	{
+		QMessageBox::warning(window, tr("Merge changes"), error);
+		return;
+	}
+	auto plan = compareMaps(input.base.get(), *map, *input.theirs);
+	auto const decisions_path = decisionsFilePath(map_path, input.copy.id);
+	loadDecisions(decisions_path, plan);
+	
+	if (!plan.rows.empty())
+	{
+		MergeDialog dialog(*map, *input.theirs, plan, window);
+		connect(&dialog, &MergeDialog::showExtent, this, [this](const QRectF& extent) {
+			map_widget->ensureVisibilityOfRect(extent, MapWidget::ContinuousZoom);
+		});
+		auto const code = dialog.exec();
+		if (code == MergeDialog::Paused)
+		{
+			if (!saveDecisions(decisions_path, dialog.plan(), &error))
+				QMessageBox::warning(window, tr("Merge changes"), error);
+			else
+				window->showStatusBarMessage(tr("The decisions are kept. Merge the same copy again to go on."), 4000);
+			return;
+		}
+		if (code != QDialog::Accepted)
+			return;
+		MergeResult result;
+		if (!applyMerge(*map, *input.theirs, dialog.plan(), &result, &error))
+		{
+			QMessageBox::warning(window, tr("Merge changes"), error);
+			return;
+		}
+		QFile::remove(decisions_path);
+		map_widget->update();
+	}
+	
+	// The base only after the map is saved: a base ahead of an unsaved merge would hide the merge.
+	if (!window->save() || map->hasUnsavedChanges())
+	{
+		QMessageBox::warning(window, tr("Merge changes"), tr("The changes are merged, but the map could not be saved, so the base snapshot was left as it is. Save the map and merge the same copy again: that merge will find nothing new and bring the base up to date."));
+		return;
+	}
+	if (!refreshBase(map_path, filename, input.copy, &error))
+		QMessageBox::warning(window, tr("Merge changes"), error);
+	else if (plan.rows.empty())
+		QMessageBox::information(window, tr("Merge changes"), tr("The copy holds nothing which differs from this map."));
+	else
+		window->showStatusBarMessage(tr("Changes merged."), 4000);
+}
+
+void MapEditorController::fieldCopyCloseClicked()
+{
+	auto const map_path = window->currentPath();
+	auto const& copies = map->syncCopies();
+	if (!isNativeMapFile(map_path) || copies.empty())
+	{
+		QMessageBox::information(window, tr("Close field copy"), tr("This map has no open field copy."));
+		return;
+	}
+	auto id = copies.front().id;
+	auto created = copies.front().created;
+	if (copies.size() > 1)
+	{
+		QStringList items;
+		for (auto const& copy : copies)
+		{
+			QString item = QDateTime::fromSecsSinceEpoch(copy.created).toString(Qt::ISODate);
+			item += QLatin1String("  ");
+			item += copy.id;
+			items.append(item);
+		}
+		auto ok = false;
+		auto const chosen = QInputDialog::getItem(window, tr("Close field copy"), tr("Field copy:"), items, 0, false, &ok);
+		auto const index = items.indexOf(chosen);
+		if (!ok || index < 0)
+			return;
+		id = copies[std::size_t(index)].id;
+		created = copies[std::size_t(index)].created;
+	}
+	auto const question = tr("Close the field copy made on %1? Its base snapshot is deleted, and changes in that copy can then only be merged as conflicts, one by one.")
+	                      .arg(QDateTime::fromSecsSinceEpoch(created).toString(Qt::ISODate));
+	if (QMessageBox::question(window, tr("Close field copy"), question, QMessageBox::Ok | QMessageBox::Cancel) != QMessageBox::Ok)
+		return;
+	
+	QString error;
+	if (!closeFieldCopy(*map, map_path, id, &error))
+	{
+		QMessageBox::warning(window, tr("Close field copy"), error);
+		return;
+	}
+	window->save();
 }
 
 void MapEditorController::saveLayoutClicked()

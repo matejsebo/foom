@@ -107,6 +107,7 @@ set(Mapper_Common_SRCS
   core/sync_record.cpp
   sync/field_copy.cpp
   sync/merge.cpp
+  sync/merge_decisions.cpp
   core/map_view.cpp
   core/path_coord.cpp
   core/spatial_index.cpp
@@ -222,6 +223,7 @@ set(Mapper_Common_SRCS
   gui/map/topology_dialogs.cpp
   gui/map/generator_dialog.cpp
   gui/map/image_properties_dialog.cpp
+  gui/map/merge_dialog.cpp
   gui/map/import_points_dialog.cpp
   gui/map/rectangle_box_dialog.cpp
   gui/map/find_replace_text_dialog.cpp
