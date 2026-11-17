@@ -66,6 +66,7 @@
 #include "core/map_grid.h"
 #include "core/map_part.h"
 #include "core/map_view.h"
+#include "core/objects/image_object.h"  // foom
 #include "core/objects/object.h"
 #include "core/objects/object_operations.h"
 #include "core/objects/text_object.h"
@@ -81,6 +82,7 @@
 #include "fileformats/ocd_file_format.h"
 #include "fileformats/ocd_georef_fields.h"
 #include "fileformats/ocd_icon.h"
+#include "fileformats/ocd_layout_image.h"  // foom
 #include "fileformats/ocd_types.h"
 #include "fileformats/ocd_types_v8.h"
 #include "fileformats/ocd_types_v9.h"
@@ -3145,7 +3147,7 @@ void OcdFileExport::exportForeignStrings(OcdFile<Format>& file)
 	if (!foreignDataApplies())
 		return;
 	// The types the exporter writes itself are not written back a second time.
-	static const qint32 own_types[] = { 8, 9, 10, 11, 18, 1030, 1039, 1061 };
+	static const qint32 own_types[] = { 8, 9, 10, 11, 18, 27, 1030, 1039, 1061 };
 	for (auto const& string : map->foreignData().strings)
 	{
 		if (string.data.isEmpty() || std::find(std::begin(own_types), std::end(own_types), string.type) != std::end(own_types))
@@ -3183,6 +3185,32 @@ void OcdFileExport::exportForeignObjects(OcdFile<Format>& file)
 void OcdFileExport::exportExtras()
 {
 	/// \todo
+	
+	// foom: embedded images, the design notes, "OCD embedded images".
+	auto left_out = 0;
+	for (int p = 0; p < map->getNumParts(); ++p)
+	{
+		auto const* part = map->getPart(std::size_t(p));
+		for (int i = 0; i < part->getNumObjects(); ++i)
+		{
+			auto const* object = part->getObject(i);
+			if (object->getType() != Object::Image)
+				continue;
+			if (ocd_version < 2018)
+			{
+				++left_out;
+				continue;
+			}
+			QString warning;
+			auto const string = ocdLayoutImageToString(*static_cast<const ImageObject*>(object), area_offset, &warning);
+			if (!warning.isEmpty())
+				addWarning(warning);
+			if (!string.isEmpty())
+				addParameterString(ocd_layout_image_string_type, string);
+		}
+	}
+	if (left_out > 0)
+		addWarning(tr("%n image(s) are not saved: OCD files of this version cannot hold images.", nullptr, left_out));
 }
 
 

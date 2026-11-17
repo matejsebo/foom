@@ -60,6 +60,7 @@
 #include "core/map_part.h"
 #include "core/map_view.h"
 #include "core/object_groups.h"
+#include "core/objects/image_object.h"  // foom
 #include "core/objects/text_object.h"
 #include "core/ops/op.h"
 #include "core/ops/rectangle_box.h"
@@ -73,6 +74,7 @@
 #include "fileformats/file_format.h"
 #include "fileformats/ocd_datetime.h"
 #include "fileformats/ocd_file_format.h"
+#include "fileformats/ocd_layout_image.h"  // foom
 #include "fileformats/ocd_georef_fields.h"
 #include "fileformats/ocd_icon.h"
 #include "fileformats/ocd_parameter_stream_reader.h"
@@ -336,6 +338,7 @@ void OcdFileImport::importImplementation()
 			importView(file);
 		}
 		importBookmarks(file);  // foom
+		importLayoutImages(file);  // foom
 		importForeignData(file);  // foom
 	}
 	
@@ -1102,6 +1105,35 @@ void OcdFileImport::importBookmark(const QString& param_string)
 	Bookmark bookmark;
 	if (parseOcdBookmark(param_string, bookmark))
 		map->addBookmark(bookmark);
+}
+
+// foom
+template< class F >
+void OcdFileImport::importLayoutImages(const OcdFile< F >& file)
+{
+	handleStrings(file, { { ocd_layout_image_string_type, &OcdFileImport::importLayoutImage } });
+}
+
+// foom
+void OcdFileImport::importLayoutImage(const QString& param_string)
+{
+	// the design notes, "OCD embedded images".
+	QString warning;
+	auto image = ocdLayoutImageFromString(param_string, &warning);
+	if (!warning.isEmpty())
+		addWarning(warning);
+	if (!image)
+		return;
+	
+	auto index = map->findPartIndexWithRole(MapPart::Role::Layout);
+	if (index < 0)
+	{
+		auto* part = new MapPart(QCoreApplication::translate("OpenOrienteering::LayoutPart", "Layout"), map);
+		part->setRole(MapPart::Role::Layout);
+		index = map->getNumParts();
+		map->addPart(part, std::size_t(index));
+	}
+	map->addObject(image.release(), index);
 }
 
 void OcdFileImport::importView(const QString& param_string)

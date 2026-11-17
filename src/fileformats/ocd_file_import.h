@@ -249,6 +249,12 @@ protected:
 	
 	void importBookmark(const QString& param_string);
 	
+	// foom: image objects from type 27 strings
+	template< class F >
+	void importLayoutImages(const OcdFile< F >& file);
+	
+	void importLayoutImage(const QString& param_string);
+	
 	
 	// Symbol import
 	
