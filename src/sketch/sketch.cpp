@@ -253,6 +253,12 @@ QString sketchColorName(int color)
 	return tr(color_presets[colorIndex(color)].name);
 }
 
+QColor sketchColorRgb(int color)
+{
+	auto const& cmyk = color_presets[colorIndex(color)].cmyk;
+	return QColor::fromCmykF(cmyk.c, cmyk.m, cmyk.y, cmyk.k).toRgb();
+}
+
 qreal sketchWidth(int width)
 {
 	return width_presets[qBound(0, width, sketch_width_count - 1)];
@@ -339,11 +345,25 @@ int addSketchNote(Map& map, const MapCoordF& position, const QString& text, int 
 
 int eraseSketch(Map& map, const MapCoordF& centre, qreal radius)
 {
+	return eraseSketchAlong(map, { centre }, radius);
+}
+
+int eraseSketchAlong(Map& map, const std::vector<MapCoordF>& trail, qreal radius)
+{
 	auto const part_index = sketchPartIndex(map);
-	if (part_index < 0 || radius <= 0)
+	if (part_index < 0 || radius <= 0 || trail.empty())
 		return 0;
 	auto* part = map.getPart(std::size_t(part_index));
-	const QPointF middle(centre);
+	// The centres of the eraser: the trail, filled in at half the radius.
+	std::vector<QPointF> centres { QPointF(trail.front()) };
+	for (std::size_t i = 1; i < trail.size(); ++i)
+	{
+		auto const from = centres.back();
+		const QPointF to(trail[i]);
+		auto const steps = int(std::ceil(std::hypot(to.x() - from.x(), to.y() - from.y()) / (radius / 2)));
+		for (int k = 1; k <= steps; ++k)
+			centres.push_back(from + (to - from) * (qreal(k) / steps));
+	}
 	
 	std::vector<Object*> removed;
 	std::vector<Object*> added;
@@ -352,7 +372,14 @@ int eraseSketch(Map& map, const MapCoordF& centre, qreal radius)
 	{
 		auto* object = part->getObject(i);
 		object->update();
-		if (!object->getExtent().adjusted(-radius, -radius, radius, radius).contains(middle))
+		auto const reach = object->getExtent().adjusted(-radius, -radius, radius, radius);
+		std::vector<QPointF> in_reach;
+		for (auto const& centre : centres)
+		{
+			if (reach.contains(centre))
+				in_reach.push_back(centre);
+		}
+		if (in_reach.empty())
 			continue;
 		if (object->getType() != Object::Path)
 		{
@@ -371,7 +398,18 @@ int eraseSketch(Map& map, const MapCoordF& centre, qreal radius)
 			line.reserve(path_part.path_coords.size());
 			for (auto const& coord : path_part.path_coords)
 				line.push_back(coord.pos);
-			for (auto& piece : outsidePieces(line, middle, radius, cut))
+			std::vector<std::vector<QPointF>> left { line };
+			for (auto const& centre : in_reach)
+			{
+				std::vector<std::vector<QPointF>> next;
+				for (auto const& piece : left)
+				{
+					for (auto& rest : outsidePieces(piece, centre, radius, cut))
+						next.push_back(std::move(rest));
+				}
+				left = std::move(next);
+			}
+			for (auto& piece : left)
 			{
 				if (lengthOf(piece) >= 0.05)
 					pieces.push_back(std::move(piece));

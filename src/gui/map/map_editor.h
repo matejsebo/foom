@@ -600,6 +600,12 @@ public slots:
 	void reshapeClicked();
 	/** foom: Activates the lasso selection tool. */
 	void lassoClicked();
+	/** foom: The sketch layer: pen, eraser, note, list and flattening. */
+	void sketchPenClicked();
+	void sketchEraserClicked();
+	void sketchNoteClicked();
+	void sketchManageClicked();
+	void sketchFlattenClicked();
 	/** foom: Activates the move-parallel tool. */
 	void moveParallelClicked();
 	/** foom: Shows the move-parallel-by dialog, which stays open. */
@@ -1106,6 +1112,11 @@ private:
 	QAction* distribute_v_act = {};  // foom
 	QAction* reshape_act = {};  // foom
 	QAction* lasso_act = {};  // foom
+	QAction* sketch_pen_act = {};  // foom
+	QAction* sketch_eraser_act = {};  // foom
+	QAction* sketch_note_act = {};  // foom
+	QAction* sketch_manage_act = {};  // foom
+	QAction* sketch_flatten_act = {};  // foom
 	QAction* move_parallel_act = {};  // foom
 	QAction* move_parallel_by_act = {};  // foom
 	QPointer<MoveParallelDialog> move_parallel_dialog;  // foom

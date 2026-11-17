@@ -225,6 +225,7 @@ set(Mapper_Common_SRCS
   gui/map/generator_dialog.cpp
   gui/map/image_properties_dialog.cpp
   gui/map/merge_dialog.cpp
+  gui/map/sketch_dialog.cpp
   gui/map/import_points_dialog.cpp
   gui/map/rectangle_box_dialog.cpp
   gui/map/find_replace_text_dialog.cpp
@@ -302,6 +303,7 @@ set(Mapper_Common_SRCS
   tools/cut_tool.cpp
   tools/cut_hole_tool.cpp
   tools/lasso_tool.cpp
+  tools/sketch_tools.cpp
   tools/rectangle_box_tool.cpp
   tools/move_parallel_tool.cpp
   tools/reshape_tool.cpp

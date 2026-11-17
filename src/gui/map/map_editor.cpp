@@ -151,10 +151,12 @@
 #include "gui/map/map_widget.h"
 #include "gui/map/generator_dialog.h"  // foom
 #include "gui/map/merge_dialog.h"  // foom
+#include "gui/map/sketch_dialog.h"  // foom
 #include "gui/map/image_properties_dialog.h"  // foom
 #include "gui/map/import_points_dialog.h"  // foom
 #include "gui/symbols/symbol_setting_dialog.h"  // foom
 #include "layout/generator.h"  // foom
+#include "sketch/sketch.h"  // foom
 #include "sync/field_copy.h"  // foom
 #include "sync/merge.h"  // foom
 #include "sync/merge_decisions.h"  // foom
@@ -200,6 +202,7 @@
 #include "tools/cut_tool.h"
 #include "tools/cut_hole_tool.h"
 #include "tools/lasso_tool.h"  // foom
+#include "tools/sketch_tools.h"  // foom
 #include "tools/move_parallel_tool.h"  // foom
 #include "tools/reshape_tool.h"  // foom
 #include "tools/cutout_tool.h"
@@ -1153,6 +1156,12 @@ void MapEditorController::createActions()
 	edit_tool_act = newToolAction("editobjects", tr("Edit objects"), this, SLOT(editToolClicked()), "tool-edit.png", QString{}, "toolbars.html#tool_edit_point");
 	edit_line_tool_act = newToolAction("editlines", tr("Edit lines"), this, SLOT(editLineToolClicked()), "tool-edit-line.png", QString{}, "toolbars.html#tool_edit_line");
 	lasso_act = newToolAction("select-lasso", tr("Lasso selection"), this, SLOT(lassoClicked()));  // foom
+	// foom: the design notes, "Sketch layer"
+	sketch_pen_act = newToolAction("sketch-pen", tr("Sketch pen"), this, SLOT(sketchPenClicked()));
+	sketch_eraser_act = newToolAction("sketch-eraser", tr("Sketch eraser"), this, SLOT(sketchEraserClicked()));
+	sketch_note_act = newToolAction("sketch-note", tr("Sketch note"), this, SLOT(sketchNoteClicked()));
+	sketch_manage_act = newAction("sketch-manage", tr("Manage sketch..."), this, SLOT(sketchManageClicked()));
+	sketch_flatten_act = newAction("sketch-flatten", tr("Flatten sketch to template..."), this, SLOT(sketchFlattenClicked()));
 	draw_point_act = newToolAction("drawpoint", tr("Set point objects"), this, SLOT(drawPointClicked()), "draw-point.png", QString{}, "toolbars.html#tool_draw_point");
 	draw_path_act = newToolAction("drawpath", tr("Draw paths"), this, SLOT(drawPathClicked()), "draw-path.png", QString{}, "toolbars.html#tool_draw_path");
 	draw_circle_act = newToolAction("drawcircle", tr("Draw circles and ellipses"), this, SLOT(drawCircleClicked()), "draw-circle.png", QString{}, "toolbars.html#tool_draw_circle");
@@ -1449,6 +1458,43 @@ void MapEditorController::createMenuAndToolbars()
 	tools_menu->addAction(edit_tool_act);
 	tools_menu->addAction(edit_line_tool_act);
 	tools_menu->addAction(lasso_act);  // foom
+	{
+		// foom: the design notes, "Sketch layer"
+		auto* sketch_menu = tools_menu->addMenu(tr("Sketch"));
+		sketch_menu->menuAction()->setMenuRole(QAction::NoRole);
+		sketch_menu->addAction(sketch_pen_act);
+		sketch_menu->addAction(sketch_eraser_act);
+		sketch_menu->addAction(sketch_note_act);
+		auto* color_menu = sketch_menu->addMenu(tr("Pen colour"));
+		auto* color_group = new QActionGroup(color_menu);
+		for (int i = 0; i < sketch_color_count; ++i)
+		{
+			auto* action = color_menu->addAction(sketchColorName(i));
+			action->setCheckable(true);
+			action->setChecked(i == SketchPenTool::penColor());
+			action->setData(i);
+			color_group->addAction(action);
+		}
+		connect(color_group, &QActionGroup::triggered, this, [](QAction* action) {
+			SketchPenTool::setPen(action->data().toInt(), SketchPenTool::penWidth());
+		});
+		auto* width_menu = sketch_menu->addMenu(tr("Pen width"));
+		auto* width_group = new QActionGroup(width_menu);
+		for (int i = 0; i < sketch_width_count; ++i)
+		{
+			auto* action = width_menu->addAction(tr("%1 mm").arg(sketchWidth(i)));
+			action->setCheckable(true);
+			action->setChecked(i == SketchPenTool::penWidth());
+			action->setData(i);
+			width_group->addAction(action);
+		}
+		connect(width_group, &QActionGroup::triggered, this, [](QAction* action) {
+			SketchPenTool::setPen(SketchPenTool::penColor(), action->data().toInt());
+		});
+		sketch_menu->addSeparator();
+		sketch_menu->addAction(sketch_manage_act);
+		sketch_menu->addAction(sketch_flatten_act);
+	}
 	tools_menu->addAction(draw_point_act);
 	tools_menu->addAction(draw_path_act);
 	tools_menu->addAction(draw_circle_act);
@@ -3878,6 +3924,66 @@ void MapEditorController::setVertexType(bool dash, bool keep_ends)
 	params.dash = dash;
 	params.keep_ends = keep_ends;
 	applyOpResult(ops::setVertexType(*map, in, params));
+}
+
+// foom: the design notes, "Sketch layer"
+void MapEditorController::sketchPenClicked()
+{
+	setTool(new SketchPenTool(this, sketch_pen_act));
+}
+
+void MapEditorController::sketchEraserClicked()
+{
+	setTool(new SketchEraserTool(this, sketch_eraser_act));
+}
+
+void MapEditorController::sketchNoteClicked()
+{
+	setTool(new SketchNoteTool(this, sketch_note_act));
+}
+
+void MapEditorController::sketchManageClicked()
+{
+	SketchManageDialog dialog(*map, window);
+	connect(&dialog, &SketchManageDialog::showExtent, this, [this](const QRectF& extent) {
+		map_widget->ensureVisibilityOfRect(extent, MapWidget::ContinuousZoom);
+	});
+	dialog.exec();
+}
+
+void MapEditorController::sketchFlattenClicked()
+{
+	if (sketchPartIndex(*map) < 0)
+	{
+		QMessageBox::information(window, tr("Flatten sketch"), tr("The map has no sketch."));
+		return;
+	}
+	QString filter = tr("PNG");
+	filter += QLatin1String(" (*.png)");
+	auto path = QFileDialog::getSaveFileName(window, tr("Flatten sketch"), QFileInfo(window->currentPath()).path(), filter);
+	if (path.isEmpty())
+		return;
+	if (!path.endsWith(QLatin1String(".png"), Qt::CaseInsensitive))
+		path += QLatin1String(".png");
+	auto ok = false;
+	auto const dpi = QInputDialog::getInt(window, tr("Flatten sketch"), tr("Resolution (dpi):"), 300, 50, 1200, 50, &ok);
+	if (!ok)
+		return;
+	
+	QString error;
+	if (!flattenSketch(*map, path, dpi, &error))
+	{
+		QMessageBox::warning(window, tr("Flatten sketch"), error);
+		return;
+	}
+	auto new_template = Template::templateForPath(path, map);
+	if (!new_template || !new_template->setupAndLoad(window, main_view))
+	{
+		QMessageBox::warning(window, tr("Flatten sketch"), tr("The image is written to %1, but it could not be opened as a template.").arg(path));
+		return;
+	}
+	map->addTemplate(-1, std::move(new_template));
+	window->showStatusBarMessage(tr("The sketch is flattened to %1 and opened as a template.").arg(path), 4000);
 }
 
 // foom

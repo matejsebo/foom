@@ -25,6 +25,7 @@
 #include <vector>
 
 #include <QtGlobal>
+#include <QColor>
 #include <QRectF>
 #include <QString>
 
@@ -57,6 +58,9 @@ int sketchPartIndex(const Map& map);
 /** The name of a sketch colour, 0 to 7, as it stands in the colour table. */
 QString sketchColorName(int color);
 
+/** The colour of a sketch pen on screen, 0 to 7. */
+QColor sketchColorRgb(int color);
+
 /** The width of a sketch pen, 0 to 2, in mm. */
 qreal sketchWidth(int width);
 
@@ -86,6 +90,13 @@ int addSketchNote(Map& map, const MapCoordF& position, const QString& text, int 
  * Returns the number of objects erased or cut.
  */
 int eraseSketch(Map& map, const MapCoordF& centre, qreal radius);
+
+/**
+ * Erases along a trail of positions as with eraseSketch(), in one undo
+ * step. The trail is filled in between its positions, so that positions
+ * which lie far apart leave no gaps.
+ */
+int eraseSketchAlong(Map& map, const std::vector<MapCoordF>& trail, qreal radius);
 
 /** A stroke or a note of the sketch part. */
 struct SketchItem

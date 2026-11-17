@@ -66,6 +66,14 @@
 #include "gui/widgets/symbol_widget.h"
 #include "tools/draw_path_tool.h"
 #include "tools/lasso_tool.h"
+#include "tools/sketch_tools.h"
+#include "sketch/sketch.h"
+#include "gui/map/sketch_dialog.h"
+#include "gui/widgets/symbol_dropdown.h"
+#include <QListWidget>
+#include <QPushButton>
+#include <QRectF>
+#include <QSignalSpy>
 #include "tools/move_parallel_tool.h"
 #include "tools/reshape_tool.h"
 #include "core/symbols/area_symbol.h"
@@ -635,6 +643,96 @@ void ToolsTest::vertexType()
 	QCOMPARE(part->getNumObjects(), 2);
 }
 
+
+void ToolsTest::sketchTools()
+{
+	// the design notes, "Sketch layer", second change.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* widget = editor.map_widget;
+	auto const viewport = [widget](double x, double y) { return widget->mapToViewport(MapCoord(x, y)).toPoint(); };
+	auto const move = [widget](const QPoint& pos) {
+		QMouseEvent event(QEvent::MouseMove, pos, widget->mapToGlobal(pos), Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+		QApplication::sendEvent(widget, &event);
+	};
+	for (auto id : { "sketch-pen", "sketch-eraser", "sketch-note", "sketch-manage", "sketch-flatten" })
+		QVERIFY2(editor.editor->getAction(id), id);
+	
+	// The pen: press, two moves, release.
+	SketchPenTool::setPen(3, 2);
+	editor.editor->getAction("sketch-pen")->trigger();
+	QVERIFY(dynamic_cast<SketchPenTool*>(editor.editor->getTool()));
+	QCOMPARE(sketchPartIndex(*map.map), -1);
+	QTest::mousePress(widget, Qt::LeftButton, {}, viewport(0.0, 40.0));
+	move(viewport(20.0, 40.0));
+	move(viewport(40.0, 40.0));
+	QTest::mouseRelease(widget, Qt::LeftButton, {}, viewport(40.0, 40.0));
+	auto const index = sketchPartIndex(*map.map);
+	QVERIFY(index >= 0);
+	auto const* part = map.map->getPart(std::size_t(index));
+	QCOMPARE(part->getNumObjects(), 1);
+	auto const* stroke = part->getObject(0);
+	QCOMPARE(stroke->getSymbol(), sketchSymbol(*map.map, 3, 2));
+	stroke->update();
+	QVERIFY2(qAbs(stroke->getExtent().left() - 0.0) < 1.5, qPrintable(QString::number(stroke->getExtent().left())));
+	QVERIFY2(qAbs(stroke->getExtent().right() - 40.0) < 1.5, qPrintable(QString::number(stroke->getExtent().right())));
+	QVERIFY(qAbs(stroke->getExtent().center().y() - 40.0) < 1.0);
+	QCOMPARE(map.map->getCurrentPartIndex(), std::size_t(0));
+	
+	// The eraser: a click cuts the stroke, a drag removes the right piece.
+	editor.editor->getAction("sketch-eraser")->trigger();
+	QVERIFY(dynamic_cast<SketchEraserTool*>(editor.editor->getTool()));
+	editor.simulateClick(viewport(20.0, 40.0));
+	QCOMPARE(part->getNumObjects(), 2);
+	QTest::mousePress(widget, Qt::LeftButton, {}, viewport(21.0, 40.0));
+	move(viewport(30.0, 40.0));
+	move(viewport(41.0, 40.0));
+	QTest::mouseRelease(widget, Qt::LeftButton, {}, viewport(41.0, 40.0));
+	QCOMPARE(part->getNumObjects(), 1);
+	part->getObject(0)->update();
+	QVERIFY(part->getObject(0)->getExtent().right() < 20.0);
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(part->getNumObjects(), 2);
+	
+	// The note, in the pen's colour.
+	editor.editor->getAction("sketch-note")->trigger();
+	auto* note_tool = dynamic_cast<SketchNoteTool*>(editor.editor->getTool());
+	QVERIFY(note_tool);
+	QCOMPARE(note_tool->addNote(MapCoordF(10, 60), QStringLiteral("  ")), 0);
+	QVERIFY(note_tool->addNote(MapCoordF(10, 60), QStringLiteral("Gate")) != 0);
+	QCOMPARE(part->getNumObjects(), 4);
+	QCOMPARE(sketchItems(*map.map).back().label, QStringLiteral("Gate"));
+	QCOMPARE(sketchItems(*map.map).back().objects.front()->getSymbol()->asText()->getColor()->getName(), sketchColorName(3));
+	editor.editor->setTool(nullptr);
+	
+	// The list.
+	SketchManageDialog dialog(*map.map);
+	auto* list = dialog.findChild<QListWidget*>(QStringLiteral("items"));
+	auto* symbol_box = dialog.findChild<SymbolDropDown*>(QStringLiteral("symbol"));
+	auto* convert = dialog.findChild<QPushButton*>(QStringLiteral("convert"));
+	auto* message = dialog.findChild<QLabel*>(QStringLiteral("message"));
+	QVERIFY(list && symbol_box && convert && message);
+	QCOMPARE(list->count(), 3);
+	QVERIFY(list->item(2)->text().contains(QLatin1String("Gate")));
+	QSignalSpy shown(&dialog, &SketchManageDialog::showExtent);
+	list->setCurrentRow(2);
+	QCOMPARE(shown.count(), 1);
+	QVERIFY(shown.first().first().toRectF().contains(QPointF(10, 60)));
+	// A note does not become a line.
+	symbol_box->setSymbol(map.line_symbol);
+	QCOMPARE(symbol_box->symbol(), static_cast<const Symbol*>(map.line_symbol));
+	convert->click();
+	QVERIFY(!message->text().isEmpty());
+	QCOMPARE(list->count(), 3);
+	// A stroke does.
+	auto const in_map = map.map->getPart(0)->getNumObjects();
+	list->setCurrentRow(0);
+	convert->click();
+	QVERIFY2(message->text().isEmpty(), qPrintable(message->text()));
+	QCOMPARE(list->count(), 2);
+	QCOMPARE(part->getNumObjects(), 3);
+	QCOMPARE(map.map->getPart(0)->getNumObjects(), in_map + 1);
+}
 
 void ToolsTest::lasso()
 {
