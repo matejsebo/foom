@@ -84,6 +84,7 @@
 #include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_coord.h"
+#include "core/extent_printing.h"  // foom
 #include "core/extents.h"  // foom
 #include "core/map_printer.h"
 #include "core/map_view.h"
@@ -821,16 +822,11 @@ void PrintWidget::extentSelected(int index)
 		if (extent.name != name)
 			continue;
 		policy_combo->setCurrentIndex(policy_combo->findData(CustomArea));
-		if (!extent.paper.isEmpty())
-		{
-			auto const id = pageSizeFromKey(extent.paper);
-			if (id != QPageSize::Custom)
-				map_printer->setPageSize(id);
-			map_printer->setPageOrientation(extent.rect_mm.width() > extent.rect_mm.height() ? MapPrinterPageFormat::Landscape : MapPrinterPageFormat::Portrait);
-		}
-		map_printer->setPrintArea(extent.rect_mm);
+		// Scale, page, margin and back sides, as every output of an extent.
+		applyExtentToPrinter(*map_printer, *map, extent);
 		return;
 	}
+	map_printer->setBackSides({});  // "None"
 }
 
 void PrintWidget::printAreaPolicyChanged(int index)

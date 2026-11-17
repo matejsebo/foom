@@ -969,6 +969,7 @@ void FileFormatTest::saveAndLoad()
 	printer_config.page_format.h_overlap += 2.0;
 	printer_config.page_format.v_overlap += 4.0;
 	original->setPrinterConfig(printer_config);
+	addDefaultExtent(*original);  // foom: as reading the saved file does for a map with a print area and no extents
 	
 	// Enforce a unique prefix for symbol names, allowing for reliable
 	// recognition even when truncated. However, this doesn't help with

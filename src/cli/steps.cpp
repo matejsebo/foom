@@ -52,6 +52,8 @@
 #include "core/crt_rules.h"
 #include "core/georeferencing.h"
 #include "core/latlon.h"
+#include "core/extent_printing.h"
+#include "core/extents.h"
 #include "core/map.h"
 #include "core/map_coord.h"
 #include "core/map_printer.h"
@@ -437,9 +439,8 @@ ExportExtent configurePrinter(MapPrinter& printer, const Map& map, const Params&
 			auto const named = std::find_if(begin(extents), end(extents), [&extent](const OpenOrienteering::Extent& e) { return e.name == extent.name; });
 			if (named == end(extents))
 				p.fail(QString::fromLatin1("unknown extent \"%1\": the map has no extent of that name").arg(extent.name));
-			printer.setPrintArea(named->rect_mm);
-			if (named->scale > 0)
-				printer.setScale(named->scale);
+			// Scale, page, margin and back sides: the design notes, "Extents in print and export"
+			applyExtentToPrinter(printer, map, *named);
 		}
 		break;
 	}
@@ -1058,9 +1059,9 @@ StepResult StepRunner::exportPdf(const Step& step, const QString& path)
 	MapPrinter printer(*map, nullptr);
 	printer.setTarget(MapPrinter::pdfTarget());
 	auto const extent = configurePrinter(printer, *map, p, MapPrinterOptions::Vector);
-	if (extent.kind != ExportExtent::PrintArea)
+	if (extent.kind != ExportExtent::PrintArea && extent.kind != ExportExtent::Named)
 	{
-		// An explicit extent goes onto a single page of its size.
+		// An explicit extent goes onto a single page of its size. A named extent brings its own page.
 		printer.setCustomPageSize(printer.getPrintAreaPaperSize());
 	}
 	
@@ -1081,7 +1082,7 @@ StepResult StepRunner::exportPdf(const Step& step, const QString& path)
 	StepResult result;
 	result.details.insert(QLatin1String("path"), path);
 	result.details.insert(QLatin1String("format"), QStringLiteral("pdf"));
-	result.details.insert(QLatin1String("pages"), int(printer.horizontalPagePositions().size() * printer.verticalPagePositions().size()));
+	result.details.insert(QLatin1String("pages"), int(printer.horizontalPagePositions().size() * printer.verticalPagePositions().size() + printer.backSides().size()));
 	return result;
 }
 

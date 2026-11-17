@@ -1106,6 +1106,7 @@ void MapEditorController::createActions()
 	issue_model = new IssueModel(this);
 	connect(issue_model, &IssueModel::issueActivated, this, &MapEditorController::issueActivated);
 	extent_delete_act = newAction("extent-delete", tr("Delete extent..."), this, SLOT(extentDeleteClicked()));  // foom
+	extent_import_act = newAction("extent-import", tr("Import extents..."), this, SLOT(extentImportClicked()));  // foom
 	bookmark_manage_act = newAction("bookmark-manage", tr("Manage bookmarks..."), this, SLOT(bookmarkManageClicked()));  // foom
 	view_history_timer.setSingleShot(true);  // foom
 	view_history_timer.setInterval(500);
@@ -1513,6 +1514,7 @@ void MapEditorController::createMenuAndToolbars()
 	auto* extents_menu = map_menu->addMenu(tr("Extents"));
 	extents_menu->addAction(extent_define_act);
 	extents_menu->addAction(extent_delete_act);
+	extents_menu->addAction(extent_import_act);
 	
 	// Symbols menu
 	QMenu* symbols_menu = window->menuBar()->addMenu(tr("Sy&mbols"));
@@ -4266,6 +4268,28 @@ void MapEditorController::defineExtent(const Extent& extent)
 	map->push(step);
 	updateExtentMenus();
 	map_widget->update();
+}
+
+// foom
+void MapEditorController::extentImportClicked()
+{
+	QSettings settings;
+	auto const directory = settings.value(QString::fromLatin1("importFileDirectory"), QDir::homePath()).toString();
+	QString const filter = tr("Map files") + QLatin1String(" (*.foom *.omap *.xmap *.ocd);;") + tr("All files") + QLatin1String(" (*.*)");
+	auto const filename = QFileDialog::getOpenFileName(window, tr("Import extents"), directory, filter);
+	if (filename.isEmpty())
+		return;
+	settings.setValue(QString::fromLatin1("importFileDirectory"), QFileInfo(filename).canonicalPath());
+	QString error;
+	auto const count = importExtentsFromFile(*map, filename, &error);
+	if (count < 0)
+	{
+		QMessageBox::warning(window, tr("Import extents"), error);
+		return;
+	}
+	updateExtentMenus();
+	map_widget->update();
+	window->showStatusBarMessage(tr("Imported %n extent(s).", nullptr, count), 2000);
 }
 
 // foom

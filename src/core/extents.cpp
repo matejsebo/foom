@@ -21,6 +21,13 @@
 
 #include "extents.h"
 
+#include <algorithm>
+#include <QCoreApplication>
+
+#include "core/map.h"
+#include "core/map_printer.h"
+#include "undo/map_data_undo.h"
+
 #include <vector>
 
 #include <QtGlobal>
@@ -71,10 +78,10 @@ void saveExtents(const std::vector<Extent>& extents, QXmlStreamWriter& xml)
 		xml.writeCharacters(QString::fromLatin1("\n"));
 		XmlElementWriter extent_element(xml, literal::extent);
 		extent_element.writeAttribute(literal::name, extent.name);
-		extent_element.writeAttribute(literal::x, extent.rect_mm.x());
-		extent_element.writeAttribute(literal::y, extent.rect_mm.y());
-		extent_element.writeAttribute(literal::width, extent.rect_mm.width());
-		extent_element.writeAttribute(literal::height, extent.rect_mm.height());
+		extent_element.writeAttribute(literal::x, extent.rect_mm.x(), 3);
+		extent_element.writeAttribute(literal::y, extent.rect_mm.y(), 3);
+		extent_element.writeAttribute(literal::width, extent.rect_mm.width(), 3);
+		extent_element.writeAttribute(literal::height, extent.rect_mm.height(), 3);
 		extent_element.writeAttribute(literal::scale, extent.scale);
 		extent_element.writeAttribute(literal::paper, extent.paper);
 		extent_element.writeAttribute(literal::margin, extent.margin_mm);
@@ -144,6 +151,63 @@ QPageSize::PageSizeId pageSizeFromKey(const QString& key)
 			return id;
 	}
 	return QPageSize::Custom;
+}
+
+
+bool addDefaultExtent(Map& map)
+{
+	// the design notes, "Extents in print and export".
+	if (!map.hasPrinterConfig() || !map.extents().empty())
+		return false;
+	auto const config = static_cast<const Map&>(map).printerConfig();
+	if (config.print_area.width() <= 0 || config.print_area.height() <= 0)
+		return false;
+	
+	Extent extent;
+	extent.name = QStringLiteral("default");
+	// To the thousandth of a millimetre, as extents and the print area are saved.
+	auto const rounded = [](qreal value) { return qRound64(value * 1000) / 1000.0; };
+	extent.rect_mm = QRectF(rounded(config.print_area.x()), rounded(config.print_area.y()), rounded(config.print_area.width()), rounded(config.print_area.height()));
+	if (config.options.scale > 0 && config.options.scale != map.getScaleDenominator())
+		extent.scale = config.options.scale;
+#ifdef QT_PRINTSUPPORT_LIB
+	if (config.page_format.page_size != QPageSize::Custom)
+		extent.paper = QPageSize::key(config.page_format.page_size);
+#endif
+	map.setExtents({ extent });
+	return true;
+}
+
+int importExtents(Map& map, const std::vector<Extent>& extents)
+{
+	if (extents.empty())
+		return 0;
+	auto* step = new MapDataUndoStep(&map, MapDataUndoStep::Extents, MapDataUndoStep::currentXml(map, MapDataUndoStep::Extents));
+	auto merged = map.extents();
+	for (auto const& extent : extents)
+	{
+		auto const existing = std::find_if(begin(merged), end(merged), [&extent](const Extent& other) { return other.name == extent.name; });
+		if (existing != end(merged))
+			*existing = extent;
+		else
+			merged.push_back(extent);
+	}
+	map.setExtents(std::move(merged));
+	map.push(step);
+	map.setOtherDirty();
+	return int(extents.size());
+}
+
+int importExtentsFromFile(Map& map, const QString& path, QString* error)
+{
+	Map source;
+	if (!source.loadFrom(path))
+	{
+		if (error)
+			*error = QCoreApplication::translate("OpenOrienteering::Extents", "Cannot read the file %1.").arg(path);
+		return -1;
+	}
+	return importExtents(map, source.extents());
 }
 
 

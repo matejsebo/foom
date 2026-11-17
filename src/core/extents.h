@@ -34,6 +34,8 @@
 class QXmlStreamReader;
 class QXmlStreamWriter;
 
+namespace OpenOrienteering { class Map; }
+
 namespace OpenOrienteering {
 
 /**
@@ -74,6 +76,23 @@ QSizeF extentSizeFromPaper(QPageSize::PageSizeId paper, bool landscape, unsigned
 
 /** Returns the page size id for a QPageSize key, or Custom when unknown. */
 QPageSize::PageSizeId pageSizeFromKey(const QString& key);
+
+/**
+ * Gives a map which has a stored print area and no extents the extent
+ * "default", made from the print area, the print scale and the paper.
+ * 
+ * Returns true if the extent was added. The map is not marked as changed.
+ */
+bool addDefaultExtent(Map& map);
+
+/**
+ * Adds the extents to the map, as one undo step. An extent with the name of
+ * an existing one replaces it. Returns the number of extents taken.
+ */
+int importExtents(Map& map, const std::vector<Extent>& extents);
+
+/** Reads the map file and takes its extents. Returns -1 with a message when the file cannot be read. */
+int importExtentsFromFile(Map& map, const QString& path, QString* error);
 
 
 }  // namespace OpenOrienteering

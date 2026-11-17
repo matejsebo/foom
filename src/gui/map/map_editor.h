@@ -672,6 +672,8 @@ public slots:
 	void defineExtent(const Extent& extent);
 	/** foom: Asks which extent to delete. */
 	void extentDeleteClicked();
+	/** foom: Asks for a map file and takes its extents (extent-import). */
+	void extentImportClicked();
 	/** foom: Deletes the extent of the name as one undo step; returns false when there is none. */
 	bool deleteExtent(const QString& name);
 	/** foom: Makes the extent of the name the active one, drawn in the view; an empty name clears it. */
@@ -1119,6 +1121,7 @@ private:
 	IssueModel* issue_model = nullptr;  // foom
 	QPointer<EditorDockWidget> issues_dock_widget;  // foom
 	QAction* extent_delete_act = {};  // foom
+	QAction* extent_import_act = {};  // foom
 	QMenu* active_extent_menu = nullptr;  // foom
 	QString active_extent_name;  // foom: view state
 	QPointer<FindReplaceTextDialog> find_replace_text_dialog;  // foom

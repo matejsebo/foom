@@ -297,6 +297,24 @@ public:
 	/** Returns the paper size which is required by the current print area and scale. */
 	QSizeF getPrintAreaPaperSize() const;
 	
+	/**
+	 * foom: A further side of the sheet: a print area and its print scale
+	 * denominator, 0 for the scale of the front.
+	 * 
+	 * See the design notes, "Extents in print and export".
+	 */
+	struct BackSide
+	{
+		QRectF area;
+		unsigned int scale;
+	};
+	
+	/** foom: Sets the sides which printMap() prints after the print area. Setting a print area drops them. */
+	void setBackSides(std::vector<BackSide> sides) { back_sides = std::move(sides); }
+	
+	/** foom: Returns the back sides. */
+	const std::vector<BackSide>& backSides() const { return back_sides; }
+	
 	/** Returns the print area size which is possible with the current page rect size. */
 	QSizeF getPageRectPrintAreaSize() const;
 	
@@ -505,6 +523,7 @@ protected:
 	std::vector<qreal> h_page_pos;
 	std::vector<qreal> v_page_pos;
 	bool cancel_print_map = false;
+	std::vector<BackSide> back_sides;  // foom
 };
 
 #endif

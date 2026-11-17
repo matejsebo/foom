@@ -809,6 +809,9 @@ void XMLFileImporter::importElements()
 		}
 	}
 	
+	if (!loadSymbolsOnly())  // foom: OOM's stored print area becomes the extent "default"
+		addDefaultExtent(*map);
+	
 	if (xml.error())
 		throw FileFormatException(
 		        tr("Error at line %1 column %2: %3")

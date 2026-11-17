@@ -584,6 +584,7 @@ void MapPrinter::setPrintArea(const QRectF& area)
 	if (print_area != area && area.left() < area.right() && area.top() < area.bottom())
 	{
 		print_area = area;
+		back_sides.clear();  // foom: they belonged to the previous area
 		
 		if ((target == imageTarget() || target == kmzTarget()) && print_area.size() != page_format.paper_dimensions)
 			setCustomPageSize(print_area.size() * scale_adjustment);
@@ -1424,6 +1425,38 @@ bool MapPrinter::printMap(QPrinter* printer)
 			
 			need_new_page = true;
 		}
+	}
+	
+	// foom: The back sides of the sheet follow as further pages.
+	// the design notes, "Extents in print and export"
+	if (!back_sides.empty() && !cancel_print_map && painter.isActive())
+	{
+		auto const sides = back_sides;
+		auto const front_area = print_area;
+		auto const front_scale = options.scale;
+		for (auto const& side : sides)
+		{
+			setScale(side.scale > 0 ? side.scale : front_scale);
+			setPrintArea(side.area);
+			auto const side_extent_size = page_format.page_rect.size() / scale_adjustment;
+			for (auto vpos : v_page_pos)
+			{
+				for (auto hpos : h_page_pos)
+				{
+					if (cancel_print_map || !painter.isActive())
+						break;
+					printer->newPage();
+					QRectF page_extent = QRectF(QPointF(hpos, vpos), side_extent_size);
+					if (separationsModeSelected())
+						drawSeparationPages(printer, &painter, page_extent);
+					else
+						drawPage(&painter, page_extent);
+				}
+			}
+		}
+		setScale(front_scale);
+		setPrintArea(front_area);
+		back_sides = sides;
 	}
 	
 	if (cancel_print_map)

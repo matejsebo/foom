@@ -147,6 +147,7 @@ set(Mapper_Common_SRCS
   layout/layout_part.cpp
   core/color_group.cpp
   core/crt_rules.cpp
+  core/extent_printing.cpp
   core/extents.cpp
   core/lasso_query.cpp
   core/object_groups.cpp
