@@ -434,6 +434,8 @@ public slots:
 	void generateScaleBarClicked();
 	void generateNorthLinesClicked();
 	void generateLegendClicked();
+	/** foom: Runs the generator whose id the sending action holds. */
+	void generateClicked();
 	/** foom: Asks for the parameters of the generator, runs it at the centre of the view and selects its group. */
 	void runGeneratorDialog(const QString& id);
 	/** foom: Rebuilds the generated groups of the selection (regenerate). */
@@ -1040,6 +1042,7 @@ private:
 	QAction* gen_scale_bar_act = {};  // foom
 	QAction* gen_north_lines_act = {};  // foom
 	QAction* gen_legend_act = {};  // foom
+	std::vector<QAction*> more_generator_acts;  // foom
 	QAction* regenerate_act = {};  // foom
 	
 	QAction* tags_window_act = {};

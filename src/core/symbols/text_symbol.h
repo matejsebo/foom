@@ -144,6 +144,8 @@ public:
 	inline double getLineBelowDistance() const {return 0.001 * line_below_distance;}
 	inline int getNumCustomTabs() const {return (int)custom_tabs.size();}
 	inline int getCustomTab(int index) const {return custom_tabs[index];}
+	/** foom: Sets the tab stops, in 1/1000 mm from the start of the line. */
+	void setCustomTabs(const std::vector<int>& tabs) { custom_tabs = tabs; }
 	inline const QFont& getQFont() const {return qfont;}
 	inline const QFontMetricsF& getFontMetrics() const { return metrics; }
 	

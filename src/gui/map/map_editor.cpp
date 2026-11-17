@@ -1262,7 +1262,23 @@ void MapEditorController::createActions()
 	gen_scale_bar_act = newAction("gen-scale-bar", tr("Scale bar..."), this, SLOT(generateScaleBarClicked()), nullptr, QString{}, "map_menu.html");
 	gen_north_lines_act = newAction("gen-north-lines", tr("North lines..."), this, SLOT(generateNorthLinesClicked()), nullptr, QString{}, "map_menu.html");
 	gen_legend_act = newAction("gen-legend", tr("Legend..."), this, SLOT(generateLegendClicked()), nullptr, QString{}, "map_menu.html");
-	regenerate_act = newAction("regenerate", tr("Regenerate"), this, SLOT(regenerateClicked()), nullptr, tr("Rebuilds the selected scale bars, north lines and legends from their parameters."), "map_menu.html");
+	{
+		const std::pair<const char*, QString> more_generators[] = {
+			{ "gen-north-arrow", tr("North arrow...") },
+			{ "gen-grid", tr("Grid...") },
+			{ "gen-graticule", tr("Graticule...") },
+			{ "gen-name-index", tr("Name index...") },
+			{ "gen-trim-marks", tr("Trim marks...") },
+			{ "gen-qr-code", tr("QR code...") },
+		};
+		for (auto const& generator : more_generators)
+		{
+			auto* action = newAction(generator.first, generator.second, this, SLOT(generateClicked()), nullptr, QString{}, "map_menu.html");
+			action->setData(QString::fromLatin1(generator.first));
+			more_generator_acts.push_back(action);
+		}
+	}
+	regenerate_act = newAction("regenerate", tr("Regenerate"), this, SLOT(regenerateClicked()), nullptr, tr("Rebuilds the selected generated groups from their parameters."), "map_menu.html");
 	layout_import_act = newAction("layout-import", tr("Import layout..."), this, SLOT(importLayoutClicked()), nullptr, QString{}, "file_menu.html");
 	
 	map_coordinates_act = new QAction(tr("Map coordinates"), this);
@@ -1492,6 +1508,8 @@ void MapEditorController::createMenuAndToolbars()
 	generate_menu->addAction(gen_scale_bar_act);
 	generate_menu->addAction(gen_north_lines_act);
 	generate_menu->addAction(gen_legend_act);
+	for (auto* action : more_generator_acts)
+		generate_menu->addAction(action);
 	map_menu->addAction(regenerate_act);  // foom
 	map_menu->addAction(mappart_rename_act);
 	map_menu->addAction(mappart_remove_act);
@@ -5674,6 +5692,12 @@ void MapEditorController::generateLegendClicked()
 	runGeneratorDialog(QStringLiteral("gen-legend"));
 }
 
+void MapEditorController::generateClicked()
+{
+	if (auto const* action = qobject_cast<QAction*>(sender()))
+		runGeneratorDialog(action->data().toString());
+}
+
 void MapEditorController::runGeneratorDialog(const QString& id)
 {
 	GeneratorDialog dialog(*map, id, defaultGeneratorParams(id, *map), window);
@@ -5810,6 +5834,8 @@ void MapEditorController::updateLayoutActions()
 	gen_scale_bar_act->setEnabled(!editing_in_progress);
 	gen_north_lines_act->setEnabled(!editing_in_progress);
 	gen_legend_act->setEnabled(!editing_in_progress);
+	for (auto* action : more_generator_acts)
+		action->setEnabled(!editing_in_progress);
 	regenerate_act->setEnabled(!editing_in_progress && have_selection && !generatedGroups(*map, true).empty());
 	object_style_act->setEnabled(!editing_in_progress && have_selection && sharedPrivateSymbol(*map));
 	layout_import_act->setEnabled(!editing_in_progress);

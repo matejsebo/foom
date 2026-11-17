@@ -49,7 +49,7 @@ class Object;
 /** One parameter of a generator, as the dialog shows it. */
 struct GeneratorField
 {
-	enum Kind { Bool, Int, Double, Choice, LineSymbol, AreaSymbol, TextSymbol };
+	enum Kind { Bool, Int, Double, Choice, LineSymbol, AreaSymbol, TextSymbol, String };
 	
 	QString key;
 	QString label;
@@ -68,8 +68,12 @@ QStringList generatorIds();
 /** The name of a generator, which is also the name of its groups. */
 QString generatorTitle(const QString& id);
 
-/** The parameters of a generator, in dialog order. */
-std::vector<GeneratorField> generatorFields(const QString& id);
+/**
+ * The parameters of a generator, in dialog order.
+ *
+ * With a map, the choices which depend on it are filled in: the extents.
+ */
+std::vector<GeneratorField> generatorFields(const QString& id, const Map* map = nullptr);
 
 /** The default parameters of a generator for the map. */
 QJsonObject defaultGeneratorParams(const QString& id, const Map& map);
@@ -84,11 +88,24 @@ double scaleBarAutoLength(unsigned int scale_denominator);
 double northLinesDefaultSpacing(const Map& map);
 
 /**
+ * The automatic spacing of grid lines in metres: the smallest of 1, 2 and 5
+ * times a power of ten which is at least 40 mm on paper.
+ */
+double gridAutoSpacing(unsigned int scale_denominator);
+
+/**
+ * The automatic interval of a graticule in seconds of arc: the smallest
+ * round value for which two parallels are at least 40 mm apart on paper.
+ */
+double graticuleAutoInterval(unsigned int scale_denominator);
+
+/**
  * Runs a generator: adds its objects as one new group, as one undo step.
  *
- * The scale bar and the legend go to the layout part, which is created when
- * the map has none, with the anchor as their top left corner. North lines go
- * to the first part with the role map.
+ * North lines, the grid and the graticule go to the first part with the role
+ * map. The others go to the layout part, which is created when the map has
+ * none, and are placed by the anchor: their top left corner, or the centre
+ * of a north arrow.
  *
  * Returns the group, or 0 with a message in error.
  */

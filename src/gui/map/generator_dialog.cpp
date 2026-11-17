@@ -30,6 +30,7 @@
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QJsonValue>
+#include <QLineEdit>
 #include <QSpinBox>
 #include <QVBoxLayout>
 
@@ -75,7 +76,7 @@ GeneratorDialog::GeneratorDialog(const Map& map, const QString& id, const QJsonO
 : QDialog(parent)
 , map(map)
 , initial_params(params)
-, fields(generatorFields(id))
+, fields(generatorFields(id, &map))
 {
 	setWindowTitle(generatorTitle(id));
 	setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
@@ -125,6 +126,14 @@ GeneratorDialog::GeneratorDialog(const Map& map, const QString& id, const QJsonO
 				editors.push_back(combo);
 			}
 			break;
+		case GeneratorField::String:
+			{
+				auto* edit = new QLineEdit(value.toString());
+				edit->setMinimumWidth(240);
+				form->addRow(field.label, edit);
+				editors.push_back(edit);
+			}
+			break;
 		case GeneratorField::LineSymbol:
 		case GeneratorField::AreaSymbol:
 		case GeneratorField::TextSymbol:
@@ -169,6 +178,9 @@ QJsonObject GeneratorDialog::params() const
 			break;
 		case GeneratorField::Choice:
 			result.insert(field.key, static_cast<QComboBox*>(editors[i])->currentData().toString());
+			break;
+		case GeneratorField::String:
+			result.insert(field.key, static_cast<QLineEdit*>(editors[i])->text());
 			break;
 		case GeneratorField::LineSymbol:
 		case GeneratorField::AreaSymbol:

@@ -20,6 +20,7 @@
 
 
 #include "generator.h"
+#include "generator_p.h"
 
 #include <algorithm>
 #include <cmath>
@@ -67,9 +68,26 @@ namespace {
 const QLatin1String scale_bar_id("gen-scale-bar");
 const QLatin1String north_lines_id("gen-north-lines");
 const QLatin1String legend_id("gen-legend");
+const QLatin1String north_arrow_id("gen-north-arrow");
+const QLatin1String grid_id("gen-grid");
+const QLatin1String graticule_id("gen-graticule");
+const QLatin1String name_index_id("gen-name-index");
+const QLatin1String trim_marks_id("gen-trim-marks");
+const QLatin1String qr_code_id("gen-qr-code");
 
 const QLatin1String generator_tag("generator");
 const QLatin1String params_tag("params");
+
+/** True for the generators whose objects are map content. */
+bool writesToMapPart(const QString& id)
+{
+	return id == north_lines_id || id == grid_id || id == graticule_id;
+}
+
+}  // namespace
+
+
+namespace generator_impl {
 
 QString tr(const char* text)
 {
@@ -81,39 +99,6 @@ void setError(QString* error, const QString& message)
 	if (error)
 		*error = message;
 }
-
-
-/** What a generator made: objects, and the private symbols they use. */
-struct Build
-{
-	std::vector<Symbol*> symbols;
-	std::vector<Object*> objects;
-	
-	Build() = default;
-	Build(const Build&) = delete;
-	Build& operator=(const Build&) = delete;
-	
-	~Build()
-	{
-		// Only what was not handed over to the map.
-		for (auto* object : objects)
-			delete object;
-		for (auto* symbol : symbols)
-			delete symbol;
-	}
-	
-	void handedOver()
-	{
-		objects.clear();
-		symbols.clear();
-	}
-};
-
-struct Context
-{
-	const Map& map;
-	int exclude_group;  ///< The group which is being rebuilt, or 0.
-};
 
 
 const MapColor* darkestColor(const Map& map)
@@ -207,6 +192,13 @@ TextObject* makeText(const Symbol* symbol, const QPointF& anchor, const QString&
 	return text;
 }
 
+}  // namespace generator_impl
+
+using namespace generator_impl;
+
+
+namespace {
+
 /** 10000 as "10 000". */
 QString grouped(unsigned int value)
 {
@@ -279,6 +271,11 @@ bool buildScaleBar(const Context& c, const QJsonObject& params, const MapCoordF&
 
 // ### North lines ###
 
+}  // namespace
+
+
+namespace generator_impl {
+
 QPolygonF outlineFromParams(const QJsonObject& params)
 {
 	QPolygonF polygon;
@@ -311,6 +308,11 @@ QRectF mapContentExtent(const Context& c)
 	}
 	return extent;
 }
+
+}  // namespace generator_impl
+
+
+namespace {
 
 bool buildNorthLines(const Context& c, const QJsonObject& params, const MapCoordF& /*anchor*/, Build& build, QString* error)
 {
@@ -536,6 +538,18 @@ BuildFunction buildFunction(const QString& id)
 		return &buildNorthLines;
 	if (id == legend_id)
 		return &buildLegend;
+	if (id == north_arrow_id)
+		return &buildNorthArrow;
+	if (id == grid_id)
+		return &buildGrid;
+	if (id == graticule_id)
+		return &buildGraticule;
+	if (id == name_index_id)
+		return &buildNameIndex;
+	if (id == trim_marks_id)
+		return &buildTrimMarks;
+	if (id == qr_code_id)
+		return &buildQrCode;
 	return nullptr;
 }
 
@@ -593,7 +607,7 @@ QPolygonF selectedOutline(const Map& map)
 
 QStringList generatorIds()
 {
-	return { scale_bar_id, north_lines_id, legend_id };
+	return { scale_bar_id, north_lines_id, legend_id, north_arrow_id, grid_id, graticule_id, name_index_id, trim_marks_id, qr_code_id };
 }
 
 QString generatorTitle(const QString& id)
@@ -604,10 +618,22 @@ QString generatorTitle(const QString& id)
 		return tr("North lines");
 	if (id == legend_id)
 		return tr("Legend");
+	if (id == north_arrow_id)
+		return tr("North arrow");
+	if (id == grid_id)
+		return tr("Grid");
+	if (id == graticule_id)
+		return tr("Graticule");
+	if (id == name_index_id)
+		return tr("Name index");
+	if (id == trim_marks_id)
+		return tr("Trim marks");
+	if (id == qr_code_id)
+		return tr("QR code");
 	return id;
 }
 
-std::vector<GeneratorField> generatorFields(const QString& id)
+std::vector<GeneratorField> generatorFields(const QString& id, const Map* map)
 {
 	auto const field = [](const char* key, const QString& label, GeneratorField::Kind kind, double minimum = 0, double maximum = 0, int decimals = 0, const QString& suffix = {}) {
 		GeneratorField f;
@@ -663,10 +689,98 @@ std::vector<GeneratorField> generatorFields(const QString& id)
 		fields.push_back(field("max_column_height", tr("Column height (0: one column):"), GeneratorField::Double, 0, 5000, 1, mm));
 		fields.push_back(field("text_symbol", tr("Text symbol (none: automatic):"), GeneratorField::TextSymbol));
 	}
+	else if (id == north_arrow_id)
+	{
+		auto design = field("design", tr("Design:"), GeneratorField::Choice);
+		design.choices = QStringList{ QStringLiteral("arrow"), QStringLiteral("needle"), QStringLiteral("barb") };
+		design.choice_labels = QStringList{ tr("Arrow"), tr("Compass needle"), tr("Line with a barb") };
+		fields.push_back(design);
+		fields.push_back(field("size", tr("Height:"), GeneratorField::Double, 2, 500, 1, mm));
+		auto reference = field("reference", tr("Points to:"), GeneratorField::Choice);
+		reference.choices = QStringList{ QStringLiteral("magnetic"), QStringLiteral("true"), QStringLiteral("grid") };
+		reference.choice_labels = QStringList{ tr("Magnetic north"), tr("True north"), tr("Grid north") };
+		fields.push_back(reference);
+		fields.push_back(field("letter", tr("Letter N above the tip"), GeneratorField::Bool));
+	}
+	else if (id == grid_id || id == graticule_id)
+	{
+		if (id == grid_id)
+		{
+			fields.push_back(field("spacing_e", tr("Easting spacing (0: automatic):"), GeneratorField::Double, 0, 10000000, 0, m));
+			fields.push_back(field("spacing_n", tr("Northing spacing (0: as easting):"), GeneratorField::Double, 0, 10000000, 0, m));
+			fields.push_back(field("offset_e", tr("Easting offset:"), GeneratorField::Double, -10000000, 10000000, 0, m));
+			fields.push_back(field("offset_n", tr("Northing offset:"), GeneratorField::Double, -10000000, 10000000, 0, m));
+			fields.push_back(field("vertical", tr("Lines of constant easting"), GeneratorField::Bool));
+			fields.push_back(field("horizontal", tr("Lines of constant northing"), GeneratorField::Bool));
+			fields.push_back(field("junction_vertices", tr("Vertices where lines cross"), GeneratorField::Bool));
+		}
+		else
+		{
+			fields.push_back(field("interval_min", tr("Interval (0: automatic):"), GeneratorField::Double, 0, 600, 4, tr(" min")));
+			fields.push_back(field("lat_min", tr("South bound (all 0: automatic):"), GeneratorField::Double, -89, 89, 6, tr(" \u00b0")));
+			fields.push_back(field("lat_max", tr("North bound:"), GeneratorField::Double, -89, 89, 6, tr(" \u00b0")));
+			fields.push_back(field("lon_min", tr("West bound:"), GeneratorField::Double, -180, 180, 6, tr(" \u00b0")));
+			fields.push_back(field("lon_max", tr("East bound:"), GeneratorField::Double, -180, 180, 6, tr(" \u00b0")));
+			fields.push_back(field("lines", tr("Lines"), GeneratorField::Bool));
+		}
+		fields.push_back(field("labels", tr("Labels at the frame"), GeneratorField::Bool));
+		auto clip = field("clip", tr("Clip to:"), GeneratorField::Choice);
+		clip.choices = QStringList{ QStringLiteral("extent"), QStringLiteral("selection") };
+		clip.choice_labels = QStringList{ tr("The extent of the map objects"), tr("The selected closed path") };
+		fields.push_back(clip);
+		fields.push_back(field("line_symbol", tr("Line symbol (none: automatic):"), GeneratorField::LineSymbol));
+		fields.push_back(field("text_symbol", tr("Text symbol (none: automatic):"), GeneratorField::TextSymbol));
+	}
+	else if (id == name_index_id)
+	{
+		fields.push_back(field("symbols", tr("Text symbol numbers (empty: all):"), GeneratorField::String));
+		auto cells = field("cells", tr("Cells:"), GeneratorField::Choice);
+		cells.choices = QStringList{ QStringLiteral("grid"), QStringLiteral("graticule") };
+		cells.choice_labels = QStringList{ tr("Letters and numbers"), tr("Latitude and longitude") };
+		fields.push_back(cells);
+		fields.push_back(field("origin_x", tr("Left edge of column A:"), GeneratorField::Double, -100000, 100000, 2, mm));
+		fields.push_back(field("origin_y", tr("Top edge of row 1:"), GeneratorField::Double, -100000, 100000, 2, mm));
+		fields.push_back(field("cell_width", tr("Cell width:"), GeneratorField::Double, 1, 10000, 1, mm));
+		fields.push_back(field("cell_height", tr("Cell height:"), GeneratorField::Double, 1, 10000, 1, mm));
+		fields.push_back(field("cell_minutes", tr("Cell size, latitude and longitude:"), GeneratorField::Double, 0.01, 600, 2, tr(" min")));
+		fields.push_back(field("rows_per_column", tr("Names per column:"), GeneratorField::Int, 1, 10000));
+		fields.push_back(field("column_width", tr("Column width:"), GeneratorField::Double, 25, 1000, 1, mm));
+		fields.push_back(field("text_symbol", tr("Text symbol (none: automatic):"), GeneratorField::TextSymbol));
+	}
+	else if (id == trim_marks_id)
+	{
+		auto extent = field("extent", tr("Trim rectangle:"), GeneratorField::Choice);
+		extent.choices = QStringList{ QString{} };
+		extent.choice_labels = QStringList{ tr("The print area") };
+		if (map)
+		{
+			for (auto const& named : map->extents())
+			{
+				extent.choices.append(named.name);
+				extent.choice_labels.append(named.name);
+			}
+		}
+		fields.push_back(extent);
+		fields.push_back(field("bleed", tr("Bleed:"), GeneratorField::Double, 0, 100, 1, mm));
+		fields.push_back(field("mark_length", tr("Length of the marks:"), GeneratorField::Double, 1, 100, 1, mm));
+		fields.push_back(field("bleed_rectangle", tr("Bleed rectangle"), GeneratorField::Bool));
+		fields.push_back(field("line_symbol", tr("Line symbol (none: automatic):"), GeneratorField::LineSymbol));
+	}
+	else if (id == qr_code_id)
+	{
+		fields.push_back(field("text", tr("Text or address:"), GeneratorField::String));
+		fields.push_back(field("module", tr("Module size:"), GeneratorField::Double, 0.1, 20, 2, mm));
+		fields.push_back(field("quiet_zone", tr("Quiet zone, in modules:"), GeneratorField::Int, 0, 20));
+		auto level = field("ec_level", tr("Error correction:"), GeneratorField::Choice);
+		level.choices = QStringList{ QStringLiteral("L"), QStringLiteral("M"), QStringLiteral("Q"), QStringLiteral("H") };
+		level.choice_labels = QStringList{ tr("L (7 %)"), tr("M (15 %)"), tr("Q (25 %)"), tr("H (30 %)") };
+		fields.push_back(level);
+		fields.push_back(field("area_symbol", tr("Area symbol (none: automatic):"), GeneratorField::AreaSymbol));
+	}
 	return fields;
 }
 
-QJsonObject defaultGeneratorParams(const QString& id, const Map& /*map*/)
+QJsonObject defaultGeneratorParams(const QString& id, const Map& map)
 {
 	QJsonObject params;
 	auto const set = [&params](const char* key, const QJsonValue& value) {
@@ -706,6 +820,72 @@ QJsonObject defaultGeneratorParams(const QString& id, const Map& /*map*/)
 		set("max_column_height", 0);
 		set("text_symbol", QString{});
 	}
+	else if (id == north_arrow_id)
+	{
+		set("design", QStringLiteral("arrow"));
+		set("size", 15);
+		set("reference", QStringLiteral("magnetic"));
+		set("letter", true);
+	}
+	else if (id == grid_id)
+	{
+		set("spacing_e", 0);
+		set("spacing_n", 0);
+		set("offset_e", 0);
+		set("offset_n", 0);
+		set("vertical", true);
+		set("horizontal", true);
+		set("junction_vertices", false);
+		set("labels", true);
+		set("clip", QStringLiteral("extent"));
+		set("line_symbol", QString{});
+		set("text_symbol", QString{});
+	}
+	else if (id == graticule_id)
+	{
+		set("interval_min", 0);
+		set("lat_min", 0);
+		set("lat_max", 0);
+		set("lon_min", 0);
+		set("lon_max", 0);
+		set("lines", true);
+		set("labels", true);
+		set("clip", QStringLiteral("extent"));
+		set("line_symbol", QString{});
+		set("text_symbol", QString{});
+	}
+	else if (id == name_index_id)
+	{
+		// The cells start at the top left corner of the map objects.
+		auto const extent = mapContentExtent({ map, 0 });
+		auto const valid = extent.isValid() && !extent.isEmpty();
+		set("symbols", QString{});
+		set("cells", QStringLiteral("grid"));
+		set("origin_x", valid ? std::floor(extent.left() * 10) / 10 : 0.0);
+		set("origin_y", valid ? std::floor(extent.top() * 10) / 10 : 0.0);
+		set("cell_width", 50);
+		set("cell_height", 50);
+		set("cell_minutes", 1);
+		set("rows_per_column", 40);
+		set("column_width", 60);
+		set("text_symbol", QString{});
+	}
+	else if (id == trim_marks_id)
+	{
+		set("extent", QString{});
+		set("bleed", 3);
+		set("mark_length", 5);
+		set("bleed_rectangle", true);
+		set("line_symbol", QString{});
+	}
+	else if (id == qr_code_id)
+	{
+		set("text", QString{});
+		set("module", 0.5);
+		set("quiet_zone", 4);
+		set("ec_level", QStringLiteral("M"));
+		set("area_symbol", QString{});
+	}
 	return params;
 }
 
@@ -744,7 +924,7 @@ int runGenerator(Map& map, const QString& id, const QJsonObject& params, const M
 	}
 	
 	auto used_params = params;
-	if (id == north_lines_id && used_params.value(QLatin1String("clip")).toString() == QLatin1String("selection")
+	if (writesToMapPart(id) && used_params.value(QLatin1String("clip")).toString() == QLatin1String("selection")
 	    && outlineFromParams(used_params).size() < 3)
 	{
 		auto const outline = selectedOutline(map);
@@ -773,7 +953,7 @@ int runGenerator(Map& map, const QString& id, const QJsonObject& params, const M
 	
 	auto* undo = new CombinedUndoStep(&map);
 	int part_index;
-	if (id == north_lines_id)
+	if (writesToMapPart(id))
 	{
 		part_index = mapContentPartIndex(map);
 		if (part_index < 0)

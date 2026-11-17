@@ -250,6 +250,8 @@ endif()
 add_system_test(map_part_role_t)  # foom: the design notes, Map part roles
 add_system_test(private_symbol_t)  # foom: the design notes, Private symbols
 add_system_test(generator_t)  # foom: the design notes, Generators
+add_system_test(generator_more_t)  # foom: the design notes, Generators, second change
+add_system_test(qr_code_t)  # foom: the design notes, Generators, gen-qr-code
 add_system_test(import_points_t)  # foom: the design notes, Delimited text
 add_system_test(text_symbol_t)
 add_system_test(line_taper_t)
