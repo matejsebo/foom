@@ -211,6 +211,7 @@ set(Mapper_Common_SRCS
   gui/map/elevation_dialogs.cpp
   gui/map/legibility_dialog.cpp
   gui/map/topology_dialogs.cpp
+  gui/map/image_properties_dialog.cpp
   gui/map/import_points_dialog.cpp
   gui/map/rectangle_box_dialog.cpp
   gui/map/find_replace_text_dialog.cpp

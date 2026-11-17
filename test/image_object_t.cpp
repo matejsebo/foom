@@ -437,6 +437,56 @@ private slots:
 		QVERIFY(!copy->equals(image, true));
 	}
 	
+	/// Accept (9)
+	void propertiesTest()
+	{
+		Map map;
+		auto* color = new MapColor(QStringLiteral("Blue"), 0);
+		map.addColor(color, 0);
+		auto* area_symbol = new AreaSymbol();
+		area_symbol->setColor(color);
+		map.addSymbol(area_symbol, 0);
+		MapCoordVector coords { MapCoord(-10, -10), MapCoord(10, -10), MapCoord(10, 10), MapCoord(-10, -10) };
+		coords.back().setClosePoint(true);
+		auto* area = new PathObject(area_symbol, coords);
+		map.addObject(area);
+		QVERIFY(!firstSelectedImage(map));
+		
+		QString error;
+		auto* first = addImage(map, smallPng(), true, MapCoordF(0, 0), QSizeF(), &error);
+		QVERIFY2(first, qPrintable(error));
+		auto* second = addImage(map, redPng(), true, MapCoordF(30, 0), QSizeF(), &error);
+		QVERIFY2(second, qPrintable(error));
+		map.clearObjectSelection(false);
+		map.addObjectToSelection(area, false);
+		QVERIFY(!firstSelectedImage(map));
+		QCOMPARE(setSelectedImageProperties(map, 0.4, ImageObject::BelowMap), 0);
+		map.addObjectToSelection(first, false);
+		map.addObjectToSelection(second, false);
+		QVERIFY(firstSelectedImage(map) == first || firstSelectedImage(map) == second);
+		
+		auto const steps = map.undoManager().undoStepCount();
+		QCOMPARE(setSelectedImageProperties(map, 0.4, ImageObject::BelowMap), 2);
+		QCOMPARE(map.undoManager().undoStepCount(), steps + 1);
+		QCOMPARE(first->opacity(), 0.4);
+		QCOMPARE(second->opacity(), 0.4);
+		QVERIFY(first->layer() == ImageObject::BelowMap);
+		QVERIFY(second->layer() == ImageObject::BelowMap);
+		QVERIFY(map.getPart(0)->getObject(0) == area);
+		
+		QCOMPARE(setSelectedImageProperties(map, 0.4, ImageObject::BelowMap), 0);
+		QCOMPARE(map.undoManager().undoStepCount(), steps + 1);
+		
+		QVERIFY(map.undoManager().undo());
+		for (int i = 1; i <= 2; ++i)
+		{
+			auto const* restored = imageAt(map, 0, i);
+			QVERIFY(restored);
+			QCOMPARE(restored->opacity(), 1.0);
+			QVERIFY(restored->layer() == ImageObject::AboveMap);
+		}
+	}
+	
 	/// Accept (8)
 	void pdfTest()
 	{

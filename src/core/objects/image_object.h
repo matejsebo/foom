@@ -185,6 +185,15 @@ int embedSelectedImages(Map& map);
 /** Returns true if a linked image is selected. */
 bool isLinkedImageSelected(const Map& map);
 
+/** Returns the first selected image object, or nullptr. */
+const ImageObject* firstSelectedImage(const Map& map);
+
+/**
+ * Gives the selected images the opacity and the layer, as one undo step
+ * (image-properties). Returns the number of images changed.
+ */
+int setSelectedImageProperties(Map& map, qreal opacity, ImageObject::Layer layer);
+
 
 }  // namespace OpenOrienteering
 

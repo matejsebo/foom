@@ -149,6 +149,7 @@
 #include "gui/map/map_information_dialog.h"
 #include "gui/map/map_notes.h"
 #include "gui/map/map_widget.h"
+#include "gui/map/image_properties_dialog.h"  // foom
 #include "gui/map/import_points_dialog.h"  // foom
 #include "gui/symbols/symbol_setting_dialog.h"  // foom
 #include "layout/layout_part.h"  // foom
@@ -1253,6 +1254,7 @@ void MapEditorController::createActions()
 	// foom: the design notes, "Image object"
 	image_add_act = newAction("image-add", tr("Add image..."), this, SLOT(addImageClicked()), nullptr, tr("Adds a PNG or JPEG image to the map."), "map_menu.html");
 	image_embed_act = newAction("image-embed", tr("Embed image"), this, SLOT(embedImageClicked()), nullptr, tr("Stores the selected linked images in the map file."), "map_menu.html");
+	image_properties_act = newAction("image-properties", tr("Image properties..."), this, SLOT(imagePropertiesClicked()), nullptr, tr("Sets the opacity and the position of the selected images."), "map_menu.html");
 	layout_import_act = newAction("layout-import", tr("Import layout..."), this, SLOT(importLayoutClicked()), nullptr, QString{}, "file_menu.html");
 	
 	map_coordinates_act = new QAction(tr("Map coordinates"), this);
@@ -1476,6 +1478,7 @@ void MapEditorController::createMenuAndToolbars()
 	map_menu->addAction(layout_create_act);  // foom
 	map_menu->addAction(image_add_act);  // foom
 	map_menu->addAction(image_embed_act);  // foom
+	map_menu->addAction(image_properties_act);  // foom
 	map_menu->addAction(mappart_rename_act);
 	map_menu->addAction(mappart_remove_act);
 	map_menu->addMenu(mappart_move_menu);
@@ -5609,6 +5612,17 @@ void MapEditorController::addImageClicked()
 		QMessageBox::warning(window, tr("Add image"), error);
 }
 
+void MapEditorController::imagePropertiesClicked()
+{
+	auto const* image = firstSelectedImage(*map);
+	if (!image)
+		return;
+	ImagePropertiesDialog dialog(*image, window);
+	dialog.setWindowModality(Qt::WindowModal);
+	if (dialog.exec() == QDialog::Accepted)
+		setSelectedImageProperties(*map, dialog.opacity(), dialog.layer());
+}
+
 void MapEditorController::embedImageClicked()
 {
 	auto const count = embedSelectedImages(*map);
@@ -5690,6 +5704,7 @@ void MapEditorController::updateLayoutActions()
 	to_graphic_act->setEnabled(!editing_in_progress && have_selection);
 	image_add_act->setEnabled(!editing_in_progress);
 	image_embed_act->setEnabled(!editing_in_progress && have_selection && isLinkedImageSelected(*map));
+	image_properties_act->setEnabled(!editing_in_progress && have_selection && firstSelectedImage(*map));
 	object_style_act->setEnabled(!editing_in_progress && have_selection && sharedPrivateSymbol(*map));
 	layout_import_act->setEnabled(!editing_in_progress);
 }

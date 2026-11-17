@@ -428,6 +428,8 @@ public slots:
 	void addImageClicked();
 	/** foom: Embeds the selected linked images (image-embed). */
 	void embedImageClicked();
+	/** foom: Asks for the opacity and layer of the selected images (image-properties). */
+	void imagePropertiesClicked();
 	void updateMapServiceAction();  // foom
 	/** Shows the ReopenTemplateDialog. */
 	void reopenTemplateClicked();
@@ -1024,6 +1026,7 @@ private:
 	QAction* object_style_act = {};  // foom
 	QAction* image_add_act = {};  // foom
 	QAction* image_embed_act = {};  // foom
+	QAction* image_properties_act = {};  // foom
 	
 	QAction* tags_window_act = {};
 	QPointer<EditorDockWidget> tags_dock_widget;

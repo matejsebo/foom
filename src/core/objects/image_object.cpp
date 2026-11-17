@@ -441,6 +441,46 @@ int embedSelectedImages(Map& map)
 	return count;
 }
 
+const ImageObject* firstSelectedImage(const Map& map)
+{
+	for (auto const* object : map.selectedObjects())
+	{
+		if (object->getType() == Object::Image)
+			return static_cast<const ImageObject*>(object);
+	}
+	return nullptr;
+}
+
+int setSelectedImageProperties(Map& map, qreal opacity, ImageObject::Layer layer)
+{
+	opacity = qBound(0.0, opacity, 1.0);
+	auto* part = map.getCurrentPart();
+	auto* undo = new ReplaceObjectsUndoStep(&map);
+	auto count = 0;
+	for (auto* object : map.selectedObjects())
+	{
+		if (object->getType() != Object::Image)
+			continue;
+		auto* image = static_cast<ImageObject*>(object);
+		if (qAbs(image->opacity() - opacity) < 0.0005 && image->layer() == layer)
+			continue;
+		undo->addObject(part->findObjectIndex(object), image->duplicate());
+		image->setOpacity(opacity);
+		image->setLayer(layer);
+		image->update();
+		++count;
+	}
+	if (count == 0)
+	{
+		delete undo;
+		return 0;
+	}
+	map.push(undo);
+	map.setObjectsDirty();
+	map.emitSelectionEdited();
+	return count;
+}
+
 bool isLinkedImageSelected(const Map& map)
 {
 	for (auto const* object : map.selectedObjects())
