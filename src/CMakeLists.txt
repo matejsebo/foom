@@ -143,6 +143,7 @@ set(Mapper_Common_SRCS
   check/legibility.cpp
   tools/legibility_feedback.cpp
   check/map_check.cpp
+  layout/generator.cpp
   layout/layout_part.cpp
   core/color_group.cpp
   core/crt_rules.cpp
@@ -211,6 +212,7 @@ set(Mapper_Common_SRCS
   gui/map/elevation_dialogs.cpp
   gui/map/legibility_dialog.cpp
   gui/map/topology_dialogs.cpp
+  gui/map/generator_dialog.cpp
   gui/map/image_properties_dialog.cpp
   gui/map/import_points_dialog.cpp
   gui/map/rectangle_box_dialog.cpp

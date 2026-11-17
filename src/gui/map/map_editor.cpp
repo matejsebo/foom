@@ -149,9 +149,11 @@
 #include "gui/map/map_information_dialog.h"
 #include "gui/map/map_notes.h"
 #include "gui/map/map_widget.h"
+#include "gui/map/generator_dialog.h"  // foom
 #include "gui/map/image_properties_dialog.h"  // foom
 #include "gui/map/import_points_dialog.h"  // foom
 #include "gui/symbols/symbol_setting_dialog.h"  // foom
+#include "layout/generator.h"  // foom
 #include "layout/layout_part.h"  // foom
 #include "gui/map/move_parallel_dialog.h"
 #include "gui/map/numeric_entry_bar.h"
@@ -1255,6 +1257,11 @@ void MapEditorController::createActions()
 	image_add_act = newAction("image-add", tr("Add image..."), this, SLOT(addImageClicked()), nullptr, tr("Adds a PNG or JPEG image to the map."), "map_menu.html");
 	image_embed_act = newAction("image-embed", tr("Embed image"), this, SLOT(embedImageClicked()), nullptr, tr("Stores the selected linked images in the map file."), "map_menu.html");
 	image_properties_act = newAction("image-properties", tr("Image properties..."), this, SLOT(imagePropertiesClicked()), nullptr, tr("Sets the opacity and the position of the selected images."), "map_menu.html");
+	// foom: the design notes, "Generators"
+	gen_scale_bar_act = newAction("gen-scale-bar", tr("Scale bar..."), this, SLOT(generateScaleBarClicked()), nullptr, QString{}, "map_menu.html");
+	gen_north_lines_act = newAction("gen-north-lines", tr("North lines..."), this, SLOT(generateNorthLinesClicked()), nullptr, QString{}, "map_menu.html");
+	gen_legend_act = newAction("gen-legend", tr("Legend..."), this, SLOT(generateLegendClicked()), nullptr, QString{}, "map_menu.html");
+	regenerate_act = newAction("regenerate", tr("Regenerate"), this, SLOT(regenerateClicked()), nullptr, tr("Rebuilds the selected scale bars, north lines and legends from their parameters."), "map_menu.html");
 	layout_import_act = newAction("layout-import", tr("Import layout..."), this, SLOT(importLayoutClicked()), nullptr, QString{}, "file_menu.html");
 	
 	map_coordinates_act = new QAction(tr("Map coordinates"), this);
@@ -1479,6 +1486,12 @@ void MapEditorController::createMenuAndToolbars()
 	map_menu->addAction(image_add_act);  // foom
 	map_menu->addAction(image_embed_act);  // foom
 	map_menu->addAction(image_properties_act);  // foom
+	auto* generate_menu = map_menu->addMenu(tr("Generate"));  // foom
+	generate_menu->menuAction()->setMenuRole(QAction::NoRole);
+	generate_menu->addAction(gen_scale_bar_act);
+	generate_menu->addAction(gen_north_lines_act);
+	generate_menu->addAction(gen_legend_act);
+	map_menu->addAction(regenerate_act);  // foom
 	map_menu->addAction(mappart_rename_act);
 	map_menu->addAction(mappart_remove_act);
 	map_menu->addMenu(mappart_move_menu);
@@ -2528,9 +2541,19 @@ void MapEditorController::scaleAllSymbolsClicked()
 
 void MapEditorController::scaleMapClicked()
 {
+	auto const scale_before = map->getScaleDenominator();  // foom
 	ScaleMapDialog dialog(window, map);
 	dialog.setWindowModality(Qt::WindowModal);
 	dialog.exec();
+	
+	// foom: scale bars show the old scale now. the design notes, "Generators"
+	auto const scale_bars = scaleDependentGroups(*map);
+	if (map->getScaleDenominator() != scale_before && !scale_bars.empty()
+	    && QMessageBox::question(window, tr("Change map scale"), tr("The map has %n scale bar(s). Rebuild them for the new scale?", nullptr, int(scale_bars.size()))) == QMessageBox::Yes)
+	{
+		QString error;
+		regenerateGroups(*map, scale_bars, &error);
+	}
 }
 
 void MapEditorController::rotateMapClicked()
@@ -5612,6 +5635,61 @@ void MapEditorController::addImageClicked()
 		QMessageBox::warning(window, tr("Add image"), error);
 }
 
+void MapEditorController::generateScaleBarClicked()
+{
+	runGeneratorDialog(QStringLiteral("gen-scale-bar"));
+}
+
+void MapEditorController::generateNorthLinesClicked()
+{
+	runGeneratorDialog(QStringLiteral("gen-north-lines"));
+}
+
+void MapEditorController::generateLegendClicked()
+{
+	runGeneratorDialog(QStringLiteral("gen-legend"));
+}
+
+void MapEditorController::runGeneratorDialog(const QString& id)
+{
+	GeneratorDialog dialog(*map, id, defaultGeneratorParams(id, *map), window);
+	dialog.setWindowModality(Qt::WindowModal);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	
+	auto const view_rect = main_view->calculateViewedRect(map_widget->viewportToView(map_widget->rect()));
+	QString error;
+	auto const group = runGenerator(*map, id, dialog.params(), MapCoordF(view_rect.center()), &error);
+	if (group == 0)
+	{
+		QMessageBox::warning(window, generatorTitle(id), error);
+		return;
+	}
+	
+	// Show the result selected, in its part, ready to be dragged.
+	auto part_index = -1;
+	auto const objects = groupObjects(*map, group, &part_index);
+	if (part_index >= 0)
+	{
+		map->setCurrentPartIndex(std::size_t(part_index));
+		map->clearObjectSelection(false);
+		for (auto* object : objects)
+			map->addObjectToSelection(object, false);
+		map->emitSelectionChanged();
+	}
+	window->showStatusBarMessage(tr("%1: %n object(s).", nullptr, int(objects.size())).arg(generatorTitle(id)), 3000);
+}
+
+void MapEditorController::regenerateClicked()
+{
+	QString error;
+	auto const count = regenerateGroups(*map, generatedGroups(*map, true), &error);
+	if (count == 0 && !error.isEmpty())
+		QMessageBox::warning(window, tr("Regenerate"), error);
+	else
+		window->showStatusBarMessage(tr("Rebuilt %n group(s).", nullptr, count), 2000);
+}
+
 void MapEditorController::imagePropertiesClicked()
 {
 	auto const* image = firstSelectedImage(*map);
@@ -5705,6 +5783,10 @@ void MapEditorController::updateLayoutActions()
 	image_add_act->setEnabled(!editing_in_progress);
 	image_embed_act->setEnabled(!editing_in_progress && have_selection && isLinkedImageSelected(*map));
 	image_properties_act->setEnabled(!editing_in_progress && have_selection && firstSelectedImage(*map));
+	gen_scale_bar_act->setEnabled(!editing_in_progress);
+	gen_north_lines_act->setEnabled(!editing_in_progress);
+	gen_legend_act->setEnabled(!editing_in_progress);
+	regenerate_act->setEnabled(!editing_in_progress && have_selection && !generatedGroups(*map, true).empty());
 	object_style_act->setEnabled(!editing_in_progress && have_selection && sharedPrivateSymbol(*map));
 	layout_import_act->setEnabled(!editing_in_progress);
 }

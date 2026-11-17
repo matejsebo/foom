@@ -430,6 +430,14 @@ public slots:
 	void embedImageClicked();
 	/** foom: Asks for the opacity and layer of the selected images (image-properties). */
 	void imagePropertiesClicked();
+	/** foom: The generators (gen-scale-bar, gen-north-lines, gen-legend). */
+	void generateScaleBarClicked();
+	void generateNorthLinesClicked();
+	void generateLegendClicked();
+	/** foom: Asks for the parameters of the generator, runs it at the centre of the view and selects its group. */
+	void runGeneratorDialog(const QString& id);
+	/** foom: Rebuilds the generated groups of the selection (regenerate). */
+	void regenerateClicked();
 	void updateMapServiceAction();  // foom
 	/** Shows the ReopenTemplateDialog. */
 	void reopenTemplateClicked();
@@ -1027,6 +1035,10 @@ private:
 	QAction* image_add_act = {};  // foom
 	QAction* image_embed_act = {};  // foom
 	QAction* image_properties_act = {};  // foom
+	QAction* gen_scale_bar_act = {};  // foom
+	QAction* gen_north_lines_act = {};  // foom
+	QAction* gen_legend_act = {};  // foom
+	QAction* regenerate_act = {};  // foom
 	
 	QAction* tags_window_act = {};
 	QPointer<EditorDockWidget> tags_dock_widget;
