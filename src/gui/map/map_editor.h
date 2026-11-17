@@ -420,6 +420,10 @@ public slots:
 	void importLayoutClicked();
 	/** foom: Adjusts the availability of the layout commands. */
 	void updateLayoutActions();
+	/** foom: Gives the selected objects private copies of their symbols (to-graphic). */
+	void convertToGraphicClicked();
+	/** foom: Edits the private symbol of the selected objects (object-style). */
+	void objectStyleClicked();
 	void updateMapServiceAction();  // foom
 	/** Shows the ReopenTemplateDialog. */
 	void reopenTemplateClicked();
@@ -1012,6 +1016,8 @@ private:
 	QAction* to_map_act = {};  // foom
 	QAction* layout_save_act = {};  // foom
 	QAction* layout_import_act = {};  // foom
+	QAction* to_graphic_act = {};  // foom
+	QAction* object_style_act = {};  // foom
 	
 	QAction* tags_window_act = {};
 	QPointer<EditorDockWidget> tags_dock_widget;

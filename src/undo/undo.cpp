@@ -21,6 +21,7 @@
 
 #include "undo.h"
 
+#include <algorithm>
 #include <vector>
 
 #include <QXmlStreamReader>
@@ -189,6 +190,14 @@ UndoStep* CombinedUndoStep::undo()
 	return undo_step;
 }
 
+// foom
+bool UndoStep::usesSymbol(const Symbol* /*symbol*/) const
+{
+	return false;
+}
+
+
+
 bool CombinedUndoStep::getModifiedParts(PartSet &out) const
 {
 	for (const auto* step : steps)
@@ -204,6 +213,11 @@ void CombinedUndoStep::getModifiedObjects(int part_index, ObjectSet &out) const
 	{
 		step->getModifiedObjects(part_index, out);
 	}
+}
+
+bool CombinedUndoStep::usesSymbol(const Symbol* symbol) const
+{
+	return std::any_of(begin(steps), end(steps), [symbol](auto const* step) { return step->usesSymbol(symbol); });
 }
 
 void CombinedUndoStep::getAffectedObjects(int part_index, ObjectSet& out) const

@@ -57,6 +57,7 @@
 #include "core/map_printer.h"
 #include "core/objects/object_query.h"
 #include "core/objects/symbol_rule_set.h"
+#include "core/symbols/private_symbol.h"
 #include "core/symbols/symbol.h"
 #include "fileformats/file_format.h"
 #include "fileformats/file_format_registry.h"
@@ -1092,6 +1093,7 @@ StepResult StepRunner::saveAs(const Step& step)
 	auto const version = p.has("version") ? p.requirePositiveInt("version") : 0u;
 	auto const* format = resolveSaveFormat(p, path, p.optionalString("format"), version);
 	
+	purgePrivateSymbols(*map);
 	auto exporter = format->makeExporter(path, map.get(), nullptr);
 	if (!exporter)
 		return failure(QString::fromLatin1("saving as %1 is not supported").arg(format->description()));

@@ -527,6 +527,14 @@ public:
 	/** Returns the number of symbols in this map. */
 	int getNumSymbols() const;
 	
+	/**
+	 * foom: Returns the number of symbols which are not private.
+	 * 
+	 * Private symbols follow all other symbols in the list, so this is the
+	 * index of the first private symbol.
+	 */
+	int getNumPublicSymbols() const;
+	
 	/** Returns a pointer to the i-th symbol.
 	 *  
 	 * \sa findSymbolIndex()
@@ -1856,7 +1864,7 @@ int Map::getNumSymbols() const
 template<typename T> 
 void Map::sortSymbols(T compare)
 {
-	std::stable_sort(symbols.begin(), symbols.end(), compare);
+	std::stable_sort(symbols.begin(), symbols.begin() + getNumPublicSymbols(), compare);  // foom: private symbols stay last
 	// TODO: emit symbolChanged(pos, symbol); ? s/b same choice as for moveSymbol()
 	setSymbolsDirty();
 }

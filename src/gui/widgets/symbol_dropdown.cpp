@@ -74,6 +74,8 @@ void SymbolDropDown::init(const Map* map, int filter, const Symbol* initial_symb
 			continue;
 		if (symbol == excluded_symbol)
 			continue;
+		if (symbol->isPrivate())  // foom
+			continue;
 		if (symbol->getType() == Symbol::Combined)	// TODO: if point objects start to be able to contain objects of other ordinary symbols, add a check for these here, too, to prevent circular references
 		{
 			auto combined_symbol = static_cast<const CombinedSymbol*>(symbol);

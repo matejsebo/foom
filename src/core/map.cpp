@@ -1459,7 +1459,7 @@ QHash<const Symbol*, Symbol*> Map::importSymbols(
 		if (filter.empty() || filter[i])
 		{
 			const Symbol* symbol = other.symbols[i];
-			if (merge_duplicates)
+			if (merge_duplicates && !symbol->isPrivate())  // foom: a private symbol is never shared
 			{
 				// Check if symbol is already present
 				auto match = std::find_if(begin(symbols), end(symbols), [symbol](auto s) {
@@ -1555,8 +1555,16 @@ void Map::initStatic()
 	undefined_text->setIsHelperSymbol(true);
 }
 
+int Map::getNumPublicSymbols() const
+{
+	auto const first_private = std::find_if(begin(symbols), end(symbols), [](auto const* symbol) { return symbol->isPrivate(); });
+	return int(std::distance(begin(symbols), first_private));
+}
+
 void Map::addSymbol(Symbol* symbol, int pos)
 {
+	// foom: private symbols follow all other symbols
+	pos = symbol->isPrivate() ? getNumSymbols() : qMin(pos, getNumPublicSymbols());
 	symbols.insert(symbols.begin() + pos, symbol);
 	emit symbolAdded(pos, symbol);
 	setSymbolsDirty();

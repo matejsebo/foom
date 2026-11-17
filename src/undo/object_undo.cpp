@@ -267,6 +267,11 @@ void ObjectCreatingUndoStep::symbolChanged(int pos, const Symbol* new_symbol, co
 	}
 }
 
+bool ObjectCreatingUndoStep::usesSymbol(const Symbol* symbol) const
+{
+	return std::any_of(begin(objects), end(objects), [symbol](auto const* object) { return object->getSymbol() == symbol; });
+}
+
 void ObjectCreatingUndoStep::symbolDeleted(int pos,  const Symbol* old_symbol)
 {
 	Q_UNUSED(pos);
@@ -682,6 +687,11 @@ void SwitchSymbolUndoStep::symbolChanged(int pos, const Symbol* new_symbol, cons
 			target_symbols[i] = new_symbol;
 	}
 }
+bool SwitchSymbolUndoStep::usesSymbol(const Symbol* symbol) const
+{
+	return std::find(begin(target_symbols), end(target_symbols), symbol) != end(target_symbols);
+}
+
 void SwitchSymbolUndoStep::symbolDeleted(int pos, const Symbol* old_symbol)
 {
 	Q_UNUSED(pos);

@@ -59,6 +59,7 @@
 #include "core/symbols/text_symbol.h"
 #include "fileformats/file_format.h"
 #include "fileformats/file_import_export.h"
+#include "fileformats/xml_file_format.h"  // foom
 #include "util/xml_stream_util.h"
 #include "gui/util_gui.h"
 
@@ -89,6 +90,7 @@ Symbol::Symbol(const Symbol& proto)
 , is_hidden { proto.is_hidden }
 , is_protected { proto.is_protected }
 , is_rotatable { proto.is_rotatable }
+, is_private { proto.is_private }
 {
 	// nothing else
 }
@@ -111,6 +113,7 @@ bool Symbol::equals(const Symbol* other, Qt::CaseSensitivity case_sensitivity) c
 	       && numberEquals(other)
 	       && is_helper_symbol == other->is_helper_symbol
 	       && is_rotatable == other->is_rotatable
+	       && is_private == other->is_private
 	       && name.compare(other->name, case_sensitivity) == 0
 	       && description.compare(other->description, case_sensitivity) == 0
 	       && equalsImpl(other, case_sensitivity);
@@ -263,6 +266,8 @@ void Symbol::save(QXmlStreamWriter& xml, const Map& map) const
 	symbol_element.writeAttribute(QLatin1String("is_helper_symbol"), is_helper_symbol);
 	symbol_element.writeAttribute(QLatin1String("is_hidden"), is_hidden);
 	symbol_element.writeAttribute(QLatin1String("is_protected"), is_protected);
+	if (is_private && XMLFileFormat::foom_revision >= 1)  // foom
+		symbol_element.writeAttribute(QLatin1String("is_private"), true);
 	if (!description.isEmpty())
 		xml.writeTextElement(QLatin1String("description"), description);
 	saveImpl(xml, map);
@@ -344,6 +349,7 @@ std::unique_ptr<Symbol> Symbol::load(QXmlStreamReader& xml, const Map& map, Symb
 	symbol->is_helper_symbol = symbol_element.attribute<bool>(QLatin1String("is_helper_symbol"));
 	symbol->is_hidden = symbol_element.attribute<bool>(QLatin1String("is_hidden"));
 	symbol->is_protected = symbol_element.attribute<bool>(QLatin1String("is_protected"));
+	symbol->is_private = symbol_element.attribute<bool>(QLatin1String("is_private"));  // foom
 	
 	while (xml.readNextStartElement())
 	{

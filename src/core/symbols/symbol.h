@@ -496,6 +496,20 @@ public:
 	
 	
 	/**
+	 * foom: Returns if this symbol is private, i.e. belongs to one object or
+	 * one generated group and is not offered among the map's symbols.
+	 * 
+	 * \see core/symbols/private_symbol.h
+	 */
+	bool isPrivate() const { return is_private; }
+	
+	/**
+	 * foom: Sets the private state. To be set before the symbol is added to a map.
+	 */
+	void setPrivate(bool value) { is_private = value; }
+	
+	
+	/**
 	 * Returns if objects with this symbol can be rotated in arbitrary directions.
 	 */
 	bool isRotatable() const { return is_rotatable; }
@@ -650,6 +664,7 @@ private:
 	bool is_hidden;           /// \see isHidden()
 	bool is_protected;        /// \see isProtected()
 	bool is_rotatable = false;
+	bool is_private = false;  ///< foom \see isPrivate()
 };
 
 

@@ -247,7 +247,7 @@ void SymbolRenderWidget::adjustLayout()
 	// Allow symbol widget to be that much wider than the viewport
 	int overflow = icon_size / 3;
 	icons_per_row = qMax(1, (width() + overflow) / icon_size);
-	num_rows = qMax(1, (map->getNumSymbols() + icons_per_row -1) / icons_per_row);
+	num_rows = qMax(1, (map->getNumPublicSymbols() + icons_per_row -1) / icons_per_row);  // foom: private symbols are not shown
 	setFixedHeight(num_rows * icon_size);
 	
 	if (old_icon_size != icon_size)
@@ -292,7 +292,7 @@ bool SymbolRenderWidget::isSymbolSelected(int i) const
 void SymbolRenderWidget::selectSingleSymbol(const Symbol *symbol)
 {
 	int index = map->findSymbolIndex(symbol);
-    if (index >= 0)
+    if (index >= 0 && !symbol->isPrivate())  // foom: a private symbol is never the active symbol
 		selectSingleSymbol(index);
 }
 
@@ -355,7 +355,7 @@ int SymbolRenderWidget::symbolIndexAt(const QPoint& pos) const
 	if (icon_in_row < icons_per_row)
 	{
 		i = icon_in_row + icons_per_row * (pos.y() / icon_size);
-		if (i >= map->getNumSymbols())
+		if (i >= map->getNumPublicSymbols())  // foom
 			i = -1;
 	}
 	
@@ -385,7 +385,7 @@ bool SymbolRenderWidget::dropPosition(const QPoint& pos, int& row, int& pos_in_r
 	}
 	
 	int global_pos = row * icons_per_row + pos_in_row;
-	if (global_pos > map->getNumSymbols())
+	if (global_pos > map->getNumPublicSymbols())  // foom
 	{
 		row = -1;
 		pos_in_row = -1;
@@ -479,7 +479,7 @@ void SymbolRenderWidget::paintEvent(QPaintEvent* event)
 	
 	int x = 0;
 	int y = 0;
-	for (int i = 0; i < map->getNumSymbols(); ++i)
+	for (int i = 0; i < map->getNumPublicSymbols(); ++i)  // foom
 	{
 		if (event_rect.contains(x,y))
 		{
@@ -998,7 +998,7 @@ void SymbolRenderWidget::setSelectedSymbolProtection(bool checked)
 
 void SymbolRenderWidget::selectAll()
 {
-	for (int i = 0; i < map->getNumSymbols(); ++i)
+	for (int i = 0; i < map->getNumPublicSymbols(); ++i)  // foom
 		selected_symbols.insert(i);
 	emitGuarded_selectedSymbolsChanged();
 	update();
@@ -1025,7 +1025,7 @@ void SymbolRenderWidget::selectUnused()
 void SymbolRenderWidget::invertSelection()
 {
 	std::set<int> new_set;
-	for (int i = 0; i < map->getNumSymbols(); ++i)
+	for (int i = 0; i < map->getNumPublicSymbols(); ++i)  // foom
 	{
 		if (!isSymbolSelected(i))
 			new_set.insert(i);

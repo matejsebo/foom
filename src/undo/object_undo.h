@@ -222,6 +222,9 @@ public:
 	 */
 	void getModifiedObjects(int, ObjectSet&) const override;
 	
+	/** foom: Returns true if a recorded object has the symbol. */
+	bool usesSymbol(const Symbol* symbol) const override;
+	
 	
 public slots:
 	/**
@@ -384,6 +387,9 @@ public:
 	
 	using ObjectModifyingUndoStep::addObject;
 	virtual void addObject(int index, const Symbol* target_symbol);
+	
+	/** foom: Returns true if the symbol is one of the recorded symbols. */
+	bool usesSymbol(const Symbol* symbol) const override;
 	
 	UndoStep* undo() override;
 	

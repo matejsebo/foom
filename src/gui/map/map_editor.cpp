@@ -126,6 +126,7 @@
 #include "core/ops/mirror.h"
 #include "core/ops/transform.h"
 #include "core/symbols/line_symbol.h"  // foom
+#include "core/symbols/private_symbol.h"  // foom
 #include "core/symbols/symbol.h"
 #include "core/symbols/symbol_icon_decorator.h"
 #include "fileformats/file_format.h"
@@ -147,6 +148,7 @@
 #include "gui/map/map_notes.h"
 #include "gui/map/map_widget.h"
 #include "gui/map/import_points_dialog.h"  // foom
+#include "gui/symbols/symbol_setting_dialog.h"  // foom
 #include "layout/layout_part.h"  // foom
 #include "gui/map/move_parallel_dialog.h"
 #include "gui/map/numeric_entry_bar.h"
@@ -642,6 +644,7 @@ bool MapEditorController::saveTo(const QString& path, const FileFormat& format)
 		return false;
 	}
 	
+	purgePrivateSymbols(*map);  // foom
 	if (!exportTo(path, format))
 		return false;
 	
@@ -1242,6 +1245,9 @@ void MapEditorController::createActions()
 	to_layout_act = newAction("to-layout", tr("Move to layout"), this, SLOT(moveToLayoutClicked()), nullptr, tr("Moves the selected objects to the layout part."), "edit_menu.html");
 	to_map_act = newAction("to-map", tr("Move to map"), this, SLOT(moveToMapClicked()), nullptr, tr("Moves the selected objects of the layout part to the map."), "edit_menu.html");
 	layout_save_act = newAction("layout-save", tr("Save layout..."), this, SLOT(saveLayoutClicked()), nullptr, QString{}, "file_menu.html");
+	// foom: the design notes, "Private symbols"
+	to_graphic_act = newAction("to-graphic", tr("Convert to graphic"), this, SLOT(convertToGraphicClicked()), nullptr, tr("Gives the selected objects their own copies of their symbols."), "edit_menu.html");
+	object_style_act = newAction("object-style", tr("Object style..."), this, SLOT(objectStyleClicked()), nullptr, tr("Edits the style of the selected graphic objects."), "edit_menu.html");
 	layout_import_act = newAction("layout-import", tr("Import layout..."), this, SLOT(importLayoutClicked()), nullptr, QString{}, "file_menu.html");
 	
 	map_coordinates_act = new QAction(tr("Map coordinates"), this);
@@ -1327,6 +1333,8 @@ void MapEditorController::createMenuAndToolbars()
 	edit_menu->addAction(delete_act);
 	edit_menu->addAction(to_layout_act);  // foom
 	edit_menu->addAction(to_map_act);  // foom
+	edit_menu->addAction(to_graphic_act);  // foom
+	edit_menu->addAction(object_style_act);  // foom
 	edit_menu->addSeparator();
 	edit_menu->addAction(select_all_act);
 	edit_menu->addAction(select_nothing_act);
@@ -5546,6 +5554,28 @@ void MapEditorController::importGeodataClicked()
 }
 
 // foom
+void MapEditorController::convertToGraphicClicked()
+{
+	auto const count = convertToGraphic(*map);
+	window->showStatusBarMessage(tr("Converted %n object(s) to graphic objects.", nullptr, count), 2000);
+	updateLayoutActions();
+}
+
+void MapEditorController::objectStyleClicked()
+{
+	auto const index = map->findSymbolIndex(sharedPrivateSymbol(*map));
+	if (index < 0)
+		return;
+	SymbolSettingDialog dialog(map->getSymbol(index), map, window);
+	dialog.setWindowModality(Qt::WindowModal);
+	if (dialog.exec() == QDialog::Accepted)
+	{
+		auto symbol = dialog.getNewSymbol();
+		symbol->setPrivate(true);
+		map->setSymbol(symbol.release(), index);
+	}
+}
+
 void MapEditorController::createLayoutClicked()
 {
 	addLayoutPart(*map);
@@ -5617,6 +5647,8 @@ void MapEditorController::updateLayoutActions()
 	to_layout_act->setEnabled(!editing_in_progress && have_selection && layout >= 0 && current != layout);
 	to_map_act->setEnabled(!editing_in_progress && have_selection && layout >= 0 && current == layout && mapContentPartIndex(*map) >= 0);
 	layout_save_act->setEnabled(layout >= 0);
+	to_graphic_act->setEnabled(!editing_in_progress && have_selection);
+	object_style_act->setEnabled(!editing_in_progress && have_selection && sharedPrivateSymbol(*map));
 	layout_import_act->setEnabled(!editing_in_progress);
 }
 

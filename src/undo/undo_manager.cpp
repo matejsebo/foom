@@ -261,6 +261,12 @@ UndoStep* UndoManager::nextUndoStep() const
 
 
 
+bool UndoManager::usesSymbol(const Symbol* symbol) const
+{
+	return std::any_of(begin(undo_steps), end(undo_steps), [symbol](auto const& step) { return step->usesSymbol(symbol); });
+}
+
+
 int UndoManager::redoStepCount() const
 {
 	return int(undo_steps.size()) - current_index;

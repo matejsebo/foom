@@ -34,6 +34,7 @@ namespace OpenOrienteering {
 
 class Map;
 class Object;
+class Symbol;
 
 
 /**
@@ -170,6 +171,13 @@ public:
 	 */
 	virtual void getAffectedObjects(int part_index, ObjectSet& out) const;
 	
+	/**
+	 * foom: Returns true if undoing this step may give the symbol to an object.
+	 * 
+	 * The default implementation returns false.
+	 */
+	virtual bool usesSymbol(const Symbol* symbol) const;
+	
 	
 	/**
 	 * Loads the undo step from the stream in xml format.
@@ -257,6 +265,9 @@ public:
 	 * Adds the modified objects of all sub steps to the given set.
 	 */
 	void getModifiedObjects(int part_index, ObjectSet& out) const override;
+	
+	/** foom: Returns true if a sub step uses the symbol. */
+	bool usesSymbol(const Symbol* symbol) const override;
 	
 	/**
 	 * Adds the affected objects of all sub steps to the given set.

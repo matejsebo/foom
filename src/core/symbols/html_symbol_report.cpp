@@ -236,6 +236,8 @@ private:
 	{
 		QString symbol_data;
 		map.applyOnAllSymbols([this, &symbol_data](const Symbol* s){
+			if (s->isPrivate())  // foom
+				return;
 			symbol_data.append(makeSymbolRow(*s));
 		});
 		return QString::fromLatin1(

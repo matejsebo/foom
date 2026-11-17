@@ -151,6 +151,11 @@ public:
 	int undoStepCount() const;
 	
 	/**
+	 * foom: Returns true if an undo or redo step may give the symbol to an object.
+	 */
+	bool usesSymbol(const Symbol* symbol) const;
+	
+	/**
 	 * Returns the step performed by the next call to undo().
 	 */
 	UndoStep* nextUndoStep() const;
