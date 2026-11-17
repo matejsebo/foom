@@ -169,9 +169,14 @@ void MapPart::save(QXmlStreamWriter& xml) const
 	}
 	{
 		XmlElementWriter objects_element(xml, literal::objects);
-		objects_element.writeAttribute(literal::count, objects.size());
+		// foom: OOM cannot read image objects, so they are left out with the foom additions off.
+		auto const skip_images = XMLFileFormat::foom_revision < 1;
+		auto const num_images = std::size_t(std::count_if(begin(objects), end(objects), [](auto const* object) { return object->getType() == Object::Image; }));
+		objects_element.writeAttribute(literal::count, objects.size() - (skip_images ? num_images : 0));
 		for (const Object* object : objects)
 		{
+			if (skip_images && object->getType() == Object::Image)
+				continue;
 			writeLineBreak(xml);
 			object->save(xml);
 		}

@@ -50,10 +50,12 @@
 #include "core/map_part.h"
 #include "core/map_printer.h"
 #include "core/map_view.h"
+#include "core/objects/image_object.h"  // foom
 #include "core/objects/object.h"
 #include "core/objects/object_operations.h"
 #include "core/renderables/renderable.h"
 #include "core/symbols/combined_symbol.h"
+#include "core/symbols/image_symbol.h"  // foom
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
@@ -812,7 +814,38 @@ void Map::draw(QPainter* painter, const RenderConfig& config)
 	updateObjects();
 	
 	// The actual drawing
+	drawImages(painter, config, false);  // foom
 	renderables->draw(painter, config);
+	drawImages(painter, config, true);  // foom
+}
+
+// foom
+void Map::drawImages(QPainter* painter, const RenderConfig& config, bool above) const
+{
+	if (!has_image_objects || config.testFlag(RenderConfig::RequireSpotColor))
+		return;
+	
+	for (auto const* part : parts)
+	{
+		if (!part->isVisible())
+			continue;
+		for (int i = 0; i < part->getNumObjects(); ++i)
+		{
+			auto const* object = part->getObject(i);
+			if (object->getType() != Object::Image)
+				continue;
+			auto const* image = static_cast<const ImageObject*>(object);
+			if ((image->layer() == ImageObject::AboveMap) == above)
+				image->draw(painter, config);
+		}
+	}
+}
+
+// static, foom
+ImageSymbol* Map::getImageSymbol()
+{
+	static ImageSymbol image_symbol;
+	return &image_symbol;
 }
 
 void Map::drawOverprintingSimulation(QPainter* painter, const RenderConfig& config)
@@ -821,7 +854,9 @@ void Map::drawOverprintingSimulation(QPainter* painter, const RenderConfig& conf
 	updateObjects();
 	
 	// The actual drawing
+	drawImages(painter, config, false);  // foom
 	renderables->drawOverprintingSimulation(painter, config);
+	drawImages(painter, config, true);  // foom
 }
 
 void Map::drawColorSeparation(QPainter* painter, const RenderConfig& config, const MapColor* spot_color, bool use_color)
@@ -880,6 +915,8 @@ void Map::insertRenderablesOfObject(const Object* object)
 {
 	if (!hidden_objects.isEmpty() && hidden_objects.contains(object))  // foom: hidden part
 		return;
+	if (object->getType() == Object::Image)  // foom
+		has_image_objects = true;
 	renderables->insertRenderablesOfObject(object);
 	if (isObjectSelected(object))
 		addSelectionRenderables(object);
@@ -1592,6 +1629,8 @@ const Symbol* Map::getSymbol(int i) const
 		return getUndefinedLine();
 	else if (i == -4)
 		return getUndefinedText();
+	else if (i == -5)  // foom
+		return getImageSymbol();
 	else
 	{
 		Q_ASSERT(!"Invalid symbol index given");
@@ -1681,6 +1720,8 @@ int Map::findSymbolIndex(const Symbol* symbol) const
 		return -3;
 	else if (symbol == undefined_text)
 		return -4;
+	else if (symbol == getImageSymbol())  // foom
+		return -5;
 	
 	// maybe element of point symbol
 	return -1;

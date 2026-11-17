@@ -137,6 +137,8 @@ set(Mapper_Common_SRCS
   core/symbols/line_symbol_taper.cpp
   core/symbols/area_symbol_irregular.cpp
   core/symbols/private_symbol.cpp
+  core/symbols/image_symbol.cpp
+  core/objects/image_object.cpp
   check/issue.cpp
   check/legibility.cpp
   tools/legibility_feedback.cpp

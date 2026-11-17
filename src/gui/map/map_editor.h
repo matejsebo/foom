@@ -424,6 +424,10 @@ public slots:
 	void convertToGraphicClicked();
 	/** foom: Edits the private symbol of the selected objects (object-style). */
 	void objectStyleClicked();
+	/** foom: Asks for an image file and adds it as an image object (image-add). */
+	void addImageClicked();
+	/** foom: Embeds the selected linked images (image-embed). */
+	void embedImageClicked();
 	void updateMapServiceAction();  // foom
 	/** Shows the ReopenTemplateDialog. */
 	void reopenTemplateClicked();
@@ -1018,6 +1022,8 @@ private:
 	QAction* layout_import_act = {};  // foom
 	QAction* to_graphic_act = {};  // foom
 	QAction* object_style_act = {};  // foom
+	QAction* image_add_act = {};  // foom
+	QAction* image_embed_act = {};  // foom
 	
 	QAction* tags_window_act = {};
 	QPointer<EditorDockWidget> tags_dock_widget;

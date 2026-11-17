@@ -88,7 +88,13 @@ public:
 		 * Either one or two coordinates, for single-anchor or box text.
 		 * For text symbols only.
 		 */
-		Text = 4
+		Text = 4,
+		
+		/**
+		 * foom: A raster image; the coordinates are its four corners.
+		 * For the image symbol only. \see ImageObject
+		 */
+		Image = 3
 	};
 	
 	/** Creates an empty object with the given type and (optional) symbol. */

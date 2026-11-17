@@ -160,6 +160,9 @@ void PointHandles::draw(
 			}
 		}
 		return;
+		
+	case Object::Image:  // foom: no handles
+		return;
 	}
 	
 	Q_UNREACHABLE();

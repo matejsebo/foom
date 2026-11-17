@@ -79,6 +79,7 @@
 #include <QPixmap>
 #include <QPoint>
 #include <QPointer>
+#include <QPushButton>  // foom
 #include <QPointF>
 #include <QRect>
 #include <QRectF>
@@ -109,6 +110,7 @@
 #include "core/map_printer.h"  // foom
 #include "core/map_view.h"
 #include "core/objects/boolean_tool.h"
+#include "core/objects/image_object.h"  // foom
 #include "core/objects/object.h"
 #include "core/objects/object_operations.h"
 #include "core/objects/text_object.h"  // foom
@@ -1248,6 +1250,9 @@ void MapEditorController::createActions()
 	// foom: the design notes, "Private symbols"
 	to_graphic_act = newAction("to-graphic", tr("Convert to graphic"), this, SLOT(convertToGraphicClicked()), nullptr, tr("Gives the selected objects their own copies of their symbols."), "edit_menu.html");
 	object_style_act = newAction("object-style", tr("Object style..."), this, SLOT(objectStyleClicked()), nullptr, tr("Edits the style of the selected graphic objects."), "edit_menu.html");
+	// foom: the design notes, "Image object"
+	image_add_act = newAction("image-add", tr("Add image..."), this, SLOT(addImageClicked()), nullptr, tr("Adds a PNG or JPEG image to the map."), "map_menu.html");
+	image_embed_act = newAction("image-embed", tr("Embed image"), this, SLOT(embedImageClicked()), nullptr, tr("Stores the selected linked images in the map file."), "map_menu.html");
 	layout_import_act = newAction("layout-import", tr("Import layout..."), this, SLOT(importLayoutClicked()), nullptr, QString{}, "file_menu.html");
 	
 	map_coordinates_act = new QAction(tr("Map coordinates"), this);
@@ -1469,6 +1474,8 @@ void MapEditorController::createMenuAndToolbars()
 	updateMapPartsUI();
 	map_menu->addAction(mappart_add_act);
 	map_menu->addAction(layout_create_act);  // foom
+	map_menu->addAction(image_add_act);  // foom
+	map_menu->addAction(image_embed_act);  // foom
 	map_menu->addAction(mappart_rename_act);
 	map_menu->addAction(mappart_remove_act);
 	map_menu->addMenu(mappart_move_menu);
@@ -5576,6 +5583,39 @@ void MapEditorController::objectStyleClicked()
 	}
 }
 
+void MapEditorController::addImageClicked()
+{
+	QSettings settings;
+	auto const directory = settings.value(QString::fromLatin1("importFileDirectory"), QDir::homePath()).toString();
+	QString const filter = tr("Images") + QLatin1String(" (*.png *.jpg *.jpeg);;") + tr("All files") + QLatin1String(" (*.*)");
+	auto const filename = QFileDialog::getOpenFileName(window, tr("Add image"), directory, filter);
+	if (filename.isEmpty())
+		return;
+	settings.setValue(QString::fromLatin1("importFileDirectory"), QFileInfo(filename).canonicalPath());
+	
+	QMessageBox question(QMessageBox::Question, tr("Add image"),
+	                     tr("Embed the image in the map file, or link to the image file?"),
+	                     QMessageBox::Cancel, window);
+	auto* embed_button = question.addButton(tr("Embed"), QMessageBox::AcceptRole);
+	auto* link_button = question.addButton(tr("Link"), QMessageBox::ActionRole);
+	question.setDefaultButton(embed_button);
+	question.exec();
+	if (question.clickedButton() != embed_button && question.clickedButton() != link_button)
+		return;
+	
+	auto const view_rect = main_view->calculateViewedRect(map_widget->viewportToView(map_widget->rect()));
+	QString error;
+	if (!addImage(*map, filename, question.clickedButton() == embed_button, MapCoordF(view_rect.center()), view_rect.size() / 2, &error))
+		QMessageBox::warning(window, tr("Add image"), error);
+}
+
+void MapEditorController::embedImageClicked()
+{
+	auto const count = embedSelectedImages(*map);
+	window->showStatusBarMessage(tr("Embedded %n image(s).", nullptr, count), 2000);
+	updateLayoutActions();
+}
+
 void MapEditorController::createLayoutClicked()
 {
 	addLayoutPart(*map);
@@ -5648,6 +5688,8 @@ void MapEditorController::updateLayoutActions()
 	to_map_act->setEnabled(!editing_in_progress && have_selection && layout >= 0 && current == layout && mapContentPartIndex(*map) >= 0);
 	layout_save_act->setEnabled(layout >= 0);
 	to_graphic_act->setEnabled(!editing_in_progress && have_selection);
+	image_add_act->setEnabled(!editing_in_progress);
+	image_embed_act->setEnabled(!editing_in_progress && have_selection && isLinkedImageSelected(*map));
 	object_style_act->setEnabled(!editing_in_progress && have_selection && sharedPrivateSymbol(*map));
 	layout_import_act->setEnabled(!editing_in_progress);
 }

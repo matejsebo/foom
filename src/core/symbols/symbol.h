@@ -83,6 +83,7 @@ public:
 		Area     = 4,
 		Text     = 8,
 		Combined = 16,
+		Image    = 32,  ///< foom: the symbol of image objects, see ImageSymbol; not part of AllSymbols
 		
 		NoSymbol = 0,
 		AllSymbols = Point | Line | Area | Text | Combined

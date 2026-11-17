@@ -47,10 +47,12 @@
 
 #include "settings.h"
 #include "core/map.h"
+#include "core/objects/image_object.h"  // foom
 #include "core/objects/text_object.h"
 #include "core/renderables/renderable.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
+#include "core/symbols/image_symbol.h"  // foom
 #include "core/symbols/symbol.h"
 #include "core/symbols/text_symbol.h"
 #include "core/virtual_coord_vector.h"
@@ -204,6 +206,10 @@ bool Object::equals(const Object* other, bool compare_symbol) const
 	if (qAbs(getRotation() - other->getRotation()) >= 0.000001)  // six decimal places in XML
 		return false;
 	if (object_group != other->object_group)  // foom
+		return false;
+	
+	if (type == Image  // foom
+	    && !static_cast<ImageObject const*>(this)->imageEquals(*static_cast<ImageObject const*>(other)))
 		return false;
 	
 	if (type == Path)
@@ -364,6 +370,10 @@ void Object::save(QXmlStreamWriter& xml) const
 		}
 		xml.writeTextElement(literal::text, text->getText());
 	}
+	else if (type == Image)  // foom
+	{
+		static_cast<ImageObject const*>(this)->saveImage(xml);
+	}
 }
 
 Object* Object::load(QXmlStreamReader& xml, Map* map, const SymbolDictionary& symbol_dict, const Symbol* symbol)
@@ -413,6 +423,9 @@ Object* Object::load(QXmlStreamReader& xml, Map* map, const SymbolDictionary& sy
 		object->symbol = symbol_dict[id_converted]; // FIXME: cannot work for forward references
 		// NOTE: object->symbol may be nullptr.
 	}
+	
+	if (object_type == Image)  // foom: the one image symbol
+		object->symbol = Map::getImageSymbol();
 	
 	if (!object->symbol || !object->symbol->isTypeCompatibleTo(object))
 	{
@@ -512,6 +525,10 @@ Object* Object::load(QXmlStreamReader& xml, Map* map, const SymbolDictionary& sy
 			auto const w = size_element.attribute<decltype(MapCoord().nativeX())>(XmlStreamLiteral::width);
 			auto const h = size_element.attribute<decltype(MapCoord().nativeY())>(XmlStreamLiteral::height);
 			text->setBoxSize(MapCoord::fromNative(w, h));
+		}
+		else if (xml.name() == QLatin1String("image") && object_type == Image)  // foom
+		{
+			static_cast<ImageObject*>(object)->loadImage(xml);
 		}
 		else if (xml.name() == literal::tags)
 		{
@@ -728,6 +745,9 @@ int Object::isPointOnObject(const MapCoordF& coord, qreal tolerance, bool treat_
 	if (coord.x() > extent.right() + extent_extension) return Symbol::NoSymbol;
 	if (coord.y() > extent.bottom() + extent_extension) return Symbol::NoSymbol;
 	
+	if (type == Symbol::Image)  // foom: found like an area
+		return static_cast<ImageObject const*>(this)->containsPoint(coord) ? Symbol::Area : Symbol::NoSymbol;
+	
 	if (type == Symbol::Text)
 	{
 		// Texts
@@ -774,6 +794,8 @@ Object* Object::getObjectForType(Object::Type type, const Symbol* symbol)
 		return new PathObject(symbol);
 	case Text:
 		return new TextObject(symbol);
+	case Image:  // foom
+		return new ImageObject(symbol);
 	}
 	return nullptr;
 }
@@ -839,6 +861,11 @@ void Object::includeControlPointsRect(QRectF& rect) const
 		std::vector<QPointF> text_handles(text->controlPoints());
 		for (auto& text_handle : text_handles)
 			rectInclude(rect, text_handle);
+	}
+	else if (type == Object::Image)  // foom
+	{
+		for (auto const& coord : coords)
+			rectInclude(rect, QPointF(coord));
 	}
 }
 

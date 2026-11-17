@@ -233,6 +233,8 @@ if (Mapper_USE_GDAL)
 	target_include_directories(layout_part_t SYSTEM PRIVATE ${GDAL_INCLUDE_DIRS})
 	target_link_libraries(layout_part_t PRIVATE ${GDAL_LIBRARIES})
 	add_system_test(new_map_t)  # foom: new-map flow, the design notes
+	add_system_test(image_object_t)  # foom: the design notes, Image object
+	target_compile_definitions(image_object_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
 	target_link_libraries(new_map_t PRIVATE Qt5::Network)
 	target_compile_definitions(new_map_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
 endif()

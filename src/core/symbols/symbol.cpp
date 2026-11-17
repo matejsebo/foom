@@ -197,6 +197,8 @@ bool Symbol::isTypeCompatibleTo(const Object* object) const
 		return type == Line || type == Area || type == Combined;
 	case Object::Text:
 		return type == Text;
+	case Object::Image:  // foom
+		return type == Image;
 	}
 	return false;
 }

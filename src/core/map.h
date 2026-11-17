@@ -64,6 +64,7 @@ namespace OpenOrienteering {
 
 class CombinedSymbol;
 class Georeferencing;
+class ImageSymbol;  // foom
 class LineSymbol;
 class MapColor;
 class MapColorMap;
@@ -1538,6 +1539,9 @@ public:
 	/** Returns the special gray "undefined" text symbol. */
 	static TextSymbol* getUndefinedText();
 	
+	/** foom: Returns the symbol of all image objects. It is in no map's symbol list. */
+	static ImageSymbol* getImageSymbol();
+	
 	
 signals:
 	/**
@@ -1782,6 +1786,10 @@ private:
 	
 	std::set<Object*> irregular_objects;
 	QSet<const Object*> hidden_objects;  ///< foom: objects of hidden parts
+	
+	/** foom: Draws the image objects of one layer, see ImageObject::Layer. */
+	void drawImages(QPainter* painter, const RenderConfig& config, bool above) const;
+	bool has_image_objects = false;  ///< foom: set once an image object was drawable
 	
 	// Static
 	

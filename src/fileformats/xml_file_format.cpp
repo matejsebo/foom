@@ -58,6 +58,7 @@
 #include "core/map_part.h"
 #include "core/map_printer.h"  // IWYU pragma: keep
 #include "core/map_view.h"
+#include "core/objects/image_object.h"  // foom
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
@@ -259,6 +260,7 @@ XMLFileExporter::~XMLFileExporter() = default;
 bool XMLFileExporter::exportImplementation()
 {
 	xml.setDevice(device());
+	ImageObject::setFileDirectory(path.isEmpty() ? QString{} : QFileInfo(path).absolutePath());  // foom
 	
 	if (option(QString::fromLatin1("autoFormatting")).toBool())
 		xml.setAutoFormatting(true);
@@ -685,6 +687,7 @@ void XMLFileImporter::addWarningUnsupportedElement()
 bool XMLFileImporter::importImplementation()
 {
 	xml.setDevice(device());
+	ImageObject::setFileDirectory(path.isEmpty() ? QString{} : QFileInfo(path).absolutePath());  // foom
 	if (!xml.readNextStartElement() || xml.name() != literal::map)
 	{
 		if (device()->seek(0))
