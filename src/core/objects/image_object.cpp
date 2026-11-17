@@ -21,6 +21,8 @@
 
 #include "image_object.h"
 
+#include "core/print_output.h"
+
 #include <cmath>
 #include <cstddef>
 #include <stdexcept>
@@ -324,7 +326,10 @@ void ImageObject::draw(QPainter* painter, const RenderConfig& config) const
 		auto const& pixels = level(n);
 		painter->setRenderHint(QPainter::SmoothPixmapTransform, !config.testFlag(RenderConfig::DisableAntialiasing));
 		painter->setTransform(pixelToMap(pixels.size()), true);
-		painter->drawImage(QPointF(0, 0), pixels);
+		if (config.process_channel >= 0)
+			painter->drawImage(QPointF(0, 0), processPlateOfImage(pixels, config.process_channel));  // one process plate, in grey
+		else
+			painter->drawImage(QPointF(0, 0), pixels);
 	}
 	painter->restore();
 }

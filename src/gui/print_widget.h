@@ -221,6 +221,9 @@ protected slots:
 	/** Starts printing and terminates this dialog. */
 	void printClicked();
 	
+	/** foom: Writes a runner job which repeats the current output. */
+	void saveJobClicked();
+	
 protected:
 	/** Alternative policies of handling the print area. */
 	enum PrintAreaPolicy
@@ -263,6 +266,9 @@ protected:
 
 	/** Exports to an image file. */
 	void exportToImage();
+	
+	/** foom: Exports plates: the CMYK TIFF for a negative form, else spot colour plates in the PlateForm. */
+	void exportPlates(QString path, int form);
 
 	/** Export a world file */
 	bool exportWorldFile(const QString& path) const;
@@ -326,6 +332,7 @@ private:
 	QPushButton* preview_button;
 	QPushButton* print_button;
 	QPushButton* export_button;
+	QPushButton* job_button;  // foom
 	
 	QStringList printers;
 	

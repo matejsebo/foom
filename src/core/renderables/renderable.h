@@ -98,6 +98,8 @@ public:
 	
 	qreal   opacity;      ///< The opacity.
 	
+	int     process_channel = -1;  ///< foom: 0 to 3 to draw the cyan, magenta, yellow or black plate in grey.
+	
 	/**
 	 * A convenience method for testing flags in the options value.
 	 * 

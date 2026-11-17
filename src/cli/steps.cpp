@@ -38,6 +38,7 @@
 #include <QJsonValue>
 #include <QLatin1Char>
 #include <QLatin1String>
+#include <QPageSize>
 #include <QPainter>
 #include <QPointF>
 #include <QPrinter>
@@ -57,6 +58,7 @@
 #include "core/map.h"
 #include "core/map_coord.h"
 #include "core/map_printer.h"
+#include "core/print_output.h"
 #include "core/objects/object_query.h"
 #include "core/objects/symbol_rule_set.h"
 #include "core/symbols/private_symbol.h"
@@ -65,6 +67,7 @@
 #include "fileformats/file_format_registry.h"
 #include "fileformats/file_import_export.h"
 #ifdef MAPPER_USE_GDAL
+#  include "gdal/cmyk_tiff.h"  // foom
 #  include "gdal/geodata_import.h"  // foom
 #  include "gdal/new_map.h"  // foom
 #endif
@@ -216,6 +219,19 @@ void addWarnings(StepResult& result, const std::vector<QString>& warnings)
 	for (auto const& warning : warnings)
 		array.append(warning);
 	result.details.insert(QLatin1String("warnings"), array);
+}
+
+/** What an image or PDF leaves out because it is hidden, as warnings. */
+std::vector<QString> hiddenWarnings(const Map& map)
+{
+	std::vector<QString> warnings;
+	for (auto const& line : hiddenContent(map).lines())
+	{
+		QString warning = QStringLiteral("not in the output: ");
+		warning += line;
+		warnings.push_back(warning);
+	}
+	return warnings;
 }
 
 QString cannotOpen(const QString& path)
@@ -411,8 +427,133 @@ MapPrinterOptions::MapPrinterMode parseMode(const Params& p, MapPrinterOptions::
 	p.fail(QString::fromLatin1("unknown mode \"%1\": expected \"vector\", \"raster\" or \"separations\"").arg(name));
 }
 
+/** What `plates`, `depth` and `halftone` ask for. */
+struct PlateRequest
+{
+	enum Kind { None, Cmyk, Spot };
+	Kind kind = None;
+	PlateForm form = PlateForm::Grey;
+};
+
+PlateRequest parsePlates(const Params& p, const QString& format)
+{
+	PlateRequest request;
+	if (!p.has("plates"))
+	{
+		for (auto parameter : { "depth", "halftone" })
+		{
+			if (p.has(parameter))
+				p.fail(QString::fromLatin1("parameter \"%1\" needs \"plates\": \"spot\"").arg(QLatin1String(parameter)));
+		}
+		return request;
+	}
+	
+	auto const name = p.requireString("plates");
+	if (name == QLatin1String("cmyk"))
+	{
+		request.kind = PlateRequest::Cmyk;
+		if (format.compare(QLatin1String("tif"), Qt::CaseInsensitive) != 0 && format.compare(QLatin1String("tiff"), Qt::CaseInsensitive) != 0)
+			p.fail(QLatin1String("\"plates\": \"cmyk\" is written as TIFF only"));
+#ifndef MAPPER_USE_GDAL
+		p.fail(QLatin1String("\"plates\": \"cmyk\" needs a build with GDAL"));
+#endif
+		for (auto parameter : { "depth", "halftone" })
+		{
+			if (p.has(parameter))
+				p.fail(QString::fromLatin1("parameter \"%1\" needs \"plates\": \"spot\"").arg(QLatin1String(parameter)));
+		}
+	}
+	else if (name == QLatin1String("spot"))
+	{
+		request.kind = PlateRequest::Spot;
+		auto depth = 8u;
+		if (p.has("depth"))
+		{
+			depth = p.requirePositiveInt("depth");
+			if (depth != 8 && depth != 1)
+				p.fail(QLatin1String("parameter \"depth\" must be 8 or 1"));
+		}
+		auto const halftone = p.optionalBool("halftone", false);
+		if (halftone && depth != 1)
+			p.fail(QLatin1String("\"halftone\" needs \"depth\": 1"));
+		request.form = depth == 8 ? PlateForm::Grey : halftone ? PlateForm::Halftone : PlateForm::LineArt;
+	}
+	else
+	{
+		p.fail(QString::fromLatin1("unknown plates \"%1\": expected \"cmyk\" or \"spot\"").arg(name));
+	}
+	return request;
+}
+
+/** What `paper`, `orientation` and `overlap` ask for. */
+struct PaperRequest
+{
+	bool has_paper = false;
+	QPageSize::PageSizeId id = QPageSize::Custom;
+	QSizeF size;  ///< For a custom paper, in mm.
+	bool has_orientation = false;
+	MapPrinterPageFormat::Orientation orientation = MapPrinterPageFormat::Portrait;
+	bool has_overlap = false;
+	qreal h_overlap = 0;
+	qreal v_overlap = 0;
+};
+
+PaperRequest parsePaper(const Params& p)
+{
+	PaperRequest request;
+	auto const pair = [&p](const char* name, double minimum, double& first, double& second) {
+		auto const array = p.value(name).toArray();
+		if (!p.value(name).isArray() || array.size() != 2 || !array.at(0).isDouble() || !array.at(1).isDouble()
+		    || array.at(0).toDouble() < minimum || array.at(1).toDouble() < minimum)
+			return false;
+		first = array.at(0).toDouble();
+		second = array.at(1).toDouble();
+		return true;
+	};
+	if (p.has("paper"))
+	{
+		request.has_paper = true;
+		auto const v = p.value("paper");
+		auto width = 0.0;
+		auto height = 0.0;
+		if (v.isString())
+		{
+			request.id = pageSizeFromKey(v.toString());
+			if (request.id == QPageSize::Custom)
+				p.fail(QString::fromLatin1("unknown paper \"%1\": expected the key of a page size, such as \"A4\", or [width, height] in mm").arg(v.toString()));
+		}
+		else if (pair("paper", 1, width, height))
+		{
+			request.size = QSizeF(width, height);
+		}
+		else
+		{
+			p.fail(QLatin1String("parameter \"paper\" must be the key of a page size or [width, height] in mm"));
+		}
+	}
+	if (p.has("orientation"))
+	{
+		auto const name = p.requireString("orientation");
+		if (name == QLatin1String("landscape"))
+			request.orientation = MapPrinterPageFormat::Landscape;
+		else if (name != QLatin1String("portrait"))
+			p.fail(QString::fromLatin1("unknown orientation \"%1\": expected \"portrait\" or \"landscape\"").arg(name));
+		if (!request.has_paper || request.id == QPageSize::Custom)
+			p.fail(QLatin1String("\"orientation\" needs \"paper\" with the key of a page size"));
+		request.has_orientation = true;
+	}
+	if (p.has("overlap"))
+	{
+		if (!pair("overlap", 0, request.h_overlap, request.v_overlap))
+			p.fail(QLatin1String("parameter \"overlap\" must be [horizontal, vertical] in mm"));
+		request.has_overlap = true;
+	}
+	return request;
+}
+
 /**
- * Applies the printing parameters to the printer: `scale`, `dpi`, `mode`, `extent`.
+ * Applies the printing parameters to the printer: `scale`, `dpi`, `mode`,
+ * `templates`, `grid`, `overprinting`, `paper`, `orientation`, `overlap`, `extent`.
  */
 ExportExtent configurePrinter(MapPrinter& printer, const Map& map, const Params& p, MapPrinterOptions::MapPrinterMode default_mode)
 {
@@ -421,6 +562,22 @@ ExportExtent configurePrinter(MapPrinter& printer, const Map& map, const Params&
 	if (p.has("dpi"))
 		printer.setResolution(int(p.requirePositiveInt("dpi")));
 	printer.setMode(parseMode(p, default_mode));
+	// the design notes, "Print settings as a job"
+	if (p.has("templates"))
+		printer.setPrintTemplates(p.optionalBool("templates", false));
+	if (p.has("grid"))
+		printer.setPrintGrid(p.optionalBool("grid", false));
+	if (p.has("overprinting"))
+		printer.setSimulateOverprinting(p.optionalBool("overprinting", false));
+	auto const paper = parsePaper(p);
+	if (paper.has_paper && paper.id != QPageSize::Custom)
+		printer.setPageSize(paper.id);
+	else if (paper.has_paper)
+		printer.setCustomPageSize(paper.size);
+	if (paper.has_orientation)
+		printer.setPageOrientation(paper.orientation);
+	if (paper.has_overlap)
+		printer.setOverlap(paper.h_overlap, paper.v_overlap);
 	
 	auto const extent = parseExtent(p);
 	switch (extent.kind)
@@ -644,7 +801,8 @@ void StepRunner::validate(const Step& step, bool& map_open)
 	else if (name == QLatin1String("export"))
 	{
 		p.requireMap(map_open);
-		p.checkKnown({ "format", "path", "extent", "scale", "dpi", "mode", "course" });
+		p.checkKnown({ "format", "path", "extent", "scale", "dpi", "mode", "course",
+		               "plates", "depth", "halftone", "templates", "grid", "overprinting", "paper", "orientation", "overlap" });
 		auto const path = p.requireString("path");
 		p.unsupported("course", "course setting is not built yet");
 		auto const target = resolveExportFormat(p, path, p.optionalString("format"));
@@ -653,8 +811,25 @@ void StepRunner::validate(const Step& step, bool& map_open)
 		case ExportTarget::Image:
 			if (parseMode(p, MapPrinterOptions::Raster) != MapPrinterOptions::Raster)
 				p.fail(QString::fromLatin1("\"%1\" images are raster output: \"mode\" must be \"raster\" or absent").arg(target.format));
+			parsePlates(p, target.format);
+			for (auto parameter : { "paper", "orientation", "overlap" })
+			{
+				if (p.has(parameter))
+					p.fail(QString::fromLatin1("parameter \"%1\" applies to PDF export only").arg(QLatin1String(parameter)));
+			}
 			Q_FALLTHROUGH();
 		case ExportTarget::Pdf:
+			if (target.kind == ExportTarget::Pdf)
+			{
+				for (auto parameter : { "plates", "depth", "halftone" })
+				{
+					if (p.has(parameter))
+						p.fail(QString::fromLatin1("parameter \"%1\" applies to image export only").arg(QLatin1String(parameter)));
+				}
+				parsePaper(p);
+			}
+			for (auto parameter : { "templates", "grid", "overprinting" })
+				p.optionalBool(parameter, false);
 			if (p.has("scale"))
 				p.requirePositiveInt("scale");
 			if (p.has("dpi"))
@@ -663,7 +838,7 @@ void StepRunner::validate(const Step& step, bool& map_open)
 			parseExtent(p);
 			break;
 		case ExportTarget::Registry:
-			for (auto parameter : { "extent", "scale", "dpi", "mode" })
+			for (auto parameter : { "extent", "scale", "dpi", "mode", "plates", "depth", "halftone", "templates", "grid", "overprinting", "paper", "orientation", "overlap" })
 			{
 				if (p.has(parameter))
 					p.fail(QString::fromLatin1("parameter \"%1\" applies to image and PDF export only, not to \"%2\"").arg(QLatin1String(parameter), target.format));
@@ -1028,6 +1203,41 @@ StepResult StepRunner::exportImage(const Step& step, const QString& path, const 
 	if (width < 1 || height < 1)
 		return failure(QLatin1String("the extent is empty"));
 	
+	// Plates instead of one RGB image. the design notes, "Print and raster output"
+	auto const plates = parsePlates(p, format);
+	if (plates.kind != PlateRequest::None)
+	{
+		auto const area = printer.getPrintArea();
+		auto const resolution = printer.getOptions().resolution;
+		QStringList files;
+		QString error;
+		if (plates.kind == PlateRequest::Spot)
+		{
+			if (!saveSpotPlates(*map, area, resolution, printer.getScaleAdjustment(), path, plates.form, &files, &error))
+				return failure(error);
+		}
+		else
+		{
+#ifdef MAPPER_USE_GDAL
+			if (!writeCmykTiff(path, renderProcessPlates(*map, area, resolution, printer.getScaleAdjustment()), resolution, &error))
+				return failure(error);
+			files.append(path);
+#else
+			return failure(QLatin1String("CMYK plates need a build with GDAL"));
+#endif
+		}
+		StepResult result;
+		result.details.insert(QLatin1String("path"), path);
+		result.details.insert(QLatin1String("format"), format);
+		result.details.insert(QLatin1String("plates"), plates.kind == PlateRequest::Spot ? QLatin1String("spot") : QLatin1String("cmyk"));
+		result.details.insert(QLatin1String("files"), QJsonArray::fromStringList(files));
+		result.details.insert(QLatin1String("width"), width);
+		result.details.insert(QLatin1String("height"), height);
+		result.details.insert(QLatin1String("dpi"), resolution);
+		addWarnings(result, hiddenWarnings(*map));
+		return result;
+	}
+	
 	QImage image(width, height, QImage::Format_ARGB32_Premultiplied);
 	if (image.isNull())
 		return failure(QString::fromLatin1("cannot allocate an image of %1 x %2 pixels").arg(width).arg(height));
@@ -1049,6 +1259,7 @@ StepResult StepRunner::exportImage(const Step& step, const QString& path, const 
 	result.details.insert(QLatin1String("width"), width);
 	result.details.insert(QLatin1String("height"), height);
 	result.details.insert(QLatin1String("dpi"), printer.getOptions().resolution);
+	addWarnings(result, hiddenWarnings(*map));
 	return result;
 }
 
@@ -1059,9 +1270,10 @@ StepResult StepRunner::exportPdf(const Step& step, const QString& path)
 	MapPrinter printer(*map, nullptr);
 	printer.setTarget(MapPrinter::pdfTarget());
 	auto const extent = configurePrinter(printer, *map, p, MapPrinterOptions::Vector);
-	if (extent.kind != ExportExtent::PrintArea && extent.kind != ExportExtent::Named)
+	if (extent.kind != ExportExtent::PrintArea && extent.kind != ExportExtent::Named && !p.has("paper"))
 	{
-		// An explicit extent goes onto a single page of its size. A named extent brings its own page.
+		// An explicit extent goes onto a single page of its size. A named extent brings its own page,
+		// and with `paper` the extent is laid on pages of that paper.
 		printer.setCustomPageSize(printer.getPrintAreaPaperSize());
 	}
 	
@@ -1083,6 +1295,7 @@ StepResult StepRunner::exportPdf(const Step& step, const QString& path)
 	result.details.insert(QLatin1String("path"), path);
 	result.details.insert(QLatin1String("format"), QStringLiteral("pdf"));
 	result.details.insert(QLatin1String("pages"), int(printer.horizontalPagePositions().size() * printer.verticalPagePositions().size() + printer.backSides().size()));
+	addWarnings(result, hiddenWarnings(*map));
 	return result;
 }
 

@@ -284,6 +284,14 @@ void MapRenderables::draw(QPainter *painter, const RenderConfig &config) const
 					continue; // in release build
 				}
 				QColor color = *map_color;
+				if (config.process_channel >= 0)
+				{
+					// foom: the colour's own CMYK value for the plate. the design notes, "Print and raster output"
+					auto const& cmyk = map_color->getCmyk();
+					const float values[4] = { cmyk.c, cmyk.m, cmyk.y, cmyk.k };
+					auto const grey = qRound(255 * (1 - qBound(0.0f, values[config.process_channel & 3], 1.0f)));
+					color = QColor(grey, grey, grey);
+				}
 				if (state.color_priority >= 0 && map_color->getOpacity() < 1)
 					color.setAlphaF(map_color->getOpacity());
 				if (!state.activate(painter, current_clip, config, color, initial_clip))

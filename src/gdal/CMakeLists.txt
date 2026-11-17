@@ -29,6 +29,7 @@ set(MAPPER_GDAL_HEADERS
 )
 	
 set(MAPPER_GDAL_SOURCES
+  cmyk_tiff.cpp
   gdal_file.cpp
   gdal_image_reader.cpp
   gdal_manager.cpp

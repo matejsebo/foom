@@ -87,8 +87,13 @@
 #include "core/extent_printing.h"  // foom
 #include "core/extents.h"  // foom
 #include "core/map_printer.h"
+#include "core/print_job.h"  // foom
+#include "core/print_output.h"  // foom
 #include "core/map_view.h"
 #include "fileformats/xml_file_format.h"
+#ifdef MAPPER_USE_GDAL
+#  include "gdal/cmyk_tiff.h"  // foom
+#endif
 #include "gui/file_dialog.h"
 #include "gui/main_window.h"
 #include "gui/print_progress_dialog.h"
@@ -340,6 +345,8 @@ PrintWidget::PrintWidget(Map* map, MainWindow* main_window, MapView* main_view, 
 	export_button = new QPushButton(tr("Export..."));
 	export_button->hide();
 	button_box->addButton(export_button, QDialogButtonBox::ActionRole);
+	job_button = new QPushButton(tr("Save as job..."));  // foom
+	button_box->addButton(job_button, QDialogButtonBox::ActionRole);
 	auto close_button = button_box->addButton(QDialogButtonBox::Close);
 	outer_layout->addWidget(button_box);
 	
@@ -372,6 +379,7 @@ PrintWidget::PrintWidget(Map* map, MainWindow* main_window, MapView* main_view, 
 	connect(preview_button, &QAbstractButton::clicked, this, &PrintWidget::previewClicked);
 	connect(print_button, &QAbstractButton::clicked, this, &PrintWidget::printClicked);
 	connect(export_button, &QAbstractButton::clicked, this, &PrintWidget::printClicked);
+	connect(job_button, &QAbstractButton::clicked, this, &PrintWidget::saveJobClicked);  // foom
 	connect(close_button, &QAbstractButton::clicked, this, &PrintWidget::closeClicked);
 	
 	policy = map_printer->config().single_page_print_area ? SinglePage : CustomArea;
@@ -662,6 +670,7 @@ void PrintWidget::setTarget(const QPrinterInfo* target)
 	print_button->setDefault(is_printer);
 	export_button->setVisible(!is_printer);
 	export_button->setDefault(!is_printer);
+	job_button->setVisible(target != MapPrinter::kmzTarget());  // foom
 	if (printer_properties_button)
 		printer_properties_button->setEnabled(is_printer);
 
@@ -1249,6 +1258,26 @@ void PrintWidget::printClicked()
 			return;
 	}
 	
+	// foom: the design notes, "Print and raster output"
+	auto const hidden = hiddenContent(*map);
+	if (!hidden.isEmpty())
+	{
+		auto lines = hidden.lines();
+		if (lines.size() > 12)
+		{
+			auto const more = lines.size() - 12;
+			lines = lines.mid(0, 12);
+			lines.append(tr("... and %n more", nullptr, more));
+		}
+		QString text = tr("Hidden symbols and parts will not be in the output:");
+		text += QLatin1String("\n\n");
+		text += lines.join(QLatin1Char('\n'));
+		text += QLatin1String("\n\n");
+		text += tr("Continue?");
+		if (QMessageBox::question(this, tr("Warning"), text, QMessageBox::Ok | QMessageBox::Cancel) == QMessageBox::Cancel)
+			return;
+	}
+	
 	if (tile_size_combo->isVisible())
 	{
 		QSettings().setValue(QStringLiteral("Export/KmzTileSize"), tile_size_combo->currentData());
@@ -1316,9 +1345,32 @@ void PrintWidget::exportToImage()
 	                        filter_template.arg(tr("TIFF"), QString::fromLatin1("*.tif *.tiff")),
 	                        filter_template.arg(tr("JPEG"), QString::fromLatin1("*.jpg *.jpeg")),
 	                        tr("All files (*.*)") };
-	QString path = FileDialog::getSaveFileName(this, tr("Export map ..."), {}, filters.join(QString::fromLatin1(";;")));
+	// foom: plates. the design notes, "Print and raster output"
+	const QString plate_labels[4] = { tr("TIFF, CMYK"), tr("Spot colour plates, 8 bit"), tr("Spot colour plates, 1 bit"), tr("Spot colour plates, 1 bit halftone") };
+	auto filter_index = filters.size() - 1;
+#ifdef MAPPER_USE_GDAL
+	filters.insert(filter_index++, filter_template.arg(plate_labels[0], QString::fromLatin1("*.tif *.tiff")));
+#endif
+	if (map->hasSpotColors())
+	{
+		for (int i = 1; i < 4; ++i)
+			filters.insert(filter_index++, filter_template.arg(plate_labels[i], QString::fromLatin1("*.tif *.tiff *.png")));
+	}
+	QString selected_filter;
+	QString path = FileDialog::getSaveFileName(this, tr("Export map ..."), {}, filters.join(QString::fromLatin1(";;")), &selected_filter);
 	if (path.isEmpty())
 		return;
+	
+	for (int i = 0; i < 4; ++i)
+	{
+		QString start = plate_labels[i];
+		start += QLatin1String(" (");
+		if (selected_filter.startsWith(start))
+		{
+			exportPlates(path, i - 1);
+			return;
+		}
+	}
 	
 	if (!path.endsWith(QLatin1String(".png"), Qt::CaseInsensitive)
 	    && !path.endsWith(QLatin1String(".bmp"), Qt::CaseInsensitive)
@@ -1376,6 +1428,75 @@ void PrintWidget::exportToImage()
 		}
 		emit finished(0);
 	}
+}
+
+// foom
+void PrintWidget::exportPlates(QString path, int form)
+{
+	auto const cmyk = form < 0;
+	auto const is_tiff = path.endsWith(QLatin1String(".tif"), Qt::CaseInsensitive) || path.endsWith(QLatin1String(".tiff"), Qt::CaseInsensitive);
+	if (!is_tiff && (cmyk || !path.endsWith(QLatin1String(".png"), Qt::CaseInsensitive)))
+		path.append(QLatin1String(".tif"));
+	
+	auto const area = map_printer->getPrintArea();
+	auto const resolution = map_printer->getOptions().resolution;
+	auto const scale_adjustment = map_printer->getScaleAdjustment();
+	QStringList files;
+	QString error;
+	auto ok = false;
+	if (cmyk)
+	{
+#ifdef MAPPER_USE_GDAL
+		ok = writeCmykTiff(path, renderProcessPlates(*map, area, resolution, scale_adjustment), resolution, &error);
+		files.append(path);
+#endif
+	}
+	else
+	{
+		ok = saveSpotPlates(*map, area, resolution, scale_adjustment, path, PlateForm(form), &files, &error);
+	}
+	if (!ok)
+	{
+		QMessageBox::warning(this, tr("Error"), error);
+		return;
+	}
+	main_window->showStatusBarMessage(tr("Exported %n file(s) to %1", nullptr, files.size()).arg(QFileInfo(path).path()), 4000);
+	emit finished(0);
+}
+
+// foom: the design notes, "Print settings as a job"
+void PrintWidget::saveJobClicked()
+{
+	auto const map_path = main_window->currentPath();
+	if (map_path.isEmpty())
+	{
+		QMessageBox::information(this, tr("Save as job"), tr("The job opens the map file. Save the map first."));
+		return;
+	}
+	
+	const QFileInfo map_file(map_path);
+	QString suggestion = map_file.path();
+	suggestion += QLatin1Char('/');
+	suggestion += map_file.completeBaseName();
+	suggestion += QLatin1String("-print.json");
+	QString filter = tr("Job files");
+	filter += QLatin1String(" (*.json)");
+	auto path = FileDialog::getSaveFileName(this, tr("Save as job"), suggestion, filter);
+	if (path.isEmpty())
+		return;
+	if (!path.endsWith(QLatin1String(".json"), Qt::CaseInsensitive))
+		path.append(QLatin1String(".json"));
+	
+	QString error;
+	if (!savePrintJob(*map_printer, map_path, path, &error))
+	{
+		QMessageBox::warning(this, tr("Error"), error);
+		return;
+	}
+	if (map->hasUnsavedChanges())
+		QMessageBox::information(this, tr("Save as job"), tr("The job is saved. It opens the map file as it was last saved; the map has changes since then."));
+	else
+		main_window->showStatusBarMessage(tr("Job saved to %1").arg(path), 4000);
 }
 
 bool PrintWidget::exportWorldFile(const QString& path) const
