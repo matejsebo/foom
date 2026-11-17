@@ -169,24 +169,29 @@ void determineMapContentSymbolsInUse(const Map& map, std::vector<bool>& out)
 	map.determineSymbolUseClosure(out);
 }
 
+std::unique_ptr<Map> extractPart(const Map& map, int part_index)
+{
+	auto const* source = map.getPart(std::size_t(part_index));
+	
+	auto result = std::make_unique<Map>();
+	result->setGeoreferencing(map.getGeoreferencing());
+	auto filter = symbolsOfPart(map, *source);
+	auto const symbol_map = result->importMap(map, Map::MinimalSymbolImport, &filter, -1, false);
+	
+	auto* part = result->getPart(0);
+	part->setName(source->getName());
+	part->setRole(source->role());
+	part->importPart(source, symbol_map, QTransform(), false);
+	result->undoManager().clear();
+	return result;
+}
+
 std::unique_ptr<Map> extractLayout(const Map& map)
 {
 	auto const index = layoutPartIndex(map);
 	if (index < 0)
 		return {};
-	auto const* layout = map.getPart(std::size_t(index));
-	
-	auto result = std::make_unique<Map>();
-	result->setGeoreferencing(map.getGeoreferencing());
-	auto filter = symbolsOfPart(map, *layout);
-	auto const symbol_map = result->importMap(map, Map::MinimalSymbolImport, &filter, -1, false);
-	
-	auto* part = result->getPart(0);
-	part->setName(layout->getName());
-	part->setRole(MapPart::Role::Layout);
-	part->importPart(layout, symbol_map, QTransform(), false);
-	result->undoManager().clear();
-	return result;
+	return extractPart(map, index);
 }
 
 bool saveLayout(const Map& map, const QString& path, QString* error)

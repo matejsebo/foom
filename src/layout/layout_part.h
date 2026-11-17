@@ -84,6 +84,12 @@ void applyOnMapContent(const Map& map, const std::function<void (const Object*)>
 void determineMapContentSymbolsInUse(const Map& map, std::vector<bool>& out);
 
 /**
+ * Returns a map whose only part is a copy of the given part, with the symbols
+ * its objects use, their colours, and the scale and georeferencing of the map.
+ */
+std::unique_ptr<Map> extractPart(const Map& map, int part_index);
+
+/**
  * Returns a map whose only part is a copy of the layout part, with the symbols
  * its objects use, their colours, and the scale and georeferencing of the map.
  *
