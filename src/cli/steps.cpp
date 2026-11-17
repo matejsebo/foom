@@ -63,9 +63,12 @@
 #include "core/objects/symbol_rule_set.h"
 #include "core/symbols/private_symbol.h"
 #include "core/symbols/symbol.h"
+#include "core/sync_record.h"
 #include "fileformats/file_format.h"
 #include "fileformats/file_format_registry.h"
 #include "fileformats/file_import_export.h"
+#include "sync/field_copy.h"
+#include "sync/merge.h"
 #ifdef MAPPER_USE_GDAL
 #  include "gdal/cmyk_tiff.h"  // foom
 #  include "gdal/geodata_import.h"  // foom
@@ -854,6 +857,28 @@ void StepRunner::validate(const Step& step, bool& map_open)
 		auto const version = p.has("version") ? p.requirePositiveInt("version") : 0u;
 		resolveSaveFormat(p, path, p.optionalString("format"), version);
 	}
+	else if (name == QLatin1String("field-copy-create"))
+	{
+		// the design notes, "Merge changes from file"
+		p.requireMap(map_open);
+		p.checkKnown({ "path" });
+		p.requireString("path");
+	}
+	else if (name == QLatin1String("merge-from-file"))
+	{
+		p.requireMap(map_open);
+		p.checkKnown({ "path", "conflicts" });
+		p.requireString("path");
+		auto const conflicts = p.optionalString("conflicts", QStringLiteral("fail"));
+		if (!QStringList{ QStringLiteral("fail"), QStringLiteral("mine"), QStringLiteral("theirs"), QStringLiteral("both"), QStringLiteral("prefilled") }.contains(conflicts))
+			p.fail(QString::fromLatin1("unknown conflicts \"%1\": expected \"fail\", \"mine\", \"theirs\", \"both\" or \"prefilled\"").arg(conflicts));
+	}
+	else if (name == QLatin1String("field-copy-close"))
+	{
+		p.requireMap(map_open);
+		p.checkKnown({ "id" });
+		p.optionalString("id");
+	}
 	else
 	{
 		p.fail(QString::fromLatin1("unknown step \"%1\"").arg(name));
@@ -882,6 +907,12 @@ StepResult StepRunner::run(const Step& step)
 		return exportMap(step);
 	if (name == QLatin1String("save-as"))
 		return saveAs(step);
+	if (name == QLatin1String("field-copy-create"))
+		return fieldCopyCreate(step);
+	if (name == QLatin1String("merge-from-file"))
+		return mergeFromFile(step);
+	if (name == QLatin1String("field-copy-close"))
+		return fieldCopyClose(step);
 	return failure(QString::fromLatin1("unknown step \"%1\"").arg(name));  // validate() prevents this
 }
 
@@ -899,6 +930,7 @@ StepResult StepRunner::open(const Step& step)
 		return failure(lastWarning(importer->warnings(), cannotOpen(path)));
 	
 	map = std::move(new_map);
+	map_path = path;
 	StepResult result;
 	result.details.insert(QLatin1String("path"), path);
 	result.details.insert(QLatin1String("objects"), map->getNumObjects());
@@ -1018,6 +1050,7 @@ StepResult StepRunner::newMap(const Step& step)
 	if (!outcome.ok)
 		return failure(outcome.error);
 	map = std::move(outcome.map);
+	map_path.clear();
 	StepResult result;
 	result.details.insert(QLatin1String("path"), params.map_path);
 	result.details.insert(QLatin1String("osm"), outcome.osm_path);
@@ -1318,6 +1351,129 @@ StepResult StepRunner::saveAs(const Step& step)
 	result.details.insert(QLatin1String("path"), path);
 	result.details.insert(QLatin1String("format"), QLatin1String(format->id()));
 	addWarnings(result, exporter->warnings());
+	return result;
+}
+
+
+// ### Field copies. the design notes, "Merge changes from file" ###
+
+namespace {
+
+/** Saves the working map to the file it was opened from. Returns a message on failure. */
+QString saveWorkingMap(Map& map, const QString& path, bool check_only = false)
+{
+	if (path.isEmpty())
+		return QStringLiteral("needs a map opened from a file");
+	auto const* format = findFormat(QFileInfo(path).suffix().toLower(), &FileFormat::supportsFileSaveAs);
+	if (!format || qstrcmp(format->id(), "XML") != 0)
+		return QString::fromLatin1("the working map must be a .foom, .omap or .xmap file, not \"%1\"").arg(path);
+	if (check_only)
+		return {};
+	purgePrivateSymbols(map);
+	auto exporter = format->makeExporter(path, &map, nullptr);
+	if (!exporter || !exporter->doExport())
+		return QString::fromLatin1("cannot write \"%1\"").arg(path);
+	return {};
+}
+
+}  // namespace
+
+StepResult StepRunner::fieldCopyCreate(const Step& step)
+{
+	Params p(step);
+	auto const path = job.resolvePath(p.requireString("path"));
+	auto problem = saveWorkingMap(*map, map_path, true);
+	if (!problem.isEmpty())
+		return failure(problem);
+	
+	QString error;
+	auto const id = createFieldCopy(*map, map_path, path, &error);
+	if (id.isEmpty())
+		return failure(error);
+	problem = saveWorkingMap(*map, map_path);
+	if (!problem.isEmpty())
+		return failure(problem);
+	
+	StepResult result;
+	result.details.insert(QLatin1String("path"), path);
+	result.details.insert(QLatin1String("id"), id);
+	result.details.insert(QLatin1String("base"), baseFilePath(map_path, id));
+	return result;
+}
+
+StepResult StepRunner::mergeFromFile(const Step& step)
+{
+	Params p(step);
+	auto const path = job.resolvePath(p.requireString("path"));
+	auto const conflicts = p.optionalString("conflicts", QStringLiteral("fail"));
+	auto problem = saveWorkingMap(*map, map_path, true);
+	if (!problem.isEmpty())
+		return failure(problem);
+	
+	QString error;
+	MergeInput input;
+	if (!loadForMerge(*map, map_path, path, input, &error))
+		return failure(error);
+	auto plan = compareMaps(input.base.get(), *map, *input.theirs);
+	auto const conflict_count = plan.count(MergeRow::Conflict);
+	if (conflicts == QLatin1String("mine"))
+		plan.resolveConflicts(MergeRow::KeepMine);
+	else if (conflicts == QLatin1String("theirs"))
+		plan.resolveConflicts(MergeRow::KeepTheirs);
+	else if (conflicts == QLatin1String("both"))
+		plan.resolveConflicts(MergeRow::KeepBoth);
+	else if (conflicts == QLatin1String("prefilled"))
+		plan.acceptPrefilled();
+	else if (plan.unresolved() > 0)
+		return failure(QString::fromLatin1("%1 conflict(s)%2: set \"conflicts\" to \"mine\", \"theirs\", \"both\" or \"prefilled\"")
+		               .arg(plan.unresolved()).arg(plan.two_way ? QLatin1String(" (the base file is missing, so every difference is one)") : QLatin1String("")));
+	
+	MergeResult merged;
+	if (!applyMerge(*map, *input.theirs, plan, &merged, &error))
+		return failure(error);
+	// The working map first: a base which is ahead of an unsaved merge would hide the merge.
+	problem = saveWorkingMap(*map, map_path);
+	if (!problem.isEmpty())
+		return failure(problem);
+	if (!refreshBase(map_path, path, input.copy, &error))
+		return failure(error);
+	
+	StepResult result;
+	result.details.insert(QLatin1String("path"), path);
+	result.details.insert(QLatin1String("id"), input.copy.id);
+	result.details.insert(QLatin1String("two_way"), plan.two_way);
+	result.details.insert(QLatin1String("incoming"), plan.count(MergeRow::Incoming));
+	result.details.insert(QLatin1String("outgoing"), plan.count(MergeRow::Outgoing));
+	result.details.insert(QLatin1String("conflicts"), conflict_count);
+	result.details.insert(QLatin1String("added"), merged.added);
+	result.details.insert(QLatin1String("replaced"), merged.replaced);
+	result.details.insert(QLatin1String("deleted"), merged.deleted);
+	result.details.insert(QLatin1String("symbols"), merged.symbols);
+	result.details.insert(QLatin1String("parts"), merged.parts);
+	std::vector<QString> warnings;
+	for (auto const& symbol : plan.symbols)
+	{
+		if (symbol.status == MergeSymbolRow::Differs)
+			warnings.push_back(QString::fromLatin1("symbol %1 %2 differs in the copy; the map's definition is kept").arg(symbol.number, symbol.name));
+	}
+	addWarnings(result, warnings);
+	return result;
+}
+
+StepResult StepRunner::fieldCopyClose(const Step& step)
+{
+	Params p(step);
+	auto problem = saveWorkingMap(*map, map_path, true);
+	if (!problem.isEmpty())
+		return failure(problem);
+	QString error;
+	if (!closeFieldCopy(*map, map_path, p.optionalString("id"), &error))
+		return failure(error);
+	problem = saveWorkingMap(*map, map_path);
+	if (!problem.isEmpty())
+		return failure(problem);
+	StepResult result;
+	result.details.insert(QLatin1String("open_copies"), int(map->syncCopies().size()));
 	return result;
 }
 

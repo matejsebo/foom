@@ -255,6 +255,9 @@ endif()
 add_system_test(map_part_role_t)  # foom: the design notes, Map part roles
 add_system_test(private_symbol_t)  # foom: the design notes, Private symbols
 add_system_test(generator_t)  # foom: the design notes, Generators
+add_system_test(merge_t)  # foom: the design notes, Merge changes from file
+target_compile_definitions(merge_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
+add_dependencies(merge_t foom-cli)
 add_system_test(generator_more_t)  # foom: the design notes, Generators, second change
 add_system_test(qr_code_t)  # foom: the design notes, Generators, gen-qr-code
 add_system_test(import_points_t)  # foom: the design notes, Delimited text

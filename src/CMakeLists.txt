@@ -104,6 +104,9 @@ set(Mapper_Common_SRCS
   core/map_printer.cpp
   core/print_job.cpp
   core/print_output.cpp
+  core/sync_record.cpp
+  sync/field_copy.cpp
+  sync/merge.cpp
   core/map_view.cpp
   core/path_coord.cpp
   core/spatial_index.cpp

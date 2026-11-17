@@ -205,6 +205,7 @@ namespace literal
 	static const QLatin1String bookmark_zoom("zoom");  // foom
 	static const QLatin1String bookmark_note("note");  // foom
 	static const QLatin1String extents("extents");  // foom
+	static const QLatin1String sync("sync");  // foom
 	static const QLatin1String foreign("foreign");  // foom
 	static const QLatin1String foreign_format("format");  // foom
 	static const QLatin1String foreign_version("version");  // foom
@@ -325,6 +326,11 @@ bool XMLFileExporter::exportImplementation()
 		if (XMLFileFormat::foom_revision >= 1 && !map->extents().empty())  // foom
 		{
 			exportExtents();
+			writeLineBreak(xml);
+		}
+		if (XMLFileFormat::foom_revision >= 1 && !map->syncCopies().empty())  // foom
+		{
+			exportSyncCopies();
 			writeLineBreak(xml);
 		}
 		if (XMLFileFormat::foom_revision >= 1 && !map->elevationSet().isEmpty())  // foom
@@ -567,6 +573,12 @@ void XMLFileExporter::exportExtents()
 	saveExtents(map->extents(), xml);
 }
 
+// foom: the design notes, "Merge changes from file"
+void XMLFileExporter::exportSyncCopies()
+{
+	saveSyncCopies(map->syncCopies(), xml);
+}
+
 // foom
 void XMLFileExporter::exportElevation()
 {
@@ -790,6 +802,8 @@ void XMLFileImporter::importElements()
 			importBookmarks();
 		else if (name == literal::extents)  // foom
 			importExtents();
+		else if (name == literal::sync)  // foom
+			importSyncCopies();
 		else if (name == literal::foreign)  // foom
 			importForeignData();
 		else if (name == literal::elevation)  // foom
@@ -1244,6 +1258,12 @@ void XMLFileImporter::importForeignData()
 void XMLFileImporter::importExtents()
 {
 	map->setExtents(loadExtents(xml));
+}
+
+// foom
+void XMLFileImporter::importSyncCopies()
+{
+	map->setSyncCopies(loadSyncCopies(xml));
 }
 
 // foom
