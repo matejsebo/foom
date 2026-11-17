@@ -5608,7 +5608,7 @@ void MapEditorController::saveLayoutClicked()
 		return;
 	if (QFileInfo(filename).suffix().isEmpty())
 		filename += QLatin1String(".foom");
-	settings.setValue(QString::fromLatin1("importFileDirectory"), QFileInfo(filename).canonicalPath());
+	settings.setValue(QString::fromLatin1("importFileDirectory"), QFileInfo(filename).absolutePath());  // the file does not exist yet
 	QString error;
 	if (!saveLayout(*map, filename, &error))
 		QMessageBox::warning(window, tr("Save layout"), error);
