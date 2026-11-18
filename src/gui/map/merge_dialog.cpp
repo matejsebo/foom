@@ -192,6 +192,7 @@ QVariant MergeModel::data(const QModelIndex& index, int role) const
 	switch (role)
 	{
 	case Qt::DisplayRole:
+	case Qt::ToolTipRole:
 		switch (index.column())
 		{
 		case ObjectColumn:
@@ -352,8 +353,11 @@ MergeDialog::MergeDialog(const Map& mine, const Map& theirs, const MergePlan& pl
 	view->setSelectionMode(QAbstractItemView::ExtendedSelection);
 	view->setEditTriggers(QAbstractItemView::NoEditTriggers);
 	view->verticalHeader()->hide();
-	view->horizontalHeader()->setStretchLastSection(true);
-	view->resizeColumnsToContents();
+	// Every column as wide as its content, except the symbol's name,
+	// which gives way so that the action stays in sight.
+	view->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+	view->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+	view->setTextElideMode(Qt::ElideMiddle);
 	
 	auto* mine_button = new QPushButton(tr("Keep mine"));
 	mine_button->setObjectName(QStringLiteral("keep-mine"));
@@ -404,7 +408,7 @@ MergeDialog::MergeDialog(const Map& mine, const Map& theirs, const MergePlan& pl
 	layout->addWidget(notes_label);
 	layout->addWidget(buttons);
 	setLayout(layout);
-	resize(860, 520);
+	resize(1000, 560);
 	
 	connect(filter_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
 		filter_model->setFilter(MergeFilterModel::Filter(filter_combo->itemData(index).toInt()));
@@ -438,7 +442,7 @@ void MergeDialog::decide(MergeRow::Action action)
 void MergeDialog::updateState()
 {
 	auto const& current = model->plan();
-	summary_label->setText(tr("%1 incoming, %2 outgoing, %3 conflicts, of which %4 undecided")
+	summary_label->setText(tr("Incoming: %1. Outgoing: %2. Conflicts: %3, of which undecided: %4.")
 	                       .arg(current.count(MergeRow::Incoming))
 	                       .arg(current.count(MergeRow::Outgoing))
 	                       .arg(current.count(MergeRow::Conflict))

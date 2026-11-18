@@ -34,6 +34,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QPainter>
 #include <QObject>
 #include <QPointF>
 #include <QRectF>
@@ -43,9 +44,11 @@
 #include "global.h"
 #include "core/georeferencing.h"
 #include "core/map.h"
+#include "core/map_color.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
+#include "core/renderables/renderable.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/symbol.h"
 #include "elevation/contours.h"
@@ -375,6 +378,41 @@ private slots:
 		}
 	}
 
+	/// The brown of the contour symbols goes to the top of the colour table.
+	/// The objects which are there already must keep their colours.
+	void contourSymbolsKeepColours()
+	{
+		Map map;
+		map.setScaleDenominator(10000);
+		auto* green = new MapColor(QStringLiteral("Green"), 0);
+		green->setCmyk(MapColorCmyk(1.0f, 0.0f, 1.0f, 0.0f));
+		green->setRgbFromCmyk();
+		map.addColor(green, 0);
+		auto* line = new LineSymbol();
+		line->setLineWidth(2.0);
+		line->setColor(green);
+		map.addSymbol(line, 0);
+		map.addObject(new PathObject(line, { MapCoord(5, 5), MapCoord(35, 5) }));
+		
+		// The area from (0, 0) to (40, 10) mm at 5 pixels per mm.
+		auto const render = [&map]() {
+			QImage image(200, 50, QImage::Format_RGB32);
+			image.fill(QColor(Qt::white));
+			QPainter painter(&image);
+			painter.scale(5, 5);
+			RenderConfig config = { map, QRectF(0, 0, 40, 10), 5, RenderConfig::NoOptions, 1.0 };
+			map.draw(&painter, config);
+			return image;
+		};
+		auto const before = render().pixelColor(100, 25);
+		QVERIFY(before.green() > 200 && before.red() < 60);
+		
+		contourSymbols(map, false);
+		QCOMPARE(map.getNumColors(), 2);
+		QVERIFY(map.getColor(0) != green);
+		QCOMPARE(render().pixelColor(100, 25), before);
+	}
+	
 	void contourObjects()
 	{
 		Map map;

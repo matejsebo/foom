@@ -511,6 +511,9 @@ bool applyMerge(Map& mine, const Map& theirs, const MergePlan& plan, MergeResult
 				auto* own = replacement.own;
 				step->addObject(own, own->duplicate());
 				auto const group = own->group();
+				// copyFrom() takes the other object's extent, so the place
+				// which the object leaves has to be marked for redrawing here.
+				mine.setObjectAreaDirty(own->getExtent());
 				own->copyFrom(*replacement.other);
 				own->setSymbol(symbols.value(replacement.other->getSymbol()), true);
 				own->setGroup(group);

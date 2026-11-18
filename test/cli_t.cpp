@@ -150,7 +150,7 @@ private slots:
 	}
 	
 	
-	/// Accept (11): text is drawn as text, on the platform the runner chooses
+	/// Accept (10): text is drawn as text, on the platform the runner chooses
 	/// by itself and on the offscreen platform.
 	void textExportTest_data()
 	{
