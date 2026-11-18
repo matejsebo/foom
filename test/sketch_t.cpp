@@ -192,6 +192,60 @@ private slots:
 		QCOMPARE(printed.pixelColor(100, 50), QColor(Qt::white));
 	}
 	
+	/// A sketch colour goes to the top of the colour table. The objects which
+	/// are there already must keep their colours.
+	void keepsColoursTest()
+	{
+		Map map;
+		map.setScaleDenominator(10000);
+		auto* green = new MapColor(QStringLiteral("Green"), 0);
+		green->setCmyk(MapColorCmyk(1.0f, 0.0f, 1.0f, 0.0f));
+		green->setRgbFromCmyk();
+		map.addColor(green, 0);
+		auto* line = addSymbol<LineSymbol>(map, QStringLiteral("line"), 1);
+		line->setLineWidth(2.0);
+		line->setColor(green);
+		map.addObject(new PathObject(line, { MapCoord(5, 5), MapCoord(35, 5) }));
+		
+		auto const before = render(map, RenderConfig::HelperSymbols);
+		auto const line_color = before.pixelColor(100, 25);
+		QVERIFY(line_color.green() > 200 && line_color.red() < 60);
+		
+		strokeAlong(map, 5, 35, 0, 2);
+		QCOMPARE(map.getColor(0)->getName(), sketchColorName(0));
+		auto const after = render(map, RenderConfig::HelperSymbols);
+		QCOMPARE(after.pixelColor(100, 25), line_color);
+		QCOMPARE(after.pixelColor(100, 50), QColor(255, 0, 0));
+	}
+	
+	/// Undoing a step of the sketch leaves the part one draws into as it was.
+	void undoKeepsPartTest()
+	{
+		Map map;
+		map.setScaleDenominator(10000);
+		strokeAlong(map, 0, 40);
+		QCOMPARE(eraseSketch(map, MapCoordF(10, 10), 2), 1);
+		auto const sketch_part = std::size_t(sketchPartIndex(map));
+		QVERIFY(map.getCurrentPartIndex() != sketch_part);
+		auto const current = map.getCurrentPartIndex();
+		
+		QVERIFY(map.undoManager().undo());
+		QCOMPARE(map.getPart(sketch_part)->getNumObjects(), 1);
+		QCOMPARE(map.getCurrentPartIndex(), current);
+		QCOMPARE(map.getNumSelectedObjects(), 0);
+		
+		QVERIFY(map.undoManager().redo());
+		QCOMPARE(map.getPart(sketch_part)->getNumObjects(), 2);
+		QCOMPARE(map.getCurrentPartIndex(), current);
+		QCOMPARE(map.getNumSelectedObjects(), 0);
+		
+		// With the sketch as the current part, the pieces are selected as upstream does it.
+		map.setCurrentPartIndex(sketch_part);
+		QVERIFY(map.undoManager().undo());
+		QCOMPARE(map.getCurrentPartIndex(), sketch_part);
+		QCOMPARE(map.getNumSelectedObjects(), 1);
+	}
+	
 	/// Accept (3)
 	void eraserTest()
 	{

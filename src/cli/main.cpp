@@ -70,9 +70,36 @@ extern QPointer<QTranslator> map_symbol_translator;
 int main(int argc, char** argv)
 {
 	// Text rendering needs fonts, and fonts need a GUI application object.
-	// The offscreen platform plugin provides them without a display.
-	if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
-		qputenv("QT_QPA_PLATFORM", "offscreen");
+	// On Windows the platform of the editor draws text as the editor does,
+	// and opens no window. Elsewhere the offscreen platform knows the fonts
+	// of the system and needs no display.
+	auto platform = qgetenv("QT_QPA_PLATFORM");
+	for (int i = 1; i + 1 < argc; ++i)
+	{
+		if (qstrcmp(argv[i], "-platform") == 0 || qstrcmp(argv[i], "--platform") == 0)
+			platform = argv[i + 1];
+	}
+	if (platform.isEmpty())
+	{
+#ifdef Q_OS_WIN
+		platform = "windows";
+#else
+		platform = "offscreen";
+#endif
+		qputenv("QT_QPA_PLATFORM", platform);
+	}
+#ifdef Q_OS_WIN
+	// On Windows the offscreen platform knows no fonts unless it is told
+	// where they are, and then draws every text as a filled box.
+	if (platform.startsWith("offscreen") && qEnvironmentVariableIsEmpty("QT_QPA_FONTDIR"))
+	{
+		auto fonts = qgetenv("WINDIR");
+		if (fonts.isEmpty())
+			fonts = "C:\\Windows";
+		fonts += "\\Fonts";
+		qputenv("QT_QPA_FONTDIR", fonts);
+	}
+#endif
 	
 	// QGuiApplication takes -platform / --platform from the arguments.
 	QGuiApplication qapp(argc, argv);
@@ -124,7 +151,7 @@ int main(int argc, char** argv)
 	                              QLatin1String("job.json"));
 	parser.addOption(run_option);
 	QCommandLineOption platform_option(QStringList{ QLatin1String("platform") },
-	                                   QLatin1String("Qt platform plugin, default offscreen."),
+	                                   QLatin1String("Qt platform plugin; default windows on Windows, offscreen elsewhere."),
 	                                   QLatin1String("name"));
 	parser.addOption(platform_option);  // consumed by QGuiApplication; listed for --help
 	parser.process(qapp);

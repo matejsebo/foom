@@ -3986,7 +3986,10 @@ void MapEditorController::sketchFlattenClicked()
 		QMessageBox::warning(window, tr("Flatten sketch"), tr("The image is written to %1, but it could not be opened as a template.").arg(path));
 		return;
 	}
-	map->addTemplate(-1, std::move(new_template));
+	// On top of the map, and seen: a position below zero would mean behind the map.
+	map->addTemplate(map->getNumTemplates(), std::move(new_template));
+	hideAllTemplates(false);
+	showTemplateWindow(true);
 	window->showStatusBarMessage(tr("The sketch is flattened to %1 and opened as a template.").arg(path), 4000);
 }
 

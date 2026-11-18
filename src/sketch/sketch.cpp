@@ -112,6 +112,8 @@ const MapColor* sketchColor(Map& map, int color)
 	new_color->setCmyk(color_presets[colorIndex(color)].cmyk);
 	new_color->setRgbFromCmyk();
 	map.addColor(new_color, 0);
+	// What is drawn already refers to the colours by their place in the table.
+	map.updateAllObjects();
 	return new_color;
 }
 

@@ -591,6 +591,8 @@ const MapColor* contourColor(Map& map)
 	auto* color = new MapColor(QStringLiteral("Brown"), 0);
 	color->setCmyk(MapColorCmyk(0.0f, 0.56f, 1.0f, 0.18f));
 	map.addColor(color, 0);
+	// What is drawn already refers to the colours by their place in the table.
+	map.updateAllObjects();
 	return color;
 }
 

@@ -45,9 +45,14 @@
 #include "core/latlon.h"
 #include "core/map.h"
 #include "core/map_coord.h"
+#include "core/map_color.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
+#include "core/objects/text_object.h"
 #include "core/symbols/symbol.h"
+#include "core/symbols/text_symbol.h"
+#include "fileformats/xml_file_format.h"
+#include "fileformats/file_import_export.h"
 #include "image-difference.h"
 
 using namespace OpenOrienteering;
@@ -142,6 +147,85 @@ private slots:
 		QVERIFY2(expected_image.load(reference_path), qPrintable(reference_path));
 		image = image.convertToFormat(expected_image.format());
 		QCOMPARE(fuzzyDifference(image, expected_image), QPoint(-1, -1));
+	}
+	
+	
+	/// Accept (11): text is drawn as text, on the platform the runner chooses
+	/// by itself and on the offscreen platform.
+	void textExportTest_data()
+	{
+		QTest::addColumn<QString>("platform");
+		QTest::newRow("default") << QString{};
+		QTest::newRow("offscreen") << QStringLiteral("offscreen");
+	}
+	
+	void textExportTest()
+	{
+		QFETCH(QString, platform);
+		
+		// The word FOOM, 20 mm high, in the middle of 100 mm by 40 mm.
+		Map map;
+		map.setScaleDenominator(10000);
+		auto* black = new MapColor(QStringLiteral("Black"), 0);
+		black->setCmyk(MapColorCmyk(0.0f, 0.0f, 0.0f, 1.0f));
+		black->setRgbFromCmyk();
+		map.addColor(black, 0);
+		auto* symbol = new TextSymbol();
+		symbol->setName(QStringLiteral("text"));
+		symbol->setNumberComponent(0, 1);
+		symbol->setColor(black);
+		symbol->setFontFamily(QStringLiteral("Arial"));
+		symbol->setFontSize(20000);
+		map.addSymbol(symbol, 0);
+		auto* text = new TextObject(symbol);
+		text->setAnchorPosition(MapCoordF(50, 20));
+		text->setText(QStringLiteral("FOOM"));
+		text->setHorizontalAlignment(TextObject::AlignHCenter);
+		text->setVerticalAlignment(TextObject::AlignVCenter);
+		map.addObject(text);
+		auto const map_path = outPath(QStringLiteral("text.omap"));
+		{
+			XMLFileFormat format;
+			auto exporter = format.makeExporter(map_path, &map, nullptr);
+			QVERIFY(exporter && exporter->doExport());
+		}
+		
+		auto const out_path = outPath(QStringLiteral("text-%1.png").arg(QString::fromLatin1(QTest::currentDataTag())));
+		auto const job = writeJob(QStringLiteral("text.json"), {
+			step(QStringLiteral("open"), {{ QStringLiteral("path"), map_path }}),
+			step(QStringLiteral("export"), {
+				{ QStringLiteral("format"), QStringLiteral("png") },
+				{ QStringLiteral("path"), out_path },
+				{ QStringLiteral("extent"), QJsonArray{ 0, 0, 100, 40 } },
+				{ QStringLiteral("dpi"), 100 },
+			}),
+		});
+		auto const result = run(job, platform);
+		QVERIFY2(result.exit_code == int(Success), result.err.constData());
+		
+		QImage image;
+		QVERIFY(image.load(out_path));
+		QVERIFY(image.width() > 380 && image.height() > 150);
+		
+		// Letters cover a small share of the picture; the boxes which stand
+		// for letters where there are no fonts cover a third and more.
+		auto dark = 0;
+		for (int y = 0; y < image.height(); ++y)
+		{
+			for (int x = 0; x < image.width(); ++x)
+				dark += qGray(image.pixel(x, y)) < 128 ? 1 : 0;
+		}
+		auto const share = double(dark) / (image.width() * image.height());
+		QVERIFY2(share > 0.03, qPrintable(QString::number(share)));
+		QVERIFY2(share < 0.25, qPrintable(QString::number(share)));
+		
+		// The row through the middle crosses the four letters: it changes
+		// between dark and light many times, where a box changes twice.
+		auto changes = 0;
+		auto const y = image.height() / 2;
+		for (int x = 1; x < image.width(); ++x)
+			changes += (qGray(image.pixel(x, y)) < 128) != (qGray(image.pixel(x - 1, y)) < 128) ? 1 : 0;
+		QVERIFY2(changes >= 8, qPrintable(QString::number(changes)));
 	}
 	
 	
@@ -495,11 +579,16 @@ private:
 		return writeFile(name, jobDocument(steps));
 	}
 	
-	RunResult run(const QString& job_path) const
+	/// Runs the job; with an empty platform, on the one the runner chooses by itself.
+	RunResult run(const QString& job_path, const QString& platform = QStringLiteral("offscreen")) const
 	{
 		QProcess process;
 		auto env = QProcessEnvironment::systemEnvironment();
-		env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));  // Accept (4)
+		env.remove(QStringLiteral("QT_QPA_FONTDIR"));
+		if (platform.isEmpty())
+			env.remove(QStringLiteral("QT_QPA_PLATFORM"));
+		else
+			env.insert(QStringLiteral("QT_QPA_PLATFORM"), platform);  // Accept (4)
 		process.setProcessEnvironment(env);
 		process.start(executable, { QStringLiteral("--run"), job_path });
 		if (!process.waitForFinished(120000))

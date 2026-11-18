@@ -35,6 +35,7 @@
 #include <QXmlStreamReader>
 
 #include "core/map.h"
+#include "core/map_part.h"
 #include "core/objects/object.h"
 #include "undo/undo.h"
 #include "util/xml_stream_util.h"
@@ -291,7 +292,12 @@ void UndoManager::updateMapState(const UndoStep *step) const
 	UndoStep::PartSet result_parts;
 	bool have_modified_objects = step->getModifiedParts(result_parts);
 	if (have_modified_objects && result_parts.find(map->getCurrentPartIndex()) == end(result_parts))
-		map->setCurrentPartIndex(*begin(result_parts));
+	{
+		// foom: A step of the sketch does not make the sketch the part one draws into.
+		auto const target = *begin(result_parts);
+		if (target >= std::size_t(map->getNumParts()) || map->getPart(target)->role() != MapPart::Role::Sketch)
+			map->setCurrentPartIndex(target);
+	}
 	
 	// Select affected objects and ensure that they are visible
 	UndoStep::ObjectSet result_objects;
