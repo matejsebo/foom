@@ -34,6 +34,7 @@
 #endif
 
 #include "nmea_fix.h"  // foom
+#include "nmea_stream_source.h"  // foom
 
 
 namespace OpenOrienteering
@@ -206,11 +207,41 @@ QGeoAreaMonitorSource* NmeaPositionPlugin::areaMonitor(QObject* /* parent */)
 // virtual
 QGeoPositionInfoSource* NmeaPositionPlugin::positionInfoSource(QObject* parent)
 {
-	return new NmeaPositionSource(parent);
+	return positionInfoSourceWithParameters(parent, {});  // foom
 }
 
 // virtual
 QGeoSatelliteInfoSource* NmeaPositionPlugin::satelliteInfoSource(QObject* /* parent */)
+{
+	return nullptr;
+}
+
+
+// foom: A network receiver is read by the stream source everywhere. Without one,
+// the source above reads the device where /bin/cat exists, and the stream source
+// reads the serial port elsewhere.
+
+// virtual
+QGeoAreaMonitorSource* NmeaPositionPlugin::areaMonitorWithParameters(QObject* /* parent */, const QVariantMap& /* parameters */)
+{
+	return nullptr;
+}
+
+// virtual
+QGeoPositionInfoSource* NmeaPositionPlugin::positionInfoSourceWithParameters(QObject* parent, const QVariantMap& parameters)
+{
+	auto const tcp = parameters.value(QStringLiteral("nmea.tcp")).toString().trimmed();
+	if (!tcp.isEmpty())
+		return new NmeaStreamSource(parameters, {}, parent);
+#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
+	return new NmeaPositionSource(parent);
+#else
+	return new NmeaStreamSource(parameters, QString::fromUtf8(qgetenv("QT_NMEA_SERIAL_PORT")), parent);
+#endif
+}
+
+// virtual
+QGeoSatelliteInfoSource* NmeaPositionPlugin::satelliteInfoSourceWithParameters(QObject* /* parent */, const QVariantMap& /* parameters */)
 {
 	return nullptr;
 }

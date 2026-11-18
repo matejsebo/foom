@@ -21,6 +21,7 @@ find_package(Qt5Widgets REQUIRED)
 find_package(Qt5Sensors)
 find_package(Qt5Positioning)
 find_package(Qt5SerialPort)
+find_package(Qt5Network)  # foom: the NMEA source reads from a network receiver
 if(ANDROID)
 	find_package(Qt5AndroidExtras REQUIRED)
 endif()
@@ -94,10 +95,12 @@ if(TARGET Qt5::Positioning)
 	  nmea_position_plugin.cpp
 	  nmea_position_plugin.json
 	  #nmea_position_source.cpp
+	  nmea_stream_source.cpp  # foom
 	)
 	list(APPEND NMEA_POSITION_LINK_LIBRARIES
 	  PRIVATE Qt5::Positioning
 	  PRIVATE foom-nmea-fix  # foom
+	  PRIVATE Qt5::Network   # foom
 	)
 	if(TARGET Qt5::SerialPort)
 		list(APPEND NMEA_POSITION_LINK_LIBRARIES
@@ -156,6 +159,7 @@ set(MAPPER_SENSORS_SOURCES
   gps_display.cpp
   gps_temporary_markers.cpp
   gps_track_recorder.cpp
+  nmea_source_settings.cpp  # foom
   sensors_settings_page.cpp
 )
 

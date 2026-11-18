@@ -70,7 +70,7 @@ Q_IMPORT_PLUGIN(FakePositionPlugin)
 Q_IMPORT_PLUGIN(PowershellPositionPlugin)
 #endif
 
-#if (defined(Q_OS_LINUX) || defined(Q_OS_MACOS)) && defined(MAPPER_USE_NMEA_POSITION_PLUGIN)
+#if (defined(Q_OS_LINUX) || defined(Q_OS_MACOS) || defined(Q_OS_WIN)) && defined(MAPPER_USE_NMEA_POSITION_PLUGIN)  // foom: on Windows, too
 Q_IMPORT_PLUGIN(NmeaPositionPlugin)
 #endif
 

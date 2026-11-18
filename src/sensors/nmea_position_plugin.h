@@ -23,6 +23,7 @@
 #include <QGeoPositionInfoSourceFactory>
 #include <QObject>
 #include <QString>
+#include <QVariantMap>
 
 class QGeoAreaMonitorSource;
 class QGeoPositionInfoSource;
@@ -34,12 +35,12 @@ namespace OpenOrienteering
 /**
  * A plugin for using QNmeaPositionInfoSource without QSerialPort.
  */
-class NmeaPositionPlugin : public QObject, public QGeoPositionInfoSourceFactory 
+class NmeaPositionPlugin : public QObject, public QGeoPositionInfoSourceFactoryV2  // foom: V2, which takes parameters
 {
 	Q_OBJECT
 	Q_PLUGIN_METADATA(IID "org.qt-project.qt.position.sourcefactory/5.0"
 	                  FILE "nmea_position_plugin.json")
-	Q_INTERFACES(QGeoPositionInfoSourceFactory)
+	Q_INTERFACES(QGeoPositionInfoSourceFactory QGeoPositionInfoSourceFactoryV2)
 	
 public:
 	~NmeaPositionPlugin() override;
@@ -53,6 +54,12 @@ public:
 	QGeoAreaMonitorSource* areaMonitor(QObject* parent) override;
 	QGeoPositionInfoSource* positionInfoSource(QObject* parent) override;
 	QGeoSatelliteInfoSource* satelliteInfoSource(QObject* parent) override;
+	
+	// foom: The parameters name the network receiver and the baud rate.
+	// See the design notes, "NMEA source over TCP and on Windows".
+	QGeoAreaMonitorSource* areaMonitorWithParameters(QObject* parent, const QVariantMap& parameters) override;
+	QGeoPositionInfoSource* positionInfoSourceWithParameters(QObject* parent, const QVariantMap& parameters) override;
+	QGeoSatelliteInfoSource* satelliteInfoSourceWithParameters(QObject* parent, const QVariantMap& parameters) override;
 };
 
 

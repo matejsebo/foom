@@ -54,6 +54,7 @@
 #include "gui/util_gui.h"
 #include "gui/map/map_widget.h"
 #include "sensors/compass.h"
+#include "sensors/nmea_source_settings.h"  // foom
 #include "util/backports.h"  // IWYU pragma: keep
 
 #if defined(MAPPER_USE_FAKE_POSITION_PLUGIN)
@@ -143,15 +144,16 @@ GPSDisplay::GPSDisplay(MapWidget* widget, const Georeferencing& georeferencing, 
 	if (!nmea_serialport.isEmpty())
 		qputenv("QT_NMEA_SERIAL_PORT", nmea_serialport.toUtf8());
 	
+	auto const nmea_parameters = NmeaSourceSettings::load().parameters();  // foom: the network receiver and the baud rate
 	auto source_name = settings.positionSource();
 	if (source_name.isEmpty())
 	{
 		source_name = QLatin1String("default");
-		source = QGeoPositionInfoSource::createDefaultSource(this);
+		source = QGeoPositionInfoSource::createDefaultSource(nmea_parameters, this);
 	}
 	else
 	{
-		source = QGeoPositionInfoSource::createSource(source_name, this);
+		source = QGeoPositionInfoSource::createSource(source_name, nmea_parameters, this);
 	}
 	
 	if (!source)

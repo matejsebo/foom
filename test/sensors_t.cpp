@@ -117,7 +117,9 @@ private slots:
 		auto nmea_position_source = QStringLiteral("NMEA (OpenOrienteering)");
 		auto* source = QGeoPositionInfoSource::createSource(nmea_position_source, this);
 #if !defined(Q_OS_LINUX) && !defined(Q_OS_MACOS)
+#if !defined(Q_OS_WIN)  // foom: on Windows the source reads a serial port, see nmea_source_t
 		QVERIFY(!source || source->error() != QGeoPositionInfoSource::NoError);
+#endif
 		QSKIP("\"unsupported platform");
 #endif
 		QVERIFY(source);
