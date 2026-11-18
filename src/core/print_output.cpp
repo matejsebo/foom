@@ -277,6 +277,19 @@ QImage plateAsLineArt(const QImage& ink)
 	return result;
 }
 
+namespace {
+
+/** Returns false with a message when a cell of the screen would be less than 8 pixels wide. */
+bool screenFitsResolution(double dpi, double frequency, QString* error)
+{
+	if (frequency <= 0 || dpi / frequency >= 8 - 1e-9)
+		return true;
+	setError(error, tr("A screen of %1 lines per inch needs a resolution of %2 dpi or more.").arg(frequency).arg(8 * frequency));
+	return false;
+}
+
+}  // namespace
+
 QImage plateAsHalftone(const QImage& ink, double dpi, double frequency, double angle, QString* error)
 {
 	if (frequency <= 0)
@@ -284,12 +297,9 @@ QImage plateAsHalftone(const QImage& ink, double dpi, double frequency, double a
 		frequency = std::min(150.0, dpi / 8);
 		angle = 45;
 	}
-	auto const cell = dpi / frequency;  // pixels
-	if (cell < 8 - 1e-9)
-	{
-		setError(error, tr("A screen of %1 lines per inch needs a resolution of %2 dpi or more.").arg(frequency).arg(8 * frequency));
+	if (!screenFitsResolution(dpi, frequency, error))
 		return {};
-	}
+	auto const cell = dpi / frequency;  // pixels
 	
 	auto result = monoImage(ink);
 	auto const cos_a = std::cos(qDegreesToRadians(angle));
@@ -354,6 +364,15 @@ bool saveSpotPlates(Map& map, const QRectF& area, double dpi, double scale_adjus
 	{
 		setError(error, tr("The map has no spot colours."));
 		return false;
+	}
+	if (form == PlateForm::Halftone)
+	{
+		// Before the first file is written: one screen which is too fine fails the whole set.
+		for (auto const& plate : plates)
+		{
+			if (!screenFitsResolution(dpi, plate.screen_frequency, error))
+				return false;
+		}
 	}
 	for (auto const& plate : plates)
 	{

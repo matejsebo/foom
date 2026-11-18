@@ -107,7 +107,8 @@ enum class PlateForm { Grey, LineArt, Halftone };
 
 /**
  * Writes one image per spot colour beside the path.
- * Returns false with a message when the map has no spot colour or a file cannot be written.
+ * Returns false with a message when the map has no spot colour or a file cannot be written,
+ * and, before any file is written, when a colour's screen is too fine for the resolution.
  */
 bool saveSpotPlates(Map& map, const QRectF& area, double dpi, double scale_adjustment, const QString& path, PlateForm form, QStringList* files, QString* error);
 

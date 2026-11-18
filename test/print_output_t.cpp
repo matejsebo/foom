@@ -386,6 +386,42 @@ private slots:
 		QCOMPARE(plateFileName(QStringLiteral("out/map.png"), QStringLiteral("a/b:c")), QStringLiteral("out/map-a_b_c.png"));
 	}
 	
+	/// Accept (4): a screen which is too fine fails before any plate is written.
+	void halftonePlatesTest()
+	{
+		Map map;
+		setupMap(map);
+		auto const plates = renderSpotPlates(map, area, dpi);
+		QCOMPARE(plates.size(), std::size_t(2));
+		
+		// Without screens, the halftone plates are written.
+		QStringList files;
+		QString error;
+		QVERIFY2(saveSpotPlates(map, area, dpi, 1.0, file("fine.png"), PlateForm::Halftone, &files, &error), qPrintable(error));
+		QCOMPARE(files.size(), 2);
+		
+		// The colour of the last plate gets a screen which 254 dpi cannot hold.
+		for (int i = 0; i < map.getNumColors(); ++i)
+		{
+			auto* color = map.getMapColor(i);
+			if (color->getSpotColorMethod() == MapColor::SpotColor && color->getSpotColorName() == plates.back().name)
+			{
+				color->setScreenAngle(45);
+				color->setScreenFrequency(150);
+			}
+		}
+		files.clear();
+		error.clear();
+		QVERIFY(!saveSpotPlates(map, area, dpi, 1.0, file("coarse.png"), PlateForm::Halftone, &files, &error));
+		QVERIFY2(error.contains(QStringLiteral("150")) && error.contains(QStringLiteral("1200")), qPrintable(error));
+		QVERIFY(files.isEmpty());
+		QVERIFY(QDir(dir.path()).entryList({ QStringLiteral("coarse*") }).isEmpty());
+		
+		// The other forms do not mind the screen.
+		QVERIFY2(saveSpotPlates(map, area, dpi, 1.0, file("coarse.png"), PlateForm::LineArt, &files, &error), qPrintable(error));
+		QCOMPARE(files.size(), 2);
+	}
+	
 	/// Accept (5), (7)
 	void runnerSpotPlatesTest()
 	{
