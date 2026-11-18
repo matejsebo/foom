@@ -41,6 +41,7 @@
 #include "gui/util_gui.h"
 #include "sensors/fix_gate.h"  // foom
 #include "sensors/fix_gate_rows.h"  // foom
+#include "sensors/gps_path_recorder.h"  // foom
 #include "sensors/nmea_source_settings.h"  // foom
 
 
@@ -72,6 +73,7 @@ SensorsSettingsPage::SensorsSettingsPage(QWidget* parent)
 	
 	form_layout->addItem(Util::SpacerItem::create(this));
 	fix_gate_rows = new FixGateRows(form_layout, this);  // foom: the quality gate
+	gps_record_rows = new GpsRecordRows(form_layout, this);  // foom: recording into a path
 	form_layout->addItem(Util::SpacerItem::create(this));
 #endif
 	
@@ -99,6 +101,8 @@ void SensorsSettingsPage::apply()
 	}
 	if (fix_gate_rows)  // foom
 		fix_gate_rows->settings().save();
+	if (gps_record_rows)  // foom
+		gps_record_rows->settings().save();
 	if (nmea_source_rows)  // foom
 		nmea_source_rows->settings().save();
 	
@@ -116,6 +120,8 @@ void SensorsSettingsPage::updateWidgets()
 {
 	if (fix_gate_rows)  // foom
 		fix_gate_rows->setSettings(FixGateSettings::load());
+	if (gps_record_rows)  // foom
+		gps_record_rows->setSettings(GpsRecordSettings::load());
 	if (nmea_source_rows)  // foom
 		nmea_source_rows->setSettings(NmeaSourceSettings::load());
 	

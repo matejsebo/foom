@@ -75,6 +75,7 @@ class CompassDisplay;
 class EditorDockWidget;
 class FileFormat;
 class GPSDisplay;
+class GpsPathRecorder;  // foom
 class GPSTemporaryMarkers;
 class GPSTrackRecorder;
 class GeoreferencingDialog;
@@ -308,6 +309,18 @@ public:
 	
 	
 public slots:
+	/**
+	 * foom: Takes a GPS position for the path which is recorded.
+	 * 
+	 * Does nothing unless gps-record is on and the current tool takes
+	 * vertices by their coordinates. See "Recording into a symbol" in
+	 * the design notes.
+	 */
+	void gpsRecordPosition(const OpenOrienteering::MapCoordF& position, float accuracy);
+	
+	/** foom: Adds a vertex at the position to the path which is drawn, whatever its distance. */
+	void gpsAddVertexAt(const OpenOrienteering::MapCoordF& position);
+	
 	/**
 	 * Lets the user export a PathObject as a simple course.
 	 */
@@ -748,6 +761,14 @@ public slots:
 	void enableGPSDistanceRings(bool enable);
 	/** Updates availability of the GPS point drawing tool. */
 	void updateDrawPointGPSAvailability();
+	/** foom: Switches the recording of GPS positions into the path on or off. */
+	void gpsRecordClicked(bool checked);
+	/** foom: Pauses the recording or goes on with it. */
+	void gpsRecordPauseClicked(bool checked);
+	/** foom: Adds a vertex at the current GPS position. */
+	void gpsAddVertexClicked();
+	/** foom: Updates the availability of the recording commands, and ends a recording which cannot go on. */
+	void updateGpsRecordActions();
 	/** Switches to the GPS point drawing tool. */
 	void drawPointGPSClicked();
 	/** Sets a temporary marker at the GPS position. */
@@ -1176,6 +1197,10 @@ private:
 	QAction* gps_temporary_point_act = {};
 	QAction* gps_temporary_path_act = {};
 	QAction* gps_temporary_clear_act = {};
+	QAction* gps_record_act = {};  // foom
+	QAction* gps_record_pause_act = {};  // foom
+	QAction* gps_add_vertex_act = {};  // foom
+	std::unique_ptr<GpsPathRecorder> gps_path_recorder;  // foom
 	GPSTemporaryMarkers* gps_marker_display;
 	GPSDisplay* gps_display;
 	GPSTrackRecorder* gps_track_recorder;

@@ -192,6 +192,7 @@
 #include "gui/widgets/template_list_widget.h"
 #include "sensors/compass.h"
 #include "sensors/gps_display.h"
+#include "sensors/gps_path_recorder.h"  // foom
 #include "sensors/gps_temporary_markers.h"
 #include "sensors/gps_track_recorder.h"
 #include "templates/paint_on_template_feature.h"
@@ -503,6 +504,11 @@ void MapEditorController::setEditingInProgress(bool value)
 	if (value != editing_in_progress)
 	{
 		editing_in_progress = value;
+		if (!editing_in_progress && gps_record_act && gps_record_act->isChecked())  // foom: the path is done
+		{
+			gps_record_act->setChecked(false);
+			gpsRecordClicked(false);
+		}
 		
 		// Widgets
 		map_widget->setGesturesEnabled(!editing_in_progress);
@@ -1250,6 +1256,14 @@ void MapEditorController::createActions()
 	gps_temporary_path_act->setEnabled(false);
 	gps_temporary_clear_act = newAction("gpstemporaryclear", tr("Clear temporary GPS markers"), this, SLOT(gpsTemporaryClearClicked()), "gps-temporary-clear.png", QString{}, "toolbars.html#gps_temporary_clear"); // TODO: write documentation
 	gps_temporary_clear_act->setEnabled(false);
+	// foom: the design notes, "Recording into a symbol"
+	gps_record_act = newCheckAction("gps-record", tr("Record GPS positions into the path"), this, SLOT(gpsRecordClicked(bool)), nullptr, tr("While a path is drawn, adds a vertex for every GPS position which is far enough from the last one."));
+	gps_record_act->setEnabled(false);
+	gps_record_pause_act = newCheckAction("gps-record-pause", tr("Pause recording"), this, SLOT(gpsRecordPauseClicked(bool)));
+	gps_record_pause_act->setEnabled(false);
+	gps_add_vertex_act = newAction("gps-add-vertex", tr("Add vertex at GPS position"), this, SLOT(gpsAddVertexClicked()));
+	gps_add_vertex_act->setEnabled(false);
+	connect(this, &MapEditorController::toolChanged, this, &MapEditorController::updateGpsRecordActions);
 	
 	compass_action = newCheckAction("compassdisplay", tr("Enable compass display"), this, SLOT(enableCompassDisplay(bool)), "compass.png", QString{}, "toolbars.html#compass_display"); // TODO: write documentation
 	align_map_with_north_act = newCheckAction("alignmapwithnorth", tr("Align map with north"), this, SLOT(alignMapWithNorth(bool)), "rotate-map.png", QString{}, "toolbars.html#align_map_with_north"); // TODO: write documentation
@@ -1498,6 +1512,17 @@ void MapEditorController::createMenuAndToolbars()
 		sketch_menu->addSeparator();
 		sketch_menu->addAction(sketch_manage_act);
 		sketch_menu->addAction(sketch_flatten_act);
+	}
+	{
+		// foom: the design notes, "Recording into a symbol".
+		// Upstream offers the GPS display in the mobile interface only.
+		auto* gps_menu = tools_menu->addMenu(tr("GPS"));
+		gps_menu->menuAction()->setMenuRole(QAction::NoRole);
+		gps_menu->addAction(gps_display_action);
+		gps_menu->addSeparator();
+		gps_menu->addAction(gps_record_act);
+		gps_menu->addAction(gps_record_pause_act);
+		gps_menu->addAction(gps_add_vertex_act);
 	}
 	tools_menu->addAction(draw_point_act);
 	tools_menu->addAction(draw_path_act);
@@ -1908,6 +1933,10 @@ void MapEditorController::createMobileGUI()
 	auto* temp_path_button = bottom_action_bar->getButtonForAction(gps_temporary_path_act);
 	auto* mobile_gps_temp_path_menu = new QMenu(temp_path_button);
 	mobile_gps_temp_path_menu->addAction(gps_temporary_clear_act);
+	mobile_gps_temp_path_menu->addSeparator();  // foom: recording into a path
+	mobile_gps_temp_path_menu->addAction(gps_record_act);
+	mobile_gps_temp_path_menu->addAction(gps_record_pause_act);
+	mobile_gps_temp_path_menu->addAction(gps_add_vertex_act);
 	temp_path_button->setMenu(mobile_gps_temp_path_menu);
 	
 	bottom_action_bar->addAction(gps_temporary_point_act, 1, col++);
@@ -5112,6 +5141,77 @@ void MapEditorController::enableGPSDisplay(bool enable)
 	gps_temporary_point_act->setEnabled(enable);
 	gps_temporary_path_act->setEnabled(enable);
 	updateDrawPointGPSAvailability();
+	updateGpsRecordActions();  // foom
+}
+
+
+// foom: Recording GPS positions into the path which is drawn.
+// the design notes, "Recording into a symbol".
+
+void MapEditorController::updateGpsRecordActions()
+{
+	if (!gps_record_act || !gps_display)
+		return;
+	auto const possible = gps_display->isVisible() && current_tool && current_tool->acceptsNumericVertices();
+	if (!possible && gps_record_act->isChecked())
+	{
+		gps_record_act->setChecked(false);
+		gpsRecordClicked(false);
+	}
+	gps_record_act->setEnabled(possible);
+	gps_add_vertex_act->setEnabled(possible);
+	gps_record_pause_act->setEnabled(gps_record_act->isChecked());
+	if (!gps_record_act->isChecked())
+		gps_record_pause_act->setChecked(false);
+}
+
+void MapEditorController::gpsRecordClicked(bool checked)
+{
+	disconnect(gps_display, &GPSDisplay::mapPositionUpdated, this, &MapEditorController::gpsRecordPosition);
+	if (checked)
+	{
+		gps_path_recorder = std::make_unique<GpsPathRecorder>(GpsRecordSettings::load().min_distance, double(map->getScaleDenominator()));
+		connect(gps_display, &GPSDisplay::mapPositionUpdated, this, &MapEditorController::gpsRecordPosition);
+	}
+	else
+	{
+		gps_path_recorder.reset();
+	}
+	gps_record_pause_act->setChecked(false);
+	gps_record_pause_act->setEnabled(checked);
+}
+
+void MapEditorController::gpsRecordPauseClicked(bool checked)
+{
+	if (gps_path_recorder)
+		gps_path_recorder->setPaused(checked);
+}
+
+void MapEditorController::gpsRecordPosition(const MapCoordF& position, float /*accuracy*/)
+{
+	if (!gps_path_recorder || !gps_record_act->isChecked())
+		return;
+	if (!current_tool || !current_tool->acceptsNumericVertices())
+		return;
+	if (gps_path_recorder->accept(position))
+		current_tool->acceptNumericVertex(position);
+}
+
+void MapEditorController::gpsAddVertexClicked()
+{
+	if (gps_display->hasValidPosition())
+		gpsAddVertexAt(gps_display->getLatestGPSCoord());
+	else
+		window->showStatusBarMessage(tr("There is no GPS position which can be used."), 3000);
+}
+
+void MapEditorController::gpsAddVertexAt(const MapCoordF& position)
+{
+	if (!gps_add_vertex_act->isEnabled() || !current_tool || !current_tool->acceptsNumericVertices())
+		return;
+	if (gps_path_recorder)
+		gps_path_recorder->take(position);
+	current_tool->acceptNumericVertex(position);
 }
 
 void MapEditorController::enableGPSDistanceRings(bool enable)

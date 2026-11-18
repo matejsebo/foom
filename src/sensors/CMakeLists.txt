@@ -157,6 +157,7 @@ set(MAPPER_SENSORS_SOURCES
   fix_gate.cpp       # foom
   fix_gate_rows.cpp  # foom
   gps_display.cpp
+  gps_path_recorder.cpp  # foom
   gps_temporary_markers.cpp
   gps_track_recorder.cpp
   nmea_source_settings.cpp  # foom
