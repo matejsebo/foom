@@ -36,9 +36,11 @@
 #include <Qt>
 #include <QtGlobal>
 #include <QtMath>
+#include <QBrush>  // foom
 #include <QColor>
 #include <QFlags>
 #include <QLatin1String>
+#include <QLinearGradient>  // foom
 #include <QPainter>
 #include <QPen>
 #include <QPoint>
@@ -129,6 +131,14 @@ GPSDisplay::GPSDisplay(MapWidget* widget, const Georeferencing& georeferencing, 
 	qRegisterMetaType<FixInfo>();
 	fix_gate = FixGateSettings::load();
 	connect(&Settings::getInstance(), &Settings::settingsChanged, this, [this]() { setFixGate(FixGateSettings::load()); });
+	// foom: the antenna height and the tail
+	auto const load_display_settings = [this]() {
+		auto const display_settings = GpsDisplaySettings::load();
+		setAntennaHeight(display_settings.antenna_height);
+		setTailLength(display_settings.tail_length);
+	};
+	load_display_settings();
+	connect(&Settings::getInstance(), &Settings::settingsChanged, this, load_display_settings);
 	
 #if defined(QT_POSITIONING_LIB)
 	
@@ -222,6 +232,7 @@ void GPSDisplay::stopUpdates()
 	{
 		source->stopUpdates();
 		has_valid_position = false;
+		gps_tail.clear();  // foom
 	}
 #endif
 }
@@ -245,6 +256,19 @@ void GPSDisplay::setFixGate(const FixGateSettings& settings)
 	}
 }
 
+void GPSDisplay::setAntennaHeight(double metres)
+{
+	antenna_height = metres;
+}
+
+void GPSDisplay::setTailLength(double metres)
+{
+	auto const scale = double(georeferencing.getScaleDenominator());
+	gps_tail.setMaxLength(scale > 0 ? metres * 1000.0 / scale : 0.0);
+	if (visible)
+		updateMapWidget();
+}
+
 void GPSDisplay::enableDistanceRings(bool enable)
 {
 	distance_rings_enabled = enable;
@@ -266,6 +290,7 @@ void GPSDisplay::paint(QPainter* painter)
 {
 	if (!visible || !has_valid_position)
 		return;
+	paintTail(painter);  // foom: also while a failing fix is hidden
 	if (fix_rejected && fix_gate.policy == FixGateSettings::Hide)  // foom
 		return;
 	
@@ -373,6 +398,37 @@ void GPSDisplay::paint(QPainter* painter)
 	painter->setRenderHints(QPainter::Antialiasing);
 }
 
+// foom: the design notes, "Antenna height, averaged vertex and tail"
+void GPSDisplay::paintTail(QPainter* painter)
+{
+	auto const& points = gps_tail.points();
+	if (points.size() < 2)
+		return;
+	
+	painter->save();
+	painter->setRenderHint(QPainter::Antialiasing);
+	auto const width = Util::mmToPixelLogical(0.5);
+	auto color = QColor(Qt::red);
+	// From the position backwards; every piece fades from its newer end to its older one.
+	QPointF newer = widget->mapToViewport(points.back());
+	auto newer_opacity = gps_tail.opacityAt(points.size() - 1);
+	for (auto i = points.size() - 1; i > 0; --i)
+	{
+		QPointF const older = widget->mapToViewport(points[i - 1]);
+		auto const older_opacity = gps_tail.opacityAt(i - 1);
+		QLinearGradient gradient(newer, older);
+		color.setAlphaF(newer_opacity);
+		gradient.setColorAt(0, color);
+		color.setAlphaF(older_opacity);
+		gradient.setColorAt(1, color);
+		painter->setPen(QPen(QBrush(gradient), width, Qt::SolidLine, Qt::FlatCap));
+		painter->drawLine(newer, older);
+		newer = older;
+		newer_opacity = older_opacity;
+	}
+	painter->restore();
+}
+
 
 void GPSDisplay::startBlinking(int seconds)
 {
@@ -412,6 +468,7 @@ void GPSDisplay::positionUpdated(const QGeoPositionInfo& info)
 	emit fixChecked(latest_fix, int(verdict));
 	if (fix_rejected)
 	{
+		tail_gap = true;
 		gps_updated = true;
 		tracking_lost = false;
 		has_valid_position = true;
@@ -427,11 +484,15 @@ void GPSDisplay::positionUpdated(const QGeoPositionInfo& info)
 	calcLatestGPSCoord(ok);
 	if (ok)
 	{
+		if (tail_gap)  // foom: the tail does not bridge a time without usable positions
+			gps_tail.clear();
+		tail_gap = false;
+		gps_tail.add(latest_gps_coord);  // foom
 		emit mapPositionUpdated(latest_gps_coord, latest_gps_coord_accuracy);
 		emit latLonUpdated(
 			info.coordinate().latitude(),
 			info.coordinate().longitude(),
-			(info.coordinate().type() == QGeoCoordinate::Coordinate3D) ? info.coordinate().altitude() : -9999,
+			(info.coordinate().type() == QGeoCoordinate::Coordinate3D) ? info.coordinate().altitude() - antenna_height : -9999,  // foom: less the height of the antenna
 			latest_gps_coord_accuracy
 		);
 	}
@@ -448,6 +509,7 @@ void GPSDisplay::error()
 		if (!tracking_lost)
 		{
 			tracking_lost = true;
+			tail_gap = true;  // foom
 			emit positionUpdatesInterrupted();
 			updateMapWidget();
 		}
@@ -461,6 +523,7 @@ void GPSDisplay::updateTimeout()
 	if (!tracking_lost)
 	{
 		tracking_lost = true;
+		tail_gap = true;  // foom
 		emit positionUpdatesInterrupted();
 		updateMapWidget();
 	}

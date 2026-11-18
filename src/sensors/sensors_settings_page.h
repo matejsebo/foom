@@ -32,6 +32,7 @@ namespace OpenOrienteering {
 
 
 class FixGateRows;
+class GpsDisplayRows;
 class GpsRecordRows;
 class NmeaSourceRows;
 
@@ -57,6 +58,7 @@ private:
 	QComboBox* nmea_serialport_box = nullptr;
 	FixGateRows* fix_gate_rows = nullptr;  // foom
 	GpsRecordRows* gps_record_rows = nullptr;  // foom
+	GpsDisplayRows* gps_display_rows = nullptr;  // foom
 	NmeaSourceRows* nmea_source_rows = nullptr;  // foom
 	
 };

@@ -509,6 +509,11 @@ void MapEditorController::setEditingInProgress(bool value)
 			gps_record_act->setChecked(false);
 			gpsRecordClicked(false);
 		}
+		if (!editing_in_progress && gps_position_average)  // foom: the averaging is given up with the path
+		{
+			gps_position_average.reset();
+			gps_average_vertex_act->setChecked(false);
+		}
 		
 		// Widgets
 		map_widget->setGesturesEnabled(!editing_in_progress);
@@ -1263,7 +1268,11 @@ void MapEditorController::createActions()
 	gps_record_pause_act->setEnabled(false);
 	gps_add_vertex_act = newAction("gps-add-vertex", tr("Add vertex at GPS position"), this, SLOT(gpsAddVertexClicked()));
 	gps_add_vertex_act->setEnabled(false);
+	gps_average_vertex_act = newCheckAction("gps-average-vertex", tr("Average GPS positions for a vertex"), this, SLOT(gpsAverageVertexClicked(bool)), nullptr, tr("While it is on, the GPS positions are averaged. Switching it off adds the mean as a vertex."));
+	gps_average_vertex_act->setEnabled(false);
 	connect(this, &MapEditorController::toolChanged, this, &MapEditorController::updateGpsRecordActions);
+	if (gps_display)
+		connect(gps_display, &GPSDisplay::mapPositionUpdated, this, &MapEditorController::gpsRecordPosition);
 	
 	compass_action = newCheckAction("compassdisplay", tr("Enable compass display"), this, SLOT(enableCompassDisplay(bool)), "compass.png", QString{}, "toolbars.html#compass_display"); // TODO: write documentation
 	align_map_with_north_act = newCheckAction("alignmapwithnorth", tr("Align map with north"), this, SLOT(alignMapWithNorth(bool)), "rotate-map.png", QString{}, "toolbars.html#align_map_with_north"); // TODO: write documentation
@@ -1523,6 +1532,7 @@ void MapEditorController::createMenuAndToolbars()
 		gps_menu->addAction(gps_record_act);
 		gps_menu->addAction(gps_record_pause_act);
 		gps_menu->addAction(gps_add_vertex_act);
+		gps_menu->addAction(gps_average_vertex_act);
 	}
 	tools_menu->addAction(draw_point_act);
 	tools_menu->addAction(draw_path_act);
@@ -1937,6 +1947,7 @@ void MapEditorController::createMobileGUI()
 	mobile_gps_temp_path_menu->addAction(gps_record_act);
 	mobile_gps_temp_path_menu->addAction(gps_record_pause_act);
 	mobile_gps_temp_path_menu->addAction(gps_add_vertex_act);
+	mobile_gps_temp_path_menu->addAction(gps_average_vertex_act);
 	temp_path_button->setMenu(mobile_gps_temp_path_menu);
 	
 	bottom_action_bar->addAction(gps_temporary_point_act, 1, col++);
@@ -5158,8 +5169,15 @@ void MapEditorController::updateGpsRecordActions()
 		gps_record_act->setChecked(false);
 		gpsRecordClicked(false);
 	}
+	if (!possible && gps_position_average)
+	{
+		// The averaging is given up without a vertex.
+		gps_position_average.reset();
+		gps_average_vertex_act->setChecked(false);
+	}
 	gps_record_act->setEnabled(possible);
 	gps_add_vertex_act->setEnabled(possible);
+	gps_average_vertex_act->setEnabled(possible);
 	gps_record_pause_act->setEnabled(gps_record_act->isChecked());
 	if (!gps_record_act->isChecked())
 		gps_record_pause_act->setChecked(false);
@@ -5167,16 +5185,10 @@ void MapEditorController::updateGpsRecordActions()
 
 void MapEditorController::gpsRecordClicked(bool checked)
 {
-	disconnect(gps_display, &GPSDisplay::mapPositionUpdated, this, &MapEditorController::gpsRecordPosition);
 	if (checked)
-	{
 		gps_path_recorder = std::make_unique<GpsPathRecorder>(GpsRecordSettings::load().min_distance, double(map->getScaleDenominator()));
-		connect(gps_display, &GPSDisplay::mapPositionUpdated, this, &MapEditorController::gpsRecordPosition);
-	}
 	else
-	{
 		gps_path_recorder.reset();
-	}
 	gps_record_pause_act->setChecked(false);
 	gps_record_pause_act->setEnabled(checked);
 }
@@ -5187,11 +5199,18 @@ void MapEditorController::gpsRecordPauseClicked(bool checked)
 		gps_path_recorder->setPaused(checked);
 }
 
-void MapEditorController::gpsRecordPosition(const MapCoordF& position, float /*accuracy*/)
+void MapEditorController::gpsRecordPosition(const MapCoordF& position, float accuracy)
 {
-	if (!gps_path_recorder || !gps_record_act->isChecked())
-		return;
 	if (!current_tool || !current_tool->acceptsNumericVertices())
+		return;
+	if (gps_position_average)
+	{
+		// While positions are averaged for a vertex, none is recorded.
+		gps_position_average->add(position, accuracy);
+		window->showStatusBarMessage(tr("Averaging GPS positions: %1").arg(gps_position_average->count()), 5000);
+		return;
+	}
+	if (!gps_path_recorder || !gps_record_act->isChecked())
 		return;
 	if (gps_path_recorder->accept(position))
 		current_tool->acceptNumericVertex(position);
@@ -5203,6 +5222,24 @@ void MapEditorController::gpsAddVertexClicked()
 		gpsAddVertexAt(gps_display->getLatestGPSCoord());
 	else
 		window->showStatusBarMessage(tr("There is no GPS position which can be used."), 3000);
+}
+
+void MapEditorController::gpsAverageVertexClicked(bool checked)
+{
+	if (checked)
+	{
+		gps_position_average = std::make_unique<GpsPositionAverage>();
+		return;
+	}
+	
+	auto const average = std::move(gps_position_average);
+	gps_position_average.reset();
+	if (!average)
+		return;
+	if (average->isEmpty())
+		window->showStatusBarMessage(tr("No GPS position arrived which can be used."), 3000);
+	else
+		gpsAddVertexAt(average->mean());
 }
 
 void MapEditorController::gpsAddVertexAt(const MapCoordF& position)

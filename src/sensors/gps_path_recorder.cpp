@@ -23,6 +23,7 @@
 
 #include <cmath>
 
+#include <QtGlobal>
 #include <QChar>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
@@ -63,6 +64,29 @@ void GpsPathRecorder::take(const MapCoordF& position)
 {
 	last = position;
 	++taken;
+}
+
+
+
+void GpsPositionAverage::add(const MapCoordF& position, float accuracy)
+{
+	auto const weight = (accuracy < 0) ? 1.0 : 1.0 / qMax(0.5, double(accuracy));
+	x_sum += weight * position.x();
+	y_sum += weight * position.y();
+	weights_sum += weight;
+	++positions;
+}
+
+MapCoordF GpsPositionAverage::mean() const
+{
+	if (weights_sum <= 0)
+		return {};
+	return MapCoordF(x_sum / weights_sum, y_sum / weights_sum);
+}
+
+void GpsPositionAverage::clear()
+{
+	*this = {};
 }
 
 

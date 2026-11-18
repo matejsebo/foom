@@ -76,6 +76,7 @@ class EditorDockWidget;
 class FileFormat;
 class GPSDisplay;
 class GpsPathRecorder;  // foom
+class GpsPositionAverage;  // foom
 class GPSTemporaryMarkers;
 class GPSTrackRecorder;
 class GeoreferencingDialog;
@@ -767,6 +768,8 @@ public slots:
 	void gpsRecordPauseClicked(bool checked);
 	/** foom: Adds a vertex at the current GPS position. */
 	void gpsAddVertexClicked();
+	/** foom: Starts averaging GPS positions for a vertex, or ends it and adds the vertex. */
+	void gpsAverageVertexClicked(bool checked);
 	/** foom: Updates the availability of the recording commands, and ends a recording which cannot go on. */
 	void updateGpsRecordActions();
 	/** Switches to the GPS point drawing tool. */
@@ -1200,6 +1203,8 @@ private:
 	QAction* gps_record_act = {};  // foom
 	QAction* gps_record_pause_act = {};  // foom
 	QAction* gps_add_vertex_act = {};  // foom
+	QAction* gps_average_vertex_act = {};  // foom
+	std::unique_ptr<GpsPositionAverage> gps_position_average;  // foom
 	std::unique_ptr<GpsPathRecorder> gps_path_recorder;  // foom
 	GPSTemporaryMarkers* gps_marker_display;
 	GPSDisplay* gps_display;

@@ -73,6 +73,38 @@ private:
 };
 
 
+/**
+ * The mean of GPS positions for a single vertex.
+ *
+ * The weights are those of the GPS point tool (DrawPointGPSTool): a position
+ * weighs 1 / max(0.5 m, accuracy), and 1 when its accuracy is unknown.
+ *
+ * See the design notes,
+ * "Antenna height, averaged vertex and tail".
+ */
+class GpsPositionAverage
+{
+public:
+	/** Adds a position. The accuracy is in metres, and negative when unknown. */
+	void add(const MapCoordF& position, float accuracy);
+	
+	bool isEmpty() const { return positions == 0; }
+	/** The number of positions added. */
+	int count() const { return positions; }
+	
+	/** The mean. Check isEmpty() beforehand. */
+	MapCoordF mean() const;
+	
+	void clear();
+	
+private:
+	double x_sum = 0;
+	double y_sum = 0;
+	double weights_sum = 0;
+	int positions = 0;
+};
+
+
 /** The settings of the recording. */
 struct GpsRecordSettings
 {

@@ -42,6 +42,7 @@
 #include "sensors/fix_gate.h"  // foom
 #include "sensors/fix_gate_rows.h"  // foom
 #include "sensors/gps_path_recorder.h"  // foom
+#include "sensors/gps_tail.h"  // foom
 #include "sensors/nmea_source_settings.h"  // foom
 
 
@@ -73,7 +74,10 @@ SensorsSettingsPage::SensorsSettingsPage(QWidget* parent)
 	
 	form_layout->addItem(Util::SpacerItem::create(this));
 	fix_gate_rows = new FixGateRows(form_layout, this);  // foom: the quality gate
+	form_layout->addItem(Util::SpacerItem::create(this));
+	form_layout->addRow(Util::Headline::create(tr("Position display and recording:")));  // foom
 	gps_record_rows = new GpsRecordRows(form_layout, this);  // foom: recording into a path
+	gps_display_rows = new GpsDisplayRows(form_layout, this);  // foom: antenna height and tail
 	form_layout->addItem(Util::SpacerItem::create(this));
 #endif
 	
@@ -103,6 +107,8 @@ void SensorsSettingsPage::apply()
 		fix_gate_rows->settings().save();
 	if (gps_record_rows)  // foom
 		gps_record_rows->settings().save();
+	if (gps_display_rows)  // foom
+		gps_display_rows->settings().save();
 	if (nmea_source_rows)  // foom
 		nmea_source_rows->settings().save();
 	
@@ -122,6 +128,8 @@ void SensorsSettingsPage::updateWidgets()
 		fix_gate_rows->setSettings(FixGateSettings::load());
 	if (gps_record_rows)  // foom
 		gps_record_rows->setSettings(GpsRecordSettings::load());
+	if (gps_display_rows)  // foom
+		gps_display_rows->setSettings(GpsDisplaySettings::load());
 	if (nmea_source_rows)  // foom
 		nmea_source_rows->setSettings(NmeaSourceSettings::load());
 	

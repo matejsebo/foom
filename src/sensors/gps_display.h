@@ -28,6 +28,7 @@
 
 #include "core/map_coord.h"
 #include "sensors/fix_gate.h"  // foom
+#include "sensors/gps_tail.h"  // foom
 #include "sensors/nmea_fix.h"  // foom
 
 class QGeoPositionInfo;
@@ -110,6 +111,18 @@ public:
 	/// foom: The quality data of the latest fix, whether it passed the gate or not.
 	const FixInfo& latestFix() const { return latest_fix; }
 	
+	/// foom: The height of the antenna above the ground, in metres.
+	/// It is subtracted from the altitude which latLonUpdated() passes on.
+	/// See the design notes, "Antenna height, averaged vertex and tail".
+	double antennaHeight() const { return antenna_height; }
+	/// foom: Sets the height of the antenna. It is read from the settings initially and when they change.
+	void setAntennaHeight(double metres);
+	/// foom: The tail of positions which passed the quality gate, drawn behind the marker.
+	const GpsTail& tail() const { return gps_tail; }
+	/// foom: Sets the length of the tail on the ground, in metres; 0 for no tail.
+	/// It is read from the settings initially and when they change.
+	void setTailLength(double metres);
+	
 protected:
 	/// Handles blinking.
 	void timerEvent(QTimerEvent* e) override;
@@ -141,6 +154,7 @@ private slots:
 private:
 	MapCoordF calcLatestGPSCoord(bool& ok);
 	void updateMapWidget();
+	void paintTail(QPainter* painter);  // foom
 	
 	/**
 	 * A lightweight utility for sinusoidal pulsating opacity.
@@ -188,6 +202,9 @@ private:
 	bool fix_rejected              = false;  // foom
 	FixGateSettings fix_gate;                // foom
 	FixInfo latest_fix;                      // foom
+	GpsTail gps_tail;                        // foom
+	double antenna_height = 0;               // foom
+	bool tail_gap = false;                   // foom
 };
 
 
