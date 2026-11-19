@@ -187,6 +187,7 @@
 #include "gui/widgets/compass_display.h"
 #include "gui/widgets/key_button_bar.h" // IWYU pragma: keep
 #include "gui/widgets/measure_widget.h"
+#include "course/course_description.h"  // foom
 #include "course/course_render.h"  // foom
 #include "gui/widgets/course_widget.h"  // foom
 #include "gui/widgets/rangefinder_widget.h"  // foom
@@ -4786,7 +4787,8 @@ void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget
 		return;
 	// Drawn anew at every painting, so that it follows an object which is being moved.
 	auto const drawing = drawCourse(*map, map->courseData(), course);
-	if (!drawing.drawn)
+	auto const descriptions = drawCourseDescriptions(*map, map->courseData(), course);
+	if (!drawing.drawn && !descriptions.drawn)
 		return;
 	
 	const MapView* map_view = widget->getMapView();
@@ -4794,9 +4796,10 @@ void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget
 	painter->translate(widget->width() / 2.0 + map_view->panOffset().x(),
 	                   widget->height() / 2.0 + map_view->panOffset().y());
 	painter->setWorldTransform(map_view->worldTransform(), true);
-	paintCourseDrawing(painter, map, drawing,
-	                   map_view->calculateViewedRect(widget->viewportToView(widget->rect())),
-	                   map_view->calculateFinalZoomFactor());
+	auto const viewed_rect = map_view->calculateViewedRect(widget->viewportToView(widget->rect()));
+	// The descriptions first: their white ground lies below the course.
+	paintCourseDescriptions(painter, map, descriptions, viewed_rect, map_view->calculateFinalZoomFactor());
+	paintCourseDrawing(painter, map, drawing, viewed_rect, map_view->calculateFinalZoomFactor());
 	painter->restore();
 }
 
