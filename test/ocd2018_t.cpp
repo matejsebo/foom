@@ -44,6 +44,8 @@
 #include "core/objects/object.h"
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
+#include "course/course_data.h"
+#include "course/ocd_course_records.h"
 #include "fileformats/file_format.h"
 #include "fileformats/file_format_registry.h"
 #include "fileformats/file_import_export.h"
@@ -161,6 +163,23 @@ Ocd2018Test::Summary Ocd2018Test::summarize(const Map& map)
 				summary.object_strings.push_back(object->getTag(QStringLiteral("ocd:object_string_type")) + QLatin1Char(' ') + string);
 		}
 	}
+	// The records of course objects and overrides are course data since the importer puts them there.
+	for (auto const& object : map.courseData().objects)
+	{
+		if (object.kind == CourseObject::TextBlock)
+			continue;
+		auto const string = OcdCourse::formatObject(object);
+		++summary.strings;
+		summary.string_bytes += string.size();
+		summary.object_strings.push_back(QStringLiteral("1 ") + string);
+	}
+	for (auto const& override : map.courseData().overrides)
+	{
+		auto const string = OcdCourse::formatOverride(override);
+		++summary.strings;
+		summary.string_bytes += string.size();
+		summary.object_strings.push_back(QStringLiteral("2 ") + string);
+	}
 	summary.object_strings.sort();
 	return summary;
 }
@@ -263,9 +282,19 @@ void Ocd2018Test::objectFieldsTest()
 	auto with_short = 0;
 	auto with_long = 0;
 	auto without = 0;
-	for (int i = 0; i < reloaded.getPart(0)->getNumObjects(); ++i)
+	// An object with a string of type 2 is read into the hidden part of the overrides
+	// (the design notes, "OCD files from the course data"), so all parts are looked at.
+	QCOMPARE(reloaded.getNumParts(), 2);
+	QCOMPARE(reloaded.getPart(1)->role(), MapPart::Role::Course);
+	QCOMPARE(reloaded.getPart(1)->getNumObjects(), 1);
+	std::vector<const Object*> objects;
+	for (int p = 0; p < reloaded.getNumParts(); ++p)
 	{
-		auto const* object = reloaded.getPart(0)->getObject(i);
+		for (int i = 0; i < reloaded.getPart(std::size_t(p))->getNumObjects(); ++i)
+			objects.push_back(reloaded.getPart(std::size_t(p))->getObject(i));
+	}
+	for (auto const* object : objects)
+	{
 		auto const string = object->getTag(QStringLiteral("ocd:object_string"));
 		if (string == short_string)
 		{

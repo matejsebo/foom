@@ -34,6 +34,9 @@
 #include <QCoreApplication>
 #include <QLocale>
 #include <QString>
+#include <QUuid>
+#include <QSet>
+#include <QHash>
 #include <QTextCodec>
 
 #include "core/map_coord.h"
@@ -338,6 +341,23 @@ private:
 	
 	MapCoord area_offset;
 	bool foreign_data_checked = false;  // foom
+	
+	// foom: writing from the course data, the design notes, "OCD files from the course data"
+	struct CourseRecord
+	{
+		int string_type;
+		int view_type;
+		QString string;
+	};
+	/** Collects the records of the objects which course objects and overrides name. */
+	void prepareCourseRecords();
+	/** The object string of an object and its type: from the course data, or else from its tags. */
+	QString objectString(const Object* object, int* type) const;
+	/** Writes the parameter strings of options, courses, classes and text blocks. */
+	void exportCourseData();
+	QHash<QUuid, CourseRecord> course_records;
+	QSet<QUuid> hidden_course_objects;
+	bool course_records_prepared = false;
 	bool foreign_data_applies = false;  // foom
 	
 	std::function<StringAppender> addParameterString;

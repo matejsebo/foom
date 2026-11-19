@@ -185,7 +185,7 @@ protected:
 	void handleStrings(const OcdFile< F >& file, std::initializer_list<StringHandler> handlers);
 	
 	/** foom: Puts the course data of a version 12 file into the map. See the design notes, "Storage". */
-	void importCourseData();
+	void importCourseData(bool course_file);
 	
 	/** foom: Keeps the strings of unhandled types and the unsupported objects for the round trip. */
 	template< class F >

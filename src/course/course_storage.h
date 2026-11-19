@@ -32,6 +32,7 @@ class QXmlStreamWriter;
 namespace OpenOrienteering {
 
 class Map;
+class MapPart;
 
 
 /**
@@ -53,6 +54,20 @@ CourseData loadCourseData(QXmlStreamReader& xml, QStringList* problems = nullptr
 /** The element as a document of its own, for the undo step. */
 QByteArray courseDataToXml(const CourseData& data);
 CourseData courseDataFromXml(const QByteArray& xml);
+
+/**
+ * The index of the part which holds the objects of overrides, or -1.
+ *
+ * See the design notes, "OCD files from the course data".
+ */
+int findCourseOverridesPart(const Map& map);
+
+/**
+ * The part which holds the objects of overrides. When there is none, a
+ * hidden part of the role course is added behind the other parts; that
+ * is no undo step.
+ */
+MapPart* ensureCourseOverridesPart(Map& map);
 
 /**
  * Replaces the course data of the map as one undo step, and marks the

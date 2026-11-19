@@ -65,6 +65,9 @@
 #include "core/map_coord.h"
 #include "core/map_grid.h"
 #include "core/map_part.h"
+#include "course/ocd_course_records.h"  // foom
+#include "course/course_storage.h"  // foom
+#include "course/course_data.h"  // foom
 #include "core/map_view.h"
 #include "core/objects/image_object.h"  // foom
 #include "core/objects/object.h"
@@ -726,6 +729,10 @@ bool OcdFileExport::exportImplementation()
 	uses_registration_color = map->isColorUsedByASymbol(map->getRegistrationColor());
 	
 	setupFileHeaderGeneric(ocd_version, *file.header());
+	// foom: a course file says so in its header, or else it is taken for a map
+	// (the design notes, "OCD files from the course data").
+	if (ocd_version >= 12 && !map->courseData().isEmpty())
+		file.header()->file_type = Ocd::TypeCourseSetting;
 	exportSetup(file);   // includes colors
 	exportSymbols(file);
 	exportObjects(file);
@@ -2613,9 +2620,8 @@ void exportObjectDates(const Object* object, Ocd::ObjectV12& ocd_object)
 // see the design notes, "OCD 2018 writer".
 // The string is written as the format has it: UTF-16, little endian, with a
 // terminating zero, in an area which is a multiple of 64 bytes.
-QByteArray objectStringBytes(const Object* object)
+QByteArray objectStringBytes(const QString& text)
 {
-	auto const text = object->getTag(QStringLiteral("ocd:object_string"));
 	QByteArray bytes;
 	if (text.isEmpty())
 		return bytes;
@@ -2631,37 +2637,37 @@ QByteArray objectStringBytes(const Object* object)
 }
 
 template< class O >
-void exportObjectFieldsV12(const Object* /*object*/, O& /*ocd_object*/)
+void exportObjectFieldsV12(const Object* /*object*/, O& /*ocd_object*/, const QString& /*string*/, int /*string_type*/)
 {
 	// nothing before version 12
 }
 
-void exportObjectFieldsV12(const Object* object, Ocd::ObjectV12& ocd_object)
+void exportObjectFieldsV12(const Object* object, Ocd::ObjectV12& ocd_object, const QString& object_string, int string_type)
 {
 	bool ok = false;
 	auto const ele = object->getTag(QStringLiteral("ele")).toDouble(&ok);
 	if (ok && ele > 0.0)
 		ocd_object.height = quint32(qRound64(ele * 256000.0));
-	auto const string = objectStringBytes(object);
+	auto const string = objectStringBytes(object_string);
 	if (!string.isEmpty())
 	{
 		// The length counts units of 8 bytes, as the coordinates before the string are counted.
 		ocd_object.object_string_length = decltype(ocd_object.object_string_length)(string.size() / 8);
-		ocd_object.object_string_type = decltype(ocd_object.object_string_type)(object->getTag(QStringLiteral("ocd:object_string_type")).toInt());
+		ocd_object.object_string_type = decltype(ocd_object.object_string_type)(string_type);
 	}
 }
 
 template< class O >
-int appendObjectString(const Object* /*object*/, const O& /*ocd_object*/, QByteArray& /*data*/)
+int appendObjectString(const QString& /*object_string*/, const O& /*ocd_object*/, QByteArray& /*data*/)
 {
 	return 0;
 }
 
-int appendObjectString(const Object* object, const Ocd::ObjectV12& ocd_object, QByteArray& data)
+int appendObjectString(const QString& object_string, const Ocd::ObjectV12& ocd_object, QByteArray& data)
 {
 	if (!ocd_object.object_string_length)
 		return 0;
-	auto const string = objectStringBytes(object);
+	auto const string = objectStringBytes(object_string);
 	data.append(string);
 	return string.size();
 }
@@ -2680,7 +2686,17 @@ void OcdFileExport::handleObjectExtras(const Object* object, OcdObject& ocd_obje
 	entry.status = Ocd::ObjectNormal;
 	entry.color = convertColor(object->getSymbol()->guessDominantColor());
 	exportObjectDates(object, ocd_object);  // foom
-	exportObjectFieldsV12(object, ocd_object);  // foom
+	// foom: course objects and the objects of a course's own graphics,
+	// the design notes, "OCD files from the course data".
+	prepareCourseRecords();
+	if (hidden_course_objects.contains(object->uuid()))
+		entry.status = Ocd::ObjectHidden;
+	auto const course_record = course_records.constFind(object->uuid());
+	if (course_record != course_records.constEnd())
+		entry.view_type = decltype(entry.view_type)(course_record->view_type);
+	auto string_type = 0;
+	auto const object_string = objectString(object, &string_type);
+	exportObjectFieldsV12(object, ocd_object, object_string, string_type);  // foom
 }
 
 
@@ -2922,7 +2938,7 @@ QByteArray OcdFileExport::exportObjectCommon(const Object* object, OcdObject& oc
 		}
 	}
 	FILEFORMAT_ASSERT(data.size() == header_size + items_size);
-	items_size += appendObjectString(object, ocd_object, data);  // foom
+	items_size += appendObjectString(objectString(object, nullptr), ocd_object, data);  // foom
 	FILEFORMAT_ASSERT(data.size() == header_size + items_size);
 	
 	entry.bottom_left_bound = convertPoint(bottom_left);
@@ -3163,9 +3179,13 @@ void OcdFileExport::exportForeignStrings(OcdFile<Format>& file)
 		return;
 	// The types the exporter writes itself are not written back a second time.
 	static const qint32 own_types[] = { 8, 9, 10, 11, 18, 27, 1030, 1039, 1061 };
+	// Nor are the records of courses, when the map has course data: exportCourseData() writes those.
+	auto const has_course_data = !map->courseData().isEmpty();
 	for (auto const& string : map->foreignData().strings)
 	{
 		if (string.data.isEmpty() || std::find(std::begin(own_types), std::end(own_types), string.type) != std::end(own_types))
+			continue;
+		if (has_course_data && (string.type == 2 || string.type == 3 || string.type == 31 || string.type == 1031))
 			continue;
 		Ocd::ParameterStringIndexEntry entry = { 0, quint32(string.data.size()), string.type, string.object_index };
 		file.strings().insert(string.data, entry);
@@ -3197,9 +3217,87 @@ void OcdFileExport::exportForeignObjects(OcdFile<Format>& file)
 }
 
 
+// foom
+void OcdFileExport::prepareCourseRecords()
+{
+	if (course_records_prepared)
+		return;
+	course_records_prepared = true;
+	if (ocd_version < 12)
+		return;
+	
+	auto const& data = map->courseData();
+	for (auto const& object : data.objects)
+	{
+		if (!object.object.isNull())
+			course_records.insert(object.object, { 1, 1, OcdCourse::formatObject(object) });
+	}
+	for (auto const& override : data.overrides)
+	{
+		if (!override.object.isNull())
+			course_records.insert(override.object, { 2, 2, OcdCourse::formatOverride(override) });
+	}
+	// The part of the overrides is hidden, and so is every object in it.
+	auto const index = findCourseOverridesPart(*map);
+	if (index >= 0)
+	{
+		auto const* part = map->getPart(std::size_t(index));
+		for (int i = 0; i < part->getNumObjects(); ++i)
+			hidden_course_objects.insert(part->getObject(i)->uuid());
+	}
+}
+
+// foom
+QString OcdFileExport::objectString(const Object* object, int* type) const
+{
+	auto const record = course_records.constFind(object->uuid());
+	if (record != course_records.constEnd())
+	{
+		if (type)
+			*type = record->string_type;
+		return record->string;
+	}
+	if (type)
+		*type = object->getTag(QStringLiteral("ocd:object_string_type")).toInt();
+	return object->getTag(QStringLiteral("ocd:object_string"));
+}
+
+// foom
+void OcdFileExport::exportCourseData()
+{
+	auto const& data = map->courseData();
+	if (data.isEmpty())
+		return;
+	if (ocd_version < 12)
+	{
+		addWarning(tr("The course data are not written: OCD files of this version cannot hold them."));
+		return;
+	}
+	
+	if (!data.options.fields.empty())
+		addParameterString(1031, OcdCourse::formatOptions(data.options));
+	for (auto const& course : data.courses)
+		addParameterString(2, OcdCourse::formatCourse(course));
+	for (auto const& course_class : data.classes)
+		addParameterString(3, OcdCourse::formatClass(course_class));
+	auto lost = 0;
+	for (auto const& object : data.objects)
+	{
+		if (object.kind == CourseObject::TextBlock)
+			addParameterString(31, OcdCourse::formatObject(object));
+		else if (!map->findObject(object.object))
+			++lost;
+	}
+	if (lost > 0)
+		addWarning(tr("%n course object(s) have no map object and are not written.", nullptr, lost));
+}
+
+
 void OcdFileExport::exportExtras()
 {
 	/// \todo
+	
+	exportCourseData();  // foom
 	
 	// foom: embedded images, the design notes, "OCD embedded images".
 	auto left_out = 0;

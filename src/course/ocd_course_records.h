@@ -87,6 +87,13 @@ QString formatOptions(const CourseOptions& options);
  */
 CourseData readFromImportedMap(const Map& map, QStringList* problems = nullptr);
 
+/**
+ * Takes away what readFromImportedMap() reads: the object string tags of
+ * the objects whose record can be read, and the parameter strings of the
+ * types 2, 3, 31 and 1031. A record which cannot be read stays.
+ */
+void removeReadRecords(Map& map);
+
 }  // namespace OcdCourse
 
 

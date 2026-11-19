@@ -114,7 +114,7 @@ public:
 	 * 
 	 * See the design notes, "Layout part".
 	 */
-	enum class Role { Map, Layout, Sketch, Issues };
+	enum class Role { Map, Layout, Sketch, Issues, Course };
 	
 	/** foom: Returns the role, map by default. */
 	Role role() const { return part_role; }
@@ -133,7 +133,7 @@ public:
 	 */
 	void setVisible(bool visible);
 	
-	/** foom: Returns the file name of a role: map, layout, sketch, issues. */
+	/** foom: Returns the file name of a role: map, layout, sketch, issues, course. */
 	static QString roleName(Role role);
 	
 	/** foom: Returns the role of a file name; map and ok false when unknown. */

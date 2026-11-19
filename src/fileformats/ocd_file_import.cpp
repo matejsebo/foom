@@ -59,6 +59,7 @@
 #include "core/map_grid.h"
 #include "core/map_part.h"
 #include "course/course_data.h"  // foom
+#include "course/course_storage.h"  // foom
 #include "course/ocd_course_records.h"  // foom
 #include "core/map_view.h"
 #include "core/object_groups.h"
@@ -342,7 +343,7 @@ void OcdFileImport::importImplementation()
 		importBookmarks(file);  // foom
 		importLayoutImages(file);  // foom
 		importForeignData(file);  // foom
-		importCourseData();  // foom: reads what importForeignData() kept
+		importCourseData(file.header()->file_type == Ocd::TypeCourseSetting);  // foom: reads what importForeignData() kept
 	}
 	
 	// No deep copy during import
@@ -938,7 +939,12 @@ void OcdFileImport::importObjects(const OcdFile< F >& file)
 			{
 				importObjectDates(*ocd_object.entity, object);  // foom
 				importObjectFieldsV12(*ocd_object.entity, *ocd_object.entry, object);  // foom
-				part->addObject(object, part->getNumObjects());
+				// foom: the object of a course's own graphics goes to the hidden part of the overrides,
+				// see the design notes, "OCD files from the course data".
+				auto* target = part;
+				if (object->getTag(QStringLiteral("ocd:object_string_type")) == QLatin1String("2"))
+					target = ensureCourseOverridesPart(*map);
+				target->addObject(object, target->getNumObjects());
 			}
 			else  // foom: keep the record for the round trip
 			{
@@ -2546,7 +2552,7 @@ void OcdFileImport::handleStrings(const OcdFile<F>& file, std::initializer_list<
 
 
 // foom
-void OcdFileImport::importCourseData()
+void OcdFileImport::importCourseData(bool course_file)
 {
 	// the design notes, "Storage".
 	if (ocd_version < 12)
@@ -2555,10 +2561,14 @@ void OcdFileImport::importCourseData()
 	auto data = OcdCourse::readFromImportedMap(*map, &problems);
 	for (auto const& problem : problems)
 		addWarning(problem);
-	// The options record alone does not make a course project.
-	if (data.objects.empty() && data.courses.empty() && data.classes.empty())
+	// In a file which says that it is a map, the options record alone does not make a course project.
+	if (!course_file && data.objects.empty() && data.courses.empty() && data.classes.empty())
+		return;
+	if (data.isEmpty())
 		return;
 	map->setCourseData(std::move(data));
+	// What became course data is not kept a second time.
+	OcdCourse::removeReadRecords(*map);
 }
 
 

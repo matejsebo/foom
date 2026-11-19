@@ -133,6 +133,8 @@ QString MapPart::roleName(Role role)
 		return QStringLiteral("sketch");
 	case Role::Issues:
 		return QStringLiteral("issues");
+	case Role::Course:  // the design notes, "OCD files from the course data"
+		return QStringLiteral("course");
 	}
 	return QStringLiteral("map");
 }
@@ -140,7 +142,7 @@ QString MapPart::roleName(Role role)
 // foom, static
 MapPart::Role MapPart::roleFromName(const QString& name, bool* ok)
 {
-	for (auto role : { Role::Map, Role::Layout, Role::Sketch, Role::Issues })
+	for (auto role : { Role::Map, Role::Layout, Role::Sketch, Role::Issues, Role::Course })
 	{
 		if (name == roleName(role))
 		{

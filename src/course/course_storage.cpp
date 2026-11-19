@@ -34,6 +34,7 @@
 #include <QXmlStreamWriter>
 
 #include "core/map.h"
+#include "core/map_part.h"
 #include "undo/map_data_undo.h"
 
 
@@ -447,6 +448,24 @@ CourseData courseDataFromXml(const QByteArray& xml_data)
 	if (xml.readNextStartElement() && xml.name() == course_literal::course_data)
 		return loadCourseData(xml);
 	return {};
+}
+
+int findCourseOverridesPart(const Map& map)
+{
+	return map.findPartIndexWithRole(MapPart::Role::Course);
+}
+
+MapPart* ensureCourseOverridesPart(Map& map)
+{
+	auto const index = findCourseOverridesPart(map);
+	if (index >= 0)
+		return map.getPart(std::size_t(index));
+	auto* part = new MapPart(QCoreApplication::translate("OpenOrienteering::CourseData", "Course overrides"), &map);
+	part->setRole(MapPart::Role::Course);
+	// Hidden before it is in the map, so that no change of the map is signalled.
+	part->setVisible(false);
+	map.addPart(part, std::size_t(map.getNumParts()));
+	return part;
 }
 
 void changeCourseData(Map& map, CourseData data)

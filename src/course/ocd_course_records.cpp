@@ -27,6 +27,9 @@
 #include <QLatin1Char>
 #include <QLatin1String>
 
+#include <algorithm>
+#include <utility>
+
 #include "core/foreign_data.h"
 #include "core/map.h"
 #include "core/map_part.h"
@@ -528,6 +531,48 @@ CourseData readFromImportedMap(const Map& map, QStringList* problems)
 		}
 	}
 	return data;
+}
+
+void removeReadRecords(Map& map)
+{
+	auto const type_key = QStringLiteral("ocd:object_string_type");
+	auto const string_key = QStringLiteral("ocd:object_string");
+	for (int p = 0; p < map.getNumParts(); ++p)
+	{
+		auto* part = map.getPart(std::size_t(p));
+		for (int i = 0; i < part->getNumObjects(); ++i)
+		{
+			auto* map_object = part->getObject(i);
+			auto const record = map_object->getTag(string_key);
+			if (record.isEmpty())
+				continue;
+			auto const type = map_object->getTag(type_key).toInt();
+			CourseObject object;
+			CourseOverride override;
+			if ((type == 1 && parseObject(record, object)) || (type == 2 && parseOverride(record, override)))
+			{
+				map_object->removeTag(string_key);
+				map_object->removeTag(type_key);
+			}
+		}
+	}
+	
+	auto foreign = map.foreignData();
+	auto const read = [](const ForeignString& string) {
+		Course course;
+		CourseClass course_class;
+		CourseObject object;
+		switch (string.type)
+		{
+		case 2:     return parseCourse(foreignText(string.data), course);
+		case 3:     return parseClass(foreignText(string.data), course_class);
+		case 31:    return parseObject(foreignText(string.data), object);
+		case 1031:  return true;
+		default:    return false;
+		}
+	};
+	foreign.strings.erase(std::remove_if(foreign.strings.begin(), foreign.strings.end(), read), foreign.strings.end());
+	map.setForeignData(std::move(foreign));
 }
 
 }  // namespace OcdCourse
