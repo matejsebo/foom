@@ -263,6 +263,7 @@ add_system_test(course_dock_t)  # foom: the design notes, Course dock
 add_system_test(course_render_t)  # foom: the design notes, Drawing a course, its length and climb
 add_system_test(course_description_t)  # foom: the design notes, The description of a course
 add_system_test(course_cells_t)  # foom: the design notes, The editor of a description
+add_system_test(course_symbols_t)  # foom: the design notes, FOOM's course symbols
 add_system_test(sketch_t)  # foom: the design notes, Sketch layer
 add_system_test(merge_t)  # foom: the design notes, Merge changes from file
 target_compile_definitions(merge_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")

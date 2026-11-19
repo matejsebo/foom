@@ -110,6 +110,7 @@ set(Mapper_Common_SRCS
   course/course_edit.cpp  # foom
   course/course_render.cpp  # foom
   course/course_storage.cpp  # foom
+  course/course_symbols.cpp  # foom
   course/course_sync.cpp  # foom
   course/ocd_course_records.cpp  # foom
   sketch/sketch.cpp

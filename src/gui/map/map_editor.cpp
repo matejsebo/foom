@@ -189,6 +189,7 @@
 #include "gui/widgets/measure_widget.h"
 #include "course/course_description.h"  // foom
 #include "course/course_render.h"  // foom
+#include "course/course_symbols.h"  // foom
 #include "gui/widgets/course_widget.h"  // foom
 #include "gui/widgets/rangefinder_widget.h"  // foom
 #include "gui/widgets/shortcut_settings.h"  // foom
@@ -1290,6 +1291,8 @@ void MapEditorController::createActions()
 	gps_clear_offset_act->setEnabled(false);
 	// foom: the course dock; the design notes, "Course dock"
 	course_dock_act = newCheckAction("course-dock", tr("Course setting"), this, SLOT(courseDockClicked(bool)), nullptr, tr("Show or hide the course objects, the courses and their classes."));
+	// foom: the course symbols; the design notes, "FOOM's course symbols"
+	course_symbols_act = newAction("course-symbols", tr("Add course symbols"), this, SLOT(addCourseSymbolsClicked()), nullptr, tr("Add the symbols of course setting to this map: start, control and finish, and the symbols of the control descriptions."));
 	// foom: the rangefinder; the design notes, "Rangefinder dock: detail"
 	rangefinder_act = newCheckAction("rangefinder", tr("Rangefinder"), this, SLOT(rangefinderClicked(bool)), nullptr, tr("Draw from a reference point with distance and azimuth."));
 	rangefinder_reference_act = newToolAction("rangefinder-reference", tr("Set rangefinder reference"), this, SLOT(rangefinderReferenceClicked()), nullptr, tr("Click the reference point of the rangefinder on the map."));
@@ -1703,6 +1706,7 @@ void MapEditorController::createMenuAndToolbars()
 	
 	QMenu* courses_menu = window->menuBar()->addMenu(tr("&Courses"));  // foom: the design notes, "Menu placement"
 	courses_menu->addAction(course_dock_act);
+	courses_menu->addAction(course_symbols_act);
 	
 	// Extend and activate general toolbar
 	QToolBar* main_toolbar = window->getGeneralToolBar();
@@ -4776,6 +4780,24 @@ void MapEditorController::courseDockClicked(bool checked)
 	}
 	course_dock_widget->setVisible(checked);
 	map_widget->update();
+}
+
+// foom: The course symbols.
+// the design notes, "FOOM's course symbols".
+
+void MapEditorController::addCourseSymbolsClicked()
+{
+	auto const report = addCourseSymbols(*map);
+	if (!report.loaded)
+	{
+		QMessageBox::warning(window, tr("Add course symbols"), tr("The symbol set \"Course Design\", of which the course symbols are made, was not found among the symbol sets of the program."));
+		return;
+	}
+	QString message = report.added > 0 ? tr("%n course symbol(s) were added.", nullptr, report.added)
+	                                    : tr("The map has the course symbols already.");
+	if (report.added > 0 && report.taken > 0)
+		message += QLatin1Char('\n') + tr("%n number(s) were in use. The symbols which have them were left as they are.", nullptr, report.taken);
+	QMessageBox::information(window, tr("Add course symbols"), message);
 }
 
 void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget) const

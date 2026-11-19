@@ -603,6 +603,8 @@ public slots:
 	void measureClicked(bool checked);
 	/** foom: Shows or hides the course dock. */
 	void courseDockClicked(bool checked);
+	/** foom: Adds the symbols of course setting to the map. */
+	void addCourseSymbolsClicked();
 	/** foom: Shows or hides the rangefinder. */
 	void rangefinderClicked(bool checked);
 	/** foom: Switches to the tool which sets the reference of the rangefinder. */
@@ -1163,6 +1165,7 @@ private:
 	QAction* measure_act = {};
 	EditorDockWidget* measure_dock_widget;
 	QAction* course_dock_act = {};  // foom
+	QAction* course_symbols_act = {};  // foom
 	QPointer<QWidget> course_dock_widget;  // foom
 	QPointer<CourseWidget> course_widget;  // foom
 	QAction* rangefinder_act = {};  // foom
