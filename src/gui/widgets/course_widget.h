@@ -30,7 +30,10 @@
 #include "course/course_data.h"
 
 class QComboBox;
+class QDoubleSpinBox;
+class QLabel;
 class QPushButton;
+class QSpinBox;
 class QTableWidget;
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -90,12 +93,23 @@ public:
 	bool addClass(const QString& name);
 	void removeCurrentClass();
 	
+	/** Sets the climb of the course which is chosen, as one undo step. */
+	void setClimb(int metres);
+	/** Sets the extra length of the course which is chosen, as one undo step. */
+	void setExtraLength(double km);
+	
 	static QString kindName(CourseObject::Kind kind);
 	/** The text of an item in the list of a course. */
 	static QString itemText(const CourseItem& item);
 	
+signals:
+	/** Another course is chosen, or the chosen one may be drawn differently. */
+	void currentCourseChanged();
+	
 private:
 	void refresh();
+	void refreshCourseValues();
+	void updateLength();
 	void refreshItems(int current, int top = -1);
 	void refreshClasses();
 	void updateButtons();
@@ -122,6 +136,9 @@ private:
 	Map* map;
 	QTreeWidget* object_list;
 	QComboBox* selector;
+	QLabel* length_label;
+	QSpinBox* climb_edit;
+	QDoubleSpinBox* extra_edit;
 	QTreeWidget* item_list;
 	QTableWidget* class_table;
 	QPushButton* code_button;

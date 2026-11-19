@@ -31,6 +31,7 @@
 #include <QBrush>
 #include <QColor>
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QInputDialog>
@@ -41,6 +42,7 @@
 #include <QPushButton>
 #include <QSet>
 #include <QSignalBlocker>
+#include <QSpinBox>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTreeWidget>
@@ -53,10 +55,12 @@
 #include "core/map_part.h"
 #include "core/objects/object.h"
 #include "course/course_edit.h"
+#include "course/course_render.h"
 #include "course/course_storage.h"
 #include "undo/map_data_undo.h"
 #include "undo/object_undo.h"
 #include "undo/undo.h"
+#include "undo/undo_manager.h"
 
 namespace OpenOrienteering {
 
@@ -160,6 +164,34 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	selector_layout->addWidget(new QLabel(tr("Course:")));
 	selector_layout->addWidget(selector, 1);
 	
+	// Length and climb of the course; the design notes,
+	// "Drawing a course, its length and climb".
+	length_label = new QLabel();
+	length_label->setObjectName(QStringLiteral("course-length"));
+	climb_edit = new QSpinBox();
+	climb_edit->setObjectName(QStringLiteral("course-climb"));
+	climb_edit->setRange(0, 9999);
+	climb_edit->setSuffix(QLatin1Char(' ') + tr("m"));
+	climb_edit->setKeyboardTracking(false);
+	extra_edit = new QDoubleSpinBox();
+	extra_edit->setObjectName(QStringLiteral("course-extra"));
+	extra_edit->setRange(-99.99, 99.99);
+	extra_edit->setDecimals(2);
+	extra_edit->setSingleStep(0.01);
+	extra_edit->setSuffix(QLatin1Char(' ') + tr("km"));
+	extra_edit->setKeyboardTracking(false);
+	extra_edit->setToolTip(tr("A length which is added to the measured one."));
+	auto* length_layout = new QHBoxLayout();
+	length_layout->addWidget(new QLabel(tr("Length:")));
+	length_layout->addWidget(length_label);
+	length_layout->addStretch(1);
+	auto* climb_layout = new QHBoxLayout();
+	climb_layout->addWidget(new QLabel(tr("Climb:")));
+	climb_layout->addWidget(climb_edit);
+	climb_layout->addWidget(new QLabel(tr("Extra length:")));
+	climb_layout->addWidget(extra_edit);
+	climb_layout->addStretch(1);
+	
 	auto* course_buttons = new QHBoxLayout();
 	new_course_button = makeButton(tr("New..."), "course-new", course_buttons);
 	duplicate_course_button = makeButton(tr("Duplicate..."), "course-duplicate", course_buttons);
@@ -202,6 +234,8 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	layout->addLayout(object_buttons);
 	layout->addLayout(selector_layout);
 	layout->addLayout(course_buttons);
+	layout->addLayout(length_layout);
+	layout->addLayout(climb_layout);
 	layout->addWidget(item_list, 4);
 	layout->addLayout(item_buttons);
 	layout->addWidget(class_table, 2);
@@ -227,7 +261,14 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	connect(add_class_button, &QPushButton::clicked, this, &CourseWidget::addClassClicked);
 	connect(delete_class_button, &QPushButton::clicked, this, &CourseWidget::removeCurrentClass);
 	
+	connect(climb_edit, QOverload<int>::of(&QSpinBox::valueChanged), this, &CourseWidget::setClimb);
+	connect(extra_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &CourseWidget::setExtraLength);
+	
 	connect(map, &Map::courseDataChanged, this, &CourseWidget::refresh);
+	// The length follows the objects of the map.
+	connect(map, &Map::selectedObjectEdited, this, &CourseWidget::updateLength);
+	connect(&map->undoManager(), &UndoManager::canUndoChanged, this, &CourseWidget::updateLength);
+	connect(&map->undoManager(), &UndoManager::canRedoChanged, this, &CourseWidget::updateLength);
 	connect(map, &Map::objectSelectionChanged, this, &CourseWidget::mapSelectionChanged);
 	
 	refresh();
@@ -390,8 +431,40 @@ void CourseWidget::refresh()
 	refreshItems(item, top_item);
 	if (!editing_class)
 		refreshClasses();
+	refreshCourseValues();
 	refreshing = false;
 	updateButtons();
+	emit currentCourseChanged();
+}
+
+
+void CourseWidget::refreshCourseValues()
+{
+	auto const* course = map->courseData().findCourse(currentCourse());
+	{
+		const QSignalBlocker block_climb(climb_edit);
+		const QSignalBlocker block_extra(extra_edit);
+		climb_edit->setValue(course ? course->climb_m : 0);
+		extra_edit->setValue(course ? course->extra_km : 0.0);
+	}
+	climb_edit->setEnabled(course != nullptr);
+	extra_edit->setEnabled(course != nullptr);
+	updateLength();
+}
+
+
+void CourseWidget::updateLength()
+{
+	auto const& data = map->courseData();
+	auto const* course = data.findCourse(currentCourse());
+	if (!course)
+	{
+		length_label->clear();
+		return;
+	}
+	auto const length = measureCourse(*map, data, *course);
+	// A dash for what cannot be measured: a course with variations, or an item without its object.
+	length_label->setText(length.known ? formatCourseLength(length.total_m) : QStringLiteral("-"));
 }
 
 
@@ -556,7 +629,9 @@ void CourseWidget::courseChosen(int /*index*/)
 		return;
 	refreshItems(-1);
 	refreshClasses();
+	refreshCourseValues();
 	updateButtons();
+	emit currentCourseChanged();
 }
 
 
@@ -768,6 +843,39 @@ void CourseWidget::removeCurrentCourse()
 	changeCourseData(*map, std::move(data));
 	has_wanted_course = false;
 	wanted_item = keep_item;
+}
+
+
+
+void CourseWidget::setClimb(int metres)
+{
+	auto const name = currentCourse();
+	auto data = map->courseData();
+	for (auto& course : data.courses)
+	{
+		if (course.name != name)
+			continue;
+		course.climb_m = metres;
+		course.climb_manual = true;
+	}
+	if (!refreshing)
+		changeCourseData(*map, std::move(data));
+}
+
+
+void CourseWidget::setExtraLength(double km)
+{
+	auto const name = currentCourse();
+	auto data = map->courseData();
+	for (auto& course : data.courses)
+	{
+		if (course.name != name)
+			continue;
+		course.extra_km = km;
+		course.extra_set = true;
+	}
+	if (!refreshing)
+		changeCourseData(*map, std::move(data));
 }
 
 

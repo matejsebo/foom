@@ -187,6 +187,7 @@
 #include "gui/widgets/compass_display.h"
 #include "gui/widgets/key_button_bar.h" // IWYU pragma: keep
 #include "gui/widgets/measure_widget.h"
+#include "course/course_render.h"  // foom
 #include "gui/widgets/course_widget.h"  // foom
 #include "gui/widgets/rangefinder_widget.h"  // foom
 #include "gui/widgets/shortcut_settings.h"  // foom
@@ -868,7 +869,7 @@ void MapEditorController::attach(MainWindow* window)
 	map_widget->setMapView(main_view);
 	map_widget->setZoomDisplay(zoom_display_function);
 	recordView();  // foom: the opening view is the first entry of the view history
-	map_widget->setOverlay([this](QPainter* painter, MapWidget* widget) { drawActiveExtent(painter, widget); drawTemplateAttributions(painter, widget); drawRangefinder(painter, widget); });  // foom
+	map_widget->setOverlay([this](QPainter* painter, MapWidget* widget) { drawActiveExtent(painter, widget); drawTemplateAttributions(painter, widget); drawRangefinder(painter, widget); drawCoursePreview(painter, widget); });  // foom
 	
 	// Create menu and toolbar together, so actions can be inserted into one or both
 	if (mode == MapEditor)
@@ -4764,13 +4765,39 @@ void MapEditorController::courseDockClicked(bool checked)
 	{
 		auto* dock_widget = new EditorDockWidget(tr("Course setting"), course_dock_act, this, window);
 		dock_widget->toggleViewAction()->setVisible(false);
-		dock_widget->setWidget(new CourseWidget(map));
+		course_widget = new CourseWidget(map);
+		dock_widget->setWidget(course_widget);
+		connect(course_widget, &CourseWidget::currentCourseChanged, map_widget, QOverload<>::of(&QWidget::update));
 		dock_widget->setObjectName(QString::fromLatin1("Course dock widget"));
 		if (!window->restoreDockWidget(dock_widget))
 			window->addDockWidget(Qt::LeftDockWidgetArea, dock_widget, Qt::Vertical);
 		course_dock_widget = dock_widget;
 	}
 	course_dock_widget->setVisible(checked);
+	map_widget->update();
+}
+
+void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget) const
+{
+	if (!course_widget || !course_dock_widget || course_dock_widget->isHidden())
+		return;
+	auto const course = course_widget->currentCourse();
+	if (course.isEmpty())
+		return;
+	// Drawn anew at every painting, so that it follows an object which is being moved.
+	auto const drawing = drawCourse(*map, map->courseData(), course);
+	if (!drawing.drawn)
+		return;
+	
+	const MapView* map_view = widget->getMapView();
+	painter->save();
+	painter->translate(widget->width() / 2.0 + map_view->panOffset().x(),
+	                   widget->height() / 2.0 + map_view->panOffset().y());
+	painter->setWorldTransform(map_view->worldTransform(), true);
+	paintCourseDrawing(painter, map, drawing,
+	                   map_view->calculateViewedRect(widget->viewportToView(widget->rect())),
+	                   map_view->calculateFinalZoomFactor());
+	painter->restore();
 }
 
 

@@ -95,6 +95,7 @@ class MapFindFeature;
 class MapView;
 class MapWidget;
 class PaintOnTemplateFeature;
+class CourseWidget;  // foom
 class RangefinderWidget;  // foom
 class PrintWidget;
 class ReopenTemplateDialog;
@@ -251,6 +252,9 @@ public:
 	void drawTemplateAttributions(QPainter* painter, MapWidget* widget) const;  // foom
 	/** foom: Draws the reference of the rangefinder and the target of its fields. */
 	void drawRangefinder(QPainter* painter, MapWidget* widget) const;
+	
+	/** foom: Draws the lines and numbers of the course which is chosen in the course dock. */
+	void drawCoursePreview(QPainter* painter, MapWidget* widget) const;
 	
 	/** foom: Returns the issue model of the Issues window. */
 	IssueModel* issueModel() const { return issue_model; }
@@ -1160,6 +1164,7 @@ private:
 	EditorDockWidget* measure_dock_widget;
 	QAction* course_dock_act = {};  // foom
 	QPointer<QWidget> course_dock_widget;  // foom
+	QPointer<CourseWidget> course_widget;  // foom
 	QAction* rangefinder_act = {};  // foom
 	QAction* rangefinder_reference_act = {};  // foom
 	QPointer<RangefinderWidget> rangefinder_widget;  // foom
