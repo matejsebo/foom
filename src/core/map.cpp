@@ -2657,6 +2657,13 @@ void Map::setHasUnsavedChanges(bool has_unsaved_changes)
 	}
 }
 
+// foom
+void Map::setCourseData(CourseData data)
+{
+	map_course_data = std::move(data);
+	emit courseDataChanged();
+}
+
 void Map::setOtherDirty()
 {
 	other_dirty = true;

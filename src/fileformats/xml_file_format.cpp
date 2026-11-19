@@ -42,6 +42,7 @@
 #include <QRectF>
 #include <QScopedValueRollback>
 #include <QString>
+#include <QStringList>  // foom
 #include <QStringRef>
 #include <QVariant>
 #include <QXmlStreamReader>
@@ -52,6 +53,7 @@
 #include "core/map.h"
 #include "core/color_group.h"  // foom
 #include "core/foreign_data.h"  // foom
+#include "course/course_storage.h"  // foom
 #include "core/map_color.h"
 #include "core/map_coord.h"
 #include "core/map_grid.h"
@@ -205,6 +207,7 @@ namespace literal
 	static const QLatin1String bookmark_zoom("zoom");  // foom
 	static const QLatin1String bookmark_note("note");  // foom
 	static const QLatin1String extents("extents");  // foom
+	static const QLatin1String course_data("course_data");  // foom
 	static const QLatin1String sync("sync");  // foom
 	static const QLatin1String foreign("foreign");  // foom
 	static const QLatin1String foreign_format("format");  // foom
@@ -326,6 +329,12 @@ bool XMLFileExporter::exportImplementation()
 		if (XMLFileFormat::foom_revision >= 1 && !map->extents().empty())  // foom
 		{
 			exportExtents();
+			writeLineBreak(xml);
+		}
+		if (XMLFileFormat::foom_revision >= 1 && !map->courseData().isEmpty())  // foom
+		{
+			// the design notes, "Storage"
+			saveCourseData(map->courseData(), xml);
 			writeLineBreak(xml);
 		}
 		if (XMLFileFormat::foom_revision >= 1 && !map->syncCopies().empty())  // foom
@@ -802,6 +811,13 @@ void XMLFileImporter::importElements()
 			importBookmarks();
 		else if (name == literal::extents)  // foom
 			importExtents();
+		else if (name == literal::course_data)  // foom
+		{
+			QStringList course_problems;
+			map->setCourseData(loadCourseData(xml, &course_problems));
+			for (auto const& problem : course_problems)
+				addWarning(problem);
+		}
 		else if (name == literal::sync)  // foom
 			importSyncCopies();
 		else if (name == literal::foreign)  // foom

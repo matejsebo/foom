@@ -48,6 +48,7 @@
 #include "core/bookmarks.h"  // foom
 #include "core/extents.h"  // foom
 #include "core/sync_record.h"  // foom
+#include "course/course_data.h"  // foom
 #include "core/foreign_data.h"  // foom
 #include "elevation/elevation_set.h"  // foom
 #include "core/map_coord.h"
@@ -988,6 +989,12 @@ public:
 	/** foom: Replaces the named extents; undo is the caller's business (MapDataUndoStep). */
 	void setExtents(std::vector<Extent> extents) { map_extents = std::move(extents); }
 	
+	/** foom: Returns the course data. See the design notes, "Storage". */
+	const CourseData& courseData() const { return map_course_data; }
+	
+	/** foom: Replaces the course data and emits courseDataChanged(); undo is the caller's business (changeCourseData()). */
+	void setCourseData(CourseData data);
+	
 	/** foom: Returns the field copies which are out. See the design notes, "Merge changes from file". */
 	const std::vector<SyncCopy>& syncCopies() const { return map_sync_copies; }
 	
@@ -1556,6 +1563,9 @@ signals:
 	 */
 	void hasUnsavedChanged(bool is_clean);
 	
+	/** foom: Emitted when the course data were replaced. */
+	void courseDataChanged();
+	
 	
 	/** Emitted when a color is added to the map, gives the color's index and pointer. */
 	void colorAdded(int pos, const OpenOrienteering::MapColor* color);
@@ -1761,6 +1771,7 @@ private:
 	std::vector<Bookmark> map_bookmarks;  ///< foom: view state, see the design notes
 	ForeignData map_foreign_data;  ///< foom: see the design notes, "OCD round trip"
 	std::vector<Extent> map_extents;  ///< foom: see the design notes
+	CourseData map_course_data;  ///< foom: see the design notes
 	std::vector<SyncCopy> map_sync_copies;  ///< foom: see the design notes
 	ElevationSet map_elevation;  ///< foom: see the design notes
 	mutable std::unordered_set<const Object*> stale_index_objects;  ///< foom: to be re-entered into the spatial indexes

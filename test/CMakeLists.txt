@@ -256,6 +256,7 @@ add_system_test(map_part_role_t)  # foom: the design notes, Map part roles
 add_system_test(private_symbol_t)  # foom: the design notes, Private symbols
 add_system_test(generator_t)  # foom: the design notes, Generators
 add_system_test(course_model_t)  # foom: the design notes, Data model and OCD records
+add_system_test(course_storage_t)  # foom: the design notes, Storage
 add_system_test(sketch_t)  # foom: the design notes, Sketch layer
 add_system_test(merge_t)  # foom: the design notes, Merge changes from file
 target_compile_definitions(merge_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")

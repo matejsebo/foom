@@ -28,6 +28,7 @@
 
 #include "core/extents.h"
 #include "core/map.h"
+#include "course/course_storage.h"
 #include "util/xml_stream_util.h"
 
 
@@ -59,7 +60,7 @@ MapDataUndoStep::~MapDataUndoStep() = default;
 
 bool MapDataUndoStep::isValid() const
 {
-	return data_section == Extents;
+	return data_section == Extents || data_section == Courses;
 }
 
 QByteArray MapDataUndoStep::currentXml(const Map& map, Section section)
@@ -68,6 +69,8 @@ QByteArray MapDataUndoStep::currentXml(const Map& map, Section section)
 	{
 	case Extents:
 		return extentsToXml(map.extents());
+	case Courses:
+		return courseDataToXml(map.courseData());
 	case UndefinedSection:
 		break;
 	}
@@ -81,6 +84,9 @@ UndoStep* MapDataUndoStep::undo()
 	{
 	case Extents:
 		map->setExtents(extentsFromXml(data_xml));
+		break;
+	case Courses:
+		map->setCourseData(courseDataFromXml(data_xml));
 		break;
 	case UndefinedSection:
 		break;

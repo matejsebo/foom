@@ -106,6 +106,7 @@ set(Mapper_Common_SRCS
   core/print_output.cpp
   core/sync_record.cpp
   course/course_data.cpp  # foom
+  course/course_storage.cpp  # foom
   course/ocd_course_records.cpp  # foom
   sketch/sketch.cpp
   sync/field_copy.cpp

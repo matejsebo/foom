@@ -45,7 +45,8 @@ public:
 	enum Section
 	{
 		UndefinedSection = 0,
-		Extents = 1
+		Extents = 1,
+		Courses = 2  ///< the course data, see the design notes
 	};
 	
 	/** Creates a step which restores the section to the given serialisation. */

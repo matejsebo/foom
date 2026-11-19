@@ -58,6 +58,8 @@
 #include "core/map_color.h"
 #include "core/map_grid.h"
 #include "core/map_part.h"
+#include "course/course_data.h"  // foom
+#include "course/ocd_course_records.h"  // foom
 #include "core/map_view.h"
 #include "core/object_groups.h"
 #include "core/objects/image_object.h"  // foom
@@ -340,6 +342,7 @@ void OcdFileImport::importImplementation()
 		importBookmarks(file);  // foom
 		importLayoutImages(file);  // foom
 		importForeignData(file);  // foom
+		importCourseData();  // foom: reads what importForeignData() kept
 	}
 	
 	// No deep copy during import
@@ -2539,6 +2542,23 @@ void OcdFileImport::handleStrings(const OcdFile<F>& file, std::initializer_list<
 			}
 		}
 	}
+}
+
+
+// foom
+void OcdFileImport::importCourseData()
+{
+	// the design notes, "Storage".
+	if (ocd_version < 12)
+		return;
+	QStringList problems;
+	auto data = OcdCourse::readFromImportedMap(*map, &problems);
+	for (auto const& problem : problems)
+		addWarning(problem);
+	// The options record alone does not make a course project.
+	if (data.objects.empty() && data.courses.empty() && data.classes.empty())
+		return;
+	map->setCourseData(std::move(data));
 }
 
 
