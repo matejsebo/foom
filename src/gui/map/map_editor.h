@@ -613,6 +613,10 @@ public slots:
 	void deleteFromCoursesClicked();
 	/** foom: Gives the controls new codes. */
 	void renumberControlsClicked();
+	/** foom: Shows the statistics of the courses and of the event. */
+	void courseStatisticsClicked();
+	/** foom: Runs the consistency check of the courses and shows the issues; returns their number. */
+	int runCourseCheck();
 	/** foom: Shows or hides the rangefinder. */
 	void rangefinderClicked(bool checked);
 	/** foom: Switches to the tool which sets the reference of the rangefinder. */
@@ -1178,6 +1182,8 @@ private:
 	QAction* course_insert_act = {};  // foom
 	QAction* course_delete_act = {};  // foom
 	QAction* course_renumber_act = {};  // foom
+	QAction* course_statistics_act = {};  // foom
+	QAction* course_check_act = {};  // foom
 	QPointer<QWidget> course_dock_widget;  // foom
 	QPointer<CourseWidget> course_widget;  // foom
 	QAction* rangefinder_act = {};  // foom

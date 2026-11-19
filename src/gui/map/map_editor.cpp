@@ -168,6 +168,7 @@
 #include "gui/map/numeric_entry_bar.h"
 #include "gui/map/bookmark_dialog.h"
 #include "gui/map/course_bulk_dialog.h"  // foom
+#include "gui/map/course_statistics_dialog.h"  // foom
 #include "check/issue.h"
 #include "check/legibility.h"
 #include "check/map_check.h"
@@ -190,6 +191,7 @@
 #include "gui/widgets/measure_widget.h"
 #include "course/course_description.h"  // foom
 #include "course/course_render.h"  // foom
+#include "course/course_report.h"  // foom
 #include "course/course_symbols.h"  // foom
 #include "gui/widgets/course_widget.h"  // foom
 #include "gui/widgets/rangefinder_widget.h"  // foom
@@ -1300,6 +1302,9 @@ void MapEditorController::createActions()
 	course_insert_act = newAction("course-insert-into-courses", tr("Insert course object into courses..."), this, SLOT(insertIntoCoursesClicked()), nullptr, tr("Put a course object into many courses at once."));
 	course_delete_act = newAction("course-delete-from-courses", tr("Delete course object from courses..."), this, SLOT(deleteFromCoursesClicked()), nullptr, tr("Take a course object out of many courses at once. The object stays in the map."));
 	course_renumber_act = newAction("course-renumber", tr("Renumber all controls..."), this, SLOT(renumberControlsClicked()), nullptr, tr("Give the controls new codes, from a new first code on."));
+	// foom: the design notes, "Statistics and the consistency check"
+	course_statistics_act = newAction("course-statistics", tr("Statistics..."), this, SLOT(courseStatisticsClicked()), nullptr, tr("Show the statistics of the courses, their legs and the event."));
+	course_check_act = newAction("course-check", tr("Consistency check"), this, SLOT(runCourseCheck()), nullptr, tr("Check the courses, the controls and their descriptions, and list what is found in the issues window."));
 	// foom: the rangefinder; the design notes, "Rangefinder dock: detail"
 	rangefinder_act = newCheckAction("rangefinder", tr("Rangefinder"), this, SLOT(rangefinderClicked(bool)), nullptr, tr("Draw from a reference point with distance and azimuth."));
 	rangefinder_reference_act = newToolAction("rangefinder-reference", tr("Set rangefinder reference"), this, SLOT(rangefinderReferenceClicked()), nullptr, tr("Click the reference point of the rangefinder on the map."));
@@ -1719,6 +1724,9 @@ void MapEditorController::createMenuAndToolbars()
 	courses_menu->addAction(course_insert_act);
 	courses_menu->addAction(course_delete_act);
 	courses_menu->addAction(course_renumber_act);
+	courses_menu->addSeparator();
+	courses_menu->addAction(course_statistics_act);
+	courses_menu->addAction(course_check_act);
 	
 	// Extend and activate general toolbar
 	QToolBar* main_toolbar = window->getGeneralToolBar();
@@ -4912,6 +4920,27 @@ void MapEditorController::renumberControlsClicked()
 	CourseRenumberDialog dialog(map, window);
 	if (dialog.exec() == QDialog::Accepted)
 		window->showStatusBarMessage(dialog.report(), 10000);
+}
+
+// foom: The statistics and the consistency check of the courses.
+// the design notes, "Statistics and the consistency check".
+
+void MapEditorController::courseStatisticsClicked()
+{
+	if (map->courseData().isEmpty())
+	{
+		QMessageBox::information(window, tr("Course and event statistics"), tr("The map has no course objects and no courses."));
+		return;
+	}
+	CourseStatisticsDialog dialog(map, window);
+	dialog.exec();
+}
+
+int MapEditorController::runCourseCheck()
+{
+	last_check = [this]() { return checkCourses(*map, map->courseData()); };
+	checkAgain();
+	return int(issue_model->issues().size());
 }
 
 void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget) const
