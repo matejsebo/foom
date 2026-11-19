@@ -33,6 +33,7 @@
 #include <QLatin1String>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 
 #include "global.h"
 #include "core/foreign_data.h"
@@ -76,6 +77,7 @@ private:
 		int elevations = 0;
 		int strings = 0;
 		int string_bytes = 0;
+		QStringList object_strings;  ///< sorted
 	};
 	static Summary summarize(const Map& map);
 };
@@ -155,8 +157,11 @@ Ocd2018Test::Summary Ocd2018Test::summarize(const Map& map)
 			auto const string = object->getTag(QStringLiteral("ocd:object_string"));
 			summary.strings += !string.isEmpty();
 			summary.string_bytes += string.size();
+			if (!string.isEmpty())
+				summary.object_strings.push_back(object->getTag(QStringLiteral("ocd:object_string_type")) + QLatin1Char(' ') + string);
 		}
 	}
+	summary.object_strings.sort();
 	return summary;
 }
 
@@ -195,35 +200,95 @@ void Ocd2018Test::headerTest()
 
 void Ocd2018Test::objectFieldsTest()
 {
+	// The string of 32 characters needs a second block of 64 bytes for its terminating zero.
+	auto const short_string = QStringLiteral("a=1\tb=2");
+	auto const long_string = QString(QStringLiteral("1099\tYc\ta99\tt") + QString(19, QChar(0x159)));
+	QCOMPARE(long_string.size(), 32);
+
 	Map map;
 	PointObject* point = nullptr;
 	setupMap(map, &point);
 	point->setTag(QStringLiteral("ele"), QStringLiteral("512.5"));
 	point->setTag(QStringLiteral("ocd:object_string_type"), QStringLiteral("1"));
-	point->setTag(QStringLiteral("ocd:object_string"), QStringLiteral("a=1\tb=2"));
+	point->setTag(QStringLiteral("ocd:object_string"), short_string);
 	auto* plain = new PointObject(map.getSymbol(0)->asPoint());
 	plain->setPosition(MapCoord(20.0, 20.0));
 	map.addObject(plain);
-	
+	auto* second = new PointObject(map.getSymbol(0)->asPoint());
+	second->setPosition(MapCoord(30.0, 20.0));
+	second->setTag(QStringLiteral("ocd:object_string_type"), QStringLiteral("2"));
+	second->setTag(QStringLiteral("ocd:object_string"), long_string);
+	map.addObject(second);
+
+	auto const data = exportTo(map, "OCD2018");
+
+	// In the file the string is UTF-16 with a terminating zero, in an area which
+	// is a multiple of 64 bytes, and the header counts that area in units of 8 bytes.
+	auto const utf16 = [](const QString& text) {
+		QByteArray bytes;
+		for (auto c : text)
+		{
+			bytes.append(char(c.unicode() & 0xff));
+			bytes.append(char(c.unicode() >> 8));
+		}
+		return bytes;
+	};
+	auto const field_at = [&data](int position) {
+		return int(quint8(data[position])) | (int(quint8(data[position + 1])) << 8);
+	};
+	{
+		auto const bytes = utf16(short_string);
+		auto const at = data.indexOf(bytes);
+		QVERIFY(at > 64);
+		QCOMPARE(data.mid(at + bytes.size(), 64 - bytes.size()), QByteArray(64 - bytes.size(), '\0'));
+		// A point object has one coordinate between its header of 56 bytes and the string.
+		auto const header = at - 8 - 56;
+		QCOMPARE(field_at(header + 50), 8);
+		QCOMPARE(int(quint8(data[header + 54])), 1);
+	}
+	{
+		auto const bytes = utf16(long_string);
+		QCOMPARE(bytes.size(), 64);
+		auto const at = data.indexOf(bytes);
+		QVERIFY(at > 64);
+		QCOMPARE(data.mid(at + 64, 64), QByteArray(64, '\0'));
+		auto const header = at - 8 - 56;
+		QCOMPARE(field_at(header + 50), 16);
+		QCOMPARE(int(quint8(data[header + 54])), 2);
+	}
+
 	Map reloaded;
-	QVERIFY(import(exportTo(map, "OCD2018"), reloaded));
-	QCOMPARE(reloaded.getNumObjects(), 2);
-	auto tagged = 0;
+	QVERIFY(import(data, reloaded));
+	QCOMPARE(reloaded.getNumObjects(), 3);
+	auto with_short = 0;
+	auto with_long = 0;
+	auto without = 0;
 	for (int i = 0; i < reloaded.getPart(0)->getNumObjects(); ++i)
 	{
 		auto const* object = reloaded.getPart(0)->getObject(i);
-		if (object->getTag(QStringLiteral("ele")).isEmpty())
+		auto const string = object->getTag(QStringLiteral("ocd:object_string"));
+		if (string == short_string)
 		{
-			QVERIFY(object->getTag(QStringLiteral("ocd:object_string")).isEmpty());
-			QVERIFY(object->getTag(QStringLiteral("ocd:object_string_type")).isEmpty());
-			continue;
+			++with_short;
+			QCOMPARE(object->getTag(QStringLiteral("ele")), QStringLiteral("512.5"));
+			QCOMPARE(object->getTag(QStringLiteral("ocd:object_string_type")), QStringLiteral("1"));
 		}
-		++tagged;
-		QCOMPARE(object->getTag(QStringLiteral("ele")), QStringLiteral("512.5"));
-		QCOMPARE(object->getTag(QStringLiteral("ocd:object_string_type")), QStringLiteral("1"));
-		QCOMPARE(object->getTag(QStringLiteral("ocd:object_string")), QStringLiteral("a=1\tb=2"));
+		else if (string == long_string)
+		{
+			++with_long;
+			QVERIFY(object->getTag(QStringLiteral("ele")).isEmpty());
+			QCOMPARE(object->getTag(QStringLiteral("ocd:object_string_type")), QStringLiteral("2"));
+		}
+		else
+		{
+			++without;
+			QVERIFY2(string.isEmpty(), qPrintable(string));
+			QVERIFY(object->getTag(QStringLiteral("ocd:object_string_type")).isEmpty());
+		}
 	}
-	QCOMPARE(tagged, 1);
+	QCOMPARE(with_short, 1);
+	QCOMPARE(with_long, 1);
+	QCOMPARE(without, 1);
 }
 
 

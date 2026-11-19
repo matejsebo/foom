@@ -896,11 +896,22 @@ void importObjectFieldsV12(const Ocd::ObjectV12& ocd_object, const Ocd::ObjectV1
 	{
 		auto const header_size = sizeof(Ocd::ObjectV12) - sizeof(Ocd::OcdPoint32);
 		auto const offset = header_size + sizeof(Ocd::OcdPoint32) * (std::size_t(ocd_object.num_items) + ocd_object.num_text);
-		if (offset + ocd_object.object_string_length <= entry.size)
+		// The length counts units of 8 bytes, as the coordinates before the string
+		// are counted. The string is UTF-16, little endian, and ends with a zero.
+		auto const area = std::size_t(ocd_object.object_string_length) * sizeof(Ocd::OcdPoint32);
+		if (offset + area <= entry.size)
 		{
-			auto const* bytes = reinterpret_cast<const char*>(&ocd_object) + offset;
+			auto const* bytes = reinterpret_cast<const uchar*>(&ocd_object) + offset;
+			QString text;
+			for (std::size_t i = 0; i + 1 < area; i += 2)
+			{
+				auto const unit = ushort(bytes[i] | (bytes[i + 1] << 8));
+				if (!unit)
+					break;
+				text.append(QChar(unit));
+			}
 			object->setTag(QStringLiteral("ocd:object_string_type"), QString::number(ocd_object.object_string_type));
-			object->setTag(QStringLiteral("ocd:object_string"), QString::fromLatin1(bytes, int(ocd_object.object_string_length)));
+			object->setTag(QStringLiteral("ocd:object_string"), text);
 		}
 	}
 }

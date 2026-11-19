@@ -2611,9 +2611,23 @@ void exportObjectDates(const Object* object, Ocd::ObjectV12& ocd_object)
 
 // foom: the height and the object string of the version 12 object header,
 // see the design notes, "OCD 2018 writer".
+// The string is written as the format has it: UTF-16, little endian, with a
+// terminating zero, in an area which is a multiple of 64 bytes.
 QByteArray objectStringBytes(const Object* object)
 {
-	return object->getTag(QStringLiteral("ocd:object_string")).toLatin1();
+	auto const text = object->getTag(QStringLiteral("ocd:object_string"));
+	QByteArray bytes;
+	if (text.isEmpty())
+		return bytes;
+	bytes.reserve((text.size() + 1) * 2 + 64);
+	for (auto c : text)
+	{
+		bytes.append(char(c.unicode() & 0xff));
+		bytes.append(char(c.unicode() >> 8));
+	}
+	auto const size = ((bytes.size() + 2 + 63) / 64) * 64;
+	bytes.append(size - bytes.size(), '\0');
+	return bytes;
 }
 
 template< class O >
@@ -2631,7 +2645,8 @@ void exportObjectFieldsV12(const Object* object, Ocd::ObjectV12& ocd_object)
 	auto const string = objectStringBytes(object);
 	if (!string.isEmpty())
 	{
-		ocd_object.object_string_length = decltype(ocd_object.object_string_length)(string.size());
+		// The length counts units of 8 bytes, as the coordinates before the string are counted.
+		ocd_object.object_string_length = decltype(ocd_object.object_string_length)(string.size() / 8);
 		ocd_object.object_string_type = decltype(ocd_object.object_string_type)(object->getTag(QStringLiteral("ocd:object_string_type")).toInt());
 	}
 }
@@ -2647,8 +2662,8 @@ int appendObjectString(const Object* object, const Ocd::ObjectV12& ocd_object, Q
 	if (!ocd_object.object_string_length)
 		return 0;
 	auto const string = objectStringBytes(object);
-	data.append(string.constData(), int(ocd_object.object_string_length));
-	return int(ocd_object.object_string_length);
+	data.append(string);
+	return string.size();
 }
 
 }  // namespace
