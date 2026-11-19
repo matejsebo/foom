@@ -20,6 +20,7 @@
 
 #include "rangefinder_widget.h"
 
+#include <cmath>
 #include <utility>
 
 #include <Qt>
@@ -41,6 +42,7 @@
 #include "core/georeferencing.h"
 #include "core/map.h"
 #include "gui/util_gui.h"
+#include "sensors/rangefinder_source.h"
 
 
 namespace OpenOrienteering {
@@ -128,6 +130,42 @@ RangefinderWidget::RangefinderWidget(Map* map, bool mobile, QWidget* parent)
 	finish_button->setObjectName(QStringLiteral("rangefinder-finish"));
 	finish_button->setToolTip(tr("End the path which is drawn at its last vertex."));
 	
+	// The device.
+	device_source = new RangefinderSource(this);
+	port_box = new QComboBox();
+	port_box->setObjectName(QStringLiteral("rangefinder-port"));
+	port_box->setEditable(true);
+	port_box->addItems(RangefinderSource::serialPorts());
+	port_box->setCurrentIndex(-1);
+	port_box->setEditText(settings.port);
+	port_box->lineEdit()->setPlaceholderText(tr("Serial port, or host:port"));
+	port_box->setToolTip(tr("The serial port of the rangefinder. A text of the form host:port connects to a network port."));
+	baud_box = new QComboBox();
+	baud_box->setObjectName(QStringLiteral("rangefinder-baud"));
+	for (auto baud : { 4800, 9600, 19200, 38400, 57600, 115200 })
+		baud_box->addItem(QString::number(baud), baud);
+	if (baud_box->findData(settings.baud) < 0)
+		baud_box->addItem(QString::number(settings.baud), settings.baud);  // a speed which was set by hand is kept
+	baud_box->setCurrentIndex(baud_box->findData(settings.baud));
+	baud_box->setToolTip(tr("The speed of the serial port."));
+	connect_button = new QPushButton(tr("Connect"));
+	connect_button->setObjectName(QStringLiteral("rangefinder-connect"));
+	connect_button->setCheckable(true);
+	state_label = new QLabel();
+	state_label->setObjectName(QStringLiteral("rangefinder-state"));
+	auto_check = new QCheckBox(tr("Draw automatically"));
+	auto_check->setObjectName(QStringLiteral("rangefinder-auto"));
+	auto_check->setToolTip(tr("On: a reading from the device is drawn at once. Off: it waits in the fields for Add."));
+	auto_check->setChecked(settings.draw_automatically);
+	counts_label = new QLabel();
+	counts_label->setObjectName(QStringLiteral("rangefinder-counts"));
+	counts_label->setToolTip(tr("Lines of the device which gave a reading, and lines which did not. Many other lines and no readings: the device sends another kind of sentence."));
+	
+	auto* device_layout = new QHBoxLayout();
+	device_layout->addWidget(port_box, 1);
+	device_layout->addWidget(baud_box);
+	device_layout->addWidget(connect_button);
+	
 	auto* reference_buttons = new QHBoxLayout();
 	reference_buttons->addWidget(reference_click_button);
 	reference_buttons->addWidget(reference_gps_button);
@@ -176,6 +214,13 @@ RangefinderWidget::RangefinderWidget(Map* map, bool mobile, QWidget* parent)
 	layout->addWidget(new QLabel(tr("Height difference:")), row, 2);
 	layout->addWidget(height_label, row, 3);
 	++row;
+	layout->addWidget(new QLabel(tr("Device:")), row, 0);
+	layout->addLayout(device_layout, row, 1);
+	layout->addWidget(state_label, row, 2, 1, 2);
+	++row;
+	layout->addWidget(auto_check, row, 0, 1, 2);
+	layout->addWidget(counts_label, row, 2, 1, 2);
+	++row;
 	layout->addLayout(bottom_buttons, row, 0, 1, 4);
 	++row;
 	layout->setRowStretch(row, 1);
@@ -198,6 +243,12 @@ RangefinderWidget::RangefinderWidget(Map* map, bool mobile, QWidget* parent)
 	});
 	connect(add_button, &QPushButton::clicked, this, &RangefinderWidget::addClicked);
 	connect(finish_button, &QPushButton::clicked, this, &RangefinderWidget::finishRequested);
+	connect(connect_button, &QPushButton::clicked, this, &RangefinderWidget::connectClicked);
+	connect(auto_check, &QCheckBox::toggled, this, &RangefinderWidget::storeChoices);
+	connect(baud_box, index_changed, this, &RangefinderWidget::storeChoices);
+	connect(device_source, &RangefinderSource::stateChanged, this, &RangefinderWidget::updateDeviceState);
+	connect(device_source, &RangefinderSource::countsChanged, this, &RangefinderWidget::updateCounts);
+	connect(device_source, &RangefinderSource::readingReceived, this, &RangefinderWidget::deviceReading);
 	// Return in a field is Add. The spin box has taken the text as its value by then.
 	for (auto* box : { distance_box, inclination_box, azimuth_box })
 	{
@@ -206,6 +257,8 @@ RangefinderWidget::RangefinderWidget(Map* map, bool mobile, QWidget* parent)
 	}
 	
 	updateDisplay();
+	updateDeviceState();
+	updateCounts();
 }
 
 RangefinderWidget::~RangefinderWidget() = default;
@@ -317,6 +370,9 @@ void RangefinderWidget::storeChoices()
 	settings.traverse = current_survey.traverse;
 	settings.azimuth_is_magnetic = current_survey.azimuth_is_magnetic;
 	settings.slope_distance = distance_kind_box->currentData().toBool();
+	settings.port = port_box->currentText().trimmed();
+	settings.baud = baud_box->currentData().toInt();
+	settings.draw_automatically = auto_check->isChecked();
 	settings.save();
 	
 	updateDisplay();
@@ -333,6 +389,67 @@ void RangefinderWidget::addClicked()
 	updateDisplay();
 	// Ready for the next distance.
 	distance_box->selectAll();
+}
+
+void RangefinderWidget::deviceReading(const RangefinderReading& reading)
+{
+	auto const has_horizontal = !qIsNaN(reading.horizontal_distance);
+	auto const has_slope = !qIsNaN(reading.slope_distance);
+	if (!has_horizontal && !has_slope)
+		return;
+	
+	{
+		// One update for all fields. A field for which the reading has nothing keeps what was typed.
+		const QSignalBlocker block_kind(distance_kind_box);
+		const QSignalBlocker block_distance(distance_box);
+		const QSignalBlocker block_inclination(inclination_box);
+		const QSignalBlocker block_azimuth(azimuth_box);
+		distance_kind_box->setCurrentIndex(distance_kind_box->findData(!has_horizontal));
+		distance_box->setValue(has_horizontal ? reading.horizontal_distance : reading.slope_distance);
+		if (!qIsNaN(reading.inclination))
+			inclination_box->setValue(reading.inclination);
+		if (!qIsNaN(reading.azimuth))
+		{
+			auto azimuth = std::fmod(reading.azimuth, 360.0);
+			if (azimuth < 0)
+				azimuth += 360.0;
+			azimuth_box->setValue(azimuth);
+		}
+	}
+	storeChoices();
+	if (auto_check->isChecked())
+		addClicked();
+}
+
+void RangefinderWidget::connectClicked(bool checked)
+{
+	storeChoices();
+	if (checked)
+		device_source->open(port_box->currentText(), baud_box->currentData().toInt());
+	else
+		device_source->close();
+	updateDeviceState();
+}
+
+void RangefinderWidget::updateDeviceState()
+{
+	auto const busy = device_source->isOpen() || device_source->isConnecting();
+	connect_button->setChecked(busy);
+	port_box->setEnabled(!busy);
+	baud_box->setEnabled(!busy);
+	if (device_source->isOpen())
+		state_label->setText(tr("Connected"));
+	else if (device_source->isConnecting())
+		state_label->setText(tr("Connecting..."));
+	else if (device_source->errorString().isEmpty())
+		state_label->setText(tr("Not connected"));
+	else
+		state_label->setText(device_source->errorString());
+}
+
+void RangefinderWidget::updateCounts()
+{
+	counts_label->setText(tr("Readings: %1, other lines: %2").arg(device_source->readingCount()).arg(device_source->otherCount()));
 }
 
 

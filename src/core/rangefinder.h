@@ -22,6 +22,8 @@
 #define FOOM_RANGEFINDER_H
 
 #include <QtGlobal>
+#include <QByteArray>
+#include <QString>
 
 #include "core/map_coord.h"
 
@@ -53,6 +55,41 @@ struct RangefinderReading
 	double heightDifference() const;
 	/** Returns true when the reading has an azimuth and a horizontal distance. */
 	bool isComplete() const;
+};
+
+
+/**
+ * Reads the lines which a rangefinder sends: the sentence $PLTIT,HV with
+ * horizontal distance, azimuth, inclination and slope distance.
+ *
+ * A sentence of another vendor becomes a further case of feed() which
+ * fills the same reading.
+ *
+ * See the design notes, "Readings from a device".
+ */
+class RangefinderSentenceParser
+{
+public:
+	enum Result
+	{
+		NoLine,   ///< The line was empty.
+		Reading,  ///< The line gave a reading.
+		Other     ///< Another sentence, a wrong checksum, or no sentence.
+	};
+	
+	/** Takes one line, with or without its line end. */
+	Result feed(const QByteArray& line);
+	
+	/** The reading of the last line which gave one. */
+	const RangefinderReading& reading() const { return last_reading; }
+	
+	int readingCount() const { return readings; }
+	int otherCount() const { return others; }
+	
+private:
+	RangefinderReading last_reading;
+	int readings = 0;
+	int others = 0;
 };
 
 
@@ -134,6 +171,12 @@ struct RangefinderSettings
 	bool azimuth_is_magnetic = true;
 	/** The distance which is entered is the slope distance. */
 	bool slope_distance = false;
+	/** The port of the device: a serial port, or host:port. */
+	QString port;
+	/** The speed of the serial port. */
+	int baud = 4800;
+	/** A reading from the device is drawn at once. */
+	bool draw_automatically = true;
 	
 	/** Reads the settings; keys which are absent or make no sense give the defaults. */
 	static RangefinderSettings load(const QSettings& settings);

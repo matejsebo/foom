@@ -23,7 +23,9 @@
 #include <cmath>
 
 #include <QtMath>
+#include <QByteArray>
 #include <QLatin1String>
+#include <QList>
 #include <QSettings>
 #include <QString>
 #include <QVariant>
@@ -39,6 +41,30 @@ QString sightKey() { return QStringLiteral("Rangefinder/sight"); }
 QString traverseKey() { return QStringLiteral("Rangefinder/traverse"); }
 QString magneticKey() { return QStringLiteral("Rangefinder/azimuth_magnetic"); }
 QString slopeKey() { return QStringLiteral("Rangefinder/slope_distance"); }
+QString portKey() { return QStringLiteral("Rangefinder/port"); }
+QString baudKey() { return QStringLiteral("Rangefinder/baud"); }
+QString autoKey() { return QStringLiteral("Rangefinder/draw_automatically"); }
+
+/// The number in a field of a sentence; unknown when the field is empty or no number.
+double fieldNumber(const QByteArray& field)
+{
+	auto ok = false;
+	auto const value = field.trimmed().toDouble(&ok);
+	return ok ? value : qQNaN();
+}
+
+/// A distance in metres from its field and the field of its unit.
+double fieldDistance(const QByteArray& value, const QByteArray& unit)
+{
+	auto const name = unit.trimmed().toUpper();
+	if (name == "M")
+		return fieldNumber(value);
+	if (name == "F")
+		return fieldNumber(value) * 0.3048;
+	if (name == "Y")
+		return fieldNumber(value) * 0.9144;
+	return qQNaN();
+}
 
 }  // namespace
 
@@ -67,6 +93,53 @@ double RangefinderReading::heightDifference() const
 bool RangefinderReading::isComplete() const
 {
 	return !qIsNaN(azimuth) && !qIsNaN(horizontalDistance());
+}
+
+
+
+RangefinderSentenceParser::Result RangefinderSentenceParser::feed(const QByteArray& line)
+{
+	auto text = line.trimmed();
+	if (text.isEmpty())
+		return NoLine;
+	
+	auto is_reading = text.startsWith('$');
+	auto const star = text.lastIndexOf('*');
+	if (is_reading && star >= 0)
+	{
+		// The checksum is the exclusive or of what stands between $ and *.
+		int checksum = 0;
+		for (int i = 1; i < star; ++i)
+			checksum ^= text.at(i);
+		auto ok = false;
+		auto const given = text.mid(star + 1).toInt(&ok, 16);
+		is_reading = ok && given == checksum;
+		text.truncate(star);
+	}
+	if (is_reading)
+	{
+		// $PLTIT,HV,<horizontal distance>,<unit>,<azimuth>,D,<inclination>,D,<slope distance>,<unit>
+		auto const fields = text.mid(1).split(',');
+		is_reading = fields.size() >= 10
+		             && fields[0].trimmed().toUpper() == "PLTIT"
+		             && fields[1].trimmed().toUpper() == "HV";
+		if (is_reading)
+		{
+			last_reading = {};
+			last_reading.horizontal_distance = fieldDistance(fields[2], fields[3]);
+			last_reading.azimuth = fieldNumber(fields[4]);
+			last_reading.inclination = fieldNumber(fields[6]);
+			last_reading.slope_distance = fieldDistance(fields[8], fields[9]);
+		}
+	}
+	
+	if (!is_reading)
+	{
+		++others;
+		return Other;
+	}
+	++readings;
+	return Reading;
 }
 
 
@@ -146,6 +219,12 @@ RangefinderSettings RangefinderSettings::load(const QSettings& settings)
 		result.traverse = RangefinderSurvey::RadialTraverse;
 	result.azimuth_is_magnetic = settings.value(magneticKey(), true).toBool();
 	result.slope_distance = settings.value(slopeKey(), false).toBool();
+	result.port = settings.value(portKey()).toString().trimmed();
+	auto ok = false;
+	auto const baud = settings.value(baudKey()).toInt(&ok);
+	if (ok && baud > 0)
+		result.baud = baud;
+	result.draw_automatically = settings.value(autoKey(), true).toBool();
 	return result;
 }
 
@@ -162,6 +241,9 @@ void RangefinderSettings::save(QSettings& settings) const
 	settings.setValue(traverseKey(), traverse == RangefinderSurvey::RadialTraverse ? QStringLiteral("radial") : QStringLiteral("linear"));
 	settings.setValue(magneticKey(), azimuth_is_magnetic);
 	settings.setValue(slopeKey(), slope_distance);
+	settings.setValue(portKey(), port);
+	settings.setValue(baudKey(), baud);
+	settings.setValue(autoKey(), draw_automatically);
 }
 
 void RangefinderSettings::save() const

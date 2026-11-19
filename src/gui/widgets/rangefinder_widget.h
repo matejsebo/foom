@@ -41,6 +41,7 @@ class QToolButton;
 namespace OpenOrienteering {
 
 class Map;
+class RangefinderSource;
 
 
 /**
@@ -86,6 +87,15 @@ public:
 	/** Sets the action behind the button which lets the reference be clicked on the map. */
 	void setReferenceClickAction(QAction* action);
 	
+	/** The source which reads the device. */
+	RangefinderSource* source() const { return device_source; }
+	
+	/**
+	 * Takes a reading from the device: puts what it has into the fields
+	 * and, with Draw automatically, adds it as Add does.
+	 */
+	void deviceReading(const OpenOrienteering::RangefinderReading& reading);
+	
 signals:
 	/** The reference or the target of the fields changed. */
 	void changed();
@@ -100,6 +110,9 @@ private:
 	void updateDisplay();
 	void storeChoices();
 	void addClicked();
+	void connectClicked(bool checked);
+	void updateDeviceState();
+	void updateCounts();
 	
 	Map* map;
 	RangefinderSurvey current_survey;
@@ -120,6 +133,13 @@ private:
 	QLabel* target_label;
 	QPushButton* add_button;
 	QPushButton* finish_button;
+	RangefinderSource* device_source;
+	QComboBox* port_box;
+	QComboBox* baud_box;
+	QPushButton* connect_button;
+	QLabel* state_label;
+	QCheckBox* auto_check;
+	QLabel* counts_label;
 };
 
 

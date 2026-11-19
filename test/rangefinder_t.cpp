@@ -27,18 +27,23 @@
 #include <QtTest>
 #include <QAbstractButton>
 #include <QAction>
+#include <QByteArray>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDoubleSpinBox>
+#include <QHostAddress>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMouseEvent>
 #include <QObject>
 #include <QPoint>
 #include <QSettings>
+#include <QSignalSpy>
 #include <QStatusBar>
 #include <QString>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QWidget>
 
@@ -60,6 +65,7 @@
 #include "gui/map/map_widget.h"
 #include "gui/widgets/rangefinder_widget.h"
 #include "gui/widgets/symbol_widget.h"
+#include "sensors/rangefinder_source.h"
 #include "tools/rangefinder_tool.h"
 #include "tools/tool.h"
 #include "undo/undo_manager.h"
@@ -82,6 +88,15 @@ QString shown(const MapCoordF& point)
 double distance(const MapCoordF& a, const MapCoordF& b)
 {
 	return std::hypot(a.x() - b.x(), a.y() - b.y());
+}
+
+/// Returns the sentence with its checksum and line end for the text between $ and *.
+QByteArray sentence(const QByteArray& body)
+{
+	int checksum = 0;
+	for (auto c : body)
+		checksum ^= c;
+	return QByteArray("$") + body + QByteArray("*") + QByteArray::number(checksum, 16).rightJustified(2, '0').toUpper() + QByteArray("\r\n");
 }
 
 RangefinderReading reading(double horizontal_distance, double azimuth)
@@ -114,6 +129,10 @@ private slots:
 	void settingsTest();
 	void widgetTest();
 	void editorTest();
+	void sentenceTest();
+	void sourceTest();
+	void deviceWidgetTest();
+	void deviceEditorTest();
 	
 private:
 	QTemporaryDir settings_dir;
@@ -646,6 +665,346 @@ void RangefinderTest::editorTest()
 	
 	rangefinder_act->trigger();
 	QVERIFY(!rangefinder_act->isChecked());
+	window->deleteLater();
+}
+
+
+/// Accept (8)
+void RangefinderTest::sentenceTest()
+{
+	auto const body = QByteArray("PLTIT,HV,12.50,M,45.0,D,5.0,D,12.55,M");
+
+	RangefinderSentenceParser parser;
+	QCOMPARE(parser.readingCount(), 0);
+	QCOMPARE(parser.otherCount(), 0);
+	QCOMPARE(parser.feed(sentence(body)), RangefinderSentenceParser::Reading);
+	QCOMPARE(parser.readingCount(), 1);
+	{
+		auto const& shot = parser.reading();
+		QCOMPARE(shot.horizontal_distance, 12.50);
+		QCOMPARE(shot.azimuth, 45.0);
+		QCOMPARE(shot.inclination, 5.0);
+		QCOMPARE(shot.slope_distance, 12.55);
+
+		Map map;
+		map.setScaleDenominator(10000);
+		RangefinderSurvey survey;
+		survey.setReference(MapCoordF(0, 0));
+		MapCoordF target;
+		QVERIFY(survey.target(shot, map.getGeoreferencing(), &target));
+		QVERIFY2(near(target, 0.884, -0.884, 0.001), qPrintable(shown(target)));
+	}
+
+	// A wrong checksum.
+	QCOMPARE(parser.feed(QByteArray("$") + body + QByteArray("*00\r\n")), RangefinderSentenceParser::Other);
+	QCOMPARE(parser.readingCount(), 1);
+	QCOMPARE(parser.otherCount(), 1);
+	// No checksum at all, and no line end.
+	QCOMPARE(parser.feed(QByteArray("$") + body), RangefinderSentenceParser::Reading);
+	QCOMPARE(parser.readingCount(), 2);
+	// White space around the line.
+	QByteArray const padded = QByteArray("  ") + sentence(body) + QByteArray(" \n");
+	QCOMPARE(parser.feed(padded), RangefinderSentenceParser::Reading);
+	QCOMPARE(parser.readingCount(), 3);
+
+	// Feet and yards.
+	QCOMPARE(parser.feed(sentence("PLTIT,HV,12.50,F,45.0,D,5.0,D,12.55,Y")), RangefinderSentenceParser::Reading);
+	QVERIFY2(qAbs(parser.reading().horizontal_distance - 3.81) < 1e-9, qPrintable(QString::number(parser.reading().horizontal_distance, 'f', 6)));
+	QVERIFY2(qAbs(parser.reading().slope_distance - 12.55 * 0.9144) < 1e-9, qPrintable(QString::number(parser.reading().slope_distance, 'f', 6)));
+	QCOMPARE(parser.feed(sentence("PLTIT,HV,12.50,Y,45.0,D,5.0,D,12.55,M")), RangefinderSentenceParser::Reading);
+	QVERIFY(qAbs(parser.reading().horizontal_distance - 11.43) < 1e-9);
+	// A unit which is not known.
+	QCOMPARE(parser.feed(sentence("PLTIT,HV,12.50,X,45.0,D,5.0,D,12.55,M")), RangefinderSentenceParser::Reading);
+	QVERIFY(qIsNaN(parser.reading().horizontal_distance));
+	QCOMPARE(parser.reading().slope_distance, 12.55);
+
+	// No compass: the azimuth is empty.
+	QCOMPARE(parser.feed(sentence("PLTIT,HV,12.50,M,,D,5.0,D,12.55,M")), RangefinderSentenceParser::Reading);
+	QVERIFY(qIsNaN(parser.reading().azimuth));
+	QCOMPARE(parser.reading().horizontal_distance, 12.50);
+	QCOMPARE(parser.reading().inclination, 5.0);
+	QVERIFY(!parser.reading().isComplete());
+
+	// What is not a reading.
+	auto const readings = parser.readingCount();
+	auto const others = parser.otherCount();
+	QCOMPARE(parser.feed(sentence("PLTIT,HT,3.20,M")), RangefinderSentenceParser::Other);
+	QCOMPARE(parser.feed(sentence("GPGGA,101500.00,5000.00000,N,10500.00000,W,2,09,0.9,362.4,M,47.0,M,,")), RangefinderSentenceParser::Other);
+	QCOMPARE(parser.feed(QByteArray("hello\r\n")), RangefinderSentenceParser::Other);
+	QCOMPARE(parser.feed(sentence("PLTIT,HV,12.50,M")), RangefinderSentenceParser::Other);
+	QCOMPARE(parser.feed(QByteArray("\r\n")), RangefinderSentenceParser::NoLine);
+	QCOMPARE(parser.feed(QByteArray()), RangefinderSentenceParser::NoLine);
+	QCOMPARE(parser.readingCount(), readings);
+	QCOMPARE(parser.otherCount(), others + 4);
+	// The last reading is still there.
+	QCOMPARE(parser.reading().horizontal_distance, 12.50);
+}
+
+
+/// Accept (9)
+void RangefinderTest::sourceTest()
+{
+	QTcpServer server;
+	QVERIFY(server.listen(QHostAddress::LocalHost));
+	auto const address = QStringLiteral("127.0.0.1:%1").arg(server.serverPort());
+
+	RangefinderSource source;
+	QVERIFY(!source.isOpen());
+	std::vector<RangefinderReading> readings;
+	connect(&source, &RangefinderSource::readingReceived, this, [&readings](const RangefinderReading& shot) {
+		readings.push_back(shot);
+	});
+	QSignalSpy states(&source, &RangefinderSource::stateChanged);
+
+	QVERIFY(source.open(address, 4800));
+	QTRY_VERIFY(server.hasPendingConnections());
+	auto* client = server.nextPendingConnection();
+	QVERIFY(client);
+	QTRY_VERIFY(source.isOpen());
+	QVERIFY(states.count() > 0);
+	QVERIFY(source.errorString().isEmpty());
+
+	QByteArray const lines = sentence("PLTIT,HV,12.50,M,45.0,D,5.0,D,12.55,M")
+	                         + sentence("GPGGA,101500.00,5000.00000,N,10500.00000,W,2,09,0.9,362.4,M,47.0,M,,")
+	                         + QByteArray("$PLTIT,HV,12.50,M,45.0,D,5.0,D,12.55,M*00\r\n");
+	client->write(lines);
+	client->flush();
+	QTRY_COMPARE(source.otherCount(), 2);
+	QCOMPARE(source.readingCount(), 1);
+	QCOMPARE(int(readings.size()), 1);
+	QCOMPARE(readings.front().horizontal_distance, 12.50);
+	QCOMPARE(readings.front().azimuth, 45.0);
+
+	// A line in two pieces.
+	QByteArray const line = sentence("PLTIT,HV,20.00,M,90.0,D,0.0,D,20.00,M");
+	client->write(line.left(14));
+	client->flush();
+	QTest::qWait(100);
+	QCOMPARE(int(readings.size()), 1);
+	client->write(line.mid(14));
+	client->flush();
+	QTRY_COMPARE(int(readings.size()), 2);
+	QCOMPARE(readings.back().horizontal_distance, 20.0);
+	QCOMPARE(readings.back().azimuth, 90.0);
+	QCOMPARE(source.otherCount(), 2);
+
+	// The other side closes.
+	states.clear();
+	client->disconnectFromHost();
+	QTRY_VERIFY(!source.isOpen());
+	QVERIFY(states.count() > 0);
+	QVERIFY(!source.errorString().isEmpty());
+
+	// A line given by hand counts as one which was read.
+	source.processLine(line);
+	QCOMPARE(int(readings.size()), 3);
+	QCOMPARE(source.readingCount(), 3);
+
+	// Nothing listens.
+	server.close();
+	RangefinderSource lonely;
+	lonely.open(address, 4800);
+	QTRY_VERIFY(!lonely.errorString().isEmpty());
+	QVERIFY(!lonely.isOpen());
+	lonely.close();
+
+	// A text which is neither a serial port nor a network port.
+	RangefinderSource nameless;
+	QVERIFY(!nameless.open(QString{}, 4800));
+	QVERIFY(!nameless.isOpen());
+
+	// The settings of the device.
+	auto const path = settings_dir.filePath(QStringLiteral("rangefinder-device.ini"));
+	{
+		QSettings file(path, QSettings::IniFormat);
+		auto const defaults = RangefinderSettings::load(file);
+		QVERIFY(defaults.port.isEmpty());
+		QCOMPARE(defaults.baud, 4800);
+		QVERIFY(defaults.draw_automatically);
+
+		RangefinderSettings settings;
+		settings.port = QStringLiteral("COM7");
+		settings.baud = 38400;
+		settings.draw_automatically = false;
+		settings.save(file);
+	}
+	{
+		QSettings file(path, QSettings::IniFormat);
+		auto const settings = RangefinderSettings::load(file);
+		QCOMPARE(settings.port, QStringLiteral("COM7"));
+		QCOMPARE(settings.baud, 38400);
+		QVERIFY(!settings.draw_automatically);
+		file.setValue(QStringLiteral("Rangefinder/baud"), -5);
+		QCOMPARE(RangefinderSettings::load(file).baud, 4800);
+	}
+}
+
+
+/// Accept (10)
+void RangefinderTest::deviceWidgetTest()
+{
+	RangefinderSettings{}.save();
+	Map map;
+	map.setScaleDenominator(10000);
+
+	RangefinderWidget widget(&map, false);
+	auto* distance_box = widget.findChild<QDoubleSpinBox*>(QStringLiteral("rangefinder-distance"));
+	auto* kind_box = widget.findChild<QComboBox*>(QStringLiteral("rangefinder-distance-kind"));
+	auto* inclination_box = widget.findChild<QDoubleSpinBox*>(QStringLiteral("rangefinder-inclination"));
+	auto* azimuth_box = widget.findChild<QDoubleSpinBox*>(QStringLiteral("rangefinder-azimuth"));
+	auto* add_button = widget.findChild<QAbstractButton*>(QStringLiteral("rangefinder-add"));
+	auto* port_box = widget.findChild<QComboBox*>(QStringLiteral("rangefinder-port"));
+	auto* baud_box = widget.findChild<QComboBox*>(QStringLiteral("rangefinder-baud"));
+	auto* connect_button = widget.findChild<QAbstractButton*>(QStringLiteral("rangefinder-connect"));
+	auto* state_label = widget.findChild<QLabel*>(QStringLiteral("rangefinder-state"));
+	auto* auto_check = widget.findChild<QCheckBox*>(QStringLiteral("rangefinder-auto"));
+	auto* counts_label = widget.findChild<QLabel*>(QStringLiteral("rangefinder-counts"));
+	QVERIFY(distance_box && kind_box && inclination_box && azimuth_box && add_button);
+	QVERIFY(port_box && baud_box && connect_button && state_label && auto_check && counts_label);
+	QVERIFY(widget.source());
+
+	// The defaults.
+	QVERIFY(port_box->isEditable());
+	QVERIFY(port_box->currentText().isEmpty());
+	QCOMPARE(baud_box->currentData().toInt(), 4800);
+	QVERIFY(connect_button->isCheckable());
+	QVERIFY(!connect_button->isChecked());
+	QVERIFY(auto_check->isChecked());
+	QCOMPARE(counts_label->text(), QStringLiteral("Readings: 0, other lines: 0"));
+
+	auto asked = 0;
+	auto asked_for = MapCoordF{};
+	widget.setAddFunction([&](const MapCoordF& position) {
+		++asked;
+		asked_for = position;
+		return true;
+	});
+	widget.setReference(MapCoordF(0, 0));
+	// Radial, so that the reference stays for the readings of this test.
+	auto* traverse_box = widget.findChild<QComboBox*>(QStringLiteral("rangefinder-traverse"));
+	QVERIFY(traverse_box);
+	traverse_box->setCurrentIndex(traverse_box->findData(int(RangefinderSurvey::RadialTraverse)));
+
+	// With Draw automatically the reading is added at once.
+	widget.source()->processLine(sentence("PLTIT,HV,12.50,M,45.0,D,5.0,D,12.55,M"));
+	QCOMPARE(distance_box->value(), 12.50);
+	QCOMPARE(kind_box->currentData().toBool(), false);
+	QCOMPARE(inclination_box->value(), 5.0);
+	QCOMPARE(azimuth_box->value(), 45.0);
+	QCOMPARE(asked, 1);
+	QVERIFY2(near(asked_for, 0.884, -0.884, 0.001), qPrintable(shown(asked_for)));
+	QCOMPARE(counts_label->text(), QStringLiteral("Readings: 1, other lines: 0"));
+
+	// Without, it waits in the fields.
+	auto_check->setChecked(false);
+	QVERIFY(!RangefinderSettings::load().draw_automatically);
+	widget.source()->processLine(sentence("PLTIT,HV,30.00,M,180.0,D,0.0,D,30.00,M"));
+	widget.source()->processLine(sentence("GPGGA,101500.00,5000.00000,N,10500.00000,W,2,09,0.9,362.4,M,47.0,M,,"));
+	QCOMPARE(asked, 1);
+	QCOMPARE(distance_box->value(), 30.0);
+	QCOMPARE(azimuth_box->value(), 180.0);
+	QCOMPARE(counts_label->text(), QStringLiteral("Readings: 2, other lines: 1"));
+	add_button->click();
+	QCOMPARE(asked, 2);
+	QVERIFY2(near(asked_for, 0, 3, 0.001), qPrintable(shown(asked_for)));
+
+	// A rangefinder without compass: the typed azimuth stays.
+	auto_check->setChecked(true);
+	azimuth_box->setValue(90.0);
+	widget.source()->processLine(sentence("PLTIT,HV,10.00,M,,D,0.0,D,10.00,M"));
+	QCOMPARE(azimuth_box->value(), 90.0);
+	QCOMPARE(asked, 3);
+	QVERIFY2(near(asked_for, 1, 0, 0.001), qPrintable(shown(asked_for)));
+
+	// Slope distance and inclination only.
+	widget.source()->processLine(sentence("PLTIT,HV,,M,0.0,D,60.0,D,20.00,M"));
+	QCOMPARE(kind_box->currentData().toBool(), true);
+	QCOMPARE(distance_box->value(), 20.0);
+	QCOMPARE(inclination_box->value(), 60.0);
+	QCOMPARE(asked, 4);
+	QVERIFY2(near(asked_for, 0, -1, 0.001), qPrintable(shown(asked_for)));
+
+	// A reading with no distance at all changes nothing and adds nothing.
+	widget.source()->processLine(sentence("PLTIT,HV,,M,10.0,D,,D,,M"));
+	QCOMPARE(asked, 4);
+	QCOMPARE(distance_box->value(), 20.0);
+
+	// Connecting to a port on which nothing listens: the switch goes off again, and the state says why.
+	quint16 free_port = 0;
+	{
+		QTcpServer probe;
+		QVERIFY(probe.listen(QHostAddress::LocalHost));
+		free_port = probe.serverPort();
+	}
+	port_box->setEditText(QStringLiteral("127.0.0.1:%1").arg(free_port));
+	connect_button->click();
+	QTRY_VERIFY(!connect_button->isChecked());
+	QVERIFY(!state_label->text().isEmpty());
+	QCOMPARE(RangefinderSettings::load().port, QStringLiteral("127.0.0.1:%1").arg(free_port));
+
+	// Connecting to one which is there.
+	QTcpServer server;
+	QVERIFY(server.listen(QHostAddress::LocalHost));
+	port_box->setEditText(QStringLiteral("127.0.0.1:%1").arg(server.serverPort()));
+	connect_button->click();
+	QTRY_VERIFY(server.hasPendingConnections());
+	auto* client = server.nextPendingConnection();
+	QTRY_VERIFY(widget.source()->isOpen());
+	QVERIFY(connect_button->isChecked());
+	QCOMPARE(state_label->text(), QStringLiteral("Connected"));
+	client->write(sentence("PLTIT,HV,40.00,M,270.0,D,0.0,D,40.00,M"));
+	client->flush();
+	QTRY_COMPARE(asked, 5);
+	QVERIFY2(near(asked_for, -4, 0, 0.001), qPrintable(shown(asked_for)));
+	connect_button->click();
+	QVERIFY(!connect_button->isChecked());
+	QVERIFY(!widget.source()->isOpen());
+	QCOMPARE(state_label->text(), QStringLiteral("Not connected"));
+
+	RangefinderSettings{}.save();
+}
+
+
+/// Accept (11)
+void RangefinderTest::deviceEditorTest()
+{
+	RangefinderSettings{}.save();
+
+	auto* map = new Map();
+	map->setScaleDenominator(10000);
+	auto* black = new MapColor(QStringLiteral("Black"), 0);
+	black->setCmyk(MapColorCmyk(0.0f, 0.0f, 0.0f, 1.0f));
+	black->setRgbFromCmyk();
+	map->addColor(black, 0);
+	auto* point = new PointSymbol();
+	point->setInnerRadius(300);
+	point->setInnerColor(black);
+	map->addSymbol(point, 0);
+
+	auto* window = new MainWindow();
+	auto* editor = new MapEditorController(MapEditorController::MapEditor, map);
+	window->setController(editor);
+	editor->getSymbolWidget()->selectSingleSymbol(point);
+	editor->setEditTool();
+	QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+
+	auto* rangefinder_act = editor->getAction("rangefinder");
+	QVERIFY(rangefinder_act);
+	rangefinder_act->trigger();
+	auto* widget = window->findChild<RangefinderWidget*>();
+	QVERIFY(widget);
+	editor->rangefinderSetReference(MapCoordF(0, 0));
+
+	auto const* part = map->getCurrentPart();
+	QCOMPARE(part->getNumObjects(), 0);
+	widget->source()->processLine(sentence("PLTIT,HV,12.50,M,45.0,D,5.0,D,12.55,M"));
+	QCOMPARE(part->getNumObjects(), 1);
+	{
+		auto const position = MapCoordF(part->getObject(0)->getRawCoordinateVector().front());
+		QVERIFY2(near(position, 0.884, -0.884, 0.001), qPrintable(shown(position)));
+	}
+
+	rangefinder_act->trigger();
 	window->deleteLater();
 }
 

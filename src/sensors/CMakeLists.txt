@@ -162,6 +162,7 @@ set(MAPPER_SENSORS_SOURCES
   gps_temporary_markers.cpp
   gps_track_recorder.cpp
   nmea_source_settings.cpp  # foom
+  rangefinder_source.cpp  # foom
   sensors_settings_page.cpp
 )
 
@@ -188,7 +189,7 @@ target_link_libraries(mapper-sensors
     Qt5::Gui
     Qt5::Widgets
 )
-foreach(lib Qt5::Positioning Qt5::Sensors Qt5::SerialPort Qt5::AndroidExtras)
+foreach(lib Qt5::Positioning Qt5::Sensors Qt5::SerialPort Qt5::AndroidExtras Qt5::Network)  # foom: Network for the rangefinder
 	if(TARGET ${lib})
 		target_link_libraries(mapper-sensors  PRIVATE ${lib})
 	endif()
