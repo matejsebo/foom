@@ -27,7 +27,8 @@ Needs Pillow:
     uv run --no-project --with pillow python images/foom-logo/make_logo.py
 
 Writes the SVG and PNG files beside this script, and the program icons
-(PNG sizes, .ico, .icns) into images/mapper-icon/ and images/mapper.png.
+(PNG sizes, .ico, .icns) into images/mapper-icon/, images/mapper.png and
+the banner of the home screen, images/title.png.
 Icons of 48 pixels and less are drawn simpler: a heavier ring, a larger F,
 no specks.
 """
@@ -221,6 +222,11 @@ def main():
     write_svg(HERE / "foom-logo.svg", lockup, lockup_size)
     render(word, word_size, word_size).save(HERE / "foom-wordmark.png", optimize=True)
     render(lockup, lockup_size, lockup_size).save(HERE / "foom-logo.png", optimize=True)
+    # The banner of the home screen, 120 pixels high.
+    render(lockup, lockup_size, (round(lockup_size[0] * 120 / lockup_size[1]), 120)).save(IMAGES / "title.png", optimize=True)
+    # The logo on the pages of the manual and of the API documentation. The file name is upstream's.
+    render(lockup, lockup_size, (round(lockup_size[0] * 50 / lockup_size[1]), 50)).save(
+        IMAGES.parent / "doc" / "openorienteering.png", optimize=True)
 
     def icon_at(size):
         return render(small if size <= 48 else icon, icon_size, (size, size))
