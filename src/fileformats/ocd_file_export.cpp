@@ -3031,7 +3031,9 @@ void OcdFileExport::exportTemplates()
 /// String 8: background map (aka template)
 QString OcdFileExport::stringForTemplate(const Template& temp, const MapCoord& area_offset)
 {
-	auto const visibility = view ? view->getTemplateVisibility(&temp) : TemplateVisibility{};
+	// foom: without a view (the headless runner) a template is shown and not dimmed,
+	// see the design notes, "Templates without a view".
+	auto const visibility = view ? view->getTemplateVisibility(&temp) : TemplateVisibility{ 1.0, true };
 	const auto d = qBound(0, 100 - qRound(100 * visibility.opacity), 100);
 	const auto s = visibility.visible ? '1' : '0';
 	
