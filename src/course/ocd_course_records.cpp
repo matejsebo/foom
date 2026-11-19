@@ -44,7 +44,7 @@ namespace {
 
 const QChar tab = QLatin1Char('\t');
 
-/// The letter in the Y field of a course object; 0 when there is none.
+/// The letter in the Y field of a course object.
 char kindLetter(CourseObject::Kind kind)
 {
 	switch (kind)
@@ -55,10 +55,9 @@ char kindLetter(CourseObject::Kind kind)
 	case CourseObject::Finish:       return 'f';
 	case CourseObject::Description:  return 'd';
 	case CourseObject::TextBlock:    return 't';
-	case CourseObject::CourseTitle:
-	case CourseObject::VariantCode:
-	case CourseObject::StartNumber:
-		break;
+	case CourseObject::CourseTitle:  return 'n';
+	case CourseObject::VariantCode:  return 'v';
+	case CourseObject::StartNumber:  return 'u';
 	}
 	return 0;
 }

@@ -169,15 +169,22 @@ void CourseModelTest::objectRecordTest()
 	QCOMPARE(object.other[1].value, QStringLiteral("t"));
 	QCOMPARE(OcdCourse::formatObject(object), tabbed("40D2|Yd|aD2|p0|ot"));
 	
-	// Course title, variant code and start number are written bare.
+	// Course title, variant code and start number, as OCD course files have them.
+	QVERIFY(OcdCourse::parseObject(tabbed("50N1|aN1|Yn"), object));
+	QCOMPARE(object.kind, CourseObject::CourseTitle);
+	QCOMPARE(object.code, QStringLiteral("N1"));
+	QVERIFY(object.other.empty());
+	QCOMPARE(OcdCourse::formatObject(object), tabbed("50N1|Yn|aN1"));
+	QVERIFY(OcdCourse::parseObject(tabbed("60V1|aV1|Yv"), object));
+	QCOMPARE(object.kind, CourseObject::VariantCode);
+	QCOMPARE(OcdCourse::formatObject(object), tabbed("60V1|Yv|aV1"));
+	QVERIFY(OcdCourse::parseObject(tabbed("70U1|Yu|aU1"), object));
+	QCOMPARE(object.kind, CourseObject::StartNumber);
+	QCOMPARE(OcdCourse::formatObject(object), tabbed("70U1|Yu|aU1"));
+	// Kind and code alone are read too, and written with the two fields.
 	QVERIFY(OcdCourse::parseObject(tabbed("50N1"), object));
 	QCOMPARE(object.kind, CourseObject::CourseTitle);
-	QCOMPARE(OcdCourse::formatObject(object), tabbed("50N1"));
-	QVERIFY(OcdCourse::parseObject(tabbed("60V1"), object));
-	QCOMPARE(object.kind, CourseObject::VariantCode);
-	QVERIFY(OcdCourse::parseObject(tabbed("70U1"), object));
-	QCOMPARE(object.kind, CourseObject::StartNumber);
-	QCOMPARE(OcdCourse::formatObject(object), tabbed("70U1"));
+	QCOMPARE(OcdCourse::formatObject(object), tabbed("50N1|Yn|aN1"));
 	
 	// A text block, as it stands in a parameter string.
 	QVERIFY(OcdCourse::parseObject(tabbed("80T1|aT1|Yt|tAttention: Dangerous Road!"), object));

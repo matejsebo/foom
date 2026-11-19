@@ -149,50 +149,42 @@ QStringList parameterStrings(const QByteArray& data, std::initializer_list<int> 
 	return strings;
 }
 
-/// A record with its fields in the order in which FOOM writes them.
-QString canonical(int type, const QString& record)
+/// A record in a form which can be compared: its fields without regard to
+/// their order, and nothing which went through foom's own writer. In a
+/// course the items keep their order and the other fields follow, sorted;
+/// "Yn", which says that a course is a normal one, counts as said nothing.
+/// A blank value, as it stands for a number which is not given, counts
+/// as an empty one.
+QString comparable(int type, const QString& record)
 {
-	switch (type)
-	{
-	case 1:
-	case 31:
-		{
-			CourseObject object;
-			return OcdCourse::parseObject(record, object) ? OcdCourse::formatObject(object) : QStringLiteral("?") + record;
-		}
-	case 2:
-		{
-			Course course;
-			return OcdCourse::parseCourse(record, course) ? OcdCourse::formatCourse(course) : QStringLiteral("?") + record;
-		}
-	case 3:
-		{
-			CourseClass course_class;
-			return OcdCourse::parseClass(record, course_class) ? OcdCourse::formatClass(course_class) : QStringLiteral("?") + record;
-		}
-	case 1031:
-		return OcdCourse::formatOptions(OcdCourse::parseOptions(record));
-	default:
+	if (type == 1031)
 		return record;
+	auto fields = record.split(QLatin1Char('\t'));
+	auto const head = fields.takeFirst();
+	QStringList items;
+	QStringList others;
+	for (auto const& field : fields)
+	{
+		auto const text = field.trimmed().isEmpty() ? QString{} : (field.mid(1).trimmed().isEmpty() ? field.left(1) : field);
+		if (text.isEmpty())
+			continue;
+		if (type == 2 && !text[0].isUpper())
+			items.push_back(text);
+		else if (!(type == 2 && text == QLatin1String("Yn")))
+			others.push_back(text);
 	}
+	others.sort();
+	return (QStringList{ head } + items + others).join(QLatin1Char('\t'));
 }
 
-/// The objects of a file as sorted lines, the course records in FOOM's field order.
+/// The objects of a file as sorted lines.
 QStringList objectLines(const QByteArray& data)
 {
 	QStringList lines;
 	for (auto const& record : objectRecords(data))
 	{
-		QString string = record.string;
-		if (record.string_type == 1)
-			string = canonical(1, record.string);
-		else if (record.string_type == 2)
-		{
-			CourseOverride override;
-			string = OcdCourse::parseOverride(record.string, override) ? OcdCourse::formatOverride(override) : QStringLiteral("?") + record.string;
-		}
 		lines.push_back(QStringLiteral("symbol %1 status %2 view %3 string %4: %5")
-		                .arg(record.symbol).arg(record.status).arg(record.view_type).arg(record.string_type).arg(string));
+		                .arg(record.symbol).arg(record.status).arg(record.view_type).arg(record.string_type).arg(comparable(0, record.string)));
 	}
 	lines.sort();
 	return lines;
@@ -205,7 +197,7 @@ QStringList stringLines(const QByteArray& data)
 	{
 		auto const space = line.indexOf(QLatin1Char(' '));
 		auto const type = line.left(space).toInt();
-		lines.push_back(QString::number(type) + QLatin1Char(' ') + canonical(type, line.mid(space + 1)));
+		lines.push_back(QString::number(type) + QLatin1Char(' ') + comparable(type, line.mid(space + 1)));
 	}
 	lines.sort();
 	return lines;
@@ -387,7 +379,7 @@ void CourseOcdTest::fromScratchTest()
 	auto const strings = stringLines(written);
 	QCOMPARE(strings, (QStringList{ QStringLiteral("1031 \teTraining\ts5.00"),
 	                                QStringLiteral("2 Short\tc31\ttT1\tC5"),
-	                                QStringLiteral("3 Open\tcShort\tr\tf\tt"),
+	                                QStringLiteral("3 Open\tcShort\tf\tr\tt"),
 	                                QStringLiteral("31 80T1\tYt\taT1\ttHave fun") }));
 	
 	Map reloaded;
