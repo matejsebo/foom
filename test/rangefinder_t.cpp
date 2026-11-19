@@ -951,6 +951,7 @@ void RangefinderTest::deviceWidgetTest()
 	auto* client = server.nextPendingConnection();
 	QTRY_VERIFY(widget.source()->isOpen());
 	QVERIFY(connect_button->isChecked());
+	QCOMPARE(connect_button->text(), QStringLiteral("Disconnect"));
 	QCOMPARE(state_label->text(), QStringLiteral("Connected"));
 	client->write(sentence("PLTIT,HV,40.00,M,270.0,D,0.0,D,40.00,M"));
 	client->flush();
@@ -959,6 +960,7 @@ void RangefinderTest::deviceWidgetTest()
 	connect_button->click();
 	QVERIFY(!connect_button->isChecked());
 	QVERIFY(!widget.source()->isOpen());
+	QCOMPARE(connect_button->text(), QStringLiteral("Connect"));
 	QCOMPARE(state_label->text(), QStringLiteral("Not connected"));
 
 	RangefinderSettings{}.save();

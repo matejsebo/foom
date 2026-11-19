@@ -135,6 +135,9 @@ RangefinderWidget::RangefinderWidget(Map* map, bool mobile, QWidget* parent)
 	port_box = new QComboBox();
 	port_box->setObjectName(QStringLiteral("rangefinder-port"));
 	port_box->setEditable(true);
+	// Wide enough for a host and its port.
+	port_box->setMinimumContentsLength(18);
+	port_box->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
 	port_box->addItems(RangefinderSource::serialPorts());
 	port_box->setCurrentIndex(-1);
 	port_box->setEditText(settings.port);
@@ -435,6 +438,7 @@ void RangefinderWidget::updateDeviceState()
 {
 	auto const busy = device_source->isOpen() || device_source->isConnecting();
 	connect_button->setChecked(busy);
+	connect_button->setText(busy ? tr("Disconnect") : tr("Connect"));
 	port_box->setEnabled(!busy);
 	baud_box->setEnabled(!busy);
 	if (device_source->isOpen())
