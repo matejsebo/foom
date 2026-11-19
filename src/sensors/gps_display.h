@@ -123,6 +123,19 @@ public:
 	/// It is read from the settings initially and when they change.
 	void setTailLength(double metres);
 	
+	/// foom: The shift, in map coordinates, which is added to every position.
+	/// See the design notes, "Position offset and sentence log".
+	const MapCoordF& positionOffset() const { return position_offset; }
+	/// foom: Returns true when there is an offset.
+	bool hasPositionOffset() const { return has_position_offset; }
+	/// foom: Sets the offset. The latest position moves at once, the tail starts anew, and nothing is passed on.
+	void setPositionOffset(const MapCoordF& offset);
+	/// foom: Removes the offset.
+	void clearPositionOffset();
+	/// foom: Sets the offset so that the latest position falls on the given place.
+	/// Returns false, and changes nothing, when no position is there which passed the quality gate.
+	bool setTruePosition(const MapCoordF& true_position);
+	
 protected:
 	/// Handles blinking.
 	void timerEvent(QTimerEvent* e) override;
@@ -146,6 +159,13 @@ signals:
 	/// The verdict is a FixGate::Verdict.
 	void fixChecked(const OpenOrienteering::FixInfo& fix, int verdict);
 	
+	/// foom: Is emitted when the offset was set, changed or removed.
+	void positionOffsetChanged();
+	
+	/// foom: Is emitted when the source begins to write the sentences it receives to a file
+	/// (writing is true), and when it finds that it cannot write that file (writing is false).
+	void sentenceLogChanged(const QString& file, bool writing);
+	
 private slots:
     void positionUpdated(const QGeoPositionInfo& info);
 	void error();
@@ -155,6 +175,7 @@ private:
 	MapCoordF calcLatestGPSCoord(bool& ok);
 	void updateMapWidget();
 	void paintTail(QPainter* painter);  // foom
+	void checkSentenceLog();  // foom
 	
 	/**
 	 * A lightweight utility for sinusoidal pulsating opacity.
@@ -205,6 +226,12 @@ private:
 	GpsTail gps_tail;                        // foom
 	double antenna_height = 0;               // foom
 	bool tail_gap = false;                   // foom
+	MapCoordF raw_gps_coord;                 // foom: the latest position without the offset
+	MapCoordF position_offset;               // foom
+	bool has_raw_gps_coord = false;          // foom
+	bool has_position_offset = false;        // foom
+	QString sentence_log_file;               // foom
+	QString sentence_log_error;              // foom
 };
 
 

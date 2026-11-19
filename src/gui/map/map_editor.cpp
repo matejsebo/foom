@@ -23,6 +23,7 @@
 #include "map_editor_p.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <functional>
 #include <iterator>
@@ -219,6 +220,7 @@
 #include "tools/edit_point_tool.h"
 #include "tools/edit_line_tool.h"
 #include "tools/fill_tool.h"
+#include "tools/gps_offset_tool.h"  // foom
 #include "tools/pan_tool.h"
 #include "tools/rotate_pattern_tool.h"
 #include "tools/rotate_tool.h"
@@ -871,6 +873,10 @@ void MapEditorController::attach(MainWindow* window)
 			if (verdict != FixGate::Accepted)
 				this->window->showStatusBarMessage(FixGate::verdictText(FixGate::Verdict(verdict), fix, gps_display->fixGate()), 3000);
 		});
+		connect(gps_display, &GPSDisplay::sentenceLogChanged, this, [this](const QString& file, bool writing) {  // foom: the sentence log
+			auto const name = QDir::toNativeSeparators(file);
+			this->window->showStatusBarMessage(writing ? tr("Received sentences are written to %1").arg(name) : tr("Received sentences cannot be written to %1").arg(name), 5000);
+		});
 		gps_marker_display = new GPSTemporaryMarkers(map_widget, gps_display);
 		
 		createActions();
@@ -1270,9 +1276,19 @@ void MapEditorController::createActions()
 	gps_add_vertex_act->setEnabled(false);
 	gps_average_vertex_act = newCheckAction("gps-average-vertex", tr("Average GPS positions for a vertex"), this, SLOT(gpsAverageVertexClicked(bool)), nullptr, tr("While it is on, the GPS positions are averaged. Switching it off adds the mean as a vertex."));
 	gps_average_vertex_act->setEnabled(false);
+	// foom: the offset of the GPS position; the design notes, "Position offset and sentence log"
+	gps_set_offset_act = newToolAction("gps-set-offset", tr("Set GPS position offset"), this, SLOT(gpsSetOffsetClicked()), nullptr, tr("Click the place on the map where the GPS receiver is. The difference is added to the GPS positions which follow."));
+	gps_set_offset_act->setEnabled(false);
+	gps_clear_offset_act = newAction("gps-clear-offset", tr("Remove GPS position offset"), this, SLOT(gpsClearOffsetClicked()));
+	gps_clear_offset_act->setEnabled(false);
 	connect(this, &MapEditorController::toolChanged, this, &MapEditorController::updateGpsRecordActions);
 	if (gps_display)
+	{
 		connect(gps_display, &GPSDisplay::mapPositionUpdated, this, &MapEditorController::gpsRecordPosition);
+		connect(gps_display, &GPSDisplay::positionOffsetChanged, this, [this]() {
+			gps_clear_offset_act->setEnabled(gps_display->hasPositionOffset());
+		});
+	}
 	
 	compass_action = newCheckAction("compassdisplay", tr("Enable compass display"), this, SLOT(enableCompassDisplay(bool)), "compass.png", QString{}, "toolbars.html#compass_display"); // TODO: write documentation
 	align_map_with_north_act = newCheckAction("alignmapwithnorth", tr("Align map with north"), this, SLOT(alignMapWithNorth(bool)), "rotate-map.png", QString{}, "toolbars.html#align_map_with_north"); // TODO: write documentation
@@ -1533,6 +1549,9 @@ void MapEditorController::createMenuAndToolbars()
 		gps_menu->addAction(gps_record_pause_act);
 		gps_menu->addAction(gps_add_vertex_act);
 		gps_menu->addAction(gps_average_vertex_act);
+		gps_menu->addSeparator();
+		gps_menu->addAction(gps_set_offset_act);
+		gps_menu->addAction(gps_clear_offset_act);
 	}
 	tools_menu->addAction(draw_point_act);
 	tools_menu->addAction(draw_path_act);
@@ -1948,6 +1967,9 @@ void MapEditorController::createMobileGUI()
 	mobile_gps_temp_path_menu->addAction(gps_record_pause_act);
 	mobile_gps_temp_path_menu->addAction(gps_add_vertex_act);
 	mobile_gps_temp_path_menu->addAction(gps_average_vertex_act);
+	mobile_gps_temp_path_menu->addSeparator();
+	mobile_gps_temp_path_menu->addAction(gps_set_offset_act);
+	mobile_gps_temp_path_menu->addAction(gps_clear_offset_act);
 	temp_path_button->setMenu(mobile_gps_temp_path_menu);
 	
 	bottom_action_bar->addAction(gps_temporary_point_act, 1, col++);
@@ -5153,6 +5175,16 @@ void MapEditorController::enableGPSDisplay(bool enable)
 	gps_temporary_path_act->setEnabled(enable);
 	updateDrawPointGPSAvailability();
 	updateGpsRecordActions();  // foom
+	
+	// foom: the offset of the GPS position
+	if (gps_set_offset_act)
+	{
+		gps_set_offset_act->setEnabled(enable);
+		if (!enable && qobject_cast<GpsOffsetTool*>(current_tool))
+			setEditTool();
+		if (enable && gps_display->hasPositionOffset())
+			showGpsOffsetMessage();
+	}
 }
 
 
@@ -5249,6 +5281,38 @@ void MapEditorController::gpsAddVertexAt(const MapCoordF& position)
 	if (gps_path_recorder)
 		gps_path_recorder->take(position);
 	current_tool->acceptNumericVertex(position);
+}
+
+// foom: The offset of the GPS position.
+// the design notes, "Position offset and sentence log".
+
+void MapEditorController::gpsSetOffsetClicked()
+{
+	setTool(new GpsOffsetTool(this, gps_set_offset_act));
+}
+
+bool MapEditorController::gpsSetOffsetAt(const MapCoordF& true_position)
+{
+	if (!gps_display || !gps_display->setTruePosition(true_position))
+	{
+		window->showStatusBarMessage(tr("There is no GPS position which can be used."), 3000);
+		return false;
+	}
+	showGpsOffsetMessage();
+	return true;
+}
+
+void MapEditorController::gpsClearOffsetClicked()
+{
+	gps_display->clearPositionOffset();
+	window->showStatusBarMessage(tr("The GPS position offset is removed."), 3000);
+}
+
+void MapEditorController::showGpsOffsetMessage()
+{
+	auto const offset = gps_display->positionOffset();
+	auto const metres = std::hypot(offset.x(), offset.y()) * double(map->getScaleDenominator()) / 1000.0;
+	window->showStatusBarMessage(tr("GPS position offset: %1 m").arg(QString::number(metres, 'f', 1)), 5000);
 }
 
 void MapEditorController::enableGPSDistanceRings(bool enable)

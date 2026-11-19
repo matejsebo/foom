@@ -34,6 +34,7 @@
 #endif
 
 #include "nmea_fix.h"  // foom
+#include "nmea_log.h"  // foom
 #include "nmea_stream_source.h"  // foom
 
 
@@ -107,6 +108,14 @@ public:
 		QNmeaPositionInfoSource::stopUpdates();
 		if (process.state() == QProcess::Running)
 			process.terminate();
+		sentence_log.close();  // foom
+	}
+	
+	/** foom: Takes the folder of the sentence log from the property NmeaLog::folderProperty(). */
+	bool event(QEvent* event) override
+	{
+		sentence_log.propertyEvent(event, this);
+		return QNmeaPositionInfoSource::event(event);
 	}
 	
 	QString devicePathFromEnvironment() const
@@ -157,6 +166,7 @@ protected:
 	 */
 	bool parsePosInfoFromNmeaData(const char* data, int size, QGeoPositionInfo* posInfo, bool* hasFix) override
 	{
+		sentence_log.logLine(QByteArray::fromRawData(data, size), this);  // foom
 		auto const result = fix_parser.feed(QByteArray::fromRawData(data, size));
 		if (result == NmeaFixParser::Gga || result == NmeaFixParser::Gst)
 			setProperty(FixInfo::propertyName(), QVariant::fromValue(fix_parser.fix()));
@@ -186,6 +196,7 @@ private:
 	QProcess process;
 	Error position_error = NoError;
 	NmeaFixParser fix_parser;  // foom
+	NmeaLog sentence_log;      // foom
 };
 
 

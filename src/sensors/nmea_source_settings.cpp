@@ -22,9 +22,13 @@
 #include "nmea_source_settings.h"
 
 #include <QComboBox>
+#include <QDir>
+#include <QFileDialog>
 #include <QFormLayout>
+#include <QHBoxLayout>
 #include <QLineEdit>
 #include <QSettings>
+#include <QToolButton>
 #include <QVariant>
 #include <QWidget>
 
@@ -35,6 +39,7 @@ namespace {
 
 QString tcpKey() { return QStringLiteral("Sensors/nmea_tcp"); }
 QString baudKey() { return QStringLiteral("Sensors/nmea_baud"); }
+QString logFolderKey() { return QStringLiteral("Sensors/nmea_log_folder"); }
 
 }  // namespace
 
@@ -49,6 +54,7 @@ NmeaSourceSettings NmeaSourceSettings::load(const QSettings& settings)
 	auto const baud = settings.value(baudKey()).toInt(&ok);
 	if (settings.contains(baudKey()) && ok && baud > 0)
 		result.baud = baud;
+	result.log_folder = settings.value(logFolderKey()).toString().trimmed();
 	return result;
 }
 
@@ -63,6 +69,7 @@ void NmeaSourceSettings::save(QSettings& settings) const
 {
 	settings.setValue(tcpKey(), tcp);
 	settings.setValue(baudKey(), baud);
+	settings.setValue(logFolderKey(), log_folder);
 }
 
 void NmeaSourceSettings::save() const
@@ -82,7 +89,7 @@ QVariantMap NmeaSourceSettings::parameters() const
 
 bool operator==(const NmeaSourceSettings& lhs, const NmeaSourceSettings& rhs)
 {
-	return lhs.tcp == rhs.tcp && lhs.baud == rhs.baud;
+	return lhs.tcp == rhs.tcp && lhs.baud == rhs.baud && lhs.log_folder == rhs.log_folder;
 }
 
 
@@ -102,6 +109,23 @@ NmeaSourceRows::NmeaSourceRows(QFormLayout* layout, QWidget* parent)
 		baud_box->addItem(QString::number(baud), baud);
 	layout->addRow(tr("Baud rate:"), baud_box);
 	
+	log_folder_edit = new QLineEdit();
+	log_folder_edit->setObjectName(QStringLiteral("nmea-log-folder"));
+	log_folder_edit->setPlaceholderText(tr("Folder, empty for no log"));
+	log_folder_edit->setToolTip(tr("Every sentence which a receiver sends is added to a file in this folder, one file for every day. The position sources of the system deliver no sentences."));
+	auto* choose_button = new QToolButton();
+	choose_button->setText(tr("..."));
+	choose_button->setToolTip(tr("Choose the folder"));
+	auto* log_folder_layout = new QHBoxLayout();
+	log_folder_layout->addWidget(log_folder_edit, 1);
+	log_folder_layout->addWidget(choose_button);
+	layout->addRow(tr("Log of received sentences:"), log_folder_layout);
+	connect(choose_button, &QToolButton::clicked, this, [this, parent]() {
+		auto const folder = QFileDialog::getExistingDirectory(parent, tr("Folder for the log of received sentences"), log_folder_edit->text().trimmed());
+		if (!folder.isEmpty())
+			log_folder_edit->setText(QDir::toNativeSeparators(folder));
+	});
+	
 	setSettings({});
 }
 
@@ -113,6 +137,7 @@ NmeaSourceSettings NmeaSourceRows::settings() const
 	NmeaSourceSettings result;
 	result.tcp = tcp_edit->text().trimmed();
 	result.baud = baud_box->currentData().toInt();
+	result.log_folder = QDir::fromNativeSeparators(log_folder_edit->text().trimmed());
 	return result;
 }
 
@@ -127,6 +152,7 @@ void NmeaSourceRows::setSettings(const NmeaSourceSettings& settings)
 		index = baud_box->count() - 1;
 	}
 	baud_box->setCurrentIndex(index);
+	log_folder_edit->setText(QDir::toNativeSeparators(settings.log_folder));
 }
 
 

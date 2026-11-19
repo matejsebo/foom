@@ -46,6 +46,8 @@ struct NmeaSourceSettings
 	QString tcp;
 	/** The baud rate of the serial port. */
 	int baud = 4800;
+	/** The folder for the log of the sentences which are received, or empty for no log. */
+	QString log_folder;
 	
 	/** Reads the settings; keys which are absent or make no sense give the defaults. */
 	static NmeaSourceSettings load(const QSettings& settings);
@@ -67,7 +69,7 @@ inline bool operator!=(const NmeaSourceSettings& lhs, const NmeaSourceSettings& 
 /**
  * The rows of the sensors settings page which edit the NMEA source.
  *
- * The widgets carry the object names nmea-tcp and nmea-baud.
+ * The widgets carry the object names nmea-tcp, nmea-baud and nmea-log-folder.
  */
 class NmeaSourceRows : public QObject
 {
@@ -83,6 +85,7 @@ public:
 private:
 	QLineEdit* tcp_edit;
 	QComboBox* baud_box;
+	QLineEdit* log_folder_edit;
 };
 
 

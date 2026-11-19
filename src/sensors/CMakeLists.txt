@@ -63,7 +63,7 @@ target_link_libraries(fake_position_source  ${FAKE_POSITION_LINK_LIBRARIES})
 # foom: the quality data of a fix as read from NMEA sentences,
 # for the NMEA plugin and for the quality gate in mapper-sensors.
 
-add_library(foom-nmea-fix STATIC  nmea_fix.cpp)
+add_library(foom-nmea-fix STATIC  nmea_fix.cpp nmea_log.cpp)
 target_compile_definitions(foom-nmea-fix
   PRIVATE
     QT_NO_CAST_FROM_ASCII

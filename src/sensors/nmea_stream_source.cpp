@@ -182,6 +182,7 @@ void NmeaStreamSource::stopUpdates()
 		socket->abort();
 	else if (serial && serial->isOpen())
 		serial->close();
+	sentence_log.close();
 }
 
 QGeoPositionInfoSource::Error NmeaStreamSource::error() const
@@ -189,8 +190,15 @@ QGeoPositionInfoSource::Error NmeaStreamSource::error() const
 	return position_error;
 }
 
+bool NmeaStreamSource::event(QEvent* event)
+{
+	sentence_log.propertyEvent(event, this);
+	return QNmeaPositionInfoSource::event(event);
+}
+
 bool NmeaStreamSource::parsePosInfoFromNmeaData(const char* data, int size, QGeoPositionInfo* posInfo, bool* hasFix)
 {
+	sentence_log.logLine(QByteArray::fromRawData(data, size), this);
 	auto const result = fix_parser.feed(QByteArray::fromRawData(data, size));
 	if (result == NmeaFixParser::Gga || result == NmeaFixParser::Gst)
 		setProperty(FixInfo::propertyName(), QVariant::fromValue(fix_parser.fix()));

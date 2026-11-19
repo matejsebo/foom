@@ -322,6 +322,7 @@ set(Mapper_Common_SRCS
   tools/edit_point_tool.cpp
   tools/edit_line_tool.cpp
   tools/fill_tool.cpp
+  tools/gps_offset_tool.cpp  # foom
   tools/object_selector.cpp
   tools/pan_tool.cpp
   tools/point_handles.cpp

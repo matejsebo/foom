@@ -31,7 +31,9 @@
 #include <QVariantMap>
 
 #include "nmea_fix.h"
+#include "nmea_log.h"
 
+class QEvent;
 class QGeoPositionInfo;
 class QIODevice;
 class QTcpSocket;
@@ -76,8 +78,11 @@ public:
 	QGeoPositionInfoSource::Error error() const override;
 	using QGeoPositionInfoSource::error;  // the signal
 	
+	/** Takes the folder of the sentence log from the property NmeaLog::folderProperty(). */
+	bool event(QEvent* event) override;
+	
 protected:
-	/** Reads the quality fields of GGA and GST in addition to the position. */
+	/** Reads the quality fields of GGA and GST in addition to the position, and writes the log. */
 	bool parsePosInfoFromNmeaData(const char* data, int size, QGeoPositionInfo* posInfo, bool* hasFix) override;
 	
 private:
@@ -92,6 +97,7 @@ private:
 	quint16 port = 0;
 	QTimer reconnect_timer;
 	NmeaFixParser fix_parser;
+	NmeaLog sentence_log;
 	Error position_error = NoError;
 	bool running = false;
 	bool base_started = false;

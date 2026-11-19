@@ -234,6 +234,8 @@ public:
 	inline Map* getMap() const {return map;}
 	/** Returns the main map widget (which is currently the only map widget). */
 	inline MapWidget* getMainWidget() const {return map_widget;}
+	/** foom: Returns the GPS display of this editor; there is none in the symbol editor. */
+	const GPSDisplay* gpsDisplay() const { return gps_display; }
 	/** Returns this controller's symbol widget, where the symbol selection happens. */
 	inline SymbolWidget* getSymbolWidget() const {return symbol_widget;}
 	
@@ -321,6 +323,15 @@ public slots:
 	
 	/** foom: Adds a vertex at the position to the path which is drawn, whatever its distance. */
 	void gpsAddVertexAt(const OpenOrienteering::MapCoordF& position);
+	
+	/**
+	 * foom: Sets the offset of the GPS position so that the latest position
+	 * falls on the given place, and says in the status bar what happened.
+	 * 
+	 * Returns false when there is no position from which to measure. See
+	 * "Position offset and sentence log" in the design notes.
+	 */
+	bool gpsSetOffsetAt(const OpenOrienteering::MapCoordF& true_position);
 	
 	/**
 	 * Lets the user export a PathObject as a simple course.
@@ -770,6 +781,12 @@ public slots:
 	void gpsAddVertexClicked();
 	/** foom: Starts averaging GPS positions for a vertex, or ends it and adds the vertex. */
 	void gpsAverageVertexClicked(bool checked);
+	/** foom: Switches to the tool which sets the offset of the GPS position. */
+	void gpsSetOffsetClicked();
+	/** foom: Removes the offset of the GPS position. */
+	void gpsClearOffsetClicked();
+	/** foom: Shows the size of the offset of the GPS position in the status bar. */
+	void showGpsOffsetMessage();
 	/** foom: Updates the availability of the recording commands, and ends a recording which cannot go on. */
 	void updateGpsRecordActions();
 	/** Switches to the GPS point drawing tool. */
@@ -1204,6 +1221,8 @@ private:
 	QAction* gps_record_pause_act = {};  // foom
 	QAction* gps_add_vertex_act = {};  // foom
 	QAction* gps_average_vertex_act = {};  // foom
+	QAction* gps_set_offset_act = {};  // foom
+	QAction* gps_clear_offset_act = {};  // foom
 	std::unique_ptr<GpsPositionAverage> gps_position_average;  // foom
 	std::unique_ptr<GpsPathRecorder> gps_path_recorder;  // foom
 	GPSTemporaryMarkers* gps_marker_display;

@@ -56,6 +56,7 @@
 #include "gui/util_gui.h"
 #include "gui/map/map_widget.h"
 #include "sensors/compass.h"
+#include "sensors/nmea_log.h"  // foom
 #include "sensors/nmea_source_settings.h"  // foom
 #include "util/backports.h"  // IWYU pragma: keep
 
@@ -177,6 +178,12 @@ GPSDisplay::GPSDisplay(MapWidget* widget, const Georeferencing& georeferencing, 
 	connect(source, &QGeoPositionInfoSource::positionUpdated, this, &GPSDisplay::positionUpdated, Qt::QueuedConnection);
 	connect(source, QOverload<QGeoPositionInfoSource::Error>::of(&QGeoPositionInfoSource::error), this, &GPSDisplay::error);
 	connect(source, &QGeoPositionInfoSource::updateTimeout, this, &GPSDisplay::updateTimeout);
+	// foom: the folder for the log of the sentences which the source receives
+	auto const set_log_folder = [this]() {
+		source->setProperty(NmeaLog::folderProperty(), NmeaSourceSettings::load().log_folder);
+	};
+	set_log_folder();
+	connect(&Settings::getInstance(), &Settings::settingsChanged, this, set_log_folder);
 #endif
 
 	widget->setGPSDisplay(this);
@@ -233,6 +240,7 @@ void GPSDisplay::stopUpdates()
 		source->stopUpdates();
 		has_valid_position = false;
 		gps_tail.clear();  // foom
+		has_raw_gps_coord = false;  // foom
 	}
 #endif
 }
@@ -267,6 +275,61 @@ void GPSDisplay::setTailLength(double metres)
 	gps_tail.setMaxLength(scale > 0 ? metres * 1000.0 / scale : 0.0);
 	if (visible)
 		updateMapWidget();
+}
+
+// foom: the design notes, "Position offset and sentence log"
+void GPSDisplay::setPositionOffset(const MapCoordF& offset)
+{
+	// So that the position without the offset is the latest one.
+	bool ok = false;
+	calcLatestGPSCoord(ok);
+	
+	position_offset = offset;
+	has_position_offset = !qFuzzyIsNull(offset.x()) || !qFuzzyIsNull(offset.y());
+	if (has_raw_gps_coord)
+		latest_gps_coord = MapCoordF(raw_gps_coord.x() + offset.x(), raw_gps_coord.y() + offset.y());
+	// The tail shows no way which was not gone.
+	gps_tail.clear();
+	if (has_raw_gps_coord && hasValidPosition())
+		gps_tail.add(latest_gps_coord);
+	emit positionOffsetChanged();
+	updateMapWidget();
+}
+
+void GPSDisplay::clearPositionOffset()
+{
+	if (has_position_offset)
+		setPositionOffset({});
+}
+
+bool GPSDisplay::setTruePosition(const MapCoordF& true_position)
+{
+	if (!hasValidPosition())
+		return false;
+	bool ok = false;
+	calcLatestGPSCoord(ok);
+	if (!ok || !has_raw_gps_coord)
+		return false;
+	setPositionOffset(MapCoordF(true_position.x() - raw_gps_coord.x(), true_position.y() - raw_gps_coord.y()));
+	return true;
+}
+
+void GPSDisplay::checkSentenceLog()
+{
+#if defined(QT_POSITIONING_LIB)
+	if (!source)
+		return;
+	auto const file = source->property(NmeaLog::fileProperty()).toString();
+	auto const refused = source->property(NmeaLog::errorProperty()).toString();
+	if (file == sentence_log_file && refused == sentence_log_error)
+		return;
+	sentence_log_file = file;
+	sentence_log_error = refused;
+	if (!refused.isEmpty())
+		emit sentenceLogChanged(refused, false);
+	else if (!file.isEmpty())
+		emit sentenceLogChanged(file, true);
+#endif
 }
 
 void GPSDisplay::enableDistanceRings(bool enable)
@@ -460,6 +523,7 @@ void GPSDisplay::timerEvent(QTimerEvent* e)
 void GPSDisplay::positionUpdated(const QGeoPositionInfo& info)
 {
 #if defined(QT_POSITIONING_LIB)
+	checkSentenceLog();  // foom
 	// foom: the quality gate. A fix which fails is not passed on;
 	// its marker is drawn in grey, or not at all.
 	latest_fix = fixInfoOf(source, info);
@@ -489,9 +553,22 @@ void GPSDisplay::positionUpdated(const QGeoPositionInfo& info)
 		tail_gap = false;
 		gps_tail.add(latest_gps_coord);  // foom
 		emit mapPositionUpdated(latest_gps_coord, latest_gps_coord_accuracy);
+		// foom: with an offset, the latitude and longitude of the shifted place
+		auto latitude = info.coordinate().latitude();
+		auto longitude = info.coordinate().longitude();
+		if (has_position_offset)
+		{
+			bool shifted_ok = false;
+			auto const shifted = georeferencing.toGeographicCoords(latest_gps_coord, &shifted_ok);
+			if (shifted_ok)
+			{
+				latitude = shifted.latitude();
+				longitude = shifted.longitude();
+			}
+		}
 		emit latLonUpdated(
-			info.coordinate().latitude(),
-			info.coordinate().longitude(),
+			latitude,
+			longitude,
 			(info.coordinate().type() == QGeoCoordinate::Coordinate3D) ? info.coordinate().altitude() - antenna_height : -9999,  // foom: less the height of the antenna
 			latest_gps_coord_accuracy
 		);
@@ -504,6 +581,7 @@ void GPSDisplay::positionUpdated(const QGeoPositionInfo& info)
 void GPSDisplay::error()
 {
 #if defined(QT_POSITIONING_LIB)
+	checkSentenceLog();  // foom
 	if (source->error() != QGeoPositionInfoSource::NoError)
 	{
 		if (!tracking_lost)
@@ -519,6 +597,7 @@ void GPSDisplay::error()
 
 void GPSDisplay::updateTimeout()
 {
+	checkSentenceLog();  // foom
 	// Lost satellite fix
 	if (!tracking_lost)
 	{
@@ -562,6 +641,12 @@ MapCoordF GPSDisplay::calcLatestGPSCoord(bool& ok)
 		qDebug("GPSDisplay::calcLatestGPSCoord(): Cannot convert LatLon to MapCoordF!");
 		return latest_gps_coord;
 	}
+	
+	// foom: the offset of the position
+	raw_gps_coord = latest_gps_coord;
+	has_raw_gps_coord = true;
+	if (has_position_offset)
+		latest_gps_coord = MapCoordF(raw_gps_coord.x() + position_offset.x(), raw_gps_coord.y() + position_offset.y());
 	
 	gps_updated = false;
 	ok = true;
