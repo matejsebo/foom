@@ -46,6 +46,8 @@
 #include <QCheckBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QFile>  // foom
+#include <QFileDialog>  // foom
 #include <QDoubleSpinBox>
 #include <QDir>
 #include <QDockWidget>
@@ -190,6 +192,7 @@
 #include "gui/widgets/key_button_bar.h" // IWYU pragma: keep
 #include "gui/widgets/measure_widget.h"
 #include "course/course_description.h"  // foom
+#include "course/course_interchange.h"  // foom
 #include "course/course_render.h"  // foom
 #include "course/course_report.h"  // foom
 #include "course/course_symbols.h"  // foom
@@ -1305,6 +1308,11 @@ void MapEditorController::createActions()
 	// foom: the design notes, "Statistics and the consistency check"
 	course_statistics_act = newAction("course-statistics", tr("Statistics..."), this, SLOT(courseStatisticsClicked()), nullptr, tr("Show the statistics of the courses, their legs and the event."));
 	course_check_act = newAction("course-check", tr("Consistency check"), this, SLOT(runCourseCheck()), nullptr, tr("Check the courses, the controls and their descriptions, and list what is found in the issues window."));
+	// foom: the design notes, "Interchange: IOF XML, GPX and KML"
+	course_export_iof_act = newAction("course-export-iof", tr("Export courses (IOF XML 3.0)..."), this, SLOT(exportCoursesIofClicked()), nullptr, tr("Write the course objects, the courses and the classes as course data of the IOF Data Standard 3.0."));
+	course_export_gpx_act = newAction("course-export-gpx", tr("Export courses (GPX)..."), this, SLOT(exportCoursesGpxClicked()), nullptr, tr("Write start, controls and finish as waypoints and the courses as tracks."));
+	course_export_kml_act = newAction("course-export-kml", tr("Export courses (KML)..."), this, SLOT(exportCoursesKmlClicked()), nullptr, tr("Write start, controls and finish as placemarks and the courses as lines."));
+	course_import_iof_act = newAction("course-import-iof", tr("Import IOF XML..."), this, SLOT(importIofCoursesClicked()), nullptr, tr("Take course objects, courses and classes from course data of the IOF Data Standard 3.0."));
 	// foom: the rangefinder; the design notes, "Rangefinder dock: detail"
 	rangefinder_act = newCheckAction("rangefinder", tr("Rangefinder"), this, SLOT(rangefinderClicked(bool)), nullptr, tr("Draw from a reference point with distance and azimuth."));
 	rangefinder_reference_act = newToolAction("rangefinder-reference", tr("Set rangefinder reference"), this, SLOT(rangefinderReferenceClicked()), nullptr, tr("Click the reference point of the rangefinder on the map."));
@@ -1727,6 +1735,11 @@ void MapEditorController::createMenuAndToolbars()
 	courses_menu->addSeparator();
 	courses_menu->addAction(course_statistics_act);
 	courses_menu->addAction(course_check_act);
+	courses_menu->addSeparator();
+	courses_menu->addAction(course_export_iof_act);
+	courses_menu->addAction(course_export_gpx_act);
+	courses_menu->addAction(course_export_kml_act);
+	courses_menu->addAction(course_import_iof_act);
 	
 	// Extend and activate general toolbar
 	QToolBar* main_toolbar = window->getGeneralToolBar();
@@ -4941,6 +4954,146 @@ int MapEditorController::runCourseCheck()
 	last_check = [this]() { return checkCourses(*map, map->courseData()); };
 	checkAgain();
 	return int(issue_model->issues().size());
+}
+
+// foom: The interchange of courses.
+// the design notes, "Interchange: IOF XML, GPX and KML".
+
+/// foom: Asks for a file and writes the courses into it, or into one file for every course.
+static void exportCourses(MainWindow* window, Map* map, CourseFileKind kind)
+{
+	QString title;
+	QString filter;
+	QString suffix;
+	switch (kind)
+	{
+	case CourseFileKind::IofXml:
+		title = MapEditorController::tr("Export courses (IOF XML 3.0)");
+		filter = MapEditorController::tr("IOF XML files (*.xml)");
+		suffix = QStringLiteral("xml");
+		break;
+	case CourseFileKind::Gpx:
+		title = MapEditorController::tr("Export courses (GPX)");
+		filter = MapEditorController::tr("GPX files (*.gpx)");
+		suffix = QStringLiteral("gpx");
+		break;
+	case CourseFileKind::Kml:
+		title = MapEditorController::tr("Export courses (KML)");
+		filter = MapEditorController::tr("KML files (*.kml)");
+		suffix = QStringLiteral("kml");
+		break;
+	}
+	if (map->courseData().isEmpty())
+	{
+		QMessageBox::information(window, title, MapEditorController::tr("The map has no course objects and no courses."));
+		return;
+	}
+	
+	auto path = QFileDialog::getSaveFileName(window, title, QFileInfo(window->currentPath()).path(), filter);
+	if (path.isEmpty())
+		return;
+	if (QFileInfo(path).suffix().isEmpty())
+		path += QLatin1Char('.') + suffix;
+	
+	auto per_course = false;
+	if (kind != CourseFileKind::IofXml && map->courseData().courses.size() > 1)
+	{
+		auto const answer = QMessageBox::question(window, title, MapEditorController::tr("Write one file for every course?"),
+		                                          QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel, QMessageBox::No);
+		if (answer == QMessageBox::Cancel)
+			return;
+		per_course = answer == QMessageBox::Yes;
+	}
+	
+	auto const report = writeCourseFiles(*map, path, kind, per_course);
+	if (!report.ok)
+	{
+		QMessageBox::warning(window, title, report.error);
+		return;
+	}
+	QString message = MapEditorController::tr("%n file(s) were written.", nullptr, report.files.size());
+	if (!report.skipped_courses.isEmpty())
+	{
+		message += QLatin1Char('\n') + (kind == CourseFileKind::IofXml
+		                                ? MapEditorController::tr("Left out, for their variations or for having fewer than two controls: %1.")
+		                                : MapEditorController::tr("Left out for their variations: %1.")).arg(report.skipped_courses.join(QLatin1String(", ")));
+	}
+	QMessageBox::information(window, title, message);
+}
+
+void MapEditorController::exportCoursesIofClicked()
+{
+	exportCourses(window, map, CourseFileKind::IofXml);
+}
+
+void MapEditorController::exportCoursesGpxClicked()
+{
+	exportCourses(window, map, CourseFileKind::Gpx);
+}
+
+void MapEditorController::exportCoursesKmlClicked()
+{
+	exportCourses(window, map, CourseFileKind::Kml);
+}
+
+void MapEditorController::importIofCoursesClicked()
+{
+	auto const title = tr("Import IOF XML");
+	auto const filter = QString(tr("IOF XML files (*.xml)") + QLatin1String(";;") + tr("All files (*.*)"));
+	auto const path = QFileDialog::getOpenFileName(window, title, QFileInfo(window->currentPath()).path(), filter);
+	if (path.isEmpty())
+		return;
+	
+	QDialog dialog(window, Qt::WindowSystemMenuHint | Qt::WindowTitleHint);
+	dialog.setWindowTitle(title);
+	auto* objects_check = new QCheckBox(tr("Course objects (start, controls, finish)"));
+	auto* courses_check = new QCheckBox(tr("Courses"));
+	auto* classes_check = new QCheckBox(tr("Classes"));
+	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+	auto* layout = new QVBoxLayout(&dialog);
+	for (auto* check : { objects_check, courses_check, classes_check })
+	{
+		check->setChecked(true);
+		layout->addWidget(check);
+	}
+	layout->addWidget(buttons);
+	connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+	connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	
+	QFile file(path);
+	if (!file.open(QIODevice::ReadOnly))
+	{
+		QMessageBox::warning(window, title, tr("The file cannot be opened."));
+		return;
+	}
+	IofImportOptions options;
+	options.objects = objects_check->isChecked();
+	options.courses = courses_check->isChecked();
+	options.classes = classes_check->isChecked();
+	auto const report = importIofCourseData(*map, file, options);
+	if (!report.ok)
+	{
+		QMessageBox::warning(window, title, report.error);
+		return;
+	}
+	
+	auto const separator = QStringLiteral(", ");
+	QStringList lines;
+	lines << tr("Course objects made: %1; in the map already: %2.").arg(report.objects_added).arg(report.objects_found);
+	lines << tr("Courses added: %1. Classes added: %2.").arg(report.courses_added).arg(report.classes_added);
+	if (!report.objects_not_made.isEmpty())
+		lines << tr("Not made, for want of a place or of a symbol: %1.").arg(report.objects_not_made.join(separator));
+	if (!report.courses_existing.isEmpty())
+		lines << tr("Courses which the map has and which were not touched: %1.").arg(report.courses_existing.join(separator));
+	if (!report.codes_missing.isEmpty())
+		lines << tr("Used in the courses but not found in the map, and left out: %1.").arg(report.codes_missing.join(separator));
+	if (!report.classes_skipped.isEmpty())
+		lines << tr("Classes not added: %1.").arg(report.classes_skipped.join(separator));
+	if (report.taped_routes > 0)
+		lines << tr("Taped routes of the file, which have no objects and were left out: %1.").arg(report.taped_routes);
+	QMessageBox::information(window, title, lines.join(QLatin1Char('\n')));
 }
 
 void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget) const

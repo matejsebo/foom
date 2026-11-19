@@ -617,6 +617,12 @@ public slots:
 	void courseStatisticsClicked();
 	/** foom: Runs the consistency check of the courses and shows the issues; returns their number. */
 	int runCourseCheck();
+	/** foom: Write the courses as IOF XML 3.0, GPX or KML, after asking for the file. */
+	void exportCoursesIofClicked();
+	void exportCoursesGpxClicked();
+	void exportCoursesKmlClicked();
+	/** foom: Takes course objects, courses and classes from an IOF XML 3.0 file. */
+	void importIofCoursesClicked();
 	/** foom: Shows or hides the rangefinder. */
 	void rangefinderClicked(bool checked);
 	/** foom: Switches to the tool which sets the reference of the rangefinder. */
@@ -1184,6 +1190,10 @@ private:
 	QAction* course_renumber_act = {};  // foom
 	QAction* course_statistics_act = {};  // foom
 	QAction* course_check_act = {};  // foom
+	QAction* course_export_iof_act = {};  // foom
+	QAction* course_export_gpx_act = {};  // foom
+	QAction* course_export_kml_act = {};  // foom
+	QAction* course_import_iof_act = {};  // foom
 	QPointer<QWidget> course_dock_widget;  // foom
 	QPointer<CourseWidget> course_widget;  // foom
 	QAction* rangefinder_act = {};  // foom

@@ -266,6 +266,7 @@ add_system_test(course_cells_t)  # foom: the design notes, The editor of a descr
 add_system_test(course_symbols_t)  # foom: the design notes, FOOM's course symbols
 add_system_test(course_compose_t)  # foom: the design notes, Composing a course and the bulk commands
 add_system_test(course_report_t)  # foom: the design notes, Statistics and the consistency check
+add_system_test(course_interchange_t)  # foom: the design notes, Interchange: IOF XML, GPX and KML
 add_system_test(sketch_t)  # foom: the design notes, Sketch layer
 add_system_test(merge_t)  # foom: the design notes, Merge changes from file
 target_compile_definitions(merge_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
