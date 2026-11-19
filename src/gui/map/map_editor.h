@@ -623,6 +623,8 @@ public slots:
 	void exportCoursesKmlClicked();
 	/** foom: Takes course objects, courses and classes from an IOF XML 3.0 file. */
 	void importIofCoursesClicked();
+	/** foom: Writes which team runs which variant of the relays, as a text file. */
+	void exportRelayVariationsClicked();
 	/** foom: Shows or hides the rangefinder. */
 	void rangefinderClicked(bool checked);
 	/** foom: Switches to the tool which sets the reference of the rangefinder. */
@@ -1194,6 +1196,7 @@ private:
 	QAction* course_export_gpx_act = {};  // foom
 	QAction* course_export_kml_act = {};  // foom
 	QAction* course_import_iof_act = {};  // foom
+	QAction* course_relay_variations_act = {};  // foom
 	QPointer<QWidget> course_dock_widget;  // foom
 	QPointer<CourseWidget> course_widget;  // foom
 	QAction* rangefinder_act = {};  // foom

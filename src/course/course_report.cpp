@@ -38,6 +38,7 @@
 #include "core/map_coord.h"
 #include "core/objects/object.h"
 #include "course/course_edit.h"
+#include "course/course_relay.h"
 #include "course/course_render.h"
 
 namespace OpenOrienteering {
@@ -517,6 +518,9 @@ std::vector<Issue> checkCourses(const Map& map, const CourseData& data, double c
 			issues.push_back(courseIssue(rule::course_finish_missing, Issue::Error, course.name, tr("The course %1 has no finish.").arg(course.name)));
 		if (course.type == Course::Normal && !hasVariation(course) && course.climb_m == 0)
 			issues.push_back(courseIssue(rule::course_climb_zero, Issue::Warning, course.name, tr("The climb of the course %1 is 0 m.").arg(course.name)));
+		// the design notes, "Relays: variations, variants and their allocation"
+		for (auto const& fault : relayStructure(course).faults)
+			issues.push_back(courseIssue(rule::relay_structure, Issue::Error, course.name, tr("Course %1: %2").arg(course.name, fault)));
 	}
 	for (auto const& group : statistics.identical)
 		issues.push_back(courseIssue(rule::course_identical, Issue::Warning, group.join(listSeparator()), tr("These courses are identical: %1.").arg(group.join(listSeparator()))));

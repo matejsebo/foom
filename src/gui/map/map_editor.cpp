@@ -193,6 +193,7 @@
 #include "gui/widgets/measure_widget.h"
 #include "course/course_description.h"  // foom
 #include "course/course_interchange.h"  // foom
+#include "course/course_relay.h"  // foom
 #include "course/course_render.h"  // foom
 #include "course/course_report.h"  // foom
 #include "course/course_symbols.h"  // foom
@@ -1313,6 +1314,8 @@ void MapEditorController::createActions()
 	course_export_gpx_act = newAction("course-export-gpx", tr("Export courses (GPX)..."), this, SLOT(exportCoursesGpxClicked()), nullptr, tr("Write start, controls and finish as waypoints and the courses as tracks."));
 	course_export_kml_act = newAction("course-export-kml", tr("Export courses (KML)..."), this, SLOT(exportCoursesKmlClicked()), nullptr, tr("Write start, controls and finish as placemarks and the courses as lines."));
 	course_import_iof_act = newAction("course-import-iof", tr("Import IOF XML..."), this, SLOT(importIofCoursesClicked()), nullptr, tr("Take course objects, courses and classes from course data of the IOF Data Standard 3.0."));
+	// foom: the design notes, "Relays: variations, variants and their allocation"
+	course_relay_variations_act = newAction("course-relay-variations", tr("Export relay variations..."), this, SLOT(exportRelayVariationsClicked()), nullptr, tr("Write which team runs which variant of the relays, as a text file."));
 	// foom: the rangefinder; the design notes, "Rangefinder dock: detail"
 	rangefinder_act = newCheckAction("rangefinder", tr("Rangefinder"), this, SLOT(rangefinderClicked(bool)), nullptr, tr("Draw from a reference point with distance and azimuth."));
 	rangefinder_reference_act = newToolAction("rangefinder-reference", tr("Set rangefinder reference"), this, SLOT(rangefinderReferenceClicked()), nullptr, tr("Click the reference point of the rangefinder on the map."));
@@ -1739,6 +1742,7 @@ void MapEditorController::createMenuAndToolbars()
 	courses_menu->addAction(course_export_iof_act);
 	courses_menu->addAction(course_export_gpx_act);
 	courses_menu->addAction(course_export_kml_act);
+	courses_menu->addAction(course_relay_variations_act);
 	courses_menu->addAction(course_import_iof_act);
 	
 	// Extend and activate general toolbar
@@ -5096,6 +5100,48 @@ void MapEditorController::importIofCoursesClicked()
 	QMessageBox::information(window, title, lines.join(QLatin1Char('\n')));
 }
 
+// foom: The relays.
+// the design notes, "Relays: variations, variants and their allocation".
+
+void MapEditorController::exportRelayVariationsClicked()
+{
+	auto const title = tr("Export relay variations");
+	auto const& data = map->courseData();
+	QStringList written;
+	QStringList faulty;
+	for (auto const& course : data.courses)
+	{
+		if (course.type == Course::Normal)
+			continue;
+		if (relayStructure(course).isValid())
+			written.push_back(course.name);
+		else
+			faulty.push_back(course.name);
+	}
+	if (written.isEmpty())
+	{
+		QMessageBox::information(window, title, faulty.isEmpty() ? tr("The map has no relay.")
+		                                                         : tr("The variations of the relays have faults; the consistency check says which."));
+		return;
+	}
+	auto path = QFileDialog::getSaveFileName(window, title, QFileInfo(window->currentPath()).path(), tr("Text files (*.txt)"));
+	if (path.isEmpty())
+		return;
+	if (QFileInfo(path).suffix().isEmpty())
+		path += QLatin1String(".txt");
+	QFile file(path);
+	auto const bytes = relayAllocationText(data).toUtf8();
+	if (!file.open(QIODevice::WriteOnly | QIODevice::Text) || file.write(bytes) != bytes.size())
+	{
+		QMessageBox::warning(window, title, tr("The file could not be written."));
+		return;
+	}
+	QString message = tr("Written for: %1.").arg(written.join(QLatin1String(", ")));
+	if (!faulty.isEmpty())
+		message += QLatin1Char('\n') + tr("Left out for the faults of their variations: %1.").arg(faulty.join(QLatin1String(", ")));
+	QMessageBox::information(window, title, message);
+}
+
 void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget) const
 {
 	if (!course_widget || !course_dock_widget || course_dock_widget->isHidden())
@@ -5104,8 +5150,10 @@ void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget
 	if (course.isEmpty())
 		return;
 	// Drawn anew at every painting, so that it follows an object which is being moved.
-	auto const drawing = drawCourse(*map, map->courseData(), course);
-	auto const descriptions = drawCourseDescriptions(*map, map->courseData(), course);
+	// A relay is drawn by the variant which is chosen in the dock.
+	auto const preview_data = course_widget->previewData();
+	auto const drawing = drawCourse(*map, preview_data, course);
+	auto const descriptions = drawCourseDescriptions(*map, preview_data, course);
 	if (!drawing.drawn && !descriptions.drawn)
 		return;
 	

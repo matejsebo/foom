@@ -109,6 +109,12 @@ public:
 	/** Sets the extra length of the course which is chosen, as one undo step. */
 	void setExtraLength(double km);
 	
+	/**
+	 * The course data as they are measured and drawn: those of the map, and
+	 * for a relay with the items of the variant which is chosen in its place.
+	 */
+	CourseData previewData() const;
+	
 	/** The code of the course object whose description is shown: the one which is selected alone. */
 	QString descriptionObject() const;
 	/** Puts a description symbol into a cell of that object; 0 empties the cell. */
@@ -147,6 +153,8 @@ private:
 	void mapSelectionChanged();
 	void objectDoubleClicked(QTreeWidgetItem* item, int column);
 	void courseChosen(int index);
+	void refreshVariants();
+	void variantChosen(int index);
 	void classCellChanged(int row, int column);
 	
 	void changeCodeClicked();
@@ -168,6 +176,8 @@ private:
 	QCheckBox* funnel_check;
 	QLineEdit* text_edit;
 	QComboBox* selector;
+	QComboBox* variant_box;
+	QString variant_course;
 	QLabel* length_label;
 	QSpinBox* climb_edit;
 	QDoubleSpinBox* extra_edit;

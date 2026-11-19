@@ -68,6 +68,7 @@
 #include "core/symbols/symbol.h"
 #include "course/course_description.h"
 #include "course/course_edit.h"
+#include "course/course_relay.h"
 #include "course/course_render.h"
 #include "course/course_storage.h"
 #include "undo/map_data_undo.h"
@@ -281,6 +282,12 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	auto* selector_layout = new QHBoxLayout();
 	selector_layout->addWidget(new QLabel(tr("Course:")));
 	selector_layout->addWidget(selector, 1);
+	// The variants of a relay; the design notes, "Relays: variations, variants and their allocation".
+	variant_box = new QComboBox();
+	variant_box->setObjectName(QStringLiteral("course-variant"));
+	variant_box->setToolTip(tr("The variant of the relay which is measured and drawn: the leg, and a letter for the branch of every team variation."));
+	variant_box->hide();
+	selector_layout->addWidget(variant_box);
 	
 	// Length and climb of the course; the design notes,
 	// "Drawing a course, its length and climb".
@@ -365,6 +372,7 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	connect(object_list, &QTreeWidget::itemSelectionChanged, this, &CourseWidget::objectRowsSelected);
 	connect(object_list, &QTreeWidget::itemDoubleClicked, this, &CourseWidget::objectDoubleClicked);
 	connect(selector, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &CourseWidget::courseChosen);
+	connect(variant_box, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &CourseWidget::variantChosen);
 	connect(item_list, &QTreeWidget::currentItemChanged, this, &CourseWidget::updateButtons);
 	connect(class_table, &QTableWidget::cellChanged, this, &CourseWidget::classCellChanged);
 	connect(class_table, &QTableWidget::currentCellChanged, this, &CourseWidget::updateButtons);
@@ -581,8 +589,56 @@ void CourseWidget::refresh()
 }
 
 
+void CourseWidget::refreshVariants()
+{
+	auto const name = currentCourse();
+	auto const* course = map->courseData().findCourse(name);
+	QStringList codes;
+	if (course && course->type != Course::Normal)
+	{
+		for (auto const& variant : relayVariants(relayStructure(*course)))
+			codes.push_back(relayVariantCode(variant).trimmed());
+	}
+	QStringList shown;
+	for (int i = 0; i < variant_box->count(); ++i)
+		shown.push_back(variant_box->itemText(i));
+	
+	const QSignalBlocker block(variant_box);
+	if (codes != shown || name != variant_course)
+	{
+		// The same relay keeps its variant; another course begins with its first.
+		auto const index = name == variant_course ? variant_box->currentIndex() : 0;
+		variant_box->clear();
+		variant_box->addItems(codes);
+		variant_box->setCurrentIndex(codes.isEmpty() ? -1 : (index >= 0 && index < codes.size() ? index : 0));
+		variant_course = name;
+	}
+	variant_box->setVisible(!codes.isEmpty());
+}
+
+
+void CourseWidget::variantChosen(int /*index*/)
+{
+	updateLength();
+	emit currentCourseChanged();
+}
+
+
+CourseData CourseWidget::previewData() const
+{
+	auto const& data = map->courseData();
+	auto const* course = data.findCourse(currentCourse());
+	if (!course || variant_box->isHidden() || variant_box->currentIndex() < 0)
+		return data;
+	auto const variants = relayVariants(relayStructure(*course));
+	auto const index = std::size_t(variant_box->currentIndex());
+	return index < variants.size() ? withRelayVariant(data, course->name, variants[index]) : data;
+}
+
+
 void CourseWidget::refreshCourseValues()
 {
+	refreshVariants();
 	auto const* course = map->courseData().findCourse(currentCourse());
 	{
 		const QSignalBlocker block_climb(climb_edit);
@@ -598,7 +654,8 @@ void CourseWidget::refreshCourseValues()
 
 void CourseWidget::updateLength()
 {
-	auto const& data = map->courseData();
+	// A relay is measured by the variant which is chosen.
+	auto const data = previewData();
 	auto const* course = data.findCourse(currentCourse());
 	if (!course)
 	{
