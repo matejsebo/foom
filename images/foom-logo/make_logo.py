@@ -222,8 +222,8 @@ def main():
     write_svg(HERE / "foom-logo.svg", lockup, lockup_size)
     render(word, word_size, word_size).save(HERE / "foom-wordmark.png", optimize=True)
     render(lockup, lockup_size, lockup_size).save(HERE / "foom-logo.png", optimize=True)
-    # The banner of the home screen, 120 pixels high.
-    render(lockup, lockup_size, (round(lockup_size[0] * 120 / lockup_size[1]), 120)).save(IMAGES / "title.png", optimize=True)
+    # The banner of the home screen, 120 pixels high: the wordmark alone.
+    render(word, word_size, (round(word_size[0] * 120 / word_size[1]), 120)).save(IMAGES / "title.png", optimize=True)
     # The logo on the pages of the manual and of the API documentation. The file name is upstream's.
     render(lockup, lockup_size, (round(lockup_size[0] * 50 / lockup_size[1]), 50)).save(
         IMAGES.parent / "doc" / "openorienteering.png", optimize=True)
