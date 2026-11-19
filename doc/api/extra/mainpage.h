@@ -20,7 +20,7 @@
 
 /**
 
-\mainpage OpenOrienteering Mapper Developer Documentation
+\mainpage FOOM Developer Documentation
 
 
 \section pages Contents

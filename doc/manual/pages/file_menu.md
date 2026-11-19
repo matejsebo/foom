@@ -63,7 +63,7 @@ KMZ,
 simple course (XML or KML format),
 geospatial vector data (formats supported by [GDAL](gdal.md)).
 
-For raster images, Mapper may additionally create world files. A world file is a small text file which defines the image's georeferencing relative to the map's projected coordinate reference system. Note that these files contain only six numerical parameters. They do not contain an identification of the projection, coordinate system or datum they refer to. The filename is derived from the image's filename, but with a modified filename extension usually ending with letter 'w'.
+For raster images, FOOM may additionally create world files. A world file is a small text file which defines the image's georeferencing relative to the map's projected coordinate reference system. Note that these files contain only six numerical parameters. They do not contain an identification of the projection, coordinate system or datum they refer to. The filename is derived from the image's filename, but with a modified filename extension usually ending with letter 'w'.
 
 For geospatial vector data, the actual GDAL driver is selected
 by the extension (e.g. ".dxf") given to the filename.

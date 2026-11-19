@@ -15,19 +15,19 @@ This window can be shown by clicking the menu item Symbols -&gt; Color window.
 
 #### Introduction
 
-Colors on orienteering maps are defined in the orienteering map standards, ISOM and ISSprOM, as colors from the Pantone Matching System (PMS). The recommended way to print maps is to use these spot colors to print each color layer separately onto the map sheet. This way colors printed later will overlap colors which are printed earlier. The color system in OpenOrienteering Mapper follows this analogy: each map file contains a prioritized list of available colors, where colors higher in the list overlap lower colors.
+Colors on orienteering maps are defined in the orienteering map standards, ISOM and ISSprOM, as colors from the Pantone Matching System (PMS). The recommended way to print maps is to use these spot colors to print each color layer separately onto the map sheet. This way colors printed later will overlap colors which are printed earlier. The color system in FOOM follows this analogy: each map file contains a prioritized list of available colors, where colors higher in the list overlap lower colors.
 
 Colors can be managed with the buttons at the bottom of the list. To edit a color, double click its entry in the color list.
 
 ### Color editor
 
-Today there are different methods for printing maps and the color editor in OpenOrienteering Mapper is adjusted to that, so there are different settings for "desktop" and "professional" printing.
+Today there are different methods for printing maps and the color editor in FOOM is adjusted to that, so there are different settings for "desktop" and "professional" printing.
 
 #### Desktop printing
 
 ![ ](images/color_editor_desktop.png)
 
-The first page addresses "desktop" printing, i.e. printing maps with cheap home laser printers. These devices use the **RGB color space** to define colors, where each color consists of a given amount of red, green and blue (this is not to be confused with how the colors are actually printed; it is just how the PC tells the printer which color to print). So on the desktop page, you can define how the RGB value for a color should be calculated by OpenOrienteering Mapper:
+The first page addresses "desktop" printing, i.e. printing maps with cheap home laser printers. These devices use the **RGB color space** to define colors, where each color consists of a given amount of red, green and blue (this is not to be confused with how the colors are actually printed; it is just how the PC tells the printer which color to print). So on the desktop page, you can define how the RGB value for a color should be calculated by FOOM:
 
 
  - **Evaluate spot colors**: the spot colors referenced by this color will define its RGB color. This is only possible if this color references at least one spot color (see later)

@@ -1,46 +1,37 @@
-# OpenOrienteering Mapper
+<p align="center">
+  <img src="images/foom-logo/foom-logo.png" alt="FOOM" width="520">
+</p>
 
-![Mapper Screenshot](https://www.openorienteering.org/mapper-manual/pages/images/main_window.png)
+FOOM is a program for drawing orienteering maps. It runs on Windows, macOS, Linux and Android,
+reads and writes OCD files, and is free software.
 
-OpenOrienteering Mapper is an orienteering mapmaking program and provides
-a free and open source alternative to existing commercial software.
-OpenOrienteering Mapper runs on Android, Windows, macOS and Linux.
-
- - [Mapper Homepage](https://www.openorienteering.org/apps/mapper/)
- - [Manual](https://www.openorienteering.org/mapper-manual/)
- - [Downloads](https://github.com/OpenOrienteering/mapper/releases)
- - [OpenOrienteering Blog](https://www.openorienteering.org/)
+Its native file format is `.foom`. Files with the extensions `.omap` and `.xmap` are read and
+can still be written.
 
 
-## Reporting Issues and Asking for Help
+## Building
 
-Issues and possible improvements can be posted to our public [Ticket system](https://github.com/OpenOrienteering/mapper/issues).
-Please make sure you provide all relevant information about your problem or idea.
+See [`INSTALL.md`](INSTALL.md). The build uses CMake and needs Qt, GDAL and PROJ.
+The tests run with `ctest` from the build folder.
 
-
-## Contributing
-
-### Translating
-
-Translations can be edited online on [Weblate](https://hosted.weblate.org/projects/openorienteering/mapper/). You can register/login with your Github account. Find out more about translation in our [wiki](https://github.com/OpenOrienteering/mapper/wiki/Translation).
+`foom-cli --run job.json` runs jobs without the window.
 
 
-### Writing Documentation
+## Documentation
 
-The Mapper manual lives in its [own repository](https://github.com/OpenOrienteering/mapper-manual)
-which contains all information for you to get started.
+- The user manual is in [`doc/manual/`](doc/manual/).
 
 
-### Writing Code
+## Logo
 
-For building Mapper from source see [`INSTALL.md`](https://github.com/OpenOrienteering/mapper/blob/master/INSTALL.md).
-Pull requests are very welcome.
-
- - [Issue tracker](https://github.com/OpenOrienteering/mapper/issues)
- - [API documentation](https://www.openorienteering.org/api-docs/mapper/)
- - [Developer wiki](https://github.com/OpenOrienteering/mapper/wiki)
+The logo and the wordmark are in [`images/foom-logo/`](images/foom-logo/), as SVG and PNG.
+The script `make_logo.py` in that folder writes them and the program icons.
 
 
 ## License
 
-Mapper is licensed under the [GNU GENERAL PUBLIC LICENSE Version 3](https://www.gnu.org/licenses/gpl.html).
+FOOM is licensed under the [GNU General Public License, version 3](COPYING).
+
+FOOM is a modified version of [OpenOrienteering Mapper](https://github.com/OpenOrienteering/mapper),
+changed from 2026 on. The copyright notices of its authors stay in the source files, and the
+About dialog lists them.

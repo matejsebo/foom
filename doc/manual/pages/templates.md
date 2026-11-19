@@ -15,7 +15,7 @@ Images, tracks recorded with GNSS receivers and other layers which are used to p
 
 #### Types of templates
 
-OpenOrienteering Mapper supports the following file formats to be loaded as templates:
+FOOM supports the following file formats to be loaded as templates:
 
  - [Raster images](#image-templates) (bmp, jpg, png, gif and [formats supported by GDAL](gdal.md))
  - Geospatial vector data (cf. [geospatial data support with GDAL](gdal.md))

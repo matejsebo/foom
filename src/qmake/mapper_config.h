@@ -23,7 +23,7 @@
 #define OPENORIENTEERING_MAPPER_CONFIG_H
 
 #if !defined(APP_NAME)
-#define APP_NAME qApp->translate("OpenOrienteering::Global", QT_TRANSLATE_NOOP("Global", "Fantastic Open Orienteering Mapper"))
+#define APP_NAME qApp->translate("OpenOrienteering::Global", QT_TRANSLATE_NOOP("Global", "FOOM"))
 #endif
 
 #if !defined(Q_OS_WIN) && !defined(Q_OS_MACOS)

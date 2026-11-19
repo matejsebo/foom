@@ -49,8 +49,8 @@ class StorageLocation;
 
 
 /**
- * The user interface of the OpenOrienteering Mapper home screen.
- * The OpenOrienteering Mapper home screen is shown when no document is open,
+ * The user interface of the FOOM home screen.
+ * The FOOM home screen is shown when no document is open,
  * for example after the program is started for the first time.
  */
 class AbstractHomeScreenWidget : public QWidget

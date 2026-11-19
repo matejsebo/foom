@@ -59,18 +59,18 @@ The .omap format is OpenOrienteering Mapper's native format. It is XML-based, wh
 The .xmap format is nearly identical but more verbose, even suitable for direct manual editing. The .omap format is tuned towards minimum size and fast processing.
 If you want to keep your data in a line-based version control system such as git, you must use the .xmap format.
 
-### Can Mapper read and write .ocd files?
+### Can FOOM read and write .ocd files?
 
-Yes, Mapper reads .ocd files from different versions (8 .. 12, 2018). Currently only version 8 .. 12 .ocd files can be written. Beware that some details are neither loaded from nor saved to .ocd files, and some additional inaccuracies might occur.
+Yes, FOOM reads .ocd files from different versions (8 .. 12, 2018). Currently only version 8 .. 12 .ocd files can be written. Beware that some details are neither loaded from nor saved to .ocd files, and some additional inaccuracies might occur.
 
 
 ## Mobile devices
 
-### Will Mapper be available for Android?
+### Will FOOM be available for Android?
 
 An Android version is available. It already has a special user interface, but it needs a lot of work. See the [instructions for the Android app](android-app.md).
 
-### Will Mapper be available for iPhone / iPad?
+### Will FOOM be available for iPhone / iPad?
 
 Probably not, due to distribution issues. Technically, a build should be feasible.
 
@@ -89,5 +89,5 @@ Tap-and-hold on the Symbol selector button. Context menu with hide and protect o
 * Addition and removal of path points (vertices) can be achieved via [**Edit objects** tool](toolbars.md#tool_edit_point) using various combinations of keyboard modifiers. See the status line at the bottom edge of the window for dynamically updated help. See also [Drawing](#drawing).
 * Dash points can be added and removed using the [**Edit objects** tool](toolbars.md#tool_edit_point) after pressing **Ctrl-Space** on keyboard.
 * There are no explicit corner points. Move the Bézier curve handles independently while holding keyboard **Shift** key.
-* Edge lines of double line symbols (roads et al) are inactive and cannot be snapped on. Mapper does not support cutting out parts of the side lines.
+* Edge lines of double line symbols (roads et al) are inactive and cannot be snapped on. FOOM does not support cutting out parts of the side lines.
 * Partial map export is done via a tool. See [Advanced editing](#advanced-editing).

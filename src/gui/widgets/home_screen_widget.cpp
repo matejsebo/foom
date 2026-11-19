@@ -162,7 +162,7 @@ QWidget* HomeScreenWidgetDesktop::makeMenuWidget(HomeScreenController* controlle
 	  tr("Settings"), QIcon(QString::fromLatin1(":/images/settings.png")));
 	menu_layout->addWidget(button_settings);
 	QAbstractButton* button_about = makeButton(
-	  tr("About %1", "As in 'About OpenOrienteering Mapper'").arg(window->appName()), QIcon(QString::fromLatin1(":/images/about.png")));
+	  tr("About %1", "As in 'About FOOM'").arg(window->appName()), QIcon(QString::fromLatin1(":/images/about.png")));
 	menu_layout->addWidget(button_about);
 	QAbstractButton* button_help = makeButton(
 	  tr("Help"), QIcon(QString::fromLatin1(":/images/help.png")));
@@ -348,7 +348,7 @@ HomeScreenWidgetMobile::HomeScreenWidgetMobile(HomeScreenController* controller,
 	connect(settings_button, &QPushButton::clicked, controller->getWindow(), &MainWindow::showSettings);
 	QPushButton* help_button = new QPushButton(HomeScreenWidgetDesktop::tr("Help"));
 	connect(help_button, &QPushButton::clicked, controller->getWindow(), &MainWindow::showHelp);
-	QPushButton* about_button = new QPushButton(tr("About Mapper"));
+	QPushButton* about_button = new QPushButton(tr("About %1").arg(controller->getWindow()->appName()));
 	connect(about_button, &QPushButton::clicked, controller->getWindow(), &MainWindow::showAbout);
 	QHBoxLayout* buttons_layout = new QHBoxLayout();
 	buttons_layout->setContentsMargins(0, 0, 0, 0);

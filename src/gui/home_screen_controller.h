@@ -32,8 +32,8 @@ class MainWindow;
 
 
 /**
- * The controller of the OpenOrienteering Mapper home screen.
- * The OpenOrienteering Mapper home screen is shown when no document is open,
+ * The controller of the FOOM home screen.
+ * The FOOM home screen is shown when no document is open,
  * for example after the program is started for the first time.
  */
 class HomeScreenController : public MainWindowController

@@ -158,12 +158,11 @@ QString AboutDialog::about()
 	  "</head><body>"
 	  "<table><tr>"
 	  "<td><img src=\":/images/mapper-icon/Mapper-128.png\"/></td>"
-	  "<td><img src=\":/images/open-orienteering.png\"/></td>"
 	  "</tr></table>"
 	  "<h1>%1</h1>"
 	  "<p>"
 	  "<em>%3</em><br/>"
-	  "<a href=\"%4\">%4</a></p>"
+	  "%4</p>"
 	  "<p>Copyright %2</p>"
 	  "<p>%5</p>"
 	  "<p>%6</p>"
@@ -175,8 +174,8 @@ QString AboutDialog::about()
 	  tr("About %1").arg(APP_NAME), // %0
 	  qApp->applicationDisplayName(),   // %1
 	  QString::fromLatin1(APP_COPYRIGHT),   // %2
-	  tr("A free software for drawing orienteering maps, based on OpenOrienteering Mapper"), // %3
-	  QString::fromLatin1("https://www.openorienteering.org/apps/mapper/"), // %4
+	  tr("A free software for drawing orienteering maps"), // %3
+	  tr("A modified version of %1.").arg(QString::fromLatin1("<a href=\"https://www.openorienteering.org/apps/mapper/\">OpenOrienteering Mapper</a>")), // %4
 	  tr("This program is free software: you can redistribute it "
 	     "and/or modify it under the terms of the "
 	     "<a %1>GNU General Public License (GPL), version&nbsp;3</a>, "

@@ -6,7 +6,7 @@ last_modified_date: 24 December 2020
 nav_order: 0.5
 ---
 
-OpenOrienteering Mapper uses the [GDAL library](https://gdal.org)
+FOOM uses the [GDAL library](https://gdal.org)
 for supporting a broad range of geospatial
 raster data, such as GeoTIFF or JPEG2000 files,
 vector data, such as Shape, OSM, or DXF files,
@@ -16,7 +16,7 @@ so you will sometimes find this name, too.
 
 Geospatial raster data and vector data can be used as templates.
 However, currently only graphical templates can be displayed;
-Mapper does not yet process raw raster data, such as altitudes,
+FOOM does not yet process raw raster data, such as altitudes,
 which first need to be rendered in other software.
 It also possible to open vector data files as maps
 and to import vector data into map files.
@@ -33,7 +33,7 @@ Please note that some of the raster formats listed below are not used for
 images but for actual geospatial metrics meant for algorithmic processing.
 
 
-## GDAL drivers offered by OpenOrienteering Mapper
+## GDAL drivers offered by FOOM
 
 The following list is valid for the official Android, macOS and Windows releases
 as of v0.9.4.

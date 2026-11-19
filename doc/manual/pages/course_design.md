@@ -7,7 +7,7 @@ nav_order: 0.51
 [Templates]: templates.md
 [IOF Homepage]: https://orienteering.org
 
-OpenOrienteering Mapper doesn't have a sophisticated course planning feature.
+FOOM doesn't have a sophisticated course planning feature.
 The Course Design symbol set provides basic support for designing maps with
 courses and control descriptions. It contains the overprinting symbols from the
 ISOM 2000 and the control descriptions from IOF's "International Specification

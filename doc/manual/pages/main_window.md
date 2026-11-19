@@ -11,11 +11,11 @@ nav_order: 0.02
 ## The Desktop User Interface
 
 On computers running Windows, macOS or Linux, the default appearance
-of OpenOrienteering Mapper is the "Desktop User Interface".
+of FOOM is the "Desktop User Interface".
 
 ### The Home Screen
 
-When Mapper is running with no opened map file,
+When FOOM is running with no opened map file,
 the program shows the "Home" screen.
 It features buttons for key actions (left side)
 and a list of recently used files (right side).

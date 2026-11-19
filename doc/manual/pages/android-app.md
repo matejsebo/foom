@@ -1,5 +1,5 @@
 ---
-title: The Mapper App for Android
+title: The FOOM App for Android
 authors:
   - Kai Pastor
   - Thomas Schoeps
@@ -16,7 +16,7 @@ has_children: true
 
 ## Preliminary remarks
 
-The Android version of OpenOrienteering Mapper is not as self-descriptive as
+The Android version of FOOM is not as self-descriptive as
 the desktop version, so please read this first for important instructions.
 
 [Device requirements and recommendations](android-requirements.md){: .subpage}
@@ -25,7 +25,7 @@ the desktop version, so please read this first for important instructions.
 
 [Storing Maps and Templates on Android Devices](android-storage.md){: .subpage}
 
-[Using the Mapper app in "Touch Mode"](touch-mode.md){: .subpage}
+[Using the FOOM app in "Touch Mode"](touch-mode.md){: .subpage}
 
 {% if doxygen %}
 **Note:** The [online version](https://www.openorienteering.org/mapper-manual/android-app/) of this documentation may contain additions and corrections.

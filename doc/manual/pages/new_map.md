@@ -12,7 +12,7 @@ Choose the menu item File -&gt; New... to show the new map dialog.
 
 ![ ](images/new_map.png)
 
-There are two important choices to be made before starting a new map. These are the scale of the map and the symbol set to be employed. While either of these can be altered at a later time, that is sometimes difficult and it is better to decide on the scale and the map standard before beginning. OpenOrienteering Mapper presents a dialog box to set these important parameters before you start.
+There are two important choices to be made before starting a new map. These are the scale of the map and the symbol set to be employed. While either of these can be altered at a later time, that is sometimes difficult and it is better to decide on the scale and the map standard before beginning. FOOM presents a dialog box to set these important parameters before you start.
 
 #### Scale
 

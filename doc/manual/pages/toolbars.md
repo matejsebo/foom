@@ -10,8 +10,8 @@ parent: Reference
 nav_order: 0.2
 last_modified_date: 13 June 2025
 to-do:
-  - Split this page and update ALL context help in Mapper.
-  - Update context help for zoom-in and -out in Mapper.
+  - Split this page and update ALL context help in FOOM.
+  - Update context help for zoom-in and -out in FOOM.
 ---
 
 <!-- Note: Each item needs an ID. This ID is used to open the context-sensitive help. -->

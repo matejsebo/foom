@@ -8,14 +8,14 @@ last_modified_date: 20 September 2020
 nav_order: 0.03
 ---
 
-## Using the Mapper app in "Touch Mode"
+## Using the FOOM app in "Touch Mode"
 
 The "Touch Mode" is an alternative user interface which is always active on
 Android devices. It can be activated on PCs, too.
 
 In Touch Mode, the map editor is different from the desktop version. It offers
 a fixed set of buttons add the top and at the bottom of the screen. Not all
-Mapper features are offered in Touch Mode, but on the other hands some features
+FOOM features are offered in Touch Mode, but on the other hands some features
 such as live GNSS tracking are available only in this mode.
 
 This page focuses on specific features of the touch mode user interface.

@@ -63,6 +63,6 @@ However the .crt filename extension is commonly associated with certificate file
 You will probably have to select an "All files" filter in the editor's Open-file dialog,
 or temporarily change the extension to .txt.
 
-When Mapper displays the symbol replacement dialog, modified symbol assignments can be saved to a CRT file via the "Symbol mapping" button.
+When FOOM displays the symbol replacement dialog, modified symbol assignments can be saved to a CRT file via the "Symbol mapping" button.
 Note that this dialog shows the assigned symbol in the second column, while in the CRT file, assigned symbols are recorded at the beginning of the line.
 

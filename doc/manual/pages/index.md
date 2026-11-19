@@ -20,10 +20,10 @@ Instructions to download and install OpenOrienteering.
 Explanation of the home screen and main drawing window.
 
 [The Touch Mode User Interface](touch-mode.md){: .subpage}
-Using the Mapper app in "Touch Mode".
+Using the FOOM app in "Touch Mode".
 
-[The Mapper app for Android](android-app.md){: .subpage}
-Working with the Android version of Mapper.
+[The FOOM app for Android](android-app.md){: .subpage}
+Working with the Android version of FOOM.
 
 [Starting a new map](new_map.md){: .subpage}
 First steps.

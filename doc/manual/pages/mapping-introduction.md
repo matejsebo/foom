@@ -27,7 +27,7 @@ nav_exclude: true
  - **Surveying (digital method):**
    Surveying the terrain with help of mobile computers.
  - **Drawing:**
-   Doing the final drawing with OpenOrienteering Mapper.
+   Doing the final drawing with FOOM.
  - **Generalization:**
    The importance of generalization.
 
@@ -53,11 +53,11 @@ Symbols for orienteering maps are prescribed in the [IOF documents](https://orie
 
 It is very desirable that all orienteering maps should conform to the appropriate standard, and that includes conforming to the standard symbols for the discipline.
 
-A full set of symbols for each standard will be made available with OpenOrienteering Mapper, and ideally all maps will be prepared using only the unmodified symbols described in the standards and provided in these symbol sets. This enables international competitors to receive a locally produced map and find it portrays the terrain in exactly the same way as in their home country. It also enables local orienteers to become familiar with the mapping conventions that are used for major events elsewhere. The use of local symbol variations defeats the purpose of mapping standards and confuses visiting competitors.
+A full set of symbols for each standard will be made available with FOOM, and ideally all maps will be prepared using only the unmodified symbols described in the standards and provided in these symbol sets. This enables international competitors to receive a locally produced map and find it portrays the terrain in exactly the same way as in their home country. It also enables local orienteers to become familiar with the mapping conventions that are used for major events elsewhere. The use of local symbol variations defeats the purpose of mapping standards and confuses visiting competitors.
 
 ### Symbols Window
 
-This area on the right hand side of the OpenOrienteering Mapper screen shows all the available symbols in the loaded standard set. Use the scroll-bar to move the array up and down to reveal symbols not showing.
+This area on the right hand side of the FOOM screen shows all the available symbols in the loaded standard set. Use the scroll-bar to move the array up and down to reveal symbols not showing.
 
 Each symbol has a text (a part of the standard) describing where and how it may be used. That text can be made visible in the symbol window by pressing F1 while hovering over the symbol of interest.
 
@@ -76,8 +76,8 @@ The IOF Map Commission has prepared an offset printed paper test sheet (IOF Prin
 ### Color adjustment
 
 1. Scan the offset printed IOF Print Test Sheet in any scanner and use a color picker to get the CMYK values on screen for each color. By way of example this scan may yield CMYK values of 000, .800, .991, .569 respectively for 100% brown.
-2. Load the file *PrintTestSheet_2025_v1.omap* into OpenOrienteering Mapper and print the page on your printer. Take this freshly printed page and scan that print on the same scanner and use the same color picker to get the color values you have in the scan. An example of this scan for 100% brown may yield CMYK values of 000, .689, .942, .255 respectively.
-3. The difference between those two sets of values will indicate the adjustments required. Using the example values the Color Window line for 100% brown should have no adjustment to the cyan field, +.111 to magenta, +.049 to yellow, and +.314 to black. Those adjustments must be made in the OpenOrienteering Mapper Color Window. Having made similar adjustments for all colors, then run the step 2 print trial again.
+2. Load the file *PrintTestSheet_2025_v1.omap* into FOOM and print the page on your printer. Take this freshly printed page and scan that print on the same scanner and use the same color picker to get the color values you have in the scan. An example of this scan for 100% brown may yield CMYK values of 000, .689, .942, .255 respectively.
+3. The difference between those two sets of values will indicate the adjustments required. Using the example values the Color Window line for 100% brown should have no adjustment to the cyan field, +.111 to magenta, +.049 to yellow, and +.314 to black. Those adjustments must be made in the FOOM Color Window. Having made similar adjustments for all colors, then run the step 2 print trial again.
 4. In a perfect world the differences will all reduce to zero. In practice they may not because of non-linearities in the hardware and colors like brown are poorly defined on the color palette. Several iterations may be required to get a good match.
 
 The same general approach may be employed but using the RGB color space instead.

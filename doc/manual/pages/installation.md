@@ -4,7 +4,7 @@ last_modified_date: 28 September 2019
 nav_order: 0.02
 ---
 
-OpenOrienteering Mapper runs on Android, Windows, macOS and Linux.
+FOOM runs on Android, Windows, macOS and Linux.
 Visit <https://www.openorienteering.org/apps/mapper/> to find downloads.
 Apart from stable releases, the web site offers packages from other branches
 of development.

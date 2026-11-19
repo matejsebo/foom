@@ -2,7 +2,7 @@
 title: Device Requirements and Recommendations
 keywords: Android
 last_modified_date: 13 June 2025
-parent: The Mapper App for Android
+parent: The FOOM App for Android
 nav_order: 0.1
 ---
 
@@ -33,6 +33,6 @@ It is very desirable to use a device with replaceable battery. It may be possibl
 
 ## Sensors
 
-OpenOrienteering Mapper can use integrated GNSS receivers. However, their accuracy may be low, so it may be advantageous to connect to an external GNSS receiver. There is no direct support for external devices in Mapper, but some third party apps bridge the gap. For example the [Bluetooth GNSS app](https://play.google.com/store/apps/details?id=com.clearevo.bluetooth_gnss) provides a "mock" location provider which can be used when Android is put in developer mode.
+FOOM can use integrated GNSS receivers. However, their accuracy may be low, so it may be advantageous to connect to an external GNSS receiver. There is no direct support for external devices in FOOM, but some third party apps bridge the gap. For example the [Bluetooth GNSS app](https://play.google.com/store/apps/details?id=com.clearevo.bluetooth_gnss) provides a "mock" location provider which can be used when Android is put in developer mode.
 
 The app can use a magnetometer and accelerometer as a compass. Almost all modern devices should contain these sensors. If a gyroscope is also available, it will be used to improve the compass stability. However, these sensors are typically not accurate enough to be used for measurements. They can be used for convenience when not relying on a compass, but for accurate measurements, an external compass is recommended.

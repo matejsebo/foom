@@ -68,7 +68,7 @@ In the **Declination** field the angle between true north and magnetic north at 
 
 #### Scale compensation
 
-**Auxiliary scale factor** may be set to compensate when distances on the ground differ from distances on the Earth model, such as occurs when the terrain is at high altitude. It is the ratio of model distance to ground distance. The default factor of 1.0 has no effect. Besides that, Mapper automatically calculates the grid scale factor, which accounts for the difference between projected distance and model distance. Mapper puts this together with the auxiliary scale factor to form the **combined scale factor**.
+**Auxiliary scale factor** may be set to compensate when distances on the ground differ from distances on the Earth model, such as occurs when the terrain is at high altitude. It is the ratio of model distance to ground distance. The default factor of 1.0 has no effect. Besides that, FOOM automatically calculates the grid scale factor, which accounts for the difference between projected distance and model distance. FOOM puts this together with the auxiliary scale factor to form the **combined scale factor**.
 
 
 #### Related functions

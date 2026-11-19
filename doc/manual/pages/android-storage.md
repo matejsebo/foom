@@ -1,7 +1,7 @@
 ---
 title: Storing Maps and Templates on Android Devices
 keywords: Android
-parent: The Mapper App for Android
+parent: The FOOM App for Android
 nav_order: 0.3
 ---
 
@@ -10,7 +10,7 @@ nav_order: 0.3
 Android organizes storage and permissions different than PCs.
 Especially on SD cards, write access for apps is restricted.
 
-You can choose the following locations for storing data which you want to edit and to display in OpenOrienteering Mapper:
+You can choose the following locations for storing data which you want to edit and to display in FOOM:
 
  - Folder "OOMapper" at the top level of the primary storage volume. On most devices, the primary storage volume is a part of the built-in storage.
   Files in this area are stored permanently, until you decide to remove them.
@@ -18,10 +18,10 @@ You can choose the following locations for storing data which you want to edit a
 
  - Path "Android/data/org.openorienteering.mapper/files" on arbitrary storage volumes such as built-in memory or SD cards (since Mapper 0.6.5).
   This is the only convenient way to store map data on cheap extra memory cards.
-  However, you need to be aware of the fact that these folders are removed by Android when you uninstall the Mapper app.
+  However, you need to be aware of the fact that these folders are removed by Android when you uninstall the FOOM app.
   So please carefully save your changes to a PC.
 
-OpenOrienteering Mapper for Android will create these folders when they are missing, and scan them for map files. It will display warnings when you open maps from the non-permanent app-specific folders or from read-only locations. (Top-level "OOMapper" folders on secondary storage volumes are scanned, but cannot be written to.)
+FOOM for Android will create these folders when they are missing, and scan them for map files. It will display warnings when you open maps from the non-permanent app-specific folders or from read-only locations. (Top-level "OOMapper" folders on secondary storage volumes are scanned, but cannot be written to.)
 
 
 ## File transfer
@@ -51,6 +51,6 @@ solve the issue. After the reboot, Android's media scanner will take notice of
 new files and changed file sizes. However, Mapper v0.8.3 is expected to bring a
 solution to this issue.
 
-In some situations, the Mapper app might not be able to properly save data and
+In some situations, the FOOM app might not be able to properly save data and
 shutdown as quickly as requested by the Android operating system, for example
 when you start other apps or when the device runs out of power.

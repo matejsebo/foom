@@ -1,8 +1,7 @@
 /*
  *    Copyright 2026 Matej Šebo
  *
- *    This file is part of FOOM, the Fantastic Open Orienteering Mapper,
- *    a fork of OpenOrienteering Mapper.
+ *    This file is part of FOOM.
  *
  *    FOOM is free software: you can redistribute it and/or modify
  *    it under the terms of the GNU General Public License as published by
