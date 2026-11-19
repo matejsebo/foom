@@ -187,6 +187,7 @@
 #include "gui/widgets/compass_display.h"
 #include "gui/widgets/key_button_bar.h" // IWYU pragma: keep
 #include "gui/widgets/measure_widget.h"
+#include "gui/widgets/rangefinder_widget.h"  // foom
 #include "gui/widgets/shortcut_settings.h"  // foom
 #include "gui/widgets/symbol_widget.h"
 #include "gui/widgets/tags_widget.h"
@@ -222,6 +223,7 @@
 #include "tools/fill_tool.h"
 #include "tools/gps_offset_tool.h"  // foom
 #include "tools/pan_tool.h"
+#include "tools/rangefinder_tool.h"  // foom
 #include "tools/rotate_pattern_tool.h"
 #include "tools/rotate_tool.h"
 #include "tools/scale_tool.h"
@@ -387,6 +389,7 @@ MapEditorController::~MapEditorController()
 	delete toolbar_mapparts;
 	delete print_dock_widget;
 	delete measure_dock_widget;
+	delete rangefinder_container.data();  // foom
 	if (color_dock_widget)
 		delete color_dock_widget;
 	delete symbol_dock_widget;
@@ -863,7 +866,7 @@ void MapEditorController::attach(MainWindow* window)
 	map_widget->setMapView(main_view);
 	map_widget->setZoomDisplay(zoom_display_function);
 	recordView();  // foom: the opening view is the first entry of the view history
-	map_widget->setOverlay([this](QPainter* painter, MapWidget* widget) { drawActiveExtent(painter, widget); drawTemplateAttributions(painter, widget); });  // foom
+	map_widget->setOverlay([this](QPainter* painter, MapWidget* widget) { drawActiveExtent(painter, widget); drawTemplateAttributions(painter, widget); drawRangefinder(painter, widget); });  // foom
 	
 	// Create menu and toolbar together, so actions can be inserted into one or both
 	if (mode == MapEditor)
@@ -1281,6 +1284,9 @@ void MapEditorController::createActions()
 	gps_set_offset_act->setEnabled(false);
 	gps_clear_offset_act = newAction("gps-clear-offset", tr("Remove GPS position offset"), this, SLOT(gpsClearOffsetClicked()));
 	gps_clear_offset_act->setEnabled(false);
+	// foom: the rangefinder; the design notes, "Rangefinder dock: detail"
+	rangefinder_act = newCheckAction("rangefinder", tr("Rangefinder"), this, SLOT(rangefinderClicked(bool)), nullptr, tr("Draw from a reference point with distance and azimuth."));
+	rangefinder_reference_act = newToolAction("rangefinder-reference", tr("Set rangefinder reference"), this, SLOT(rangefinderReferenceClicked()), nullptr, tr("Click the reference point of the rangefinder on the map."));
 	connect(this, &MapEditorController::toolChanged, this, &MapEditorController::updateGpsRecordActions);
 	if (gps_display)
 	{
@@ -1553,6 +1559,7 @@ void MapEditorController::createMenuAndToolbars()
 		gps_menu->addAction(gps_set_offset_act);
 		gps_menu->addAction(gps_clear_offset_act);
 	}
+	tools_menu->addAction(rangefinder_act);  // foom
 	tools_menu->addAction(draw_point_act);
 	tools_menu->addAction(draw_path_act);
 	tools_menu->addAction(draw_circle_act);
@@ -1970,6 +1977,8 @@ void MapEditorController::createMobileGUI()
 	mobile_gps_temp_path_menu->addSeparator();
 	mobile_gps_temp_path_menu->addAction(gps_set_offset_act);
 	mobile_gps_temp_path_menu->addAction(gps_clear_offset_act);
+	mobile_gps_temp_path_menu->addSeparator();
+	mobile_gps_temp_path_menu->addAction(rangefinder_act);
 	temp_path_button->setMenu(mobile_gps_temp_path_menu);
 	
 	bottom_action_bar->addAction(gps_temporary_point_act, 1, col++);
@@ -4735,6 +4744,162 @@ void MapEditorController::measureClicked(bool checked)
 	}
 	
 	measure_dock_widget->setVisible(checked);
+}
+
+// foom: The rangefinder.
+// the design notes, "Rangefinder dock: detail".
+
+void MapEditorController::rangefinderClicked(bool checked)
+{
+	if (!rangefinder_widget)
+	{
+		rangefinder_widget = new RangefinderWidget(map, mobile_mode);
+		rangefinder_widget->setReferenceClickAction(rangefinder_reference_act);
+		rangefinder_widget->setAddFunction([this](const MapCoordF& target) { return rangefinderAdd(target); });
+		connect(rangefinder_widget, &RangefinderWidget::changed, map_widget, QOverload<>::of(&QWidget::update));
+		connect(rangefinder_widget, &RangefinderWidget::referenceFromGpsRequested, this, &MapEditorController::rangefinderReferenceFromGps);
+		connect(rangefinder_widget, &RangefinderWidget::finishRequested, this, &MapEditorController::rangefinderFinish);
+		if (mobile_mode)
+		{
+			// A sheet over the full width at the bottom of the map.
+			rangefinder_widget->setParent(map_widget);
+			rangefinder_widget->setAutoFillBackground(true);
+			connect(rangefinder_widget, &RangefinderWidget::closeClicked, this, [this]() {
+				rangefinder_act->setChecked(false);
+				rangefinderClicked(false);
+			});
+			rangefinder_container = rangefinder_widget;
+		}
+		else
+		{
+			auto* dock_widget = new EditorDockWidget(tr("Rangefinder"), rangefinder_act, this, window);
+			dock_widget->toggleViewAction()->setVisible(false);
+			dock_widget->setWidget(rangefinder_widget);
+			dock_widget->setObjectName(QString::fromLatin1("Rangefinder dock widget"));
+			addFloatingDockWidget(dock_widget);
+			rangefinder_container = dock_widget;
+		}
+	}
+	
+	if (mobile_mode && checked)
+	{
+		auto const height = qMin(rangefinder_widget->sizeHint().height(), map_widget->height());
+		rangefinder_container->setGeometry(0, map_widget->height() - height, map_widget->width(), height);
+		rangefinder_container->raise();
+	}
+	rangefinder_container->setVisible(checked);
+	if (!checked && qobject_cast<RangefinderReferenceTool*>(current_tool))
+		setEditTool();
+	map_widget->update();
+}
+
+void MapEditorController::rangefinderReferenceClicked()
+{
+	setTool(new RangefinderReferenceTool(this, rangefinder_reference_act));
+}
+
+void MapEditorController::rangefinderFinish()
+{
+	if (!current_tool || !current_tool->editingInProgress())
+		return;
+	// As Ctrl+Return in the map: the path ends at its last vertex and is not closed.
+	QKeyEvent event(QEvent::KeyPress, Qt::Key_Return, Qt::ControlModifier);
+	current_tool->keyPressEvent(&event);
+}
+
+void MapEditorController::rangefinderReferenceFromGps()
+{
+	if (gps_display && gps_display->hasValidPosition())
+		rangefinderSetReference(gps_display->getLatestGPSCoord());
+	else
+		window->showStatusBarMessage(tr("There is no GPS position which can be used."), 3000);
+}
+
+void MapEditorController::rangefinderSetReference(const MapCoordF& position)
+{
+	if (rangefinder_widget)
+		rangefinder_widget->setReference(position);
+}
+
+bool MapEditorController::rangefinderAdd(const MapCoordF& target)
+{
+	if (current_tool && current_tool->acceptsNumericVertices())
+	{
+		current_tool->acceptNumericVertex(target);
+		return true;
+	}
+	
+	auto const* symbol = activeSymbol();
+	if (symbol && !symbol->isHidden())
+	{
+		switch (symbol->getType())
+		{
+		case Symbol::Point:
+			{
+				auto* object = new PointObject(symbol);
+				object->setPosition(target);
+				auto const index = map->addObject(object);
+				map->setObjectsDirty();
+				auto* undo_step = new DeleteObjectsUndoStep(map);
+				undo_step->addObject(index);
+				map->push(undo_step);
+				return true;
+			}
+		case Symbol::Line:
+		case Symbol::Area:
+		case Symbol::Combined:
+			// The path tool takes the target as its first vertex.
+			if (draw_path_act->isEnabled())
+			{
+				draw_path_act->trigger();
+				if (current_tool && current_tool->acceptsNumericVertices())
+				{
+					current_tool->acceptNumericVertex(target);
+					return true;
+				}
+			}
+			break;
+		default:
+			break;
+		}
+	}
+	window->showStatusBarMessage(tr("Choose a point, line or area symbol to draw the reading."), 3000);
+	return false;
+}
+
+void MapEditorController::drawRangefinder(QPainter* painter, MapWidget* widget) const
+{
+	if (!rangefinder_widget || !rangefinder_container || rangefinder_container->isHidden())
+		return;
+	auto const& survey = rangefinder_widget->survey();
+	if (!survey.hasReference())
+		return;
+	
+	auto const reference = widget->mapToViewport(survey.reference());
+	MapCoordF target_coord;
+	auto const has_target = rangefinder_widget->previewTarget(&target_coord);
+	auto const target = has_target ? widget->mapToViewport(target_coord) : reference;
+	auto const radius = Util::mmToPixelLogical(2.5);
+	auto const arm = Util::mmToPixelLogical(1.8);
+	
+	painter->save();
+	painter->setRenderHint(QPainter::Antialiasing);
+	painter->setBrush(Qt::NoBrush);
+	// First a white casing, then the colour, so that it shows on every ground.
+	for (auto const& pen : { QPen(Qt::white, Util::mmToPixelLogical(1.2)), QPen(QColor(220, 0, 220), Util::mmToPixelLogical(0.6)) })
+	{
+		painter->setPen(pen);
+		painter->drawEllipse(reference, radius, radius);
+		painter->drawLine(reference - QPointF(1.4 * radius, 0), reference + QPointF(1.4 * radius, 0));
+		painter->drawLine(reference - QPointF(0, 1.4 * radius), reference + QPointF(0, 1.4 * radius));
+		if (has_target)
+		{
+			painter->drawLine(reference, target);
+			painter->drawLine(target - QPointF(arm, arm), target + QPointF(arm, arm));
+			painter->drawLine(target - QPointF(arm, -arm), target + QPointF(arm, -arm));
+		}
+	}
+	painter->restore();
 }
 
 void MapEditorController::booleanUnionClicked()

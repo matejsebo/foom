@@ -111,6 +111,7 @@ set(Mapper_Common_SRCS
   sync/merge_decisions.cpp
   core/map_view.cpp
   core/path_coord.cpp
+  core/rangefinder.cpp  # foom
   core/spatial_index.cpp
   core/storage_location.cpp
   core/track.cpp
@@ -267,6 +268,7 @@ set(Mapper_Common_SRCS
   gui/widgets/key_button_bar.cpp
   gui/widgets/mapper_proxystyle.cpp
   gui/widgets/measure_widget.cpp
+  gui/widgets/rangefinder_widget.cpp  # foom
   gui/widgets/paint_on_template_settings_page.cpp
   gui/widgets/pie_menu.cpp
   gui/widgets/segmented_button_layout.cpp
@@ -326,6 +328,7 @@ set(Mapper_Common_SRCS
   tools/object_selector.cpp
   tools/pan_tool.cpp
   tools/point_handles.cpp
+  tools/rangefinder_tool.cpp  # foom
   tools/rotate_tool.cpp
   tools/rotate_pattern_tool.cpp
   tools/scale_tool.cpp

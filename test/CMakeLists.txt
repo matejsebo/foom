@@ -308,6 +308,7 @@ if(TARGET mapper-sensors)
 			target_link_libraries(gnss_offset_log_t  PRIVATE ${lib})
 		endif()
 	endforeach()
+	add_system_test(rangefinder_t)  # foom: the design notes, Rangefinder dock
 	add_system_test(sensors_t)
 	target_link_libraries(sensors_t  PRIVATE mapper-sensors)
 	foreach(lib Qt5::Positioning Qt5::Sensors)

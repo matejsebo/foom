@@ -95,6 +95,7 @@ class MapFindFeature;
 class MapView;
 class MapWidget;
 class PaintOnTemplateFeature;
+class RangefinderWidget;  // foom
 class PrintWidget;
 class ReopenTemplateDialog;
 class Symbol;
@@ -248,6 +249,8 @@ public:
 	/** foom: Draws the active extent as a sheet outline; the map widget's overlay. */
 	void drawActiveExtent(QPainter* painter, MapWidget* widget) const;
 	void drawTemplateAttributions(QPainter* painter, MapWidget* widget) const;  // foom
+	/** foom: Draws the reference of the rangefinder and the target of its fields. */
+	void drawRangefinder(QPainter* painter, MapWidget* widget) const;
 	
 	/** foom: Returns the issue model of the Issues window. */
 	IssueModel* issueModel() const { return issue_model; }
@@ -332,6 +335,21 @@ public slots:
 	 * "Position offset and sentence log" in the design notes.
 	 */
 	bool gpsSetOffsetAt(const OpenOrienteering::MapCoordF& true_position);
+	
+	/**
+	 * foom: Sets the reference point of the rangefinder. Does nothing before its dock was shown.
+	 * See "Rangefinder dock: detail" in the design notes.
+	 */
+	void rangefinderSetReference(const OpenOrienteering::MapCoordF& position);
+	
+	/**
+	 * foom: Draws the target of a rangefinder reading: the next vertex of
+	 * the path which is drawn, or a point object of the active symbol.
+	 * 
+	 * Returns false, with a message in the status bar, when the active
+	 * symbol cannot be drawn in this way.
+	 */
+	bool rangefinderAdd(const OpenOrienteering::MapCoordF& target);
 	
 	/**
 	 * Lets the user export a PathObject as a simple course.
@@ -579,6 +597,14 @@ public slots:
 	void scaleClicked();
 	/** Shows or hides the MeasureWidget */
 	void measureClicked(bool checked);
+	/** foom: Shows or hides the rangefinder. */
+	void rangefinderClicked(bool checked);
+	/** foom: Switches to the tool which sets the reference of the rangefinder. */
+	void rangefinderReferenceClicked();
+	/** foom: Ends the path which is drawn at its last vertex, for the rangefinder. */
+	void rangefinderFinish();
+	/** foom: Takes the GPS position as the reference of the rangefinder. */
+	void rangefinderReferenceFromGps();
 	/** Calculates the union of selected same-symbol area objects */
 	void booleanUnionClicked();
 	/** Calculates the intersection of selected same-symbol area objects */
@@ -1130,6 +1156,10 @@ private:
 	QAction* scale_act = {};
 	QAction* measure_act = {};
 	EditorDockWidget* measure_dock_widget;
+	QAction* rangefinder_act = {};  // foom
+	QAction* rangefinder_reference_act = {};  // foom
+	QPointer<RangefinderWidget> rangefinder_widget;  // foom
+	QPointer<QWidget> rangefinder_container;  // foom: the dock, or in the mobile interface the widget
 	QAction* boolean_union_act = {};
 	QAction* boolean_intersection_act = {};
 	QAction* boolean_difference_act = {};
