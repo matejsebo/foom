@@ -258,6 +258,7 @@ add_system_test(generator_t)  # foom: the design notes, Generators
 add_system_test(course_model_t)  # foom: the design notes, Data model and OCD records
 add_system_test(course_storage_t)  # foom: the design notes, Storage
 add_system_test(course_ocd_t)  # foom: the design notes, OCD files from the course data
+add_system_test(course_symbol_t)  # foom: the design notes, Course role of symbols
 add_system_test(sketch_t)  # foom: the design notes, Sketch layer
 add_system_test(merge_t)  # foom: the design notes, Merge changes from file
 target_compile_definitions(merge_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")

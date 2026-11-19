@@ -1129,6 +1129,24 @@ void OcdFileExport::exportSymbols(OcdFile<Format>& file)
 }
 
 
+namespace {
+
+// foom: the course role of a symbol, the design notes, "Course role of symbols".
+template< class OcdBaseSymbol >
+void exportSymbolCourseFields(const Symbol* symbol, OcdBaseSymbol& ocd_base_symbol)
+{
+	ocd_base_symbol.cs_mode = decltype(ocd_base_symbol.cs_mode)(symbol->courseMode());
+	ocd_base_symbol.cs_type = decltype(ocd_base_symbol.cs_type)(symbol->courseType());
+	ocd_base_symbol.cd_flags = decltype(ocd_base_symbol.cd_flags)(symbol->descriptionColumns());
+}
+
+void exportSymbolCourseFields(const Symbol* /*symbol*/, Ocd::BaseSymbolV8& /*ocd_base_symbol*/)
+{
+	// The symbol record of version 8 has no place for it.
+}
+
+}  // namespace
+
 template< class OcdBaseSymbol >
 void OcdFileExport::setupBaseSymbol(const Symbol* symbol, quint32 symbol_number, OcdBaseSymbol& ocd_base_symbol)
 {
@@ -1140,6 +1158,7 @@ void OcdFileExport::setupBaseSymbol(const Symbol* symbol, quint32 symbol_number,
 		ocd_base_symbol.status |= Ocd::SymbolProtected;
 	if (symbol->isHidden())
 		ocd_base_symbol.status |= Ocd::SymbolHidden;
+	exportSymbolCourseFields(symbol, ocd_base_symbol);  // foom
 
 	setupSymbolColors(symbol, ocd_base_symbol);
 	setupIcon(symbol, ocd_base_symbol);

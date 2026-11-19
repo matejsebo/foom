@@ -91,6 +91,9 @@ Symbol::Symbol(const Symbol& proto)
 , is_protected { proto.is_protected }
 , is_rotatable { proto.is_rotatable }
 , is_private { proto.is_private }
+, course_mode { proto.course_mode }
+, course_type { proto.course_type }
+, description_columns { proto.description_columns }
 {
 	// nothing else
 }
@@ -107,6 +110,52 @@ bool Symbol::validate() const
 
 
 
+// foom: the design notes, "Course role of symbols"
+Symbol::CourseRole Symbol::courseRole() const
+{
+	if (course_mode == 2)
+		return DescriptionSymbol;
+	if (course_mode != 1)
+		return NoCourseRole;
+	switch (course_type)
+	{
+	case 0:   return CourseStart;
+	case 1:   return CourseControl;
+	case 2:   return CourseFinish;
+	case 3:   return CourseMarkedRoute;
+	case 4:   return CourseDescription;
+	case 5:   return CourseTitle;
+	case 6:   return CourseStartNumber;
+	case 7:   return CourseVariantCode;
+	default:  return NoCourseRole;
+	}
+}
+
+void Symbol::setCourseRole(CourseRole role, int columns)
+{
+	switch (role)
+	{
+	case NoCourseRole:       setCourseFields(0, 0, 0); break;
+	case CourseStart:        setCourseFields(1, 0, 0); break;
+	case CourseControl:      setCourseFields(1, 1, 0); break;
+	case CourseFinish:       setCourseFields(1, 2, 0); break;
+	case CourseMarkedRoute:  setCourseFields(1, 3, 0); break;
+	case CourseDescription:  setCourseFields(1, 4, 0); break;
+	case CourseTitle:        setCourseFields(1, 5, 0); break;
+	case CourseStartNumber:  setCourseFields(1, 6, 0); break;
+	case CourseVariantCode:  setCourseFields(1, 7, 0); break;
+	case DescriptionSymbol:  setCourseFields(2, 0, columns); break;
+	}
+}
+
+void Symbol::setCourseFields(int mode, int type, int columns)
+{
+	course_mode = quint8(qBound(0, mode, 255));
+	course_type = quint8(qBound(0, type, 255));
+	description_columns = quint8(qBound(0, columns, 255));
+}
+
+
 bool Symbol::equals(const Symbol* other, Qt::CaseSensitivity case_sensitivity) const
 {
 	return type == other->type
@@ -114,6 +163,9 @@ bool Symbol::equals(const Symbol* other, Qt::CaseSensitivity case_sensitivity) c
 	       && is_helper_symbol == other->is_helper_symbol
 	       && is_rotatable == other->is_rotatable
 	       && is_private == other->is_private
+	       && course_mode == other->course_mode
+	       && course_type == other->course_type
+	       && description_columns == other->description_columns
 	       && name.compare(other->name, case_sensitivity) == 0
 	       && description.compare(other->description, case_sensitivity) == 0
 	       && equalsImpl(other, case_sensitivity);
@@ -270,6 +322,15 @@ void Symbol::save(QXmlStreamWriter& xml, const Map& map) const
 	symbol_element.writeAttribute(QLatin1String("is_protected"), is_protected);
 	if (is_private && XMLFileFormat::foom_revision >= 1)  // foom
 		symbol_element.writeAttribute(QLatin1String("is_private"), true);
+	if (XMLFileFormat::foom_revision >= 1)  // foom: the design notes, "Course role of symbols"
+	{
+		if (course_mode)
+			symbol_element.writeAttribute(QLatin1String("course_mode"), int(course_mode));
+		if (course_type)
+			symbol_element.writeAttribute(QLatin1String("course_type"), int(course_type));
+		if (description_columns)
+			symbol_element.writeAttribute(QLatin1String("description_columns"), int(description_columns));
+	}
 	if (!description.isEmpty())
 		xml.writeTextElement(QLatin1String("description"), description);
 	saveImpl(xml, map);
@@ -352,6 +413,9 @@ std::unique_ptr<Symbol> Symbol::load(QXmlStreamReader& xml, const Map& map, Symb
 	symbol->is_hidden = symbol_element.attribute<bool>(QLatin1String("is_hidden"));
 	symbol->is_protected = symbol_element.attribute<bool>(QLatin1String("is_protected"));
 	symbol->is_private = symbol_element.attribute<bool>(QLatin1String("is_private"));  // foom
+	symbol->setCourseFields(symbol_element.attribute<int>(QLatin1String("course_mode")),
+	                        symbol_element.attribute<int>(QLatin1String("course_type")),
+	                        symbol_element.attribute<int>(QLatin1String("description_columns")));  // foom
 	
 	while (xml.readNextStartElement())
 	{

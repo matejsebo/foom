@@ -497,6 +497,55 @@ public:
 	
 	
 	/**
+	 * foom: What a symbol is in course setting.
+	 * 
+	 * See the design notes, "Course role of symbols".
+	 */
+	enum CourseRole
+	{
+		NoCourseRole,
+		CourseStart,
+		CourseControl,
+		CourseFinish,
+		CourseMarkedRoute,
+		CourseDescription,   ///< the block of control descriptions on the map
+		CourseTitle,
+		CourseStartNumber,
+		CourseVariantCode,
+		DescriptionSymbol    ///< a pictogram of the control descriptions
+	};
+	
+	/** foom: The bits of descriptionColumns(), as in OCD files. */
+	enum DescriptionColumn
+	{
+		DescriptionColumnH = 1,
+		DescriptionColumnG = 2,
+		DescriptionColumnF = 4,
+		DescriptionColumnE = 8,
+		DescriptionColumnD = 16,
+		DescriptionColumnC = 32
+	};
+	
+	/** foom: The role which the course fields give this symbol. */
+	CourseRole courseRole() const;
+	
+	/** foom: Sets the course fields of a role; the columns count for a description symbol only. */
+	void setCourseRole(CourseRole role, int columns = 0);
+	
+	/** foom: Returns true for a description symbol which may stand in the column. */
+	bool isForDescriptionColumn(DescriptionColumn column) const { return course_mode == 2 && (description_columns & column); }
+	
+	/** foom: The course fields as OCD files have them: 0 none, 1 symbol of a course object, 2 description symbol. */
+	int courseMode() const { return course_mode; }
+	/** foom: For the mode 1: 0 start, 1 control, 2 finish, 3 marked route, 4 description, 5 title, 6 start number, 7 variant code. */
+	int courseType() const { return course_type; }
+	/** foom: For the mode 2: the columns of the description, see DescriptionColumn. */
+	int descriptionColumns() const { return description_columns; }
+	/** foom: Sets the three course fields as they are; values from 0 to 255. */
+	void setCourseFields(int mode, int type, int columns);
+	
+	
+	/**
 	 * foom: Returns if this symbol is private, i.e. belongs to one object or
 	 * one generated group and is not offered among the map's symbols.
 	 * 
@@ -666,6 +715,9 @@ private:
 	bool is_protected;        /// \see isProtected()
 	bool is_rotatable = false;
 	bool is_private = false;  ///< foom \see isPrivate()
+	quint8 course_mode = 0;          ///< foom \see courseMode()
+	quint8 course_type = 0;          ///< foom \see courseType()
+	quint8 description_columns = 0;  ///< foom \see descriptionColumns()
 };
 
 

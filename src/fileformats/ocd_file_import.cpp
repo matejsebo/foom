@@ -1199,6 +1199,22 @@ void OcdFileImport::importView(const QString& param_string)
 }
 
 
+namespace {
+
+// foom: the course role of a symbol, the design notes, "Course role of symbols".
+template< class OcdBaseSymbol >
+void importSymbolCourseFields(const OcdBaseSymbol& ocd_base_symbol, Symbol* symbol)
+{
+	symbol->setCourseFields(ocd_base_symbol.cs_mode, ocd_base_symbol.cs_type, ocd_base_symbol.cd_flags);
+}
+
+void importSymbolCourseFields(const Ocd::BaseSymbolV8& /*ocd_base_symbol*/, Symbol* /*symbol*/)
+{
+	// The symbol record of version 8 has no place for it.
+}
+
+}  // namespace
+
 template< class OcdBaseSymbol >
 void OcdFileImport::setupBaseSymbol(Symbol* symbol, const OcdBaseSymbol& ocd_base_symbol)
 {
@@ -1210,6 +1226,7 @@ void OcdFileImport::setupBaseSymbol(Symbol* symbol, const OcdBaseSymbol& ocd_bas
 	symbol->setIsHelperSymbol(false);
 	symbol->setProtected(ocd_base_symbol.status & Ocd::SymbolProtected);
 	symbol->setHidden(ocd_base_symbol.status & Ocd::SymbolHidden);
+	importSymbolCourseFields(ocd_base_symbol, symbol);  // foom
 	setupIcon(symbol, ocd_base_symbol);
 }
 
