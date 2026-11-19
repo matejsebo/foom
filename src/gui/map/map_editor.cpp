@@ -167,6 +167,7 @@
 #include "gui/map/move_parallel_dialog.h"
 #include "gui/map/numeric_entry_bar.h"
 #include "gui/map/bookmark_dialog.h"
+#include "gui/map/course_bulk_dialog.h"  // foom
 #include "check/issue.h"
 #include "check/legibility.h"
 #include "check/map_check.h"
@@ -206,6 +207,7 @@
 #include "templates/template_dialog_reopen.h"
 #include "templates/template_track.h"
 #include "tools/box_zoom_tool.h"
+#include "tools/compose_course_tool.h"  // foom
 #include "tools/cut_tool.h"
 #include "tools/cut_hole_tool.h"
 #include "tools/lasso_tool.h"  // foom
@@ -1293,6 +1295,11 @@ void MapEditorController::createActions()
 	course_dock_act = newCheckAction("course-dock", tr("Course setting"), this, SLOT(courseDockClicked(bool)), nullptr, tr("Show or hide the course objects, the courses and their classes."));
 	// foom: the course symbols; the design notes, "FOOM's course symbols"
 	course_symbols_act = newAction("course-symbols", tr("Add course symbols"), this, SLOT(addCourseSymbolsClicked()), nullptr, tr("Add the symbols of course setting to this map: start, control and finish, and the symbols of the control descriptions."));
+	// foom: the design notes, "Composing a course and the bulk commands"
+	compose_course_act = newToolAction("compose-course", tr("Compose course"), this, SLOT(composeCourseClicked()), "draw-point.png", tr("Compose the course of the course dock by clicks in the map: start, controls and finish."));
+	course_insert_act = newAction("course-insert-into-courses", tr("Insert course object into courses..."), this, SLOT(insertIntoCoursesClicked()), nullptr, tr("Put a course object into many courses at once."));
+	course_delete_act = newAction("course-delete-from-courses", tr("Delete course object from courses..."), this, SLOT(deleteFromCoursesClicked()), nullptr, tr("Take a course object out of many courses at once. The object stays in the map."));
+	course_renumber_act = newAction("course-renumber", tr("Renumber all controls..."), this, SLOT(renumberControlsClicked()), nullptr, tr("Give the controls new codes, from a new first code on."));
 	// foom: the rangefinder; the design notes, "Rangefinder dock: detail"
 	rangefinder_act = newCheckAction("rangefinder", tr("Rangefinder"), this, SLOT(rangefinderClicked(bool)), nullptr, tr("Draw from a reference point with distance and azimuth."));
 	rangefinder_reference_act = newToolAction("rangefinder-reference", tr("Set rangefinder reference"), this, SLOT(rangefinderReferenceClicked()), nullptr, tr("Click the reference point of the rangefinder on the map."));
@@ -1707,6 +1714,11 @@ void MapEditorController::createMenuAndToolbars()
 	QMenu* courses_menu = window->menuBar()->addMenu(tr("&Courses"));  // foom: the design notes, "Menu placement"
 	courses_menu->addAction(course_dock_act);
 	courses_menu->addAction(course_symbols_act);
+	courses_menu->addSeparator();
+	courses_menu->addAction(compose_course_act);
+	courses_menu->addAction(course_insert_act);
+	courses_menu->addAction(course_delete_act);
+	courses_menu->addAction(course_renumber_act);
 	
 	// Extend and activate general toolbar
 	QToolBar* main_toolbar = window->getGeneralToolBar();
@@ -4798,6 +4810,108 @@ void MapEditorController::addCourseSymbolsClicked()
 	if (report.added > 0 && report.taken > 0)
 		message += QLatin1Char('\n') + tr("%n number(s) were in use. The symbols which have them were left as they are.", nullptr, report.taken);
 	QMessageBox::information(window, tr("Add course symbols"), message);
+}
+
+// foom: Composing a course, and the commands for many courses.
+// the design notes, "Composing a course and the bulk commands".
+
+void MapEditorController::composeCourseClicked()
+{
+	auto const title = tr("Compose course");
+	// Without the tool, the action of the tool which stays is the checked one.
+	auto const give_up = [this]() {
+		compose_course_act->setChecked(false);
+		if (current_tool && current_tool->toolAction())
+			current_tool->toolAction()->setChecked(true);
+	};
+	
+	if (!course_dock_act->isChecked())
+		course_dock_act->trigger();
+	if (!course_widget)
+	{
+		give_up();
+		return;
+	}
+	
+	if (course_widget->currentCourse().isEmpty())
+	{
+		auto ok = false;
+		auto const& courses = map->courseData().courses;
+		if (courses.empty())
+		{
+			auto const name = QInputDialog::getText(window, title, tr("There is no course yet. Name of the new course:"), QLineEdit::Normal, QString{}, &ok);
+			if (ok && !course_widget->addCourse(name))
+			{
+				QMessageBox::warning(window, title, tr("This is no name for a course."));
+				ok = false;
+			}
+		}
+		else
+		{
+			QStringList names;
+			for (auto const& course : courses)
+				names.push_back(course.name);
+			auto const name = QInputDialog::getItem(window, title, tr("Course:"), names, 0, false, &ok);
+			if (ok)
+				course_widget->setCurrentCourse(name);
+		}
+		if (!ok || course_widget->currentCourse().isEmpty())
+		{
+			give_up();
+			return;
+		}
+	}
+	setTool(new ComposeCourseTool(this, compose_course_act, course_widget));
+}
+
+/// foom: The code of the course object which is selected in the map; empty when there is none.
+static QString selectedCourseCode(const Map& map)
+{
+	if (auto const* object = map.getFirstSelectedObject())
+	{
+		for (auto const& course_object : map.courseData().objects)
+		{
+			if (course_object.object == object->uuid())
+				return course_object.code;
+		}
+	}
+	return {};
+}
+
+void MapEditorController::insertIntoCoursesClicked()
+{
+	if (map->courseData().courses.empty())
+	{
+		QMessageBox::information(window, tr("Insert course object into courses"), tr("The map has no courses."));
+		return;
+	}
+	CourseBulkDialog dialog(map, CourseBulkDialog::Insert, selectedCourseCode(*map), window);
+	if (dialog.exec() == QDialog::Accepted)
+		window->showStatusBarMessage(dialog.report(), 10000);
+}
+
+void MapEditorController::deleteFromCoursesClicked()
+{
+	if (map->courseData().courses.empty())
+	{
+		QMessageBox::information(window, tr("Delete course object from courses"), tr("The map has no courses."));
+		return;
+	}
+	CourseBulkDialog dialog(map, CourseBulkDialog::Remove, selectedCourseCode(*map), window);
+	if (dialog.exec() == QDialog::Accepted)
+		window->showStatusBarMessage(dialog.report(), 10000);
+}
+
+void MapEditorController::renumberControlsClicked()
+{
+	if (firstControlCode(map->courseData()) == 0)
+	{
+		QMessageBox::information(window, tr("Renumber all controls"), tr("The map has no control whose code is a number."));
+		return;
+	}
+	CourseRenumberDialog dialog(map, window);
+	if (dialog.exec() == QDialog::Accepted)
+		window->showStatusBarMessage(dialog.report(), 10000);
 }
 
 void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget) const

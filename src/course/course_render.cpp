@@ -337,6 +337,25 @@ const TextSymbol* courseNumberSymbol(const Map& map)
 
 
 
+std::vector<CourseStop> courseStops(const Map& map, const CourseData& data, const Course& course)
+{
+	std::vector<CourseStop> result;
+	auto const found = findStops(map, data, course);
+	result.reserve(found.stops.size());
+	for (auto const& stop : found.stops)
+	{
+		CourseStop entry;
+		entry.item = int(stop.item - course.items.data());
+		entry.entry = MapCoordF(stop.entry);
+		entry.exit = MapCoordF(stop.exit);
+		entry.after_break = stop.after_break;
+		result.push_back(entry);
+	}
+	return result;
+}
+
+
+
 CourseLength measureCourse(const Map& map, const CourseData& data, const Course& course)
 {
 	CourseLength length;

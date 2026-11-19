@@ -105,6 +105,8 @@ set(Mapper_Common_SRCS
   core/print_job.cpp
   core/print_output.cpp
   core/sync_record.cpp
+  course/course_bulk.cpp  # foom
+  course/course_compose.cpp  # foom
   course/course_data.cpp  # foom
   course/course_description.cpp  # foom
   course/course_edit.cpp  # foom
@@ -227,6 +229,7 @@ set(Mapper_Common_SRCS
   gui/map/map_editor.cpp
   gui/map/map_editor_activity.cpp
   gui/map/bookmark_dialog.cpp
+  gui/map/course_bulk_dialog.cpp  # foom
   gui/map/extent_dialog.cpp
   gui/map/elevation_dialogs.cpp
   gui/map/legibility_dialog.cpp
@@ -311,6 +314,7 @@ set(Mapper_Common_SRCS
   templates/world_file.cpp
   
   tools/box_zoom_tool.cpp
+  tools/compose_course_tool.cpp  # foom
   tools/cut_tool.cpp
   tools/cut_hole_tool.cpp
   tools/lasso_tool.cpp

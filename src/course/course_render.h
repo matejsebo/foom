@@ -84,6 +84,25 @@ CourseLength measureCourse(const Map& map, const CourseData& data, const Course&
 QString formatCourseLength(double metres);
 
 
+/** An item of a course which has a place in the map. */
+struct CourseStop
+{
+	/** The index of the item in the course. */
+	int item = -1;
+	/** Where the item is entered and where it is left. */
+	MapCoordF entry;
+	MapCoordF exit;
+	/** A map exchange or flip lies between this item and the one before. */
+	bool after_break = false;
+};
+
+/**
+ * The items of a course which have a place, in their order. An item
+ * whose object is gone is passed over, and so are the items of variations.
+ */
+std::vector<CourseStop> courseStops(const Map& map, const CourseData& data, const Course& course);
+
+
 /** The connection between two items which follow each other. */
 struct CourseLegDrawing
 {
