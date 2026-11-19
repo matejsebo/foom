@@ -1566,6 +1566,12 @@ signals:
 	/** foom: Emitted when the course data were replaced. */
 	void courseDataChanged();
 	
+	/**
+	 * foom: Emitted when course objects went with their map objects and courses lost items by that:
+	 * the codes of these objects and the names of the courses. See syncCourseObjects().
+	 */
+	void courseObjectsRemovedFromCourses(const QStringList& codes, const QStringList& courses);
+	
 	
 	/** Emitted when a color is added to the map, gives the color's index and pointer. */
 	void colorAdded(int pos, const OpenOrienteering::MapColor* color);

@@ -187,6 +187,7 @@
 #include "gui/widgets/compass_display.h"
 #include "gui/widgets/key_button_bar.h" // IWYU pragma: keep
 #include "gui/widgets/measure_widget.h"
+#include "gui/widgets/course_widget.h"  // foom
 #include "gui/widgets/rangefinder_widget.h"  // foom
 #include "gui/widgets/shortcut_settings.h"  // foom
 #include "gui/widgets/symbol_widget.h"
@@ -390,6 +391,7 @@ MapEditorController::~MapEditorController()
 	delete print_dock_widget;
 	delete measure_dock_widget;
 	delete rangefinder_container.data();  // foom
+	delete course_dock_widget.data();  // foom
 	if (color_dock_widget)
 		delete color_dock_widget;
 	delete symbol_dock_widget;
@@ -1284,6 +1286,8 @@ void MapEditorController::createActions()
 	gps_set_offset_act->setEnabled(false);
 	gps_clear_offset_act = newAction("gps-clear-offset", tr("Remove GPS position offset"), this, SLOT(gpsClearOffsetClicked()));
 	gps_clear_offset_act->setEnabled(false);
+	// foom: the course dock; the design notes, "Course dock"
+	course_dock_act = newCheckAction("course-dock", tr("Course setting"), this, SLOT(courseDockClicked(bool)), nullptr, tr("Show or hide the course objects, the courses and their classes."));
 	// foom: the rangefinder; the design notes, "Rangefinder dock: detail"
 	rangefinder_act = newCheckAction("rangefinder", tr("Rangefinder"), this, SLOT(rangefinderClicked(bool)), nullptr, tr("Draw from a reference point with distance and azimuth."));
 	rangefinder_reference_act = newToolAction("rangefinder-reference", tr("Set rangefinder reference"), this, SLOT(rangefinderReferenceClicked()), nullptr, tr("Click the reference point of the rangefinder on the map."));
@@ -1694,6 +1698,9 @@ void MapEditorController::createMenuAndToolbars()
 	elevation_menu->addAction(dem_contours_act);
 	elevation_menu->addAction(dem_hillshade_act);
 	elevation_menu->addAction(dem_slope_act);
+	
+	QMenu* courses_menu = window->menuBar()->addMenu(tr("&Courses"));  // foom: the design notes, "Menu placement"
+	courses_menu->addAction(course_dock_act);
 	
 	// Extend and activate general toolbar
 	QToolBar* main_toolbar = window->getGeneralToolBar();
@@ -4746,6 +4753,28 @@ void MapEditorController::measureClicked(bool checked)
 	measure_dock_widget->setVisible(checked);
 }
 
+// foom: The course dock.
+// the design notes, "Course dock".
+
+void MapEditorController::courseDockClicked(bool checked)
+{
+	if (mobile_mode)
+		return;
+	if (!course_dock_widget)
+	{
+		auto* dock_widget = new EditorDockWidget(tr("Course setting"), course_dock_act, this, window);
+		dock_widget->toggleViewAction()->setVisible(false);
+		dock_widget->setWidget(new CourseWidget(map));
+		dock_widget->setObjectName(QString::fromLatin1("Course dock widget"));
+		if (!window->restoreDockWidget(dock_widget))
+			window->addDockWidget(Qt::LeftDockWidgetArea, dock_widget, Qt::Vertical);
+		course_dock_widget = dock_widget;
+	}
+	course_dock_widget->setVisible(checked);
+}
+
+
+
 // foom: The rangefinder.
 // the design notes, "Rangefinder dock: detail".
 
@@ -5898,6 +5927,10 @@ void MapEditorController::setMapAndView(Map* map, MapView* map_view)
 	connect(&map->undoManager(), &UndoManager::canRedoChanged, this, &MapEditorController::undoStepAvailabilityChanged);
 	connect(&map->undoManager(), &UndoManager::canUndoChanged, this, &MapEditorController::undoStepAvailabilityChanged);
 	connect(map, &Map::objectSelectionChanged, this, &MapEditorController::objectSelectionChanged);
+	// foom: the design notes, "Course dock"
+	connect(map, &Map::courseObjectsRemovedFromCourses, this, [this](const QStringList& codes, const QStringList& courses) {
+		window->showStatusBarMessage(tr("Removed from the courses %1: %2. Undo brings it back.").arg(courses.join(QLatin1String(", ")), codes.join(QLatin1String(", "))), 10000);
+	});
 	connect(map, &Map::templateAdded, this, &MapEditorController::templateAdded);
 	connect(map, &Map::templateDeleted, this, &MapEditorController::templateDeleted);
 	connect(map, &Map::closedTemplateAvailabilityChanged, this, &MapEditorController::closedTemplateAvailabilityChanged);

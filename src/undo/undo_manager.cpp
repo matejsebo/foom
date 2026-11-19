@@ -37,6 +37,7 @@
 #include "core/map.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
+#include "course/course_sync.h"  // foom
 #include "undo/undo.h"
 #include "util/xml_stream_util.h"
 
@@ -121,6 +122,10 @@ void UndoManager::push(std::unique_ptr<UndoStep>&& step)
 		auto const now = Object::currentTime();
 		for (auto* object : affected_objects)
 			object->touch(now);
+		
+		// foom: keep the course objects in step with the objects of the map.
+		// See the design notes, "Course dock".
+		step = courseSyncedStep(*map, std::move(step));
 	}
 	
 	UndoManager::State const old_state(this);

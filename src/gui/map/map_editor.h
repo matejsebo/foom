@@ -597,6 +597,8 @@ public slots:
 	void scaleClicked();
 	/** Shows or hides the MeasureWidget */
 	void measureClicked(bool checked);
+	/** foom: Shows or hides the course dock. */
+	void courseDockClicked(bool checked);
 	/** foom: Shows or hides the rangefinder. */
 	void rangefinderClicked(bool checked);
 	/** foom: Switches to the tool which sets the reference of the rangefinder. */
@@ -1156,6 +1158,8 @@ private:
 	QAction* scale_act = {};
 	QAction* measure_act = {};
 	EditorDockWidget* measure_dock_widget;
+	QAction* course_dock_act = {};  // foom
+	QPointer<QWidget> course_dock_widget;  // foom
 	QAction* rangefinder_act = {};  // foom
 	QAction* rangefinder_reference_act = {};  // foom
 	QPointer<RangefinderWidget> rangefinder_widget;  // foom
