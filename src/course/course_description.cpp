@@ -586,11 +586,29 @@ QString courseObjectField(const CourseObject& object, QChar letter)
 }
 
 
-QString courseObjectText(const Map& map, const CourseObject& object)
+void setCourseObjectField(CourseObject& object, QChar letter, const QString& value)
 {
-	if (!object.text.isEmpty())
-		return object.text;
-	
+	auto const found = std::find_if(begin(object.other), end(object.other), [letter](const CourseField& field) {
+		return field.letter == letter;
+	});
+	if (value.isEmpty())
+	{
+		if (found != end(object.other))
+			object.other.erase(found);
+	}
+	else if (found != end(object.other))
+	{
+		found->value = value;
+	}
+	else
+	{
+		object.other.push_back({ letter, value });
+	}
+}
+
+
+QString automaticCourseObjectText(const Map& map, const CourseObject& object)
+{
 	QStringList parts;
 	for (int column = 0; column < CourseObject::ColumnCount; ++column)
 	{
@@ -609,6 +627,158 @@ QString courseObjectText(const Map& map, const CourseObject& object)
 		}
 	}
 	return parts.join(QLatin1String(", "));
+}
+
+
+QString courseObjectText(const Map& map, const CourseObject& object)
+{
+	return object.text.isEmpty() ? automaticCourseObjectText(map, object) : object.text;
+}
+
+
+
+namespace {
+
+CourseObject* findCourseObject(CourseData& data, const QString& code)
+{
+	auto const found = std::find_if(begin(data.objects), end(data.objects), [&code](const CourseObject& object) {
+		return object.code == code;
+	});
+	return found == end(data.objects) ? nullptr : &*found;
+}
+
+/// The bit of a column in the columns of a description symbol.
+Symbol::DescriptionColumn columnBit(CourseObject::Column column)
+{
+	switch (column)
+	{
+	case CourseObject::ColumnC:  return Symbol::DescriptionColumnC;
+	case CourseObject::ColumnD:  return Symbol::DescriptionColumnD;
+	case CourseObject::ColumnE:  return Symbol::DescriptionColumnE;
+	case CourseObject::ColumnF:  return Symbol::DescriptionColumnF;
+	case CourseObject::ColumnG:  return Symbol::DescriptionColumnG;
+	case CourseObject::ColumnH:
+	case CourseObject::ColumnCount:
+		break;
+	}
+	return Symbol::DescriptionColumnH;
+}
+
+/// A text as one line with single blanks.
+QString oneLine(const QString& text)
+{
+	return text.simplified();
+}
+
+/**
+ * Changes the cells or the size of an object by a function. The text
+ * follows when it was the automatic text of what the object had.
+ */
+template <class Change>
+void changeCells(const Map& map, CourseObject& object, Change change)
+{
+	auto const follows = !object.text.isEmpty() && object.text == automaticCourseObjectText(map, object);
+	change(object);
+	if (follows)
+		object.text = automaticCourseObjectText(map, object);
+}
+
+}  // namespace
+
+
+bool hasDescriptionCells(CourseObject::Kind kind)
+{
+	return kind == CourseObject::Start || kind == CourseObject::Control;
+}
+
+
+bool hasDescriptionText(CourseObject::Kind kind)
+{
+	return hasDescriptionCells(kind) || kind == CourseObject::MarkedRoute || kind == CourseObject::TextBlock;
+}
+
+
+int descriptionCellNumber(const Symbol& symbol)
+{
+	return symbol.getNumberComponent(0) * 1000 + std::max(symbol.getNumberComponent(1), 0);
+}
+
+
+std::vector<const Symbol*> descriptionSymbols(const Map& map, CourseObject::Column column)
+{
+	std::vector<const Symbol*> symbols;
+	auto const bit = columnBit(column);
+	for (int i = 0; i < map.getNumSymbols(); ++i)
+	{
+		auto const* symbol = map.getSymbol(i);
+		if (symbol->isForDescriptionColumn(bit))
+			symbols.push_back(symbol);
+	}
+	std::stable_sort(begin(symbols), end(symbols), [](const Symbol* lhs, const Symbol* rhs) {
+		return descriptionCellNumber(*lhs) < descriptionCellNumber(*rhs);
+	});
+	return symbols;
+}
+
+
+bool setCourseObjectCell(const Map& map, CourseData& data, const QString& code, CourseObject::Column column, int number)
+{
+	auto* object = findCourseObject(data, code);
+	if (!object || !hasDescriptionCells(object->kind) || column < 0 || column >= CourseObject::ColumnCount)
+		return false;
+	if (number != 0)
+	{
+		auto const* symbol = symbolOfNumber(map, number);
+		if (!symbol || !symbol->isForDescriptionColumn(columnBit(column)))
+			return false;
+	}
+	changeCells(map, *object, [column, number](CourseObject& changed) {
+		changed.cell[std::size_t(column)] = number;
+		// The cell F shows a symbol or a size.
+		if (column == CourseObject::ColumnF && number != 0)
+			setCourseObjectField(changed, QLatin1Char('s'), {});
+	});
+	return true;
+}
+
+
+bool setCourseObjectSize(const Map& map, CourseData& data, const QString& code, const QString& size)
+{
+	auto* object = findCourseObject(data, code);
+	if (!object || !hasDescriptionCells(object->kind))
+		return false;
+	// The texts add the "m".
+	auto value = size.trimmed();
+	if (value.endsWith(QLatin1Char('m'), Qt::CaseInsensitive))
+		value = value.left(value.size() - 1).trimmed();
+	if (std::any_of(value.begin(), value.end(), [](QChar c) { return c.isSpace(); }))
+		return false;
+	changeCells(map, *object, [&value](CourseObject& changed) {
+		setCourseObjectField(changed, QLatin1Char('s'), value);
+		if (!value.isEmpty())
+			changed.cell[CourseObject::ColumnF] = 0;
+	});
+	return true;
+}
+
+
+bool setCourseObjectText(CourseData& data, const QString& code, const QString& text)
+{
+	auto* object = findCourseObject(data, code);
+	if (!object || !hasDescriptionText(object->kind))
+		return false;
+	object->text = oneLine(text);
+	return true;
+}
+
+
+bool setMarkedRouteFunnel(CourseData& data, const QString& code, bool funnel)
+{
+	auto* object = findCourseObject(data, code);
+	if (!object || object->kind != CourseObject::MarkedRoute)
+		return false;
+	setCourseObjectField(*object, QLatin1Char('m'), funnel ? QStringLiteral("f") : QString{});
+	return true;
 }
 
 

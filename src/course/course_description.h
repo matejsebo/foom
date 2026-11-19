@@ -120,12 +120,66 @@ public:
 /** The value of a field of the OCD record of a course object which the model does not name, or an empty text. */
 QString courseObjectField(const CourseObject& object, QChar letter);
 
+/** Sets such a field, in its place when the object has it and behind the others when not; an empty value removes it. */
+void setCourseObjectField(CourseObject& object, QChar letter, const QString& value);
+
+/**
+ * The text which the cells of a course object say: the names of their
+ * symbols in the order of the columns, with the size in the place of
+ * column F.
+ */
+QString automaticCourseObjectText(const Map& map, const CourseObject& object);
+
 /**
  * The text of the description of a course object: its own text, and
- * when it has none, the names of the symbols of its cells in the order
- * of the columns, with the size in the place of column F.
+ * when it has none, the automatic one.
  */
 QString courseObjectText(const Map& map, const CourseObject& object);
+
+
+/**
+ * The editing of a description. The functions work on course data and
+ * change nothing when they return false; the caller puts the result into
+ * the map as an undo step.
+ *
+ * See the design notes, "The editor of a description".
+ */
+
+/** Returns true for the kinds which have cells and a size: start and control. */
+bool hasDescriptionCells(CourseObject::Kind kind);
+
+/** Returns true for the kinds which have a text: start, control, marked route and text block. */
+bool hasDescriptionText(CourseObject::Kind kind);
+
+/** The number of a symbol as the cells have it: 1.010 is 1010. */
+int descriptionCellNumber(const Symbol& symbol);
+
+/** The description symbols of the map which may stand in a column, by number. */
+std::vector<const Symbol*> descriptionSymbols(const Map& map, CourseObject::Column column);
+
+/**
+ * Puts a symbol into a cell of a start or a control; 0 empties the cell.
+ * The symbol must be a description symbol of the map for that column.
+ * A symbol in F takes the size away. A text which was the automatic one
+ * follows the cells.
+ */
+bool setCourseObjectCell(const Map& map, CourseData& data, const QString& code, CourseObject::Column column, int number);
+
+/**
+ * Sets the size of a start or a control: a text without white space, of
+ * which an "m" at its end is left out. A size takes the symbol of F away.
+ * A text which was the automatic one follows.
+ */
+bool setCourseObjectSize(const Map& map, CourseData& data, const QString& code, const QString& size);
+
+/**
+ * Sets the text of a start, a control, a marked route or a text block,
+ * as one line with single blanks.
+ */
+bool setCourseObjectText(CourseData& data, const QString& code, const QString& text);
+
+/** Says whether a marked route is the funnel only, or taped all the way. */
+bool setMarkedRouteFunnel(CourseData& data, const QString& code, bool funnel);
 
 /** The description of a course. */
 CourseDescription describeCourse(const Map& map, const CourseData& data, const QString& course);

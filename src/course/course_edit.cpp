@@ -342,4 +342,15 @@ bool moveCourseItem(CourseData& data, const QString& course, int from, int to)
 }
 
 
+QString addTextBlock(CourseData& data, const QString& text)
+{
+	CourseObject block;
+	block.kind = CourseObject::TextBlock;
+	block.code = nextCourseCode(data, CourseObject::TextBlock);
+	block.text = text.simplified();
+	data.objects.push_back(block);
+	return block.code;
+}
+
+
 }  // namespace OpenOrienteering

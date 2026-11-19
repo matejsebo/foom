@@ -29,20 +29,30 @@
 
 #include <QAbstractItemView>
 #include <QBrush>
+#include <QCheckBox>
 #include <QColor>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QIcon>
+#include <QImage>
 #include <QInputDialog>
 #include <QLabel>
 #include <QLatin1Char>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QMetaObject>
+#include <QPixmap>
 #include <QPushButton>
 #include <QSet>
 #include <QSignalBlocker>
+#include <QSize>
 #include <QSpinBox>
+#include <QStyle>
+#include <QStyleOptionComboBox>
+#include <QStylePainter>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTreeWidget>
@@ -50,10 +60,13 @@
 #include <QUuid>
 #include <QVBoxLayout>
 #include <QVariant>
+#include <QWheelEvent>
 
 #include "core/map.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
+#include "core/symbols/symbol.h"
+#include "course/course_description.h"
 #include "course/course_edit.h"
 #include "course/course_render.h"
 #include "course/course_storage.h"
@@ -135,6 +148,62 @@ QPushButton* makeButton(const QString& text, const char* name, QHBoxLayout* layo
 	return button;
 }
 
+/// The number of a cell as the OCD records have it: 1010 is "1.010".
+QString cellNumberText(int number)
+{
+	return QStringLiteral("%1.%2").arg(number / 1000).arg(number % 1000, 3, 10, QLatin1Char('0'));
+}
+
+/**
+ * A list of description symbols. While it is closed it shows the picture
+ * of its entry alone, so that six of them stand side by side; its popup
+ * is as wide as number and name need.
+ */
+class CellBox : public QComboBox
+{
+public:
+	using QComboBox::QComboBox;
+	
+	QSize sizeHint() const override
+	{
+		return minimumSizeHint();
+	}
+	
+	QSize minimumSizeHint() const override
+	{
+		QStyleOptionComboBox option;
+		initStyleOption(&option);
+		return style()->sizeFromContents(QStyle::CT_ComboBox, &option, iconSize() + QSize(2, 2), this);
+	}
+	
+	void showPopup() override
+	{
+		auto const width = view()->sizeHintForColumn(0) + style()->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, this) + 8;
+		view()->setMinimumWidth(width);
+		QComboBox::showPopup();
+	}
+	
+protected:
+	void paintEvent(QPaintEvent* /*event*/) override
+	{
+		QStylePainter painter(this);
+		QStyleOptionComboBox option;
+		initStyleOption(&option);
+		// Number and name are in the popup. Only a symbol which the map has
+		// not, and so has no picture, is shown by its number.
+		if (!currentData(CourseWidget::CellMissingRole).toBool())
+			option.currentText.clear();
+		painter.drawComplexControl(QStyle::CC_ComboBox, option);
+		painter.drawControl(QStyle::CE_ComboBoxLabel, option);
+	}
+	
+	void wheelEvent(QWheelEvent* event) override
+	{
+		// The wheel does not change a cell in passing.
+		event->ignore();
+	}
+};
+
 }  // namespace
 
 
@@ -156,7 +225,56 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	auto* object_buttons = new QHBoxLayout();
 	code_button = makeButton(tr("Change code..."), "course-object-code", object_buttons);
 	delete_object_button = makeButton(tr("Delete"), "course-object-delete", object_buttons);
+	text_block_button = makeButton(tr("Add text block..."), "course-text-block", object_buttons);
+	text_block_button->setToolTip(tr("A text block is a line of text in the control descriptions of the courses into which it is put."));
 	object_buttons->addStretch(1);
+	
+	// The description of the course object which is selected;
+	// the design notes, "The editor of a description".
+	auto* cell_layout = new QGridLayout();
+	const QString meanings[CourseObject::ColumnCount] = {
+	    tr("C: which of several similar features"),
+	    tr("D: the feature"),
+	    tr("E: its appearance, or a second feature"),
+	    tr("F: how the two features meet; a size is entered in the field below"),
+	    tr("G: where the flag is"),
+	    tr("H: other information"),
+	};
+	for (int column = 0; column < CourseObject::ColumnCount; ++column)
+	{
+		const QChar letter = QLatin1Char("CDEFGH"[column]);
+		auto* label = new QLabel(QString(letter));
+		label->setAlignment(Qt::AlignCenter);
+		auto* list = new CellBox();
+		list->setObjectName(QStringLiteral("course-cell-%1").arg(letter.toLower()));
+		list->setIconSize(QSize(22, 22));
+		list->setMaxVisibleItems(20);
+		list->setToolTip(meanings[column]);
+		cell_layout->addWidget(label, 0, column);
+		cell_layout->addWidget(list, 1, column);
+		cell_list[column] = list;
+		connect(list, QOverload<int>::of(&QComboBox::activated), this, [this, column](int index) { cellChosen(column, index); });
+	}
+	
+	size_edit = new QLineEdit();
+	size_edit->setObjectName(QStringLiteral("course-size"));
+	size_edit->setMaximumWidth(80);
+	size_edit->setToolTip(tr("The size of the feature in metres, for column F: 1.5, or 5/10, or 8x4."));
+	funnel_check = new QCheckBox(tr("Funnel only"));
+	funnel_check->setObjectName(QStringLiteral("course-funnel"));
+	funnel_check->setToolTip(tr("The marked route is the funnel before the finish, and is not taped all the way."));
+	auto* size_layout = new QHBoxLayout();
+	size_layout->addWidget(new QLabel(tr("Size:")));
+	size_layout->addWidget(size_edit);
+	size_layout->addWidget(funnel_check);
+	size_layout->addStretch(1);
+	
+	text_edit = new QLineEdit();
+	text_edit->setObjectName(QStringLiteral("course-text"));
+	text_edit->setToolTip(tr("The description in words, or the text of a text block. While it is empty, the description says the names of the symbols, which are shown in grey."));
+	auto* text_layout = new QHBoxLayout();
+	text_layout->addWidget(new QLabel(tr("Text:")));
+	text_layout->addWidget(text_edit, 1);
 	
 	selector = new QComboBox();
 	selector->setObjectName(QStringLiteral("course-selector"));
@@ -232,6 +350,9 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	auto* layout = new QVBoxLayout(this);
 	layout->addWidget(object_list, 4);
 	layout->addLayout(object_buttons);
+	layout->addLayout(cell_layout);
+	layout->addLayout(size_layout);
+	layout->addLayout(text_layout);
 	layout->addLayout(selector_layout);
 	layout->addLayout(course_buttons);
 	layout->addLayout(length_layout);
@@ -250,6 +371,10 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	
 	connect(code_button, &QPushButton::clicked, this, &CourseWidget::changeCodeClicked);
 	connect(delete_object_button, &QPushButton::clicked, this, &CourseWidget::deleteObjectClicked);
+	connect(text_block_button, &QPushButton::clicked, this, &CourseWidget::addTextBlockClicked);
+	connect(size_edit, &QLineEdit::editingFinished, this, &CourseWidget::sizeEntered);
+	connect(text_edit, &QLineEdit::editingFinished, this, &CourseWidget::textEntered);
+	connect(funnel_check, &QCheckBox::clicked, this, &CourseWidget::setFunnel);
 	connect(new_course_button, &QPushButton::clicked, this, &CourseWidget::newCourseClicked);
 	connect(duplicate_course_button, &QPushButton::clicked, this, &CourseWidget::duplicateCourseClicked);
 	connect(rename_course_button, &QPushButton::clicked, this, &CourseWidget::renameCourseClicked);
@@ -270,6 +395,17 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	connect(&map->undoManager(), &UndoManager::canUndoChanged, this, &CourseWidget::updateLength);
 	connect(&map->undoManager(), &UndoManager::canRedoChanged, this, &CourseWidget::updateLength);
 	connect(map, &Map::objectSelectionChanged, this, &CourseWidget::mapSelectionChanged);
+	// The lists of description symbols follow the symbols of the map, once the change of the symbols is done.
+	auto const symbols_changed = [this]() {
+		cell_lists_dirty = true;
+		QMetaObject::invokeMethod(this, [this]() {
+			if (cell_lists_dirty && !refreshing)
+				refreshDescription();
+		}, Qt::QueuedConnection);
+	};
+	connect(map, &Map::symbolAdded, this, symbols_changed);
+	connect(map, &Map::symbolChanged, this, symbols_changed);
+	connect(map, &Map::symbolDeleted, this, symbols_changed);
 	
 	refresh();
 }
@@ -434,6 +570,13 @@ void CourseWidget::refresh()
 	refreshCourseValues();
 	refreshing = false;
 	updateButtons();
+	// See mapSelectionChanged().
+	codes_at_refresh = selectedCodes();
+	if (!just_refreshed)
+	{
+		just_refreshed = true;
+		QMetaObject::invokeMethod(this, [this]() { just_refreshed = false; }, Qt::QueuedConnection);
+	}
 	emit currentCourseChanged();
 }
 
@@ -557,6 +700,7 @@ void CourseWidget::updateButtons()
 	down_button->setEnabled(movable && item + 1 < item_list->topLevelItemCount());
 	add_class_button->setEnabled(course != nullptr);
 	delete_class_button->setEnabled(course && class_table->currentRow() >= 0);
+	refreshDescription();
 }
 
 
@@ -611,6 +755,22 @@ void CourseWidget::mapSelectionChanged()
 {
 	if (syncing_selection || refreshing)
 		return;
+	// An undo or a redo selects the objects of its step. A step of course
+	// data has none, and would leave the dock without the row whose
+	// description was just changed: the rows stay selected then.
+	if (just_refreshed && map->getNumSelectedObjects() == 0 && !codes_at_refresh.isEmpty())
+	{
+		{
+			const QSignalBlocker block(object_list);
+			for (int i = 0; i < object_list->topLevelItemCount(); ++i)
+			{
+				auto* row = object_list->topLevelItem(i);
+				row->setSelected(codes_at_refresh.contains(row->data(0, CodeRole).toString()));
+			}
+		}
+		objectRowsSelected();
+		return;
+	}
 	selectRowsOfMapSelection(true);
 	updateButtons();
 }
@@ -876,6 +1036,191 @@ void CourseWidget::setExtraLength(double km)
 	}
 	if (!refreshing)
 		changeCourseData(*map, std::move(data));
+}
+
+
+
+QString CourseWidget::descriptionObject() const
+{
+	auto const codes = selectedCodes();
+	if (codes.size() != 1 || !map->courseData().findObject(codes.front()))
+		return {};
+	return codes.front();
+}
+
+
+void CourseWidget::fillCellLists()
+{
+	for (int column = 0; column < CourseObject::ColumnCount; ++column)
+	{
+		auto* list = cell_list[column];
+		const QSignalBlocker block(list);
+		list->clear();
+		list->addItem(tr("(empty)"), 0);
+		for (auto const* symbol : descriptionSymbols(*map, CourseObject::Column(column)))
+		{
+			auto const number = descriptionCellNumber(*symbol);
+			const QString text = cellNumberText(number) + QLatin1Char(' ') + symbol->getPlainTextName();
+			list->addItem(QIcon(QPixmap::fromImage(symbol->getIcon(map))), text, number);
+		}
+	}
+}
+
+
+void CourseWidget::refreshDescription()
+{
+	if (cell_lists_dirty)
+	{
+		cell_lists_dirty = false;
+		fillCellLists();
+	}
+	
+	auto const code = descriptionObject();
+	auto const* object = code.isEmpty() ? nullptr : map->courseData().findObject(code);
+	auto const has_cells = object && hasDescriptionCells(object->kind);
+	auto const has_text = object && hasDescriptionText(object->kind);
+	auto const is_route = object && object->kind == CourseObject::MarkedRoute;
+	
+	for (int column = 0; column < CourseObject::ColumnCount; ++column)
+	{
+		auto* list = cell_list[column];
+		const QSignalBlocker block(list);
+		// The entry of a symbol which the map has not is there only while it is the cell.
+		auto const last = list->count() - 1;
+		if (last > 0 && list->itemData(last, CellMissingRole).toBool())
+			list->removeItem(last);
+		auto const number = has_cells ? object->cell[std::size_t(column)] : 0;
+		auto index = list->findData(number, CellNumberRole);
+		if (index < 0)
+		{
+			list->addItem(cellNumberText(number), number);
+			index = list->count() - 1;
+			list->setItemData(index, true, CellMissingRole);
+		}
+		list->setCurrentIndex(index);
+		list->setEnabled(has_cells);
+	}
+	
+	auto const set_text = [](QLineEdit* field, const QString& text) {
+		// Setting a text moves the cursor, also when it is the text which is there.
+		if (field->text() != text)
+		{
+			const QSignalBlocker block(field);
+			field->setText(text);
+		}
+	};
+	set_text(size_edit, has_cells ? courseObjectField(*object, QLatin1Char('s')) : QString{});
+	size_edit->setEnabled(has_cells);
+	set_text(text_edit, has_text ? object->text : QString{});
+	text_edit->setPlaceholderText(has_cells ? automaticCourseObjectText(*map, *object) : QString{});
+	text_edit->setEnabled(has_text);
+	{
+		const QSignalBlocker block(funnel_check);
+		funnel_check->setChecked(is_route && courseObjectField(*object, QLatin1Char('m')) == QLatin1String("f"));
+	}
+	funnel_check->setEnabled(is_route);
+}
+
+
+bool CourseWidget::setCell(CourseObject::Column column, int number)
+{
+	auto const code = descriptionObject();
+	auto data = map->courseData();
+	if (code.isEmpty() || !setCourseObjectCell(*map, data, code, column, number))
+		return false;
+	changeCourseData(*map, std::move(data));
+	return true;
+}
+
+
+bool CourseWidget::setSize(const QString& size)
+{
+	auto const code = descriptionObject();
+	auto data = map->courseData();
+	if (code.isEmpty() || !setCourseObjectSize(*map, data, code, size))
+		return false;
+	changeCourseData(*map, std::move(data));
+	return true;
+}
+
+
+bool CourseWidget::setDescriptionText(const QString& text)
+{
+	auto const code = descriptionObject();
+	auto data = map->courseData();
+	if (code.isEmpty() || !setCourseObjectText(data, code, text))
+		return false;
+	changeCourseData(*map, std::move(data));
+	return true;
+}
+
+
+bool CourseWidget::setFunnel(bool funnel)
+{
+	auto const code = descriptionObject();
+	auto data = map->courseData();
+	if (code.isEmpty() || !setMarkedRouteFunnel(data, code, funnel))
+		return false;
+	changeCourseData(*map, std::move(data));
+	return true;
+}
+
+
+QString CourseWidget::addTextBlock(const QString& text)
+{
+	auto data = map->courseData();
+	auto const code = OpenOrienteering::addTextBlock(data, text);
+	changeCourseData(*map, std::move(data));
+	// The new text block is the one which is selected, so that its text can be changed.
+	for (int i = 0; i < object_list->topLevelItemCount(); ++i)
+	{
+		auto* row = object_list->topLevelItem(i);
+		if (row->data(0, CodeRole).toString() != code)
+			continue;
+		object_list->clearSelection();
+		row->setSelected(true);
+		object_list->scrollToItem(row);
+		break;
+	}
+	return code;
+}
+
+
+void CourseWidget::cellChosen(int column, int index)
+{
+	if (refreshing || column < 0 || column >= CourseObject::ColumnCount)
+		return;
+	setCell(CourseObject::Column(column), cell_list[column]->itemData(index, CellNumberRole).toInt());
+	// A choice which is not taken leaves the list as it was.
+	refreshDescription();
+}
+
+
+void CourseWidget::sizeEntered()
+{
+	if (refreshing || !size_edit->isEnabled())
+		return;
+	setSize(size_edit->text());
+	// The field shows the size as it is kept, and the old one when the new one is not taken.
+	refreshDescription();
+}
+
+
+void CourseWidget::textEntered()
+{
+	if (refreshing || !text_edit->isEnabled())
+		return;
+	setDescriptionText(text_edit->text());
+	refreshDescription();
+}
+
+
+void CourseWidget::addTextBlockClicked()
+{
+	auto ok = false;
+	auto const text = QInputDialog::getText(this, tr("Add text block"), tr("Text:"), QLineEdit::Normal, {}, &ok);
+	if (ok)
+		addTextBlock(text);
 }
 
 

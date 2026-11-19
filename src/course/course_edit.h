@@ -101,6 +101,12 @@ bool removeCourseItem(CourseData& data, const QString& course, int index);
 /** Moves an item so that it has the index to. An item of a variation is not moved. */
 bool moveCourseItem(CourseData& data, const QString& course, int from, int to);
 
+/**
+ * Adds a text block with the next code and the text, as one line with
+ * single blanks, and returns its code. A text block has no map object.
+ */
+QString addTextBlock(CourseData& data, const QString& text);
+
 
 }  // namespace OpenOrienteering
 

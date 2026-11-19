@@ -29,9 +29,11 @@
 
 #include "course/course_data.h"
 
+class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
 class QLabel;
+class QLineEdit;
 class QPushButton;
 class QSpinBox;
 class QTableWidget;
@@ -45,12 +47,14 @@ class Map;
 
 /**
  * The course dock: the course objects, the courses with their items, and
- * the classes of a course.
+ * the classes of a course; and for the course object which is selected,
+ * the cells, the size and the text of its description.
  *
  * Every change goes into the map as one undo step. The functions which
  * take a name or a code ask nothing; the buttons ask and then call them.
  *
- * See the design notes, "Course dock".
+ * See the design notes, "Course dock" and "The editor of
+ * a description".
  */
 class CourseWidget : public QWidget
 {
@@ -62,6 +66,13 @@ public:
 		CodeRole = Qt::UserRole,
 		UnusedRole,  ///< true for an object which could be in a course and is in none
 		UuidRole     ///< the uuid of the map object
+	};
+	
+	/** The data of an entry of a list of description symbols. */
+	enum CellRole
+	{
+		CellNumberRole = Qt::UserRole,  ///< the number of the symbol as the cells have it; 0 for the empty entry
+		CellMissingRole                 ///< true for the entry of a symbol which the map has not
 	};
 	
 	explicit CourseWidget(Map* map, QWidget* parent = nullptr);
@@ -98,6 +109,17 @@ public:
 	/** Sets the extra length of the course which is chosen, as one undo step. */
 	void setExtraLength(double km);
 	
+	/** The code of the course object whose description is shown: the one which is selected alone. */
+	QString descriptionObject() const;
+	/** Puts a description symbol into a cell of that object; 0 empties the cell. */
+	bool setCell(CourseObject::Column column, int number);
+	bool setSize(const QString& size);
+	bool setDescriptionText(const QString& text);
+	/** Says whether the marked route which is selected is the funnel only. */
+	bool setFunnel(bool funnel);
+	/** Makes a text block, selects it, and returns its code. */
+	QString addTextBlock(const QString& text);
+	
 	static QString kindName(CourseObject::Kind kind);
 	/** The text of an item in the list of a course. */
 	static QString itemText(const CourseItem& item);
@@ -113,6 +135,8 @@ private:
 	void refreshItems(int current, int top = -1);
 	void refreshClasses();
 	void updateButtons();
+	void fillCellLists();
+	void refreshDescription();
 	bool selectRowsOfMapSelection(bool scroll);
 	void insertCodes(const QStringList& codes);
 	QStringList selectedCodes() const;
@@ -132,9 +156,17 @@ private:
 	void renameCourseClicked();
 	void deleteCourseClicked();
 	void addClassClicked();
+	void addTextBlockClicked();
+	void cellChosen(int column, int index);
+	void sizeEntered();
+	void textEntered();
 	
 	Map* map;
 	QTreeWidget* object_list;
+	QComboBox* cell_list[CourseObject::ColumnCount];
+	QLineEdit* size_edit;
+	QCheckBox* funnel_check;
+	QLineEdit* text_edit;
 	QComboBox* selector;
 	QLabel* length_label;
 	QSpinBox* climb_edit;
@@ -143,6 +175,7 @@ private:
 	QTableWidget* class_table;
 	QPushButton* code_button;
 	QPushButton* delete_object_button;
+	QPushButton* text_block_button;
 	QPushButton* new_course_button;
 	QPushButton* duplicate_course_button;
 	QPushButton* rename_course_button;
@@ -157,6 +190,11 @@ private:
 	bool refreshing = false;
 	bool syncing_selection = false;
 	bool editing_class = false;
+	/** The lists of description symbols are filled anew at the next refresh. */
+	bool cell_lists_dirty = true;
+	/** The rows which were selected when the course data changed, and whether that was just now. */
+	QStringList codes_at_refresh;
+	bool just_refreshed = false;
 	/** The course to choose and the item to make current at the next refresh. */
 	bool has_wanted_course = false;
 	QString wanted_course;
