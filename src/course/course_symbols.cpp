@@ -516,18 +516,18 @@ std::set<const Symbol*> makeCourseSymbols(Map& set, unsigned int scale_denominat
 
 /// Whether a map has a symbol with the number of a symbol. A component
 /// which is not there is 0: the 703 of a map file is the 703.000 of an OCD file.
-bool hasNumber(const Map& map, const Symbol& symbol)
+Symbol* symbolWithNumber(Map& map, const Symbol& symbol)
 {
 	auto const same = [](int lhs, int rhs) { return std::max(lhs, 0) == std::max(rhs, 0); };
 	for (int i = 0; i < map.getNumSymbols(); ++i)
 	{
-		auto const* other = map.getSymbol(i);
+		auto* other = map.getSymbol(i);
 		if (other->getNumberComponent(0) == symbol.getNumberComponent(0)
 		    && same(other->getNumberComponent(1), symbol.getNumberComponent(1))
 		    && same(other->getNumberComponent(2), symbol.getNumberComponent(2)))
-			return true;
+			return other;
 	}
-	return false;
+	return nullptr;
 }
 
 
@@ -584,14 +584,26 @@ CourseSymbolsReport addCourseSymbols(Map& map, const QString& symbol_set_path)
 		auto const* symbol = set.getSymbol(i);
 		if (ours.count(symbol) == 0)
 			continue;
-		if (hasNumber(map, *symbol))
+		if (auto* existing = symbolWithNumber(map, *symbol))
 		{
 			++report.taken;
+			// The start, the control, the finish and the marked route of the map's own set are what
+			// ours are; without the role nothing could be composed with them.
+			auto const role = symbol->courseRole();
+			auto const is_object_role = role == Symbol::CourseStart || role == Symbol::CourseControl
+			                            || role == Symbol::CourseFinish || role == Symbol::CourseMarkedRoute;
+			if (is_object_role && existing->courseRole() == Symbol::NoCourseRole && existing->getType() == symbol->getType())
+			{
+				existing->setCourseRole(role);
+				++report.roles_given;
+			}
 			continue;
 		}
 		filter[std::size_t(i)] = true;
 		++wanted;
 	}
+	if (report.roles_given > 0)
+		map.setSymbolsDirty();
 	if (wanted == 0)
 		return report;
 	

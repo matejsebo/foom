@@ -32,6 +32,7 @@
 #include <QColor>
 #include <QComboBox>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QFont>
 #include <QImage>
@@ -330,6 +331,7 @@ private slots:
 	void partTest();
 	void scaleTest();
 	void addTest();
+	void isomTest();
 	void courseTest();
 	void fileTest();
 	void pictureTest();
@@ -624,7 +626,10 @@ void CourseSymbolsTest::addTest()
 		QCOMPARE(report.taken, 1);
 		QCOMPARE(report.added, map.getNumSymbols() - 1);
 		QCOMPARE(symbolOf(map, 703), static_cast<const Symbol*>(own));
-		QCOMPARE(own->courseRole(), Symbol::NoCourseRole);
+		// It is the control of the map, and is given the role.
+		QCOMPARE(own->courseRole(), Symbol::CourseControl);
+		QCOMPARE(report.roles_given, 1);
+		QCOMPARE(own->getName(), QStringLiteral("My own"));
 		QVERIFY(symbolOf(map, 701));
 	}
 	
@@ -649,6 +654,50 @@ void CourseSymbolsTest::addTest()
 		QCOMPARE(map.getNumSymbols(), 0);
 		QCOMPARE(map.getNumColors(), 0);
 	}
+}
+
+
+/// Accept (11): a map of the ISOM symbol set, which has overprint symbols of its own.
+void CourseSymbolsTest::isomTest()
+{
+	auto const isom = QDir(QString::fromUtf8(MAPPER_TEST_SOURCE_DIR)).absoluteFilePath(QStringLiteral("../symbol sets/10000/ISOM 2017-2_10000.omap"));
+	if (!QFileInfo::exists(isom))
+		QSKIP("The ISOM symbol set is not built.");
+	Map map;
+	QVERIFY(map.loadFrom(isom));
+	QVERIFY(symbolOf(map, 701));
+	QVERIFY(symbolOf(map, 703));
+	auto const before = map.getNumSymbols();
+	
+	auto const report = addCourseSymbols(map, setPath());
+	QVERIFY(report.loaded);
+	QCOMPARE(report.added + report.taken, 211);
+	QCOMPARE(map.getNumSymbols(), before + report.added);
+	
+	// No number twice.
+	QStringList twice;
+	for (int i = 0; i < map.getNumSymbols(); ++i)
+	{
+		for (int j = i + 1; j < map.getNumSymbols(); ++j)
+		{
+			auto const* a = map.getSymbol(i);
+			auto const* b = map.getSymbol(j);
+			if (a->getNumberComponent(0) == b->getNumberComponent(0)
+			    && qMax(a->getNumberComponent(1), 0) == qMax(b->getNumberComponent(1), 0)
+			    && qMax(a->getNumberComponent(2), 0) == qMax(b->getNumberComponent(2), 0))
+				twice.push_back(a->getNumberAsString());
+		}
+	}
+	QVERIFY2(twice.isEmpty(), qPrintable(twice.join(QLatin1Char(' '))));
+	QVERIFY2(report.taken >= 14, qPrintable(QString::number(report.taken)));
+	// The start, the control, the finish and the marked route of the ISOM set have their roles now.
+	QCOMPARE(report.roles_given, 4);
+	QCOMPARE(symbolOf(map, 701)->courseRole(), Symbol::CourseStart);
+	QCOMPARE(symbolOf(map, 703)->courseRole(), Symbol::CourseControl);
+	QCOMPARE(symbolOf(map, 706)->courseRole(), Symbol::CourseFinish);
+	QCOMPARE(symbolOf(map, 707)->courseRole(), Symbol::CourseMarkedRoute);
+	// A second time nothing is given.
+	QCOMPARE(addCourseSymbols(map, setPath()).roles_given, 0);
 }
 
 
@@ -740,6 +789,13 @@ void CourseSymbolsTest::fileTest()
 	{
 		auto const written = exportTo(m.map, format);
 		QVERIFY2(!written.isEmpty(), format);
+		auto const folder = QString::fromLocal8Bit(qgetenv("FOOM_SYMBOLS_DUMP"));
+		if (!folder.isEmpty() && qstrcmp(format, "OCD2018") == 0)
+		{
+			QFile file(QDir(folder).filePath(QStringLiteral("foom-course.ocd")));
+			QVERIFY(file.open(QIODevice::WriteOnly));
+			file.write(written);
+		}
 		Map read;
 		QVERIFY2(importFrom(written, qstrcmp(format, "XML") == 0 ? "XML" : "OCD", read), format);
 		

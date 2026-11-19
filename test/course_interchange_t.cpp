@@ -43,6 +43,7 @@
 #include <QXmlStreamReader>
 
 #include "global.h"
+#include "test_config.h"
 #include "core/georeferencing.h"
 #include "core/latlon.h"
 #include "core/map.h"
@@ -311,6 +312,8 @@ void fillInterchangeMap(Map& map, bool georeferenced = true)
 	addCourseOf(data, QStringLiteral("A"), QStringLiteral("S1 31 32 33 M1 F1"));
 	data.courses.back().climb_m = 50;
 	data.courses.back().climb_manual = true;
+	data.courses.back().extra_km = 0.25;
+	data.courses.back().extra_set = true;
 	Course second;
 	second.name = QStringLiteral("B");
 	second.items = {
@@ -466,9 +469,9 @@ void CourseInterchangeTest::iofExportTest()
 	QCOMPARE(race->first("Map")->textOf("Scale"), QStringLiteral("10000"));
 	QVERIFY(race->first("Map")->first("MapPositionTopLeft"));
 	QVERIFY(race->first("Map")->first("MapPositionBottomRight"));
-	// y grows downwards: the top has the smaller number. The places of the objects are inside.
-	QVERIFY(race->first("Map")->first("MapPositionTopLeft")->attribute("y").toDouble() <= 0.0);
-	QVERIFY(race->first("Map")->first("MapPositionBottomRight")->attribute("y").toDouble() >= 10.0);
+	// y grows upwards, as in such files: the top has the greater number. The places of the objects are inside.
+	QVERIFY(race->first("Map")->first("MapPositionTopLeft")->attribute("y").toDouble() >= 0.0);
+	QVERIFY(race->first("Map")->first("MapPositionBottomRight")->attribute("y").toDouble() <= -10.0);
 	QVERIFY(race->first("Map")->first("MapPositionTopLeft")->attribute("x").toDouble() <= 0.0);
 	QVERIFY(race->first("Map")->first("MapPositionBottomRight")->attribute("x").toDouble() >= 30.0);
 	
@@ -495,6 +498,8 @@ void CourseInterchangeTest::iofExportTest()
 	QCOMPARE(control_31->first("MapPosition")->attribute("y"), QStringLiteral("0.00"));
 	QCOMPARE(control_31->first("MapPosition")->attribute("unit"), QStringLiteral("mm"));
 	QVERIFY(!controls[0]->first("PunchingUnitId"));
+	QCOMPARE(controls[3]->first("MapPosition")->attribute("x"), QStringLiteral("20.00"));
+	QCOMPARE(controls[3]->first("MapPosition")->attribute("y"), QStringLiteral("-10.00"));
 	
 	auto const courses = race->all("Course");
 	QCOMPARE(int(courses.size()), 2);
@@ -566,7 +571,7 @@ void CourseInterchangeTest::localExportTest()
 	for (auto const* control : controls)
 		QVERIFY(!control->first("Position"));
 	QCOMPARE(controls[3]->first("MapPosition")->attribute("x"), QStringLiteral("20.00"));
-	QCOMPARE(controls[3]->first("MapPosition")->attribute("y"), QStringLiteral("10.00"));
+	QCOMPARE(controls[3]->first("MapPosition")->attribute("y"), QStringLiteral("-10.00"));
 }
 
 
@@ -607,6 +612,15 @@ void CourseInterchangeTest::roundTripTest()
 	QCOMPARE(int(data.courses.size()), 2);
 	QCOMPARE(itemsOf(data, QStringLiteral("A")), QStringLiteral("S1 31 32 33 F1"));
 	QCOMPARE(data.findCourse(QStringLiteral("A"))->climb_m, 50);
+	// The length of the course is that of the file: the extra length makes up for what the course
+	// measures less, here the extra 0.25 km and the marked route, which the file has not as an object.
+	auto const source_length = measureCourse(source, source.courseData(), *source.courseData().findCourse(QStringLiteral("A")));
+	auto const imported_length = measureCourse(map, data, *data.findCourse(QStringLiteral("A")));
+	QVERIFY(source_length.known && imported_length.known);
+	QVERIFY(std::abs(imported_length.total_m - source_length.total_m) <= 5.0);
+	QVERIFY(data.findCourse(QStringLiteral("A"))->extra_set);
+	QVERIFY(std::abs(data.findCourse(QStringLiteral("A"))->extra_km - 0.26) < 0.001);
+	QCOMPARE(data.findCourse(QStringLiteral("B"))->extra_km, 0.0);
 	QCOMPARE(itemsOf(data, QStringLiteral("B")), QStringLiteral("S1 + 32 F1"));
 	QCOMPARE(data.findCourse(QStringLiteral("B"))->items[0].type, CourseItem::Start);
 	QCOMPARE(data.findCourse(QStringLiteral("B"))->items[3].type, CourseItem::Finish);

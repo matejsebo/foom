@@ -279,11 +279,15 @@ QString number(double value, int decimals)
 	return QString::number(value, 'f', decimals);
 }
 
+/// Writes a position of the map. y grows upwards in the file, as other
+/// programs write and read it, against the wording of the schema; the Map element
+/// of the file, whose top is above its bottom in numbers, says so.
 void writeMapPosition(QXmlStreamWriter& xml, const QString& name, const QPointF& position)
 {
+	auto const up = position.y() == 0.0 ? 0.0 : -position.y();
 	xml.writeEmptyElement(name);
 	xml.writeAttribute(QStringLiteral("x"), number(position.x(), 2));
-	xml.writeAttribute(QStringLiteral("y"), number(position.y(), 2));
+	xml.writeAttribute(QStringLiteral("y"), number(up, 2));
 	xml.writeAttribute(QStringLiteral("unit"), QStringLiteral("mm"));
 }
 
@@ -414,6 +418,8 @@ struct InCourseControl
 struct InCourse
 {
 	QString name;
+	bool has_length = false;
+	double length = 0.0;
 	bool has_climb = false;
 	double climb = 0.0;
 	std::vector<InCourseControl> controls;
@@ -511,6 +517,10 @@ InCourse readCourse(QXmlStreamReader& xml)
 		else if (xml.name() == QLatin1String("Climb"))
 		{
 			course.climb = xml.readElementText().toDouble(&course.has_climb);
+		}
+		else if (xml.name() == QLatin1String("Length"))
+		{
+			course.length = xml.readElementText().toDouble(&course.has_length);
 		}
 		else if (xml.name() == QLatin1String("CourseControl"))
 		{
@@ -1109,6 +1119,17 @@ IofImportReport importIofCourseData(Map& map, QIODevice& device, const IofImport
 				}
 				item.code = control.control;
 				course.items.push_back(item);
+			}
+			// What the length of the file has more than the course measures is its extra length, in steps of 10 m.
+			if (in_course.has_length)
+			{
+				auto const measured = measureCourse(map, data, course);
+				auto const extra = measured.known ? qRound((in_course.length - measured.measured_m) / 10.0) : 0;
+				if (extra != 0)
+				{
+					course.extra_km = extra / 100.0;
+					course.extra_set = true;
+				}
 			}
 			data.courses.push_back(course);
 			++report.courses_added;

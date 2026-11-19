@@ -221,6 +221,18 @@ bool parseObject(const QString& record, CourseObject& object)
 		case 't':
 			object.text = value;
 			break;
+		case 'i':
+			// The punching unit ids of a start, a control or a finish, joined by semicolons.
+			if (object.kind == CourseObject::Start || object.kind == CourseObject::Control || object.kind == CourseObject::Finish)
+			{
+				for (auto const& id : value.split(QLatin1Char(';'), QString::SkipEmptyParts))
+					object.punch_ids.push_back(id.trimmed());
+			}
+			else
+			{
+				object.other.push_back({ letter, value });
+			}
+			break;
 		default:
 			object.other.push_back({ letter, value });
 			break;
@@ -244,6 +256,8 @@ QString formatObject(const CourseObject& object)
 	}
 	if (!object.text.isEmpty())
 		record += tab + QLatin1Char('t') + object.text;
+	if (!object.punch_ids.isEmpty())
+		record += tab + QLatin1Char('i') + object.punch_ids.join(QLatin1Char(';'));
 	appendOther(record, object.other);
 	return record;
 }

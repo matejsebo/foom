@@ -50,6 +50,11 @@ struct CourseSymbolsReport
 	int added = 0;
 	/** The number of course symbols whose number the map had; its symbols with these numbers are left as they are. */
 	int taken = 0;
+	/**
+	 * The number of these symbols of the map which were given the course role of their number:
+	 * the start, the control, the finish and the marked route of an ISOM symbol set, which have none.
+	 */
+	int roles_given = 0;
 };
 
 /** The file of upstream's symbol set among the data of the program. */

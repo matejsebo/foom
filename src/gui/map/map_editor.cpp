@@ -4834,6 +4834,8 @@ void MapEditorController::addCourseSymbolsClicked()
 	                                    : tr("The map has the course symbols already.");
 	if (report.added > 0 && report.taken > 0)
 		message += QLatin1Char('\n') + tr("%n number(s) were in use. The symbols which have them were left as they are.", nullptr, report.taken);
+	if (report.roles_given > 0)
+		message += QLatin1Char('\n') + tr("%n symbol(s) of the map (start, control, finish, marked route) were given their course role.", nullptr, report.roles_given);
 	QMessageBox::information(window, tr("Add course symbols"), message);
 }
 

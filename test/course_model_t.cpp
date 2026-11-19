@@ -126,6 +126,17 @@ void CourseModelTest::objectRecordTest()
 	QVERIFY(object.object.isNull());
 	// Written in the fixed order: kind and code, Y, a, the cells C to H, the text.
 	QCOMPARE(OcdCourse::formatObject(object), tabbed("1044|Yc|a44|d1.010|g12.102|h13.002|tKnoll, West Side, Refreshment point"));
+	
+	// The punching unit ids: 131;200 for 31.
+	CourseObject punched;
+	QVERIFY(OcdCourse::parseObject(tabbed("1031|Yc|a31|tRoad, Road, Junction|e5.001|d5.001|f10.002|i131;200"), punched));
+	QCOMPARE(punched.punch_ids, (QStringList{ QStringLiteral("131"), QStringLiteral("200") }));
+	QVERIFY(punched.other.empty());
+	QCOMPARE(OcdCourse::formatObject(punched), tabbed("1031|Yc|a31|d5.001|e5.001|f10.002|tRoad, Road, Junction|i131;200"));
+	// On another kind the letter is kept as it is.
+	QVERIFY(OcdCourse::parseObject(tabbed("40D1|Yd|aD1|ix"), punched));
+	QVERIFY(punched.punch_ids.isEmpty());
+	QCOMPARE(int(punched.other.size()), 1);
 	{
 		CourseObject again;
 		QVERIFY(OcdCourse::parseObject(OcdCourse::formatObject(object), again));
