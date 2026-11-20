@@ -285,6 +285,9 @@ add_system_test(route_via_t)  # foom: the design notes, Route analysis: via poin
 add_system_test(route_map_t)  # foom: the design notes, Route analysis: the routes on the maps of the courses
 target_compile_definitions(route_map_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
 add_dependencies(route_map_t foom-cli)
+add_system_test(runner_template_t)  # foom: the design notes, Headless runner: the files of the templates
+target_compile_definitions(runner_template_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
+add_dependencies(runner_template_t foom-cli)
 add_system_test(sketch_t)  # foom: the design notes, Sketch layer
 add_system_test(merge_t)  # foom: the design notes, Merge changes from file
 target_compile_definitions(merge_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")

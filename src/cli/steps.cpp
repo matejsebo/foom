@@ -71,6 +71,7 @@
 #include "fileformats/file_import_export.h"
 #include "sync/field_copy.h"
 #include "sync/merge.h"
+#include "templates/template.h"  // foom
 #ifdef MAPPER_USE_GDAL
 #  include "gdal/cmyk_tiff.h"  // foom
 #  include "gdal/geodata_import.h"  // foom
@@ -582,6 +583,29 @@ PaperRequest parsePaper(const Params& p)
 		request.has_overlap = true;
 	}
 	return request;
+}
+
+/**
+ * foom: Loads the files of the templates which are not loaded. In the editor
+ * the view loads them; the runner has none, and what prints the templates
+ * or reads the background maps needs them. A template whose file cannot be
+ * loaded stays as it is. the design notes, "Headless runner".
+ */
+void loadTemplateFiles(Map& map)
+{
+	for (int i = 0; i < map.getNumTemplates(); ++i)
+	{
+		auto* temp = map.getTemplate(i);
+		if (temp->getTemplateState() == Template::Unloaded)
+			temp->loadTemplateFile();
+	}
+}
+
+/** foom: The same when the printer prints the templates: by the parameter `templates`, or else by the print settings of the map. */
+void loadTemplateFilesFor(Map& map, const MapPrinter& printer, const Params& p)
+{
+	if (p.has("templates") ? p.optionalBool("templates", false) : printer.getOptions().show_templates)
+		loadTemplateFiles(map);
 }
 
 /**
@@ -1277,6 +1301,7 @@ StepResult StepRunner::exportImage(const Step& step, const QString& path, const 
 	Params p(step);
 	MapPrinter printer(*map, nullptr);
 	printer.setTarget(MapPrinter::imageTarget());
+	loadTemplateFilesFor(*map, printer, p);  // foom
 	configurePrinter(printer, *map, p, MapPrinterOptions::Raster);
 	
 	// As PrintWidget::exportToImage()
@@ -1352,6 +1377,7 @@ StepResult StepRunner::exportPdf(const Step& step, const QString& path)
 	Params p(step);
 	MapPrinter printer(*map, nullptr);
 	printer.setTarget(MapPrinter::pdfTarget());
+	loadTemplateFilesFor(*map, printer, p);  // foom
 	auto const extent = configurePrinter(printer, *map, p, MapPrinterOptions::Vector);
 	if (extent.kind != ExportExtent::PrintArea && extent.kind != ExportExtent::Named && !p.has("paper"))
 	{
@@ -1396,6 +1422,8 @@ StepResult StepRunner::exportCourseMapsStep(const Step& step)
 	options.scale = p.has("scale") ? p.requirePositiveInt("scale") : 0u;
 	options.use_canvases = p.optionalBool("canvases", false);
 	options.with_routes = p.optionalBool("routes", false);
+	// The maps of the courses have their background maps.
+	loadTemplateFiles(*map);
 	auto const report = exportCourseMaps(*map, options);
 	if (!report.ok)
 		return failure(report.error);
@@ -1414,6 +1442,8 @@ StepResult StepRunner::analyseRoutesStep(const Step& step)
 {
 	Params p(step);
 	auto const out = p.optionalString("out");
+	// The terrain is that of the map and of its background maps.
+	loadTemplateFiles(*map);
 	StoredRoutes store;
 	auto const all = analyseAllRoutesOfMap(*map, store);
 	auto missing = 0;
