@@ -630,6 +630,7 @@ public slots:
 	void courseCanvasesClicked();
 	void analyseCourseRoutesClicked();
 	void hideCourseRoutesClicked();
+	void routeSettingsClicked();
 	/** foom: Shows or hides the rangefinder. */
 	void rangefinderClicked(bool checked);
 	/** foom: Switches to the tool which sets the reference of the rangefinder. */
@@ -1206,6 +1207,7 @@ private:
 	QAction* course_canvases_act = {};  // foom
 	QAction* course_routes_analyse_act = {};  // foom
 	QAction* course_routes_hide_act = {};  // foom
+	QAction* course_routes_settings_act = {};  // foom
 	/** foom: The routes which were analysed last; the design notes, "Route analysis: the routes of a course". */
 	CourseRoutes course_routes;
 	QPointer<QWidget> course_dock_widget;  // foom

@@ -3213,6 +3213,9 @@ void OcdFileExport::exportForeignStrings(OcdFile<Format>& file)
 		// Nor the canvases, when the map has some.
 		if (string.type == 1093 && !map->courseData().canvases.isEmpty())
 			continue;
+		// Nor the settings of the route analysis.
+		if (string.type == 1088 && !map->courseData().route.isDefault())
+			continue;
 		Ocd::ParameterStringIndexEntry entry = { 0, quint32(string.data.size()), string.type, string.object_index };
 		file.strings().insert(string.data, entry);
 	}
@@ -3310,6 +3313,8 @@ void OcdFileExport::exportCourseData()
 		addParameterString(1031, OcdCourse::formatOptions(data.options));
 	if (!data.canvases.isEmpty())
 		addParameterString(1093, canvasesToOcdXml(data.canvases));
+	if (!data.route.isDefault())
+		addParameterString(1088, routeSettingsToOcdRecord(data.route));
 	for (auto const& course : data.courses)
 		addParameterString(2, OcdCourse::formatCourse(course));
 	for (auto const& course_class : data.classes)

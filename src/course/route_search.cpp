@@ -230,6 +230,12 @@ void RouteSearch::setHeights(RouteHeights heights)
 }
 
 
+bool RouteSearch::usesHeights() const
+{
+	return d->use_heights;
+}
+
+
 double RouteSearch::straightTime(const MapCoordF& from, const MapCoordF& to) const
 {
 	auto const length_mm = std::hypot(to.x() - from.x(), to.y() - from.y());

@@ -28,6 +28,7 @@
 #include <QLatin1String>
 #include <QStringList>
 
+#include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_coord.h"
 #include "core/objects/object.h"
@@ -36,6 +37,8 @@
 #include "course/course_edit.h"
 #include "course/course_parts.h"
 #include "course/course_render.h"
+#include "elevation/elevation_model.h"
+#include "elevation/elevation_set.h"
 
 namespace OpenOrienteering {
 
@@ -60,6 +63,7 @@ CourseRoutes analyseCourseRoutes(const Map& map, const CourseData& data, const Q
 	CourseRoutes routes;
 	routes.course = course_name;
 	routes.part = part;
+	routes.with_heights = search.usesHeights();
 	auto const* course = data.findCourse(course_name);
 	if (!course)
 		return routes;
@@ -154,6 +158,16 @@ CourseRoutes analyseCourseRoutes(const Map& map, const CourseData& data, const Q
 }
 
 
+RouteHeights routeHeightsOf(Map& map)
+{
+	auto const* georeferencing = &map.getGeoreferencing();
+	auto const* model = map.elevationSet().model(ElevationSet::Terrain, georeferencing->getProjectedCRSSpec());
+	if (!model)
+		return {};
+	return [model, georeferencing](const MapCoordF& place) { return model->at(georeferencing->toProjectedCoords(place)); };
+}
+
+
 QString formatRouteTime(double seconds)
 {
 	auto const whole = qRound64(seconds);
@@ -164,7 +178,9 @@ QString formatRouteTime(double seconds)
 QString courseRoutesText(const CourseRoutes& routes)
 {
 	QStringList lines;
-	lines.push_back(QStringLiteral("Course %1\tFastest route (leg)\tFastest route (total)\tTime along route").arg(routes.course));
+	lines.push_back(routes.with_heights
+	                ? QStringLiteral("Course %1\tFastest route (leg)\tFastest route (total)\tClimb along route\tTime along route").arg(routes.course)
+	                : QStringLiteral("Course %1\tFastest route (leg)\tFastest route (total)\tTime along route").arg(routes.course));
 	auto total = 0.0;
 	for (auto const& leg : routes.legs)
 	{
@@ -176,13 +192,17 @@ QString courseRoutesText(const CourseRoutes& routes)
 			continue;
 		}
 		total += leg.route.length_m;
-		lines.push_back(name + QLatin1Char('\t') + metres(leg.route.length_m) + QLatin1Char('\t') + metres(total) + QLatin1Char('\t') + formatRouteTime(leg.route.time_s));
+		lines.push_back(name + QLatin1Char('\t') + metres(leg.route.length_m) + QLatin1Char('\t') + metres(total) + QLatin1Char('\t')
+		                + (routes.with_heights ? QString(metres(leg.route.climb_m) + QLatin1Char('\t')) : QString{})
+		                + formatRouteTime(leg.route.time_s));
 	}
 	// The length of the course as the course box rounds it, to 10 m.
 	auto const course_length = std::floor(routes.course_length_m / 10.0 + 0.5) * 10.0;
 	lines.push_back(QString{});
 	lines.push_back(QStringLiteral("Length = %1 m").arg(qRound64(course_length)));
 	lines.push_back(QStringLiteral("Extra length = %1 m").arg(qRound64(routes.length_m) - qRound64(course_length)));
+	if (routes.with_heights)
+		lines.push_back(QStringLiteral("Climb along course = %1 m").arg(qRound64(routes.climb_m)));
 	lines.push_back(QStringLiteral("Time along course = %1").arg(formatRouteTime(routes.time_s)));
 	return lines.join(QLatin1Char('\n')) + QLatin1Char('\n');
 }

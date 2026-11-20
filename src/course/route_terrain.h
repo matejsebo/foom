@@ -29,6 +29,7 @@
 #include <QString>
 
 #include "core/map_coord.h"
+#include "course/route_settings.h"
 
 namespace OpenOrienteering {
 
@@ -44,27 +45,6 @@ class Symbol;
  * the terrain rasters".
  */
 
-/** How fast a symbol lets a runner go, in percent of the full speed. */
-struct Runnability
-{
-	enum Kind
-	{
-		None,        ///< the symbol does not count
-		Ground,      ///< open ground: the percentage of full speed there
-		Vegetation,  ///< forest with undergrowth: the percentage of the speed in forest; it covers the ground below
-		Hindrance,   ///< undergrowth drawn over ground or forest, and lines which are crossed: the slowest of what covers a place counts
-		Surface,     ///< stony or broken ground: multiplies what is there
-		Path,        ///< a road, a path or a ride: its percentage in place of everything
-		Impassable
-	};
-	
-	Kind kind = None;
-	int percent = 100;
-};
-
-inline bool operator==(const Runnability& lhs, const Runnability& rhs) { return lhs.kind == rhs.kind && lhs.percent == rhs.percent; }
-inline bool operator!=(const Runnability& lhs, const Runnability& rhs) { return !(lhs == rhs); }
-
 /** The runnability of forest, which is also that of bare paper. */
 constexpr int forest_runnability = 83;
 
@@ -73,19 +53,6 @@ Runnability defaultRunnability(const Symbol& symbol);
 
 /** The number of a symbol as the settings name it: "406.000". */
 QString routeSymbolNumber(const Symbol& symbol);
-
-/** The settings of the route analysis. */
-struct RouteSettings
-{
-	/** The pace on flat ground of full runnability, in seconds per kilometre. */
-	int base_pace = 200;
-	bool use_runnability = true;
-	bool use_elevation = true;
-	/** The record's correction of the effect of the climb, from 0 to 1. */
-	double climb_factor = 1.0;
-	/** The runnability of single symbols where it is not the default, by their numbers. */
-	std::vector<std::pair<QString, Runnability>> symbols;
-};
 
 /** The runnability of a symbol by the settings, or else its default. */
 Runnability runnabilityOf(const RouteSettings& settings, const Symbol& symbol);

@@ -192,6 +192,8 @@ void saveCourseData(const CourseData& data, QXmlStreamWriter& xml)
 	}
 	if (!data.canvases.isEmpty())
 		saveCanvases(data.canvases, xml);
+	if (!data.route.isDefault())
+		saveRouteSettings(data.route, xml);
 	
 	for (auto const& object : data.objects)
 	{
@@ -420,6 +422,10 @@ CourseData loadCourseData(QXmlStreamReader& xml, QStringList* problems)
 		else if (element == QLatin1String("canvases"))
 		{
 			data.canvases = loadCanvases(xml);
+		}
+		else if (element == QLatin1String("route_settings"))
+		{
+			data.route = loadRouteSettings(xml);
 		}
 		else if (element == course_literal::override_element)
 		{

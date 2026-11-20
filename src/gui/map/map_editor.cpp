@@ -173,6 +173,7 @@
 #include "gui/map/course_bulk_dialog.h"  // foom
 #include "gui/map/course_canvases_dialog.h"  // foom
 #include "gui/map/course_maps_dialog.h"  // foom
+#include "gui/map/route_settings_dialog.h"  // foom
 #include "gui/map/course_statistics_dialog.h"  // foom
 #include "check/issue.h"
 #include "check/legibility.h"
@@ -1324,6 +1325,7 @@ void MapEditorController::createActions()
 	course_canvases_act = newAction("course-canvases", tr("Canvases..."), this, SLOT(courseCanvasesClicked()), nullptr, tr("Say for which courses which extent of the map is printed, at which scale and with which course symbols."));
 	course_routes_analyse_act = newAction("course-routes-analyse", tr("Analyse routes of the course"), this, SLOT(analyseCourseRoutesClicked()), nullptr, tr("Search the fastest route of every leg of the course which is chosen in the course dock, and draw the routes over the map."));
 	course_routes_hide_act = newAction("course-routes-hide", tr("Hide routes"), this, SLOT(hideCourseRoutesClicked()), nullptr, tr("Take the routes of the analysis away from the map."));
+	course_routes_settings_act = newAction("course-routes-settings", tr("Route settings..."), this, SLOT(routeSettingsClicked()), nullptr, tr("The base pace of the route analysis, whether it uses runnability and elevation, and the runnability of the symbols."));
 	course_export_maps_act = newAction("course-export-maps", tr("Export course maps (PDF)..."), this, SLOT(exportCourseMapsClicked()), nullptr, tr("Write a PDF file with the map of every course, of every part of a course with a map exchange, and of every variant or runner of a relay."));
 	course_relay_variations_act = newAction("course-relay-variations", tr("Export relay variations..."), this, SLOT(exportRelayVariationsClicked()), nullptr, tr("Write which team runs which variant of the relays, as a text file."));
 	// foom: the rangefinder; the design notes, "Rangefinder dock: detail"
@@ -1758,6 +1760,7 @@ void MapEditorController::createMenuAndToolbars()
 	courses_menu->addSeparator();
 	courses_menu->addAction(course_routes_analyse_act);
 	courses_menu->addAction(course_routes_hide_act);
+	courses_menu->addAction(course_routes_settings_act);
 	courses_menu->addAction(course_import_iof_act);
 	
 	// Extend and activate general toolbar
@@ -5172,10 +5175,10 @@ void MapEditorController::analyseCourseRoutesClicked()
 		return;
 	}
 	QApplication::setOverrideCursor(Qt::WaitCursor);
-	RouteSettings settings;
-	settings.use_elevation = false;
+	auto const settings = map->courseData().route;
 	auto const terrain = buildRouteTerrain(*map, settings);
 	RouteSearch search(terrain, settings, map->getScaleDenominator());
+	search.setHeights(routeHeightsOf(*map));
 	course_routes = analyseCourseRoutes(*map, course_widget->previewData(), course, course_widget->previewPart(), search);
 	QApplication::restoreOverrideCursor();
 	map_widget->update();
@@ -5192,6 +5195,24 @@ void MapEditorController::analyseCourseRoutesClicked()
 	                QMessageBox::Ok, window);
 	box.setDetailedText(text);
 	box.exec();
+}
+
+
+// the design notes, "Route analysis: the settings and the elevation"
+void MapEditorController::routeSettingsClicked()
+{
+	auto const has_elevation = bool(routeHeightsOf(*map));
+	RouteSettingsDialog dialog(map, has_elevation, window);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	auto data = map->courseData();
+	if (data.route == dialog.settings())
+		return;
+	data.route = dialog.settings();
+	changeCourseData(*map, std::move(data));
+	// The routes which are shown are no longer those of the settings.
+	course_routes = {};
+	map_widget->update();
 }
 
 

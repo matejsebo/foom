@@ -66,6 +66,8 @@ struct CourseRoutes
 	double length_m = 0.0;
 	double time_s = 0.0;
 	double climb_m = 0.0;
+	/** The search had heights: the climb is known. */
+	bool with_heights = false;
 	/** The legs for which no route was found; their straights count in the sums. */
 	int missing = 0;
 };
@@ -77,6 +79,13 @@ struct CourseRoutes
  */
 CourseRoutes analyseCourseRoutes(const Map& map, const CourseData& data, const QString& course, int part, RouteSearch& search);
 
+/**
+ * The heights of the terrain model of a map for the search, by the
+ * georeferencing of the map; no function for a map without a model.
+ * The map and its model must outlive the function.
+ */
+RouteHeights routeHeightsOf(Map& map);
+
 /** A time as the route tables have it: minutes and seconds, "05:01". */
 QString formatRouteTime(double seconds);
 
@@ -84,7 +93,8 @@ QString formatRouteTime(double seconds);
  * The table of the routes of a course in the form of the route export: a
  * head, a line for every leg with the length of its route, the sum so far
  * and its time, then the length of the course, the extra length of the
- * routes and the time along the course.
+ * routes and the time along the course. When the search had heights, a
+ * column with the climb along every route and a line with their sum more.
  */
 QString courseRoutesText(const CourseRoutes& routes);
 

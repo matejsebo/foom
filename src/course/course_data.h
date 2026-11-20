@@ -30,6 +30,7 @@
 #include <QUuid>
 
 #include "course/course_canvas.h"
+#include "course/route_settings.h"
 
 namespace OpenOrienteering {
 
@@ -238,6 +239,8 @@ struct CourseData
 	CourseOptions options;
 	/** For which courses which extent of the map is printed; course_canvas.h. */
 	CourseCanvases canvases;
+	/** The settings of the route analysis; route_settings.h. */
+	RouteSettings route;
 	
 	bool isEmpty() const;
 	

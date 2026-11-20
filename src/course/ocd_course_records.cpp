@@ -540,6 +540,10 @@ CourseData readFromImportedMap(const Map& map, QStringList* problems)
 		case 1031:
 			data.options = parseOptions(foreignText(string.data));
 			break;
+		case 1088:
+			// The settings of the route analysis; route_settings.h.
+			routeSettingsFromOcdRecord(foreignText(string.data), data.route);
+			break;
 		case 1093:
 			// The canvases; course_canvas.h.
 			canvasesFromOcdXml(string.data, data.canvases);
@@ -586,6 +590,11 @@ void removeReadRecords(Map& map)
 		case 3:     return parseClass(foreignText(string.data), course_class);
 		case 31:    return parseObject(foreignText(string.data), object);
 		case 1031:  return true;
+		case 1088:
+			{
+				RouteSettings settings;
+				return routeSettingsFromOcdRecord(foreignText(string.data), settings);
+			}
 		case 1093:
 			{
 				CourseCanvases canvases;

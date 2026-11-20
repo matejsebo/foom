@@ -124,6 +124,7 @@ set(Mapper_Common_SRCS
   course/ocd_course_records.cpp  # foom
   course/route_course.cpp  # foom
   course/route_search.cpp  # foom
+  course/route_settings.cpp  # foom
   course/route_terrain.cpp  # foom
   sketch/sketch.cpp
   sync/field_copy.cpp
@@ -243,6 +244,7 @@ set(Mapper_Common_SRCS
   gui/map/course_canvases_dialog.cpp  # foom
   gui/map/course_maps_dialog.cpp  # foom
   gui/map/course_statistics_dialog.cpp  # foom
+  gui/map/route_settings_dialog.cpp  # foom
   gui/map/extent_dialog.cpp
   gui/map/elevation_dialogs.cpp
   gui/map/legibility_dialog.cpp

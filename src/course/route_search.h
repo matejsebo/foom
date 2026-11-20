@@ -80,6 +80,8 @@ public:
 	
 	/** Gives the heights; they count when the settings use the elevation. */
 	void setHeights(RouteHeights heights);
+	/** Heights were given and the settings use them. */
+	bool usesHeights() const;
 	
 	/**
 	 * The fastest route. A place on an impassable pixel is taken to the
