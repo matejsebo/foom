@@ -236,9 +236,13 @@ CourseMapDrawing& CourseMapDrawing::operator=(CourseMapDrawing&&) noexcept = def
 CourseMapDrawing::~CourseMapDrawing() = default;
 
 
-CourseMapDrawing drawCourseMap(const Map& map, const CourseData& original, const CourseMapSide& side)
+CourseMapDrawing drawCourseMap(const Map& map, const CourseData& original, const CourseMapSide& side, const QStringList& hidden_numbers)
 {
 	CourseMapDrawing result;
+	auto const isLeftOut = [&hidden_numbers](const Symbol* symbol) {
+		return !hidden_numbers.isEmpty()
+		       && hidden_numbers.contains(canvasSymbolNumber(symbol->getNumberComponent(0), symbol->getNumberComponent(1)));
+	};
 	if (!original.findCourse(side.course))
 		return result;
 	// A relay is drawn as the course of its variant.
@@ -262,7 +266,7 @@ CourseMapDrawing drawCourseMap(const Map& map, const CourseData& original, const
 			continue;
 		auto const* course_object = data.findObject(item.code);
 		auto const* object = course_object ? map.findObject(course_object->object) : nullptr;
-		if (!object || !object->getSymbol())
+		if (!object || !object->getSymbol() || isLeftOut(object->getSymbol()))
 			continue;
 		std::unique_ptr<Object> copy(object->duplicate());
 		copy->setSymbol(shown.get(object->getSymbol()), true);
@@ -284,6 +288,8 @@ CourseMapDrawing drawCourseMap(const Map& map, const CourseData& original, const
 	result.numbers = int(course_drawing.numbers.size());
 	for (auto& object : course_drawing.objects)
 	{
+		if (isLeftOut(object->getSymbol()))
+			continue;
 		object->setSymbol(shown.get(object->getSymbol()), true);
 		result.objects.push_back(std::move(object));
 	}
@@ -308,7 +314,7 @@ CourseMapDrawing drawCourseMap(const Map& map, const CourseData& original, const
 			if (course_object.kind != kind || course_object.object.isNull())
 				continue;
 			auto const* object = map.findObject(course_object.object);
-			if (!object || object->getType() != Object::Text || !object->getSymbol())
+			if (!object || object->getType() != Object::Text || !object->getSymbol() || isLeftOut(object->getSymbol()))
 				continue;
 			std::unique_ptr<Object> copy(object->duplicate());
 			copy->setSymbol(shown.get(object->getSymbol()), true);
@@ -460,7 +466,7 @@ CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& o
 			// Drawn before the symbols are hidden: the copies are of symbols as the map shows them.
 			std::vector<CourseMapDrawing> sides;
 			for (auto const& side : sheet.sides)
-				sides.push_back(drawCourseMap(map, sheet_data, side));
+				sides.push_back(drawCourseMap(map, sheet_data, side, hidden_numbers));
 			
 			MapPrinter printer(map, options.view);
 			printer.setTarget(MapPrinter::pdfTarget());

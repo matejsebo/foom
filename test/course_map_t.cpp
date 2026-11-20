@@ -698,6 +698,26 @@ void CourseMapTest::canvasExportTest()
 	QVERIFY(hiddenSymbols(map).isEmpty());
 	QVERIFY(!map.hasUnsavedChanges());
 
+	// What a canvas hides is not drawn by the sheet either: the numbers are objects of the symbol 704.
+	{
+		auto const count = [](const CourseMapDrawing& drawing, int number) {
+			auto found = 0;
+			for (auto const& object : drawing.objects)
+				found += object->getSymbol()->getNumberComponent(0) == number ? 1 : 0;
+			return found;
+		};
+		CourseMapSide side;
+		side.course = QStringLiteral("Plain");
+		auto const shown = drawCourseMap(map, data, side);
+		auto const hidden = drawCourseMap(map, data, side, QStringList{ QStringLiteral("704.000"), QStringLiteral("706.000") });
+		QCOMPARE(count(shown, 704), 3);
+		QCOMPARE(count(hidden, 704), 0);
+		QCOMPARE(count(shown, 706), 1);
+		QCOMPARE(count(hidden, 706), 0);
+		QCOMPARE(count(hidden, 705), count(shown, 705));
+		QCOMPARE(count(hidden, 703), 3);
+	}
+	
 	// A canvas whose extent the map has not.
 	data.canvases.canvases[1].extent = QStringLiteral("Gone");
 	changeCourseData(map, data);

@@ -27,6 +27,7 @@
 
 #include "course/course_map.h"
 
+class QCheckBox;
 class QComboBox;
 class QLineEdit;
 class QListWidget;
@@ -59,6 +60,7 @@ private:
 	QListWidget* course_list;
 	QComboBox* relay_box;
 	QComboBox* extent_box;
+	QCheckBox* canvases_check;
 	QLineEdit* folder_edit;
 	QWidget* ok_button;
 };

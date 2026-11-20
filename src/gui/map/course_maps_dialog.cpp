@@ -21,6 +21,7 @@
 #include "course_maps_dialog.h"
 
 #include <Qt>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -66,6 +67,16 @@ CourseMapsDialog::CourseMapsDialog(const Map* map, const QString& folder, QWidge
 	for (auto const& extent : map->extents())
 		extent_box->addItem(extent.name);
 	
+	// the design notes, "Canvases: the dialog"
+	auto const& canvases = map->courseData().canvases;
+	canvases_check = new QCheckBox(tr("By the canvases of the map"));
+	canvases_check->setObjectName(QStringLiteral("course-maps-canvases"));
+	canvases_check->setToolTip(tr("Every map has the extent, the scale and the hidden symbols of the canvas of its course; a course without a canvas has no map."));
+	canvases_check->setEnabled(!canvases.canvases.empty());
+	canvases_check->setChecked(canvases.active && !canvases.canvases.empty());
+	extent_box->setEnabled(!canvases_check->isChecked());
+	connect(canvases_check, &QCheckBox::toggled, this, [this](bool checked) { extent_box->setEnabled(!checked); });
+	
 	folder_edit = new QLineEdit(QDir::toNativeSeparators(folder));
 	folder_edit->setObjectName(QStringLiteral("course-maps-folder"));
 	auto* browse_button = new QPushButton(tr("Choose..."));
@@ -76,6 +87,7 @@ CourseMapsDialog::CourseMapsDialog(const Map* map, const QString& folder, QWidge
 	auto* form = new QFormLayout();
 	form->addRow(tr("Relays:"), relay_box);
 	form->addRow(tr("Extent:"), extent_box);
+	form->addRow(QString{}, canvases_check);
 	form->addRow(tr("Folder:"), folder_layout);
 	
 	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
@@ -111,6 +123,7 @@ CourseMapExportOptions CourseMapsDialog::options() const
 	result.relay_maps = relay_box->currentIndex() == 1 ? RelayMaps::Runners : RelayMaps::Variants;
 	if (extent_box->currentIndex() > 0)
 		result.extent = extent_box->currentText();
+	result.use_canvases = canvases_check->isChecked();
 	return result;
 }
 

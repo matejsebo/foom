@@ -170,6 +170,7 @@
 #include "gui/map/numeric_entry_bar.h"
 #include "gui/map/bookmark_dialog.h"
 #include "gui/map/course_bulk_dialog.h"  // foom
+#include "gui/map/course_canvases_dialog.h"  // foom
 #include "gui/map/course_maps_dialog.h"  // foom
 #include "gui/map/course_statistics_dialog.h"  // foom
 #include "check/issue.h"
@@ -197,6 +198,7 @@
 #include "course/course_relay.h"  // foom
 #include "course/course_render.h"  // foom
 #include "course/course_report.h"  // foom
+#include "course/course_storage.h"  // foom
 #include "course/course_symbols.h"  // foom
 #include "gui/widgets/course_widget.h"  // foom
 #include "gui/widgets/rangefinder_widget.h"  // foom
@@ -1316,6 +1318,7 @@ void MapEditorController::createActions()
 	course_export_kml_act = newAction("course-export-kml", tr("Export courses (KML)..."), this, SLOT(exportCoursesKmlClicked()), nullptr, tr("Write start, controls and finish as placemarks and the courses as lines."));
 	course_import_iof_act = newAction("course-import-iof", tr("Import IOF XML..."), this, SLOT(importIofCoursesClicked()), nullptr, tr("Take course objects, courses and classes from course data of the IOF Data Standard 3.0."));
 	// foom: the design notes, "Relays: variations, variants and their allocation"
+	course_canvases_act = newAction("course-canvases", tr("Canvases..."), this, SLOT(courseCanvasesClicked()), nullptr, tr("Say for which courses which extent of the map is printed, at which scale and with which course symbols."));
 	course_export_maps_act = newAction("course-export-maps", tr("Export course maps (PDF)..."), this, SLOT(exportCourseMapsClicked()), nullptr, tr("Write a PDF file with the map of every course, of every part of a course with a map exchange, and of every variant or runner of a relay."));
 	course_relay_variations_act = newAction("course-relay-variations", tr("Export relay variations..."), this, SLOT(exportRelayVariationsClicked()), nullptr, tr("Write which team runs which variant of the relays, as a text file."));
 	// foom: the rangefinder; the design notes, "Rangefinder dock: detail"
@@ -1746,6 +1749,7 @@ void MapEditorController::createMenuAndToolbars()
 	courses_menu->addAction(course_export_kml_act);
 	courses_menu->addAction(course_relay_variations_act);
 	courses_menu->addAction(course_export_maps_act);
+	courses_menu->addAction(course_canvases_act);
 	courses_menu->addAction(course_import_iof_act);
 	
 	// Extend and activate general toolbar
@@ -5149,6 +5153,20 @@ void MapEditorController::exportRelayVariationsClicked()
 	QMessageBox::information(window, title, message);
 }
 
+// the design notes, "Canvases: the dialog"
+void MapEditorController::courseCanvasesClicked()
+{
+	CourseCanvasesDialog dialog(map, window);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	auto data = map->courseData();
+	if (data.canvases == dialog.canvases())
+		return;
+	data.canvases = dialog.canvases();
+	changeCourseData(*map, std::move(data));
+}
+
+
 // the design notes, "The maps of the courses as PDF files"
 void MapEditorController::exportCourseMapsClicked()
 {
@@ -5177,7 +5195,8 @@ void MapEditorController::exportCourseMapsClicked()
 	}
 	QString message = tr("%n file(s) were written into %1.", nullptr, report.files.size()).arg(QDir::toNativeSeparators(options.folder));
 	if (!report.skipped.isEmpty())
-		message += QLatin1Char('\n') + tr("Left out, relays whose variations have a fault: %1.").arg(report.skipped.join(QLatin1String(", ")));
+		message += QLatin1Char('\n') + (options.use_canvases ? tr("Left out, as no canvas is used for them: %1.")
+		                                                      : tr("Left out, relays whose variations have a fault: %1.")).arg(report.skipped.join(QLatin1String(", ")));
 	QMessageBox::information(window, title, message);
 }
 

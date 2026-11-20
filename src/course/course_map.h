@@ -108,8 +108,11 @@ struct CourseMapDrawing
 	std::vector<std::unique_ptr<Object>> objects;
 };
 
-/** Draws a side. */
-CourseMapDrawing drawCourseMap(const Map& map, const CourseData& data, const CourseMapSide& side);
+/**
+ * Draws a side. Objects of the symbols with the given numbers, written as
+ * the canvases write them ("704.000"), are left out: what a canvas hides.
+ */
+CourseMapDrawing drawCourseMap(const Map& map, const CourseData& data, const CourseMapSide& side, const QStringList& hidden_numbers = {});
 
 /**
  * Paints a side with a painter which is set up for map coordinates.

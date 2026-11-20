@@ -237,6 +237,7 @@ set(Mapper_Common_SRCS
   gui/map/map_editor_activity.cpp
   gui/map/bookmark_dialog.cpp
   gui/map/course_bulk_dialog.cpp  # foom
+  gui/map/course_canvases_dialog.cpp  # foom
   gui/map/course_maps_dialog.cpp  # foom
   gui/map/course_statistics_dialog.cpp  # foom
   gui/map/extent_dialog.cpp

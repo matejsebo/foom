@@ -26,8 +26,14 @@
 #include <QtTest>
 #include <QBuffer>
 #include <QByteArray>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QIODevice>
+#include <QListWidget>
+#include <QListWidgetItem>
 #include <QObject>
+#include <QSpinBox>
 #include <QRectF>
 #include <QString>
 #include <QStringList>
@@ -38,12 +44,17 @@
 #include "global.h"
 #include "core/extents.h"
 #include "core/map.h"
+#include "core/symbols/point_symbol.h"
+#include "core/symbols/symbol.h"
+#include "core/symbols/text_symbol.h"
 #include "course/course_canvas.h"
 #include "course/course_data.h"
 #include "course/course_storage.h"
 #include "fileformats/file_format.h"
 #include "fileformats/file_format_registry.h"
 #include "fileformats/file_import_export.h"
+#include "gui/map/course_canvases_dialog.h"
+#include "gui/map/course_maps_dialog.h"
 
 using namespace OpenOrienteering;
 
@@ -157,6 +168,7 @@ private slots:
 	void mapFileTest();
 	void ocdTest();
 	void canvasForTest();
+	void dialogTest();
 };
 
 
@@ -338,6 +350,147 @@ void CourseCanvasTest::canvasForTest()
 	QCOMPARE(nameOf("Easy Course", -1), QStringLiteral("Canvas 1"));
 	QCOMPARE(nameOf("Relay Women", -1), QStringLiteral("Canvas 1"));
 	QCOMPARE(nameOf("Difficult Course", -1), QString{});
+}
+
+
+/// The dialog, Accept (1) to (3)
+void CourseCanvasTest::dialogTest()
+{
+	Map map;
+	map.setScaleDenominator(10000);
+	auto* control = new PointSymbol();
+	control->setNumberComponent(0, 703);
+	control->setCourseRole(Symbol::CourseControl);
+	map.addSymbol(control, 0);
+	auto* number = new TextSymbol();
+	number->setNumberComponent(0, 704);
+	map.addSymbol(number, 1);
+	auto* plain_symbol = new PointSymbol();
+	plain_symbol->setNumberComponent(0, 101);
+	map.addSymbol(plain_symbol, 2);
+
+	auto const itemOf = [](CourseItem::Type type, const char* code) {
+		CourseItem item;
+		item.type = type;
+		item.code = QString::fromLatin1(code);
+		return item;
+	};
+	CourseData data;
+	Course plain;
+	plain.name = QStringLiteral("Plain");
+	plain.items = { itemOf(CourseItem::Start, "S1"), itemOf(CourseItem::Control, "31"), itemOf(CourseItem::Finish, "F1") };
+	Course exchange;
+	exchange.name = QStringLiteral("X");
+	exchange.items = { itemOf(CourseItem::Start, "S1"), itemOf(CourseItem::Control, "31"), itemOf(CourseItem::MapExchange, ""),
+	                   itemOf(CourseItem::Start, "S2"), itemOf(CourseItem::Control, "32"), itemOf(CourseItem::Finish, "F1") };
+	data.courses = { plain, exchange };
+	map.setCourseData(data);
+	Extent sheet;
+	sheet.name = QStringLiteral("Sheet");
+	sheet.rect_mm = QRectF(0.0, 0.0, 100.0, 80.0);
+	map.setExtents({ sheet });
+
+	CourseCanvasesDialog dialog(&map);
+	auto* list = dialog.findChild<QListWidget*>(QStringLiteral("canvases-list"));
+	auto* courses = dialog.findChild<QListWidget*>(QStringLiteral("canvas-courses"));
+	auto* symbols = dialog.findChild<QListWidget*>(QStringLiteral("canvas-symbols"));
+	auto* scale = dialog.findChild<QSpinBox*>(QStringLiteral("canvas-scale"));
+	auto* extent = dialog.findChild<QComboBox*>(QStringLiteral("canvas-extent"));
+	auto* box = dialog.findChild<QDoubleSpinBox*>(QStringLiteral("canvas-box"));
+	auto* rows = dialog.findChild<QSpinBox*>(QStringLiteral("canvas-rows"));
+	auto* active = dialog.findChild<QCheckBox*>(QStringLiteral("canvases-active"));
+	QVERIFY(list && courses && symbols && scale && extent && box && rows && active);
+
+	// (1)
+	QCOMPARE(list->count(), 0);
+	QVERIFY(!scale->isEnabled());
+	QVERIFY(dialog.canvases().isEmpty());
+	QVERIFY(dialog.addCanvas(QStringLiteral("A")));
+	QVERIFY(!dialog.addCanvas(QStringLiteral(" A ")));
+	QVERIFY(!dialog.addCanvas(QStringLiteral("  ")));
+	QCOMPARE(list->count(), 1);
+	QCOMPARE(dialog.currentCanvas(), 0);
+	QVERIFY(scale->isEnabled());
+	QStringList texts;
+	for (int i = 0; i < courses->count(); ++i)
+		texts.push_back(courses->item(i)->text());
+	QCOMPARE(texts, (QStringList{ CourseCanvasesDialog::tr("All controls"), QStringLiteral("Plain"),
+	                              CourseCanvasesDialog::tr("%1 - Map exchange #%2").arg(QStringLiteral("X")).arg(1),
+	                              CourseCanvasesDialog::tr("%1 - Map exchange #%2").arg(QStringLiteral("X")).arg(2) }));
+	QCOMPARE(symbols->count(), 2);
+	QVERIFY(symbols->item(0)->text().startsWith(QLatin1String("703")));
+	QVERIFY(symbols->item(1)->text().startsWith(QLatin1String("704")));
+	QCOMPARE(extent->count(), 2);
+
+	// (2)
+	courses->item(2)->setCheckState(Qt::Checked);
+	QCOMPARE(int(dialog.canvases().canvases[0].courses.size()), 1);
+	QCOMPARE(dialog.canvases().canvases[0].courses[0].course, QStringLiteral("X"));
+	QCOMPARE(dialog.canvases().canvases[0].courses[0].part, 0);
+	QVERIFY(!dialog.canvases().canvases[0].courses[0].flip);
+	courses->item(1)->setCheckState(Qt::Checked);
+	QCOMPARE(int(dialog.canvases().canvases[0].courses.size()), 2);
+
+	QVERIFY(dialog.addCanvas(QStringLiteral("B")));
+	QCOMPARE(dialog.currentCanvas(), 1);
+	QCOMPARE(courses->item(2)->checkState(), Qt::Unchecked);
+	courses->item(2)->setCheckState(Qt::Checked);
+	QCOMPARE(int(dialog.canvases().canvases[0].courses.size()), 1);
+	QCOMPARE(dialog.canvases().canvases[0].courses[0].course, QStringLiteral("Plain"));
+	QCOMPARE(int(dialog.canvases().canvases[1].courses.size()), 1);
+	QCOMPARE(dialog.canvases().canvases[1].courses[0].part, 0);
+
+	extent->setCurrentIndex(1);
+	scale->setValue(5000);
+	box->setValue(5.0);
+	rows->setValue(20);
+	symbols->item(1)->setCheckState(Qt::Checked);
+	active->setChecked(true);
+	auto const& b = dialog.canvases().canvases[1];
+	QCOMPARE(b.extent, QStringLiteral("Sheet"));
+	QCOMPARE(b.scale, 5000u);
+	QCOMPARE(b.box_size, 5.0);
+	QCOMPARE(b.max_rows, 20);
+	QCOMPARE(b.hidden_symbols, QStringList{ QStringLiteral("704.000") });
+	QCOMPARE(dialog.canvases().used_symbols, QStringList{ QStringLiteral("704.000") });
+	QVERIFY(dialog.canvases().active);
+	// The first canvas has its own values.
+	dialog.setCurrentCanvas(0);
+	QCOMPARE(scale->value(), 0);
+	QCOMPARE(extent->currentIndex(), 0);
+	QCOMPARE(symbols->item(1)->checkState(), Qt::Unchecked);
+	QCOMPARE(courses->item(1)->checkState(), Qt::Checked);
+	QCOMPARE(dialog.canvases().canvases[1].scale, 5000u);
+
+	// (3)
+	QVERIFY(dialog.renameCanvas(1, QStringLiteral("C")));
+	QVERIFY(!dialog.renameCanvas(1, QStringLiteral("A")));
+	QVERIFY(!dialog.renameCanvas(5, QStringLiteral("D")));
+	dialog.removeCanvas(0);
+	QCOMPARE(int(dialog.canvases().canvases.size()), 1);
+	QCOMPARE(dialog.canvases().canvases[0].name, QStringLiteral("C"));
+	QCOMPARE(list->count(), 1);
+
+	// A map which has canvases.
+	data.canvases = dialog.canvases();
+	map.setCourseData(data);
+	CourseCanvasesDialog second(&map);
+	QCOMPARE(second.findChild<QListWidget*>(QStringLiteral("canvases-list"))->count(), 1);
+	QCOMPARE(second.currentCanvas(), 0);
+	QCOMPARE(second.findChild<QSpinBox*>(QStringLiteral("canvas-scale"))->value(), 5000);
+	QCOMPARE(second.findChild<QComboBox*>(QStringLiteral("canvas-extent"))->currentText(), QStringLiteral("Sheet"));
+	QVERIFY(second.findChild<QCheckBox*>(QStringLiteral("canvases-active"))->isChecked());
+	QVERIFY(second.canvases() == data.canvases);
+
+	CourseMapsDialog maps(&map, QStringLiteral("C:/out"));
+	auto* by_canvases = maps.findChild<QCheckBox*>(QStringLiteral("course-maps-canvases"));
+	QVERIFY(by_canvases);
+	QVERIFY(by_canvases->isEnabled());
+	QVERIFY(by_canvases->isChecked());
+	QVERIFY(maps.options().use_canvases);
+	QVERIFY(!maps.findChild<QComboBox*>(QStringLiteral("course-maps-extent"))->isEnabled());
+	by_canvases->setChecked(false);
+	QVERIFY(!maps.options().use_canvases);
 }
 
 
