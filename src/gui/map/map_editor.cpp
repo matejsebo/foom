@@ -5196,7 +5196,12 @@ void MapEditorController::analyseCourseRoutesClicked()
 	search.setHeights(routeHeightsOf(*map));
 	// Every leg of the course is searched anew.
 	StoredRoutes fresh;
-	auto const routes = analyseCourseRoutes(*map, course_widget->previewData(), course, course_widget->previewPart(), search, fresh);
+	auto routes = analyseCourseRoutes(*map, course_widget->previewData(), course, course_widget->previewPart(), search, fresh);
+	// The table and the window name the variant and the part which were searched.
+	routes.variant = course_widget->previewVariant();
+	auto course_name = routes.variant.isEmpty() ? course : QString(course + QLatin1Char('-') + routes.variant);
+	if (routes.part >= 0)
+		course_name += QLatin1String(" (") + QString::number(routes.part + 1) + QLatin1Char(')');
 	QApplication::restoreOverrideCursor();
 	if (!routes.analysed)
 	{
@@ -5215,7 +5220,7 @@ void MapEditorController::analyseCourseRoutesClicked()
 	if (routes.missing > 0)
 		text += QLatin1Char('\n') + tr("%n leg(s) have no route: something impassable lies between their ends. They count with their straight length.", nullptr, routes.missing);
 	QMessageBox box(QMessageBox::Information, title, tr("The fastest routes of the course %1 take %2 over %3 m; the course itself is %4 m long.")
-	                .arg(course, formatRouteTime(routes.time_s)).arg(qRound(routes.length_m)).arg(qRound(routes.course_length_m)),
+	                .arg(course_name, formatRouteTime(routes.time_s)).arg(qRound(routes.length_m)).arg(qRound(routes.course_length_m)),
 	                QMessageBox::Ok, window);
 	box.setDetailedText(text);
 	box.exec();

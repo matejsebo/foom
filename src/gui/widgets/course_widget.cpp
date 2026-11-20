@@ -1271,6 +1271,12 @@ int CourseWidget::previewPart() const
 }
 
 
+QString CourseWidget::previewVariant() const
+{
+	return variant_box->isHidden() ? QString{} : variant_box->currentText().trimmed();
+}
+
+
 bool CourseWidget::addVariation(bool of_team, int branches, const QStringList& branch_legs)
 {
 	last_refusal.clear();

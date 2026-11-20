@@ -124,6 +124,8 @@ public:
 	bool insertMarker(CourseItem::Type type);
 	/** The part of the course which is drawn, counted from 0; -1 for the whole course. */
 	int previewPart() const;
+	/** The code of the variant of a relay which is drawn, as the list shows it; empty for a course which is no relay. */
+	QString previewVariant() const;
 	/** Why the last change of the course was refused; empty when it was made. */
 	QString lastRefusal() const { return last_refusal; }
 	
