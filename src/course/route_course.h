@@ -55,6 +55,9 @@ struct CourseRouteLeg
 	/** The straight length of the leg in m; for a marked route that of its path. */
 	double straight_m = 0.0;
 	RouteResult route;
+	/** The kept routes of the leg over via points and their indexes, where the routes are those which the map keeps. */
+	std::vector<RouteResult> via_routes;
+	std::vector<int> via_indexes;
 };
 
 struct CourseRoutes
@@ -102,6 +105,42 @@ CourseRoutes analyseCourseRoutes(const Map& map, const CourseData& data, const Q
  * leg does, is not known.
  */
 CourseRoutes storedCourseRoutes(const Map& map, const CourseData& data, const QString& course, int part);
+
+
+/** What addViaRoute() did. */
+struct ViaRouteAdded
+{
+	enum Reason
+	{
+		Added,
+		NoFastestRoute,  ///< the fastest route of the leg is not kept
+		NoRoute,         ///< no way leads over the via points
+		OtherHeights     ///< the search has heights and the kept routes have none, or the other way round
+	};
+	Reason reason = NoFastestRoute;
+	/** The index under which the route is kept. */
+	int index = 0;
+	RouteResult route;
+	/** The fastest route of the leg, to compare with. */
+	double fastest_length_m = 0.0;
+	double fastest_time_s = 0.0;
+};
+
+/**
+ * Searches the route of a leg over via points, between the ends of its
+ * fastest route, which must be kept, and keeps it under the next index
+ * of the leg.
+ */
+ViaRouteAdded addViaRoute(StoredRoutes& store, RouteSearch& search, const QString& from, const QString& to, const std::vector<MapCoordF>& via);
+
+/**
+ * The leg whose route passes nearest to a place, within a reach in mm of
+ * the map; -1 when there is none. A marked route is no leg.
+ */
+int routeLegAt(const CourseRoutes& routes, const MapCoordF& place, double reach);
+
+/** The same for the routes over via points: the leg, and which of its routes. False when there is none. */
+bool viaRouteAt(const CourseRoutes& routes, const MapCoordF& place, double reach, int& leg, int& via);
 
 
 /** The routes of all courses. */

@@ -44,6 +44,39 @@ bool closeTo(const MapCoordF& a, const MapCoordF& b)
 	return std::hypot(a.x() - b.x(), a.y() - b.y()) <= end_tolerance;
 }
 
+QString pointsText(const std::vector<MapCoordF>& points)
+{
+	QString text;
+	text.reserve(int(points.size()) * 16);
+	for (auto const& point : points)
+	{
+		if (!text.isEmpty())
+			text += QLatin1Char(';');
+		text += QString::number(point.x(), 'f', 3);
+		text += QLatin1Char(' ');
+		text += QString::number(point.y(), 'f', 3);
+	}
+	return text;
+}
+
+bool pointsFromText(const QString& text, std::vector<MapCoordF>& points)
+{
+	auto const pairs = text.splitRef(QLatin1Char(';'), QString::SkipEmptyParts);
+	points.reserve(std::size_t(pairs.size()));
+	for (auto const& pair : pairs)
+	{
+		auto const blank = pair.indexOf(QLatin1Char(' '));
+		auto x_ok = false;
+		auto y_ok = false;
+		auto const x = pair.left(blank).toDouble(&x_ok);
+		auto const y = pair.mid(blank + 1).toDouble(&y_ok);
+		if (blank < 0 || !x_ok || !y_ok)
+			return false;
+		points.push_back(MapCoordF(x, y));
+	}
+	return true;
+}
+
 }  // namespace
 
 
@@ -56,7 +89,8 @@ bool StoredRoute::fits(const MapCoordF& begin, const MapCoordF& end) const
 
 bool operator==(const StoredRoute& lhs, const StoredRoute& rhs)
 {
-	if (lhs.from != rhs.from || lhs.to != rhs.to || lhs.found != rhs.found || lhs.points.size() != rhs.points.size())
+	if (lhs.from != rhs.from || lhs.to != rhs.to || lhs.index != rhs.index || lhs.found != rhs.found
+	    || lhs.points.size() != rhs.points.size() || lhs.via.size() != rhs.via.size())
 		return false;
 	// What the file keeps: tenths of a metre and of a second, thousandths of a millimetre.
 	if (std::abs(lhs.length_m - rhs.length_m) >= 0.05 || std::abs(lhs.time_s - rhs.time_s) >= 0.05 || std::abs(lhs.climb_m - rhs.climb_m) >= 0.05)
@@ -66,24 +100,66 @@ bool operator==(const StoredRoute& lhs, const StoredRoute& rhs)
 		if (std::abs(lhs.points[i].x() - rhs.points[i].x()) >= 0.0005 || std::abs(lhs.points[i].y() - rhs.points[i].y()) >= 0.0005)
 			return false;
 	}
+	for (std::size_t i = 0; i < lhs.via.size(); ++i)
+	{
+		if (std::abs(lhs.via[i].x() - rhs.via[i].x()) >= 0.0005 || std::abs(lhs.via[i].y() - rhs.via[i].y()) >= 0.0005)
+			return false;
+	}
 	return true;
 }
 
 
 
-const StoredRoute* StoredRoutes::find(const QString& from, const QString& to) const
+const StoredRoute* StoredRoutes::find(const QString& from, const QString& to, int index) const
 {
-	auto const found = std::find_if(routes.begin(), routes.end(), [&from, &to](const StoredRoute& route) {
-		return route.from == from && route.to == to;
+	auto const found = std::find_if(routes.begin(), routes.end(), [&from, &to, index](const StoredRoute& route) {
+		return route.index == index && route.from == from && route.to == to;
 	});
 	return found == routes.end() ? nullptr : &*found;
+}
+
+
+std::vector<const StoredRoute*> StoredRoutes::viaRoutes(const QString& from, const QString& to) const
+{
+	std::vector<const StoredRoute*> found;
+	for (auto const& route : routes)
+	{
+		if (route.index > 0 && route.from == from && route.to == to)
+			found.push_back(&route);
+	}
+	std::sort(found.begin(), found.end(), [](const StoredRoute* a, const StoredRoute* b) { return a->index < b->index; });
+	return found;
+}
+
+
+int StoredRoutes::nextIndex(const QString& from, const QString& to) const
+{
+	auto next = 1;
+	for (auto const& route : routes)
+	{
+		if (route.from == from && route.to == to)
+			next = std::max(next, route.index + 1);
+	}
+	return next;
+}
+
+
+bool StoredRoutes::remove(const QString& from, const QString& to, int index)
+{
+	auto const found = std::find_if(routes.begin(), routes.end(), [&from, &to, index](const StoredRoute& route) {
+		return route.index == index && route.from == from && route.to == to;
+	});
+	if (found == routes.end())
+		return false;
+	routes.erase(found);
+	return true;
 }
 
 
 void StoredRoutes::put(StoredRoute route)
 {
 	auto const found = std::find_if(routes.begin(), routes.end(), [&route](const StoredRoute& other) {
-		return other.from == route.from && other.to == route.to;
+		return other.index == route.index && other.from == route.from && other.to == route.to;
 	});
 	if (found == routes.end())
 		routes.push_back(std::move(route));
@@ -106,6 +182,25 @@ void StoredRoutes::take(const StoredRoutes& others)
 }
 
 
+int StoredRoutes::takeViaRoutes(const StoredRoutes& others)
+{
+	if (others.with_heights != with_heights)
+		return 0;
+	auto taken = 0;
+	for (auto const& route : others.routes)
+	{
+		if (route.index <= 0 || route.points.size() < 2)
+			continue;
+		auto const* fastest = find(route.from, route.to);
+		if (!fastest || !fastest->found || !fastest->fits(route.points.front(), route.points.back()))
+			continue;
+		put(route);
+		++taken;
+	}
+	return taken;
+}
+
+
 bool operator==(const StoredRoutes& lhs, const StoredRoutes& rhs)
 {
 	return lhs.with_heights == rhs.with_heights && lhs.routes == rhs.routes;
@@ -123,23 +218,17 @@ void saveStoredRoutes(const StoredRoutes& routes, QXmlStreamWriter& xml)
 		xml.writeStartElement(QStringLiteral("route"));
 		xml.writeAttribute(QStringLiteral("from"), route.from);
 		xml.writeAttribute(QStringLiteral("to"), route.to);
+		if (route.index > 0)
+			xml.writeAttribute(QStringLiteral("index"), QString::number(route.index));
 		if (!route.found)
 			xml.writeAttribute(QStringLiteral("found"), QStringLiteral("false"));
 		xml.writeAttribute(QStringLiteral("length"), QString::number(route.length_m, 'f', 1));
 		xml.writeAttribute(QStringLiteral("time"), QString::number(route.time_s, 'f', 1));
 		if (route.climb_m >= 0.05)
 			xml.writeAttribute(QStringLiteral("climb"), QString::number(route.climb_m, 'f', 1));
-		QString points;
-		points.reserve(int(route.points.size()) * 16);
-		for (auto const& point : route.points)
-		{
-			if (!points.isEmpty())
-				points += QLatin1Char(';');
-			points += QString::number(point.x(), 'f', 3);
-			points += QLatin1Char(' ');
-			points += QString::number(point.y(), 'f', 3);
-		}
-		xml.writeCharacters(points);
+		if (!route.via.empty())
+			xml.writeAttribute(QStringLiteral("via"), pointsText(route.via));
+		xml.writeCharacters(pointsText(route.points));
 		xml.writeEndElement();
 	}
 	xml.writeEndElement();
@@ -165,24 +254,9 @@ StoredRoutes loadStoredRoutes(QXmlStreamReader& xml)
 		route.length_m = attributes.value(QLatin1String("length")).toDouble();
 		route.time_s = attributes.value(QLatin1String("time")).toDouble();
 		route.climb_m = attributes.value(QLatin1String("climb")).toDouble();
-		auto const text = xml.readElementText();
-		auto const pairs = text.splitRef(QLatin1Char(';'), QString::SkipEmptyParts);
-		route.points.reserve(std::size_t(pairs.size()));
-		auto ok = true;
-		for (auto const& pair : pairs)
-		{
-			auto const blank = pair.indexOf(QLatin1Char(' '));
-			auto x_ok = false;
-			auto y_ok = false;
-			auto const x = pair.left(blank).toDouble(&x_ok);
-			auto const y = pair.mid(blank + 1).toDouble(&y_ok);
-			if (blank < 0 || !x_ok || !y_ok)
-			{
-				ok = false;
-				break;
-			}
-			route.points.push_back(MapCoordF(x, y));
-		}
+		route.index = qMax(0, attributes.value(QLatin1String("index")).toInt());
+		auto ok = pointsFromText(attributes.value(QLatin1String("via")).toString(), route.via);
+		ok = pointsFromText(xml.readElementText(), route.points) && ok;
 		// A route which cannot be read is as if it had not been searched.
 		if (ok && !route.from.isEmpty() && !route.to.isEmpty() && route.points.size() >= 2)
 			routes.put(std::move(route));

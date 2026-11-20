@@ -154,6 +154,17 @@ CourseRoutes routesOf(const Map& map, const CourseData& data, const QString& cou
 			{
 				leg.known = false;
 			}
+			// The routes over via points which are kept for the leg.
+			if (kept)
+			{
+				for (auto const* via_route : kept->viaRoutes(leg.from, leg.to))
+				{
+					if (!via_route->found || !via_route->fits(previous.exit, stop.entry))
+						continue;
+					leg.via_routes.push_back(resultOf(*via_route));
+					leg.via_indexes.push_back(via_route->index);
+				}
+			}
 			if (!(leading_route && i == 1))
 				routes.course_length_m += leg.straight_m;
 			routes.legs.push_back(std::move(leg));
@@ -343,6 +354,112 @@ AllCourseRoutes analyseAllRoutesOfMap(Map& map, StoredRoutes& store)
 }
 
 
+ViaRouteAdded addViaRoute(StoredRoutes& store, RouteSearch& search, const QString& from, const QString& to, const std::vector<MapCoordF>& via)
+{
+	ViaRouteAdded added;
+	auto const* fastest = store.find(from, to);
+	if (!fastest || !fastest->found || fastest->isMarkedRoute() || fastest->points.size() < 2)
+	{
+		added.reason = ViaRouteAdded::NoFastestRoute;
+		return added;
+	}
+	added.fastest_length_m = fastest->length_m;
+	added.fastest_time_s = fastest->time_s;
+	if (search.usesHeights() != store.with_heights)
+	{
+		added.reason = ViaRouteAdded::OtherHeights;
+		return added;
+	}
+	added.route = search.fastestVia(fastest->points.front(), via, fastest->points.back());
+	if (!added.route.found)
+	{
+		added.reason = ViaRouteAdded::NoRoute;
+		return added;
+	}
+	StoredRoute stored;
+	stored.from = from;
+	stored.to = to;
+	stored.index = store.nextIndex(from, to);
+	stored.via = via;
+	stored.points = added.route.points;
+	stored.length_m = added.route.length_m;
+	stored.time_s = added.route.time_s;
+	stored.climb_m = added.route.climb_m;
+	added.index = stored.index;
+	added.reason = ViaRouteAdded::Added;
+	// The fastest route is no longer looked at after this: the store may move it.
+	store.put(std::move(stored));
+	return added;
+}
+
+
+namespace {
+
+/** How far a place is from a line of points, in mm. */
+double distanceTo(const std::vector<MapCoordF>& points, const MapCoordF& place)
+{
+	auto nearest = -1.0;
+	for (std::size_t i = 1; i < points.size(); ++i)
+	{
+		auto const& a = points[i - 1];
+		auto const& b = points[i];
+		auto const dx = b.x() - a.x();
+		auto const dy = b.y() - a.y();
+		auto const square = dx * dx + dy * dy;
+		auto const along = square > 0.0 ? qBound(0.0, ((place.x() - a.x()) * dx + (place.y() - a.y()) * dy) / square, 1.0) : 0.0;
+		auto const distance = std::hypot(place.x() - (a.x() + along * dx), place.y() - (a.y() + along * dy));
+		if (nearest < 0.0 || distance < nearest)
+			nearest = distance;
+	}
+	return nearest;
+}
+
+}  // namespace
+
+
+int routeLegAt(const CourseRoutes& routes, const MapCoordF& place, double reach)
+{
+	auto found = -1;
+	auto nearest = reach;
+	for (std::size_t i = 0; i < routes.legs.size(); ++i)
+	{
+		auto const& leg = routes.legs[i];
+		if (leg.marked || !leg.known || !leg.route.found)
+			continue;
+		auto const distance = distanceTo(leg.route.points, place);
+		if (distance >= 0.0 && distance <= nearest)
+		{
+			nearest = distance;
+			found = int(i);
+		}
+	}
+	return found;
+}
+
+
+bool viaRouteAt(const CourseRoutes& routes, const MapCoordF& place, double reach, int& leg, int& via)
+{
+	auto found = false;
+	auto nearest = reach;
+	for (std::size_t i = 0; i < routes.legs.size(); ++i)
+	{
+		auto const& via_routes = routes.legs[i].via_routes;
+		for (std::size_t v = 0; v < via_routes.size(); ++v)
+		{
+			auto const distance = distanceTo(via_routes[v].points, place);
+			if (distance >= 0.0 && distance <= nearest)
+			{
+				nearest = distance;
+				leg = int(i);
+				via = int(v);
+				found = true;
+			}
+		}
+	}
+	return found;
+}
+
+
 RouteHeights routeHeightsOf(Map& map)
 {
 	auto const* georeferencing = &map.getGeoreferencing();
@@ -407,7 +524,12 @@ QString allRoutesText(const CourseData& data, const StoredRoutes& store, const A
 	std::vector<Entry> entries;
 	entries.reserve(store.routes.size());
 	for (auto const& route : store.routes)
+	{
+		// The fastest routes; those over via points are in no list.
+		if (route.index > 0)
+			continue;
 		entries.push_back({ rankOf(data, route.from), !route.isMarkedRoute(), rankOf(data, route.to), &route });
+	}
 	std::sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) {
 		if (a.from < b.from || b.from < a.from)
 			return a.from < b.from;

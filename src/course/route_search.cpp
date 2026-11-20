@@ -369,4 +369,26 @@ RouteResult RouteSearch::fastest(const MapCoordF& from, const MapCoordF& to)
 }
 
 
+RouteResult RouteSearch::fastestVia(const MapCoordF& from, const std::vector<MapCoordF>& via, const MapCoordF& to)
+{
+	RouteResult result;
+	auto here = from;
+	for (std::size_t i = 0; i <= via.size(); ++i)
+	{
+		auto const there = i < via.size() ? via[i] : to;
+		auto const piece = fastest(here, there);
+		if (!piece.found)
+			return {};
+		// The place at which two pieces meet is in the route once.
+		result.points.insert(result.points.end(), piece.points.begin() + (result.points.empty() ? 0 : 1), piece.points.end());
+		result.length_m += piece.length_m;
+		result.time_s += piece.time_s;
+		result.climb_m += piece.climb_m;
+		here = there;
+	}
+	result.found = true;
+	return result;
+}
+
+
 }  // namespace OpenOrienteering

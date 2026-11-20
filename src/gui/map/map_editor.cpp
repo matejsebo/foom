@@ -223,6 +223,7 @@
 #include "templates/template_track.h"
 #include "tools/box_zoom_tool.h"
 #include "tools/compose_course_tool.h"  // foom
+#include "tools/route_tool.h"  // foom
 #include "tools/cut_tool.h"
 #include "tools/cut_hole_tool.h"
 #include "tools/lasso_tool.h"  // foom
@@ -1329,6 +1330,8 @@ void MapEditorController::createActions()
 	course_routes_analyse_all_act = newAction("course-routes-analyse-all", tr("Analyse routes of all courses"), this, SLOT(analyseAllCourseRoutesClicked()), nullptr, tr("Search the fastest route of every leg of all courses, and keep the routes in the map."));
 	course_routes_show_act = newAction("course-routes-show", tr("Show routes"), this, SLOT(showCourseRoutesClicked()), nullptr, tr("Draw the routes which the map keeps for the course which is chosen in the course dock."));
 	course_routes_hide_act = newAction("course-routes-hide", tr("Hide routes"), this, SLOT(hideCourseRoutesClicked()), nullptr, tr("Do not draw the routes of the analysis over the map. They stay in the map."));
+	course_routes_via_act = newToolAction("course-routes-via", tr("Add route via points"), this, SLOT(routeViaPointsClicked()), "draw-point.png", tr("Lead the route of a leg over places of your choice: drag from the route to the place."));
+	course_routes_leg_act = newToolAction("course-routes-leg", tr("Draw leg and analyse route"), this, SLOT(routeFreeLegClicked()), "draw-point.png", tr("Search the fastest route between two places: drag from the one to the other."));
 	course_routes_delete_act = newAction("course-routes-delete", tr("Delete routes"), this, SLOT(deleteCourseRoutesClicked()), nullptr, tr("Take the routes of the analysis out of the map."));
 	course_routes_export_act = newAction("course-routes-export", tr("Export routes..."), this, SLOT(exportCourseRoutesClicked()), nullptr, tr("Write the lengths and the times of the routes of all courses as a text file."));
 	course_routes_settings_act = newAction("course-routes-settings", tr("Route settings..."), this, SLOT(routeSettingsClicked()), nullptr, tr("The base pace of the route analysis, whether it uses runnability and elevation, and the runnability of the symbols."));
@@ -1768,6 +1771,8 @@ void MapEditorController::createMenuAndToolbars()
 	courses_menu->addAction(course_routes_analyse_all_act);
 	courses_menu->addAction(course_routes_show_act);
 	courses_menu->addAction(course_routes_hide_act);
+	courses_menu->addAction(course_routes_via_act);
+	courses_menu->addAction(course_routes_leg_act);
 	courses_menu->addAction(course_routes_delete_act);
 	courses_menu->addAction(course_routes_export_act);
 	courses_menu->addAction(course_routes_settings_act);
@@ -5240,6 +5245,8 @@ void MapEditorController::analyseAllCourseRoutesClicked()
 		missing += route.found ? 0 : 1;
 	auto const text = allRoutesText(map->courseData(), fresh, all);
 	auto data = map->courseData();
+	// The routes over via points stay with the legs whose ends are where they were.
+	fresh.takeViaRoutes(data.routes);
 	data.routes = fresh;
 	if (data != map->courseData())
 		changeCourseData(*map, std::move(data));
@@ -5318,6 +5325,47 @@ void MapEditorController::exportCourseRoutesClicked()
 	if (!all.skipped.isEmpty())
 		message += QLatin1Char('\n') + tr("Left out for the faults of their variations: %1.").arg(all.skipped.join(QLatin1String(", ")));
 	QMessageBox::information(window, title, message);
+}
+
+
+// the design notes, "Route analysis: via points and the leg by hand"
+void MapEditorController::routeViaPointsClicked()
+{
+	// Without the tool, the action of the tool which stays is the checked one.
+	auto const give_up = [this](const QString& why) {
+		course_routes_via_act->setChecked(false);
+		if (current_tool && current_tool->toolAction())
+			current_tool->toolAction()->setChecked(true);
+		if (!why.isEmpty())
+			QMessageBox::information(window, tr("Add route via points"), why);
+	};
+	if (!course_dock_act->isChecked())
+		course_dock_act->trigger();
+	if (!course_widget)
+	{
+		give_up({});
+		return;
+	}
+	if (course_widget->currentCourse().isEmpty())
+	{
+		give_up(tr("Choose a course in the course dock first."));
+		return;
+	}
+	if (map->courseData().routes.isEmpty())
+	{
+		give_up(tr("The map keeps no routes. Analyse the routes of a course or of all courses first."));
+		return;
+	}
+	// The routes are what the tool is used on.
+	show_course_routes = true;
+	map_widget->update();
+	setTool(new RouteTool(this, course_routes_via_act, course_widget, RouteTool::ViaPoints));
+}
+
+
+void MapEditorController::routeFreeLegClicked()
+{
+	setTool(new RouteTool(this, course_routes_leg_act, course_widget, RouteTool::FreeLeg));
 }
 
 
@@ -5437,6 +5485,21 @@ void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget
 				line.push_back(point);
 			if (line.size() >= 2)
 				painter->drawPolyline(line);
+		}
+		// The routes over via points, dashed in blue.
+		QPen via_pen(QColor(0, 90, 225), 0.3, Qt::DashLine);
+		via_pen.setJoinStyle(Qt::RoundJoin);
+		painter->setPen(via_pen);
+		for (auto const& leg : course_routes.legs)
+		{
+			for (auto const& via_route : leg.via_routes)
+			{
+				QPolygonF line;
+				for (auto const& point : via_route.points)
+					line.push_back(point);
+				if (line.size() >= 2)
+					painter->drawPolyline(line);
+			}
 		}
 	}
 	painter->restore();

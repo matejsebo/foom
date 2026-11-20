@@ -3283,7 +3283,8 @@ void OcdFileExport::exportRouteObjects(OcdFile<Format>& file)
 	for (auto const& route : routes.routes)
 	{
 		// a marked route has no object, and a leg without a route has none.
-		if (!route.found || route.isMarkedRoute() || route.points.size() < 2)
+		// Nor is a route over via points written: the OCD record of it is not known.
+		if (!route.found || route.isMarkedRoute() || route.index > 0 || route.points.size() < 2)
 			continue;
 		PathObject object(route_symbol);
 		for (auto const& point : route.points)

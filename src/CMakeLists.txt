@@ -331,6 +331,7 @@ set(Mapper_Common_SRCS
   
   tools/box_zoom_tool.cpp
   tools/compose_course_tool.cpp  # foom
+  tools/route_tool.cpp  # foom
   tools/cut_tool.cpp
   tools/cut_hole_tool.cpp
   tools/lasso_tool.cpp

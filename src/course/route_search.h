@@ -90,6 +90,13 @@ public:
 	 */
 	RouteResult fastest(const MapCoordF& from, const MapCoordF& to);
 	
+	/**
+	 * The route which is led over via points: the fastest routes from the
+	 * beginning over every via point, in their order, to the end, joined.
+	 * Found when all of them are.
+	 */
+	RouteResult fastestVia(const MapCoordF& from, const std::vector<MapCoordF>& via, const MapCoordF& to);
+	
 	/** The time of the straight line between two places as if nothing were impassable, in s: what a course costs without routes. */
 	double straightTime(const MapCoordF& from, const MapCoordF& to) const;
 	

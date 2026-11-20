@@ -633,6 +633,8 @@ public slots:
 	void hideCourseRoutesClicked();
 	void deleteCourseRoutesClicked();
 	void exportCourseRoutesClicked();
+	void routeViaPointsClicked();
+	void routeFreeLegClicked();
 	void routeSettingsClicked();
 	/** foom: Shows or hides the rangefinder. */
 	void rangefinderClicked(bool checked);
@@ -1214,6 +1216,8 @@ private:
 	QAction* course_routes_hide_act = {};  // foom
 	QAction* course_routes_delete_act = {};  // foom
 	QAction* course_routes_export_act = {};  // foom
+	QAction* course_routes_via_act = {};  // foom
+	QAction* course_routes_leg_act = {};  // foom
 	QAction* course_routes_settings_act = {};  // foom
 	/** foom: The routes which the map keeps are drawn with the course; the design notes, "Route analysis: all courses, and the routes in the file". */
 	bool show_course_routes = false;
