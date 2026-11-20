@@ -61,6 +61,7 @@ private:
 	QComboBox* relay_box;
 	QComboBox* extent_box;
 	QCheckBox* canvases_check;
+	QCheckBox* routes_check;
 	QLineEdit* folder_edit;
 	QWidget* ok_button;
 };

@@ -27,7 +27,9 @@
 #include <map>
 
 #include <QtMath>
+#include <Qt>
 #include <QChar>
+#include <QColor>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -35,6 +37,8 @@
 #include <QLatin1String>
 #include <QCoreApplication>
 #include <QPainter>
+#include <QPen>
+#include <QPolygonF>
 #include <QUuid>
 #ifdef QT_PRINTSUPPORT_LIB
 #  include <QPrinter>
@@ -43,6 +47,7 @@
 #include "core/extent_printing.h"
 #include "core/extents.h"
 #include "core/map.h"
+#include "core/map_coord.h"
 #include "core/map_printer.h"
 #include "mapper_config.h"
 #include "core/objects/object.h"
@@ -53,6 +58,7 @@
 #include "course/course_description.h"
 #include "course/course_parts.h"
 #include "course/course_render.h"
+#include "course/route_course.h"
 
 namespace OpenOrienteering {
 
@@ -386,6 +392,39 @@ QString courseMapFileName(const QString& base_name, const QString& sheet)
 }
 
 
+void paintCourseRoutes(QPainter* painter, const CourseRoutes& routes)
+{
+	auto const paint = [painter](const std::vector<MapCoordF>& points) {
+		if (points.size() < 2)
+			return;
+		QPolygonF line;
+		line.reserve(int(points.size()));
+		for (auto const& point : points)
+			line.push_back(point);
+		painter->drawPolyline(line);
+	};
+	painter->save();
+	painter->setRenderHint(QPainter::Antialiasing, true);
+	painter->setBrush(Qt::NoBrush);
+	QPen pen(QColor(225, 0, 50), 0.3);
+	pen.setCapStyle(Qt::RoundCap);
+	pen.setJoinStyle(Qt::RoundJoin);
+	painter->setPen(pen);
+	for (auto const& leg : routes.legs)
+		paint(leg.route.points);
+	QPen via_pen(QColor(0, 90, 225), 0.3, Qt::DashLine);
+	via_pen.setJoinStyle(Qt::RoundJoin);
+	painter->setPen(via_pen);
+	for (auto const& leg : routes.legs)
+	{
+		for (auto const& via_route : leg.via_routes)
+			paint(via_route.points);
+	}
+	painter->restore();
+}
+
+
+
 CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& options)
 {
 	CourseMapExportReport report;
@@ -467,6 +506,18 @@ CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& o
 			std::vector<CourseMapDrawing> sides;
 			for (auto const& side : sheet.sides)
 				sides.push_back(drawCourseMap(map, sheet_data, side, hidden_numbers));
+			// The routes which the map keeps for the sides.
+			std::vector<CourseRoutes> side_routes;
+			if (options.with_routes)
+			{
+				for (auto const& side : sheet.sides)
+				{
+					if (side.variant.leg > 0)
+						side_routes.push_back(storedCourseRoutes(map, withRelayVariant(sheet_data, side.course, side.variant), side.course, side.part));
+					else
+						side_routes.push_back(storedCourseRoutes(map, sheet_data, side.course, side.part));
+				}
+			}
 			
 			MapPrinter printer(map, options.view);
 			printer.setTarget(MapPrinter::pdfTarget());
@@ -487,9 +538,11 @@ CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& o
 			// One page for a side: without an extent which brings its paper, the page is as large as the area.
 			if (!sheet_extent || sheet_scale > 0)
 				printer.setCustomPageSize(printer.getPrintAreaPaperSize());
-			printer.setOverlay([&map, &sides](QPainter* painter, const RenderConfig& config, int side) {
+			printer.setOverlay([&map, &sides, &side_routes](QPainter* painter, const RenderConfig& config, int side) {
 				if (side >= 0 && std::size_t(side) < sides.size())
 					paintCourseMap(painter, &map, sides[std::size_t(side)], config.bounding_box, config.scaling);
+				if (side >= 0 && std::size_t(side) < side_routes.size())
+					paintCourseRoutes(painter, side_routes[std::size_t(side)]);
 			}, int(sides.size()));
 			
 			auto const path = folder.absoluteFilePath(courseMapFileName(options.base_name, sheet_name));

@@ -38,6 +38,7 @@ class QPainter;
 
 namespace OpenOrienteering {
 
+struct CourseRoutes;
 class Map;
 class MapView;
 class Object;
@@ -122,6 +123,16 @@ CourseMapDrawing drawCourseMap(const Map& map, const CourseData& data, const Cou
  */
 void paintCourseMap(QPainter* painter, Map* map, const CourseMapDrawing& drawing, const QRectF& bounding_box, qreal scaling);
 
+/**
+ * Paints the routes of a course with a painter which is set up for map
+ * coordinates: the fastest route of every leg and the path of a marked
+ * route as a red line, the routes over via points dashed in blue.
+ *
+ * See the design notes, "Route analysis: the routes on the
+ * maps of the courses".
+ */
+void paintCourseRoutes(QPainter* painter, const CourseRoutes& routes);
+
 
 /**
  * Hides, as long as it lives, the symbols whose objects a course map
@@ -163,6 +174,8 @@ struct CourseMapExportOptions
 	 * the description box and the hidden symbols of its canvas, named by it; extent and scale above are not used.
 	 */
 	bool use_canvases = false;
+	/** Every side has the routes which the map keeps for its course painted over the course. */
+	bool with_routes = false;
 	/** The view whose templates are printed as it shows them; without one every template which is loaded. */
 	const MapView* view = nullptr;
 };

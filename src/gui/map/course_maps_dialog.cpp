@@ -88,6 +88,12 @@ CourseMapsDialog::CourseMapsDialog(const Map* map, const QString& folder, QWidge
 	form->addRow(tr("Relays:"), relay_box);
 	form->addRow(tr("Extent:"), extent_box);
 	form->addRow(QString{}, canvases_check);
+	// the design notes, "Route analysis: the routes on the maps of the courses"
+	routes_check = new QCheckBox(tr("With the routes of the route analysis"));
+	routes_check->setObjectName(QStringLiteral("course-maps-routes"));
+	routes_check->setToolTip(tr("The routes which the map keeps are painted over the map of their course."));
+	routes_check->setEnabled(!map->courseData().routes.isEmpty());
+	form->addRow(QString{}, routes_check);
 	form->addRow(tr("Folder:"), folder_layout);
 	
 	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
@@ -124,6 +130,7 @@ CourseMapExportOptions CourseMapsDialog::options() const
 	if (extent_box->currentIndex() > 0)
 		result.extent = extent_box->currentText();
 	result.use_canvases = canvases_check->isChecked();
+	result.with_routes = routes_check->isEnabled() && routes_check->isChecked();
 	return result;
 }
 

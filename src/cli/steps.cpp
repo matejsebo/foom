@@ -882,7 +882,7 @@ void StepRunner::validate(const Step& step, bool& map_open)
 	else if (name == QLatin1String("export-course-maps"))  // foom
 	{
 		p.requireMap(map_open);
-		p.checkKnown({ "folder", "courses", "relay", "extent", "scale", "canvases" });
+		p.checkKnown({ "folder", "courses", "relay", "extent", "scale", "canvases", "routes" });
 		p.requireString("folder");
 		parseCourseNames(p);
 		parseRelayMaps(p);
@@ -1395,6 +1395,7 @@ StepResult StepRunner::exportCourseMapsStep(const Step& step)
 	options.extent = p.optionalString("extent");
 	options.scale = p.has("scale") ? p.requirePositiveInt("scale") : 0u;
 	options.use_canvases = p.optionalBool("canvases", false);
+	options.with_routes = p.optionalBool("routes", false);
 	auto const report = exportCourseMaps(*map, options);
 	if (!report.ok)
 		return failure(report.error);

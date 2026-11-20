@@ -5470,38 +5470,7 @@ void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget
 	paintCourseDrawing(painter, map, drawing, viewed_rect, map_view->calculateFinalZoomFactor());
 	// The routes which the map keeps, for the course, the part and the variant which are chosen.
 	if (show_course_routes && !preview_data.routes.isEmpty())
-	{
-		auto const course_routes = storedCourseRoutes(*map, preview_data, course, part);
-		QPen pen(QColor(225, 0, 50), 0.3);
-		pen.setCapStyle(Qt::RoundCap);
-		pen.setJoinStyle(Qt::RoundJoin);
-		painter->setPen(pen);
-		painter->setBrush(Qt::NoBrush);
-		painter->setRenderHint(QPainter::Antialiasing, true);
-		for (auto const& leg : course_routes.legs)
-		{
-			QPolygonF line;
-			for (auto const& point : leg.route.points)
-				line.push_back(point);
-			if (line.size() >= 2)
-				painter->drawPolyline(line);
-		}
-		// The routes over via points, dashed in blue.
-		QPen via_pen(QColor(0, 90, 225), 0.3, Qt::DashLine);
-		via_pen.setJoinStyle(Qt::RoundJoin);
-		painter->setPen(via_pen);
-		for (auto const& leg : course_routes.legs)
-		{
-			for (auto const& via_route : leg.via_routes)
-			{
-				QPolygonF line;
-				for (auto const& point : via_route.points)
-					line.push_back(point);
-				if (line.size() >= 2)
-					painter->drawPolyline(line);
-			}
-		}
-	}
+		paintCourseRoutes(painter, storedCourseRoutes(*map, preview_data, course, part));
 	painter->restore();
 }
 
