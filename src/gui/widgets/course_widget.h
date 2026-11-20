@@ -104,6 +104,21 @@ public:
 	bool addClass(const QString& name);
 	void removeCurrentClass();
 	
+	/**
+	 * Makes the course which is chosen a normal course, a relay or a one-man
+	 * relay of so many legs, as one undo step. What is refused changes
+	 * nothing; lastRefusal() says why.
+	 */
+	bool setCourseType(Course::Type type, int legs);
+	/** Puts a team variation of so many branches behind the current item; its first branch marker is current then. */
+	bool addTeamVariation(int branches);
+	/** Puts a leg variation behind the current item; a text for every branch names its legs, as "1-2". */
+	bool addLegVariation(const QStringList& branch_legs);
+	/** Removes the variation of the marker which is the current item, with all that is in it. */
+	bool removeCurrentVariation();
+	/** Why the last change of the course was refused; empty when it was made. */
+	QString lastRefusal() const { return last_refusal; }
+	
 	/** Sets the climb of the course which is chosen, as one undo step. */
 	void setClimb(int metres);
 	/** Sets the extra length of the course which is chosen, as one undo step. */
@@ -165,6 +180,16 @@ private:
 	void deleteCourseClicked();
 	void addClassClicked();
 	void addTextBlockClicked();
+	void typeChosen(int index);
+	void legsEntered(int legs);
+	void teamVariationClicked();
+	void legVariationClicked();
+	void removeVariationClicked();
+	/** Says why the last change was refused, when it was. */
+	void showRefusal();
+	/** The index which an item gets that is put behind the current one. */
+	int insertIndex(const Course& course) const;
+	bool addVariation(bool of_team, int branches, const QStringList& branch_legs);
 	void cellChosen(int column, int index);
 	void sizeEntered();
 	void textEntered();
@@ -178,6 +203,8 @@ private:
 	QComboBox* selector;
 	QComboBox* variant_box;
 	QString variant_course;
+	QComboBox* type_box;
+	QSpinBox* legs_edit;
 	QLabel* length_label;
 	QSpinBox* climb_edit;
 	QDoubleSpinBox* extra_edit;
@@ -194,6 +221,9 @@ private:
 	QPushButton* remove_button;
 	QPushButton* up_button;
 	QPushButton* down_button;
+	QPushButton* team_variation_button;
+	QPushButton* leg_variation_button;
+	QPushButton* remove_variation_button;
 	QPushButton* add_class_button;
 	QPushButton* delete_class_button;
 	
@@ -209,6 +239,7 @@ private:
 	bool has_wanted_course = false;
 	QString wanted_course;
 	int wanted_item = -2;
+	QString last_refusal;
 };
 
 

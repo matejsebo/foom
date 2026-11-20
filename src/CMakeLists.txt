@@ -112,6 +112,7 @@ set(Mapper_Common_SRCS
   course/course_edit.cpp  # foom
   course/course_interchange.cpp  # foom
   course/course_relay.cpp  # foom
+  course/course_relay_edit.cpp  # foom
   course/course_render.cpp  # foom
   course/course_report.cpp  # foom
   course/course_storage.cpp  # foom

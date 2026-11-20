@@ -34,9 +34,15 @@
 #include <QFile>
 #include <QIODevice>
 #include <QLabel>
+#include <QLatin1Char>
+#include <QLatin1String>
 #include <QObject>
+#include <QPushButton>
+#include <QSpinBox>
 #include <QString>
 #include <QStringList>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 
 #include "global.h"
 #include "test_config.h"
@@ -49,6 +55,7 @@
 #include "course/course_data.h"
 #include "course/course_edit.h"
 #include "course/course_relay.h"
+#include "course/course_relay_edit.h"
 #include "course/course_render.h"
 #include "course/course_report.h"
 #include "course/course_storage.h"
@@ -58,6 +65,7 @@
 #include "gui/widgets/course_widget.h"
 #include "undo/object_undo.h"
 #include "undo/undo.h"
+#include "undo/undo_manager.h"
 
 using namespace OpenOrienteering;
 
@@ -145,6 +153,26 @@ QString codesOf(const std::vector<CourseItem>& items)
 	for (auto const& item : items)
 		codes.push_back(item.namesObject() ? item.code : QStringLiteral("?"));
 	return codes.join(QLatin1Char(' '));
+}
+
+/// The items as the records write them, "S1 r2 v 31 v 32 q F1".
+QString wordsOf(const std::vector<CourseItem>& items)
+{
+	QStringList words;
+	for (auto const& item : items)
+	{
+		switch (item.type)
+		{
+		case CourseItem::TeamForkBegin:  words.push_back(QLatin1Char('r') + QString::number(item.count)); break;
+		case CourseItem::ForkBranch:     words.push_back(QStringLiteral("v")); break;
+		case CourseItem::TeamForkEnd:    words.push_back(QStringLiteral("q")); break;
+		case CourseItem::LegForkBegin:   words.push_back(QStringLiteral("l")); break;
+		case CourseItem::LegBranch:      words.push_back(QLatin1Char('b') + item.legs); break;
+		case CourseItem::LegForkEnd:     words.push_back(QStringLiteral("p")); break;
+		default:                         words.push_back(item.namesObject() ? item.code : QStringLiteral("?")); break;
+		}
+	}
+	return words.join(QLatin1Char(' '));
 }
 
 QStringList codesOf(const std::vector<RelayVariant>& variants)
@@ -272,6 +300,8 @@ private slots:
 	void measureTest();
 	void checkTest();
 	void dockTest();
+	void editTest();
+	void dockEditTest();
 };
 
 
@@ -701,6 +731,384 @@ void CourseRelayTest::dockTest()
 	QVERIFY(widget.previewData() == map.courseData());
 }
 
+
+
+/// Editing relays, Accept (1) to (6)
+void CourseRelayTest::editTest()
+{
+	auto const plain = "S1 31 33 F1";
+	auto const one_variation = "S1 r2 v 31 v 32 q 33 F1";
+	auto const two_variations = "S1 r2 v 31 v 32 q 33 r2 v 34 v 35 q F1";
+	auto const itemsOf = [](const CourseData& data, const char* name) {
+		return wordsOf(data.findCourse(QString::fromLatin1(name))->items);
+	};
+	
+	// (1) Type and legs.
+	{
+		CourseData data;
+		data.courses.push_back(courseOf(QStringLiteral("N"), Course::Normal, 0, plain));
+		data.courses.push_back(courseOf(QStringLiteral("R"), Course::Relay, 2, one_variation));
+		QString why;
+		QVERIFY(setCourseType(data, QStringLiteral("N"), Course::Relay, 3, &why));
+		QCOMPARE(data.findCourse(QStringLiteral("N"))->type, Course::Relay);
+		QCOMPARE(data.findCourse(QStringLiteral("N"))->legs, 3);
+		QVERIFY(setCourseType(data, QStringLiteral("N"), Course::OneManRelay, 2, &why));
+		QCOMPARE(data.findCourse(QStringLiteral("N"))->type, Course::OneManRelay);
+		QCOMPARE(data.findCourse(QStringLiteral("N"))->legs, 2);
+		QVERIFY(setCourseType(data, QStringLiteral("N"), Course::Normal, 5, &why));
+		QCOMPARE(data.findCourse(QStringLiteral("N"))->type, Course::Normal);
+		QCOMPARE(data.findCourse(QStringLiteral("N"))->legs, 0);
+		
+		auto const before = data;
+		QStringList reasons;
+		QVERIFY(!setCourseType(data, QStringLiteral("N"), Course::Relay, 1, &why));
+		reasons.push_back(why);
+		QVERIFY(!setCourseType(data, QStringLiteral("R"), Course::Normal, 0, &why));
+		reasons.push_back(why);
+		QVERIFY(!setCourseType(data, QStringLiteral("R"), Course::Relay, 3, &why));
+		reasons.push_back(why);
+		QVERIFY(!setCourseType(data, QStringLiteral("Nobody"), Course::Relay, 3, &why));
+		QVERIFY(data == before);
+		for (auto const& reason : reasons)
+			QVERIFY(!reason.isEmpty());
+		QCOMPARE(int(std::set<QString>(reasons.begin(), reasons.end()).size()), 3);
+		
+		QVERIFY(setCourseType(data, QStringLiteral("R"), Course::Relay, 4, &why));
+		QCOMPARE(data.findCourse(QStringLiteral("R"))->legs, 4);
+		QVERIFY(relayStructure(*data.findCourse(QStringLiteral("R"))).isValid());
+		QVERIFY(setCourseType(data, QStringLiteral("R"), Course::OneManRelay, 4, &why));
+		
+		// One class at most.
+		CourseClass first;
+		first.name = QStringLiteral("H21");
+		first.course = QStringLiteral("N");
+		auto second = first;
+		second.name = QStringLiteral("D21");
+		data.classes = { first, second };
+		why.clear();
+		QVERIFY(!setCourseType(data, QStringLiteral("N"), Course::Relay, 3, &why));
+		QVERIFY(!why.isEmpty());
+		QCOMPARE(data.findCourse(QStringLiteral("N"))->type, Course::Normal);
+		data.classes = { first };
+		QVERIFY(setCourseType(data, QStringLiteral("N"), Course::Relay, 3, &why));
+	}
+	
+	// (2) The legs at a place.
+	{
+		auto const women = relayWomen();
+		QCOMPARE(relayLegsAt(women, 2), (std::vector<int>{ 1, 2, 3 }));
+		QCOMPARE(relayLegsAt(women, 22), (std::vector<int>{ 1, 2 }));
+		QCOMPARE(relayLegsAt(women, 24), (std::vector<int>{ 3 }));
+		QCOMPARE(relayLegsAt(women, 27), (std::vector<int>{ 1, 2, 3 }));
+		QVERIFY(relayLegsAt(courseOf(QStringLiteral("N"), Course::Normal, 0, plain), 1).empty());
+	}
+	
+	// (3) Team variation.
+	{
+		CourseData data;
+		data.courses.push_back(courseOf(QStringLiteral("T"), Course::Relay, 3, plain));
+		data.courses.push_back(courseOf(QStringLiteral("N"), Course::Normal, 0, plain));
+		data.courses.push_back(relayWomen());
+		QString why;
+		auto before = data;
+		QVERIFY(!insertTeamVariation(data, QStringLiteral("T"), 2, 2, &why));
+		QVERIFY2(why.contains(QLatin1Char('3')), qPrintable(why));
+		QVERIFY(!insertTeamVariation(data, QStringLiteral("T"), 2, 1, &why));
+		QVERIFY(!why.isEmpty());
+		QVERIFY(!insertTeamVariation(data, QStringLiteral("T"), 5, 3, &why));
+		QVERIFY(!insertTeamVariation(data, QStringLiteral("T"), -1, 3, &why));
+		why.clear();
+		QVERIFY(!insertTeamVariation(data, QStringLiteral("N"), 2, 2, &why));
+		QVERIFY(!why.isEmpty());
+		QVERIFY(data == before);
+		
+		QVERIFY(insertTeamVariation(data, QStringLiteral("T"), 2, 3, &why));
+		QCOMPARE(itemsOf(data, "T"), QStringLiteral("S1 31 r3 v v v q 33 F1"));
+		QVERIFY(relayStructure(*data.findCourse(QStringLiteral("T"))).isValid());
+		QCOMPARE(int(relayVariants(relayStructure(*data.findCourse(QStringLiteral("T")))).size()), 9);
+		before = data;
+		why.clear();
+		QVERIFY(!insertTeamVariation(data, QStringLiteral("T"), 7, 3, &why));
+		QVERIFY(!why.isEmpty());
+		QVERIFY(data == before);
+		
+		// In a branch of a leg variation the legs are those of the branch.
+		QVERIFY(!insertTeamVariation(data, QStringLiteral("Relay Women"), 23, 3, &why));
+		QVERIFY(!insertTeamVariation(data, QStringLiteral("Relay Women"), 24, 2, &why));
+		QVERIFY(!insertTeamVariation(data, QStringLiteral("Relay Women"), 24, 3, &why));
+		QVERIFY(data == before);
+		QVERIFY(insertTeamVariation(data, QStringLiteral("Relay Women"), 23, 2, &why));
+		QCOMPARE(itemsOf(data, "Relay Women"),
+		         QStringLiteral("M6 S4 r3 v 48 55 v 50 57 v 49 56 q 59 l b1-2 r2 v 64 v 65 q 62 r2 v v q b3 60 61 p 63 M4 F3"));
+		auto const structure = relayStructure(*data.findCourse(QStringLiteral("Relay Women")));
+		QVERIFY(structure.isValid());
+		QCOMPARE(int(structure.team_forks.size()), 3);
+		QCOMPARE(structure.team_forks[2].legs, (std::vector<int>{ 1, 2 }));
+	}
+	
+	// (4) Leg variation.
+	{
+		CourseData data;
+		data.courses.push_back(courseOf(QStringLiteral("T"), Course::Relay, 3, plain));
+		QString why;
+		auto const before = data;
+		QVERIFY(!insertLegVariation(data, QStringLiteral("T"), 2, { QStringLiteral("1-2") }, &why));
+		QVERIFY(!why.isEmpty());
+		QVERIFY(!insertLegVariation(data, QStringLiteral("T"), 2, { QStringLiteral("1-2"), QStringLiteral("2-3") }, &why));
+		QVERIFY(!insertLegVariation(data, QStringLiteral("T"), 2, { QStringLiteral("1"), QStringLiteral("2") }, &why));
+		QVERIFY(!insertLegVariation(data, QStringLiteral("T"), 2, { QStringLiteral("1-2"), QStringLiteral("x") }, &why));
+		QVERIFY(!insertLegVariation(data, QStringLiteral("T"), 9, { QStringLiteral("1-2"), QStringLiteral("3") }, &why));
+		QVERIFY(data == before);
+		
+		QVERIFY(insertLegVariation(data, QStringLiteral("T"), 2, { QStringLiteral(" 1 - 2 "), QStringLiteral("3") }, &why));
+		QCOMPARE(itemsOf(data, "T"), QStringLiteral("S1 31 l b1-2 b3 p 33 F1"));
+		QVERIFY(relayStructure(*data.findCourse(QStringLiteral("T"))).isValid());
+	}
+	
+	// (5) Range and removal.
+	{
+		CourseData data;
+		data.courses.push_back(relayWomen());
+		data.courses.push_back(courseOf(QStringLiteral("Open"), Course::Relay, 2, "S1 r2 v 31 v 32 33 F1"));
+		auto const& women = *data.findCourse(QStringLiteral("Relay Women"));
+		auto first = -1;
+		auto last = -1;
+		QVERIFY(variationRange(women, 6, first, last));
+		QCOMPARE(first, 2);
+		QCOMPARE(last, 12);
+		QVERIFY(variationRange(women, 19, first, last));
+		QCOMPARE(first, 16);
+		QCOMPARE(last, 21);
+		QVERIFY(variationRange(women, 23, first, last));
+		QCOMPARE(first, 14);
+		QCOMPARE(last, 26);
+		QVERIFY(variationRange(women, 26, first, last));
+		QCOMPARE(first, 14);
+		QCOMPARE(last, 26);
+		QVERIFY(variationRange(women, 2, first, last));
+		QCOMPARE(first, 2);
+		QCOMPARE(last, 12);
+		QVERIFY(!variationRange(women, 4, first, last));
+		QVERIFY(!variationRange(women, 30, first, last));
+		
+		auto const before = data;
+		QVERIFY(!removeVariation(data, QStringLiteral("Relay Women"), 4));
+		QVERIFY(!removeVariation(data, QStringLiteral("Nobody"), 2));
+		QVERIFY(data == before);
+		QVERIFY(removeVariation(data, QStringLiteral("Relay Women"), 19));
+		QCOMPARE(itemsOf(data, "Relay Women"), QStringLiteral("M6 S4 r3 v 48 55 v 50 57 v 49 56 q 59 l b1-2 62 b3 60 61 p 63 M4 F3"));
+		QVERIFY(relayStructure(*data.findCourse(QStringLiteral("Relay Women"))).isValid());
+		QVERIFY(removeVariation(data, QStringLiteral("Relay Women"), 17));
+		QCOMPARE(itemsOf(data, "Relay Women"), QStringLiteral("M6 S4 r3 v 48 55 v 50 57 v 49 56 q 59 63 M4 F3"));
+		QVERIFY(relayStructure(*data.findCourse(QStringLiteral("Relay Women"))).isValid());
+		
+		// A variation which is not whole: every marker for itself.
+		auto const& open = *data.findCourse(QStringLiteral("Open"));
+		QVERIFY(!relayStructure(open).isValid());
+		for (auto const index : { 1, 2, 4 })
+		{
+			QVERIFY(variationRange(open, index, first, last));
+			QCOMPARE(first, index);
+			QCOMPARE(last, index);
+		}
+		QVERIFY(removeVariation(data, QStringLiteral("Open"), 1));
+		QCOMPARE(itemsOf(data, "Open"), QStringLiteral("S1 v 31 v 32 33 F1"));
+		QVERIFY(removeVariation(data, QStringLiteral("Open"), 1));
+		QVERIFY(removeVariation(data, QStringLiteral("Open"), 2));
+		QCOMPARE(itemsOf(data, "Open"), QStringLiteral("S1 31 32 33 F1"));
+		QVERIFY(relayStructure(*data.findCourse(QStringLiteral("Open"))).isValid());
+	}
+	
+	// (6) The rule.
+	{
+		CourseData data;
+		data.courses.push_back(courseOf(QStringLiteral("Two"), Course::Relay, 2, two_variations));
+		data.courses.push_back(courseOf(QStringLiteral("Open"), Course::Relay, 2, "S1 r2 v 31 v 32 33 F1"));
+		auto changed = data;
+		QVERIFY(removeCourseItem(changed, QStringLiteral("Two"), 7));
+		auto const fault = relayFaultOfChange(data, changed, QStringLiteral("Two"));
+		QVERIFY(!fault.isEmpty());
+		QCOMPARE(fault, relayStructure(*changed.findCourse(QStringLiteral("Two"))).faults.constFirst());
+		// The other course did not change.
+		QVERIFY(relayFaultOfChange(data, changed, QStringLiteral("Open")).isEmpty());
+		
+		changed = data;
+		QVERIFY(removeCourseItem(changed, QStringLiteral("Two"), 3));
+		QVERIFY(relayFaultOfChange(data, changed, QStringLiteral("Two")).isEmpty());
+		
+		// A course which has a fault can be changed.
+		changed = data;
+		QVERIFY(removeCourseItem(changed, QStringLiteral("Open"), 3));
+		QVERIFY(!relayStructure(*changed.findCourse(QStringLiteral("Open"))).isValid());
+		QVERIFY(relayFaultOfChange(data, changed, QStringLiteral("Open")).isEmpty());
+	}
+}
+
+
+/// Editing relays, Accept (7)
+void CourseRelayTest::dockEditTest()
+{
+	Map map;
+	fillRelayMap(map);
+	CourseWidget widget(&map);
+	auto* type = widget.findChild<QComboBox*>(QStringLiteral("course-type"));
+	auto* legs = widget.findChild<QSpinBox*>(QStringLiteral("course-legs"));
+	auto* team_button = widget.findChild<QPushButton*>(QStringLiteral("course-team-variation"));
+	auto* leg_button = widget.findChild<QPushButton*>(QStringLiteral("course-leg-variation"));
+	auto* remove_button = widget.findChild<QPushButton*>(QStringLiteral("course-variation-remove"));
+	auto* items = widget.findChild<QTreeWidget*>(QStringLiteral("course-items"));
+	auto* objects = widget.findChild<QTreeWidget*>(QStringLiteral("course-objects"));
+	auto* variants = widget.findChild<QComboBox*>(QStringLiteral("course-variant"));
+	QVERIFY(type && legs && team_button && leg_button && remove_button && items && objects && variants);
+	auto const itemsOf = [&map](const char* name) {
+		return wordsOf(map.courseData().findCourse(QString::fromLatin1(name))->items);
+	};
+	auto const currentIndex = [items]() { return items->indexOfTopLevelItem(items->currentItem()); };
+	
+	// Without a course nothing can be set.
+	QVERIFY(!type->isEnabled());
+	QVERIFY(!widget.setCourseType(Course::Relay, 2));
+	
+	widget.setCurrentCourse(QStringLiteral("N"));
+	QCOMPARE(type->count(), 3);
+	QVERIFY(type->isEnabled());
+	QCOMPARE(type->currentIndex(), 0);
+	QCOMPARE(type->currentText(), CourseWidget::tr("Normal course"));
+	QVERIFY(!legs->isEnabled());
+	QVERIFY(!team_button->isEnabled());
+	QVERIFY(!leg_button->isEnabled());
+	QVERIFY(!remove_button->isEnabled());
+	
+	auto steps = map.undoManager().undoStepCount();
+	QVERIFY(widget.setCourseType(Course::Relay, 2));
+	QCOMPARE(map.undoManager().undoStepCount(), steps + 1);
+	QCOMPARE(type->currentIndex(), 1);
+	QVERIFY(legs->isEnabled());
+	QCOMPARE(legs->value(), 2);
+	QVERIFY(team_button->isEnabled());
+	QVERIFY(leg_button->isEnabled());
+	QVERIFY(!remove_button->isEnabled());
+	QVERIFY(map.undoManager().undo());
+	QCOMPARE(widget.currentCourse(), QStringLiteral("N"));
+	QCOMPARE(type->currentIndex(), 0);
+	QVERIFY(!legs->isEnabled());
+	QCOMPARE(map.courseData().findCourse(QStringLiteral("N"))->type, Course::Normal);
+	
+	// A team variation behind the current item; its first branch is current then.
+	QVERIFY(widget.setCourseType(Course::Relay, 2));
+	items->setCurrentItem(items->topLevelItem(1));
+	steps = map.undoManager().undoStepCount();
+	QVERIFY(widget.addTeamVariation(2));
+	QCOMPARE(map.undoManager().undoStepCount(), steps + 1);
+	QCOMPARE(itemsOf("N"), QStringLiteral("S1 31 r2 v v q 33 F1"));
+	QCOMPARE(currentIndex(), 3);
+	QVERIFY(remove_button->isEnabled());
+	
+	// Insert puts the selected object into the first branch.
+	objects->clearSelection();
+	for (int i = 0; i < objects->topLevelItemCount(); ++i)
+	{
+		if (objects->topLevelItem(i)->text(0) == QLatin1String("32"))
+			objects->topLevelItem(i)->setSelected(true);
+	}
+	QCOMPARE(currentIndex(), 3);
+	widget.insertSelectedObjects();
+	QCOMPARE(itemsOf("N"), QStringLiteral("S1 31 r2 v 32 v q 33 F1"));
+	QStringList codes;
+	for (int i = 0; i < variants->count(); ++i)
+		codes.push_back(variants->itemText(i));
+	QCOMPARE(codes.join(QLatin1Char(' ')), QStringLiteral("1A 1B 2A 2B"));
+	
+	// The list shows the structure.
+	QCOMPARE(items->topLevelItemCount(), 9);
+	QStringList rows;
+	for (int i = 0; i < items->topLevelItemCount(); ++i)
+		rows.push_back(items->topLevelItem(i)->text(1));
+	auto const indent = QStringLiteral("    ");
+	QCOMPARE(rows, (QStringList{
+	             QStringLiteral("S1"),
+	             QStringLiteral("31"),
+	             CourseWidget::tr("Team variation, %1 branches").arg(2),
+	             indent + CourseWidget::tr("Branch %1").arg(QLatin1Char('A')),
+	             indent + indent + QStringLiteral("32"),
+	             indent + CourseWidget::tr("Branch %1").arg(QLatin1Char('B')),
+	             CourseWidget::tr("End of team variation"),
+	             QStringLiteral("33"),
+	             QStringLiteral("F1") }));
+	
+	// What cannot be run is refused, with its reason.
+	QVERIFY(widget.lastRefusal().isEmpty());
+	QVERIFY(!widget.addTeamVariation(3));
+	QVERIFY(!widget.lastRefusal().isEmpty());
+	QCOMPARE(itemsOf("N"), QStringLiteral("S1 31 r2 v 32 v q 33 F1"));
+	QVERIFY(!widget.addLegVariation({ QStringLiteral("1") }));
+	QVERIFY(!widget.lastRefusal().isEmpty());
+	QCOMPARE(itemsOf("N"), QStringLiteral("S1 31 r2 v 32 v q 33 F1"));
+	
+	// A leg variation behind 33, and away again.
+	items->setCurrentItem(items->topLevelItem(7));
+	QVERIFY(widget.addLegVariation({ QStringLiteral("1"), QStringLiteral("2") }));
+	QVERIFY(widget.lastRefusal().isEmpty());
+	QCOMPARE(itemsOf("N"), QStringLiteral("S1 31 r2 v 32 v q 33 l b1 b2 p F1"));
+	QCOMPARE(currentIndex(), 9);
+	QVERIFY(widget.removeCurrentVariation());
+	QCOMPARE(itemsOf("N"), QStringLiteral("S1 31 r2 v 32 v q 33 F1"));
+	
+	// Removing the variation at its end marker, and bringing it back.
+	items->setCurrentItem(items->topLevelItem(1));
+	QVERIFY(!remove_button->isEnabled());
+	QVERIFY(!widget.removeCurrentVariation());
+	items->setCurrentItem(items->topLevelItem(6));
+	QVERIFY(remove_button->isEnabled());
+	steps = map.undoManager().undoStepCount();
+	QVERIFY(widget.removeCurrentVariation());
+	QCOMPARE(map.undoManager().undoStepCount(), steps + 1);
+	QCOMPARE(itemsOf("N"), QStringLiteral("S1 31 33 F1"));
+	// A relay without variations has a variant for every leg.
+	QCOMPARE(variants->count(), 2);
+	QVERIFY(map.undoManager().undo());
+	QCOMPARE(itemsOf("N"), QStringLiteral("S1 31 r2 v 32 v q 33 F1"));
+	
+	// The relay R keeps its type and its legs while it has its variation.
+	widget.setCurrentCourse(QStringLiteral("R"));
+	QCOMPARE(type->currentIndex(), 1);
+	QCOMPARE(legs->value(), 2);
+	QVERIFY(!widget.setCourseType(Course::Normal, 0));
+	QVERIFY(!widget.lastRefusal().isEmpty());
+	QVERIFY(!widget.setCourseType(Course::Relay, 3));
+	QVERIFY(!widget.lastRefusal().isEmpty());
+	QCOMPARE(type->currentIndex(), 1);
+	QCOMPARE(legs->value(), 2);
+	QVERIFY(widget.setCourseType(Course::OneManRelay, 2));
+	QCOMPARE(type->currentIndex(), 2);
+	QVERIFY(widget.setCourseType(Course::Relay, 2));
+	
+	// One class.
+	QVERIFY(widget.addClass(QStringLiteral("Teams")));
+	QVERIFY(widget.lastRefusal().isEmpty());
+	QVERIFY(!widget.addClass(QStringLiteral("More teams")));
+	QVERIFY(!widget.lastRefusal().isEmpty());
+	QCOMPARE(int(map.courseData().classes.size()), 1);
+	
+	// The control between two variations stays where it is.
+	auto data = map.courseData();
+	data.courses.push_back(courseOf(QStringLiteral("Two"), Course::Relay, 2, "S1 r2 v 31 v 32 q 33 r2 v 31 v 32 q F1"));
+	changeCourseData(map, data);
+	widget.setCurrentCourse(QStringLiteral("Two"));
+	QCOMPARE(items->topLevelItemCount(), 15);
+	items->setCurrentItem(items->topLevelItem(7));
+	widget.removeCurrentItem();
+	QVERIFY(!widget.lastRefusal().isEmpty());
+	QCOMPARE(itemsOf("Two"), QStringLiteral("S1 r2 v 31 v 32 q 33 r2 v 31 v 32 q F1"));
+	widget.moveCurrentItem(-1);
+	QVERIFY(!widget.lastRefusal().isEmpty());
+	QCOMPARE(itemsOf("Two"), QStringLiteral("S1 r2 v 31 v 32 q 33 r2 v 31 v 32 q F1"));
+	// A control of a branch may leave.
+	items->setCurrentItem(items->topLevelItem(3));
+	widget.removeCurrentItem();
+	QVERIFY(widget.lastRefusal().isEmpty());
+	QCOMPARE(itemsOf("Two"), QStringLiteral("S1 r2 v v 32 q 33 r2 v 31 v 32 q F1"));
+}
 
 
 /*

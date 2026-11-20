@@ -29,6 +29,7 @@
 
 #include <QAbstractItemView>
 #include <QBrush>
+#include <QChar>
 #include <QCheckBox>
 #include <QColor>
 #include <QComboBox>
@@ -69,6 +70,7 @@
 #include "course/course_description.h"
 #include "course/course_edit.h"
 #include "course/course_relay.h"
+#include "course/course_relay_edit.h"
 #include "course/course_render.h"
 #include "course/course_storage.h"
 #include "undo/map_data_undo.h"
@@ -289,6 +291,25 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	variant_box->hide();
 	selector_layout->addWidget(variant_box);
 	
+	// The type of the course and its legs; the design notes,
+	// "Editing relays: type, legs and variations in the dock".
+	type_box = new QComboBox();
+	type_box->setObjectName(QStringLiteral("course-type"));
+	type_box->addItem(tr("Normal course"));
+	type_box->addItem(tr("Relay"));
+	type_box->addItem(tr("One-man relay"));
+	legs_edit = new QSpinBox();
+	legs_edit->setObjectName(QStringLiteral("course-legs"));
+	legs_edit->setRange(2, max_relay_legs);
+	legs_edit->setKeyboardTracking(false);
+	legs_edit->setToolTip(tr("The number of legs of a relay, or of loops of a one-man relay."));
+	auto* type_layout = new QHBoxLayout();
+	type_layout->addWidget(new QLabel(tr("Type:")));
+	type_layout->addWidget(type_box);
+	type_layout->addWidget(new QLabel(tr("Legs:")));
+	type_layout->addWidget(legs_edit);
+	type_layout->addStretch(1);
+	
 	// Length and climb of the course; the design notes,
 	// "Drawing a course, its length and climb".
 	length_label = new QLabel();
@@ -339,6 +360,14 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	up_button = makeButton(tr("Up"), "course-item-up", item_buttons);
 	down_button = makeButton(tr("Down"), "course-item-down", item_buttons);
 	item_buttons->addStretch(1);
+	auto* variation_buttons = new QHBoxLayout();
+	team_variation_button = makeButton(tr("Team variation..."), "course-team-variation", variation_buttons);
+	team_variation_button->setToolTip(tr("Put a variation behind the current item at which the runners of different teams go to different controls."));
+	leg_variation_button = makeButton(tr("Leg variation..."), "course-leg-variation", variation_buttons);
+	leg_variation_button->setToolTip(tr("Put a variation behind the current item at which the runners of different legs go to different controls."));
+	remove_variation_button = makeButton(tr("Remove variation"), "course-variation-remove", variation_buttons);
+	remove_variation_button->setToolTip(tr("Take the variation of the current marker out of the course, with all that is in it."));
+	variation_buttons->addStretch(1);
 	
 	class_table = new QTableWidget(0, 4);
 	class_table->setObjectName(QStringLiteral("course-classes"));
@@ -362,10 +391,12 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	layout->addLayout(text_layout);
 	layout->addLayout(selector_layout);
 	layout->addLayout(course_buttons);
+	layout->addLayout(type_layout);
 	layout->addLayout(length_layout);
 	layout->addLayout(climb_layout);
 	layout->addWidget(item_list, 4);
 	layout->addLayout(item_buttons);
+	layout->addLayout(variation_buttons);
 	layout->addWidget(class_table, 2);
 	layout->addLayout(class_buttons);
 	
@@ -387,10 +418,15 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	connect(duplicate_course_button, &QPushButton::clicked, this, &CourseWidget::duplicateCourseClicked);
 	connect(rename_course_button, &QPushButton::clicked, this, &CourseWidget::renameCourseClicked);
 	connect(delete_course_button, &QPushButton::clicked, this, &CourseWidget::deleteCourseClicked);
-	connect(insert_button, &QPushButton::clicked, this, &CourseWidget::insertSelectedObjects);
-	connect(remove_button, &QPushButton::clicked, this, &CourseWidget::removeCurrentItem);
-	connect(up_button, &QPushButton::clicked, this, [this]() { moveCurrentItem(-1); });
-	connect(down_button, &QPushButton::clicked, this, [this]() { moveCurrentItem(1); });
+	connect(insert_button, &QPushButton::clicked, this, [this]() { insertSelectedObjects(); showRefusal(); });
+	connect(remove_button, &QPushButton::clicked, this, [this]() { removeCurrentItem(); showRefusal(); });
+	connect(up_button, &QPushButton::clicked, this, [this]() { moveCurrentItem(-1); showRefusal(); });
+	connect(down_button, &QPushButton::clicked, this, [this]() { moveCurrentItem(1); showRefusal(); });
+	connect(type_box, QOverload<int>::of(&QComboBox::activated), this, &CourseWidget::typeChosen);
+	connect(legs_edit, QOverload<int>::of(&QSpinBox::valueChanged), this, &CourseWidget::legsEntered);
+	connect(team_variation_button, &QPushButton::clicked, this, &CourseWidget::teamVariationClicked);
+	connect(leg_variation_button, &QPushButton::clicked, this, &CourseWidget::legVariationClicked);
+	connect(remove_variation_button, &QPushButton::clicked, this, &CourseWidget::removeVariationClicked);
 	connect(add_class_button, &QPushButton::clicked, this, &CourseWidget::addClassClicked);
 	connect(delete_class_button, &QPushButton::clicked, this, &CourseWidget::removeCurrentClass);
 	
@@ -648,6 +684,14 @@ void CourseWidget::refreshCourseValues()
 	}
 	climb_edit->setEnabled(course != nullptr);
 	extra_edit->setEnabled(course != nullptr);
+	{
+		const QSignalBlocker block_type(type_box);
+		const QSignalBlocker block_legs(legs_edit);
+		type_box->setCurrentIndex(course ? int(course->type) : 0);
+		legs_edit->setValue(course && course->legs >= 2 ? course->legs : 2);
+	}
+	type_box->setEnabled(course != nullptr);
+	legs_edit->setEnabled(course && course->type != Course::Normal);
 	updateLength();
 }
 
@@ -682,12 +726,42 @@ void CourseWidget::refreshItems(int current, int top)
 		return isVariationItem(item.type);
 	});
 	auto number = 0;
+	// What is in a branch is indented under its marker; the branches of a team variation have their letters.
+	auto depth = 0;
+	std::vector<int> branches;
 	for (auto const& item : course->items)
 	{
 		auto* row = new QTreeWidgetItem(item_list);
 		if (item.type == CourseItem::Control && !has_variation)
 			row->setText(0, QString::number(++number));
-		row->setText(1, itemText(item));
+		auto text = itemText(item);
+		auto level = depth;
+		switch (item.type)
+		{
+		case CourseItem::TeamForkBegin:
+		case CourseItem::LegForkBegin:
+			branches.push_back(0);
+			depth += 2;
+			break;
+		case CourseItem::ForkBranch:
+			if (!branches.empty() && branches.back() < 26)
+				text = tr("Branch %1").arg(QChar(ushort('A' + branches.back()++)));
+			level = std::max(depth - 1, 0);
+			break;
+		case CourseItem::LegBranch:
+			level = std::max(depth - 1, 0);
+			break;
+		case CourseItem::TeamForkEnd:
+		case CourseItem::LegForkEnd:
+			depth = std::max(depth - 2, 0);
+			level = depth;
+			if (!branches.empty())
+				branches.pop_back();
+			break;
+		default:
+			break;
+		}
+		row->setText(1, QString(level * 4, QLatin1Char(' ')) + text);
 		if (item.namesObject() && !data.findObject(item.code))
 		{
 			row->setForeground(1, QBrush(QColor(200, 0, 0)));
@@ -755,6 +829,11 @@ void CourseWidget::updateButtons()
 	remove_button->setEnabled(movable);
 	up_button->setEnabled(movable && item > 0);
 	down_button->setEnabled(movable && item + 1 < item_list->topLevelItemCount());
+	auto const is_relay = course && course->type != Course::Normal;
+	team_variation_button->setEnabled(is_relay);
+	leg_variation_button->setEnabled(is_relay);
+	remove_variation_button->setEnabled(course && item >= 0 && std::size_t(item) < course->items.size()
+	                                    && isVariationItem(course->items[std::size_t(item)].type));
 	add_class_button->setEnabled(course != nullptr);
 	delete_class_button->setEnabled(course && class_table->currentRow() >= 0);
 	refreshDescription();
@@ -956,8 +1035,17 @@ void CourseWidget::insertCodes(const QStringList& codes)
 	auto const* course = data.findCourse(name);
 	if (!course)
 		return;
-	auto index = item_list->indexOfTopLevelItem(item_list->currentItem());
-	index = index < 0 ? int(course->items.size()) : index + 1;
+	last_refusal.clear();
+	auto index = insertIndex(*course);
+	// Behind the begin of a variation is its first branch.
+	if (index > 0 && std::size_t(index) < course->items.size())
+	{
+		auto const before = course->items[std::size_t(index - 1)].type;
+		auto const here = course->items[std::size_t(index)].type;
+		if ((before == CourseItem::TeamForkBegin && here == CourseItem::ForkBranch)
+		    || (before == CourseItem::LegForkBegin && here == CourseItem::LegBranch))
+			++index;
+	}
 	auto inserted = false;
 	for (auto const& code : codes)
 	{
@@ -968,6 +1056,9 @@ void CourseWidget::insertCodes(const QStringList& codes)
 		}
 	}
 	if (!inserted)
+		return;
+	last_refusal = relayFaultOfChange(map->courseData(), data, name);
+	if (!last_refusal.isEmpty())
 		return;
 	wanted_item = index - 1;
 	changeCourseData(*map, std::move(data));
@@ -983,9 +1074,14 @@ void CourseWidget::insertSelectedObjects()
 
 void CourseWidget::removeCurrentItem()
 {
+	last_refusal.clear();
 	auto const index = item_list->indexOfTopLevelItem(item_list->currentItem());
 	auto data = map->courseData();
 	if (!removeCourseItem(data, currentCourse(), index))
+		return;
+	// A relay keeps its control between two variations.
+	last_refusal = relayFaultOfChange(map->courseData(), data, currentCourse());
+	if (!last_refusal.isEmpty())
 		return;
 	wanted_item = std::min(index, item_list->topLevelItemCount() - 2);
 	changeCourseData(*map, std::move(data));
@@ -995,9 +1091,13 @@ void CourseWidget::removeCurrentItem()
 
 void CourseWidget::moveCurrentItem(int direction)
 {
+	last_refusal.clear();
 	auto const index = item_list->indexOfTopLevelItem(item_list->currentItem());
 	auto data = map->courseData();
 	if (!moveCourseItem(data, currentCourse(), index, index + direction))
+		return;
+	last_refusal = relayFaultOfChange(map->courseData(), data, currentCourse());
+	if (!last_refusal.isEmpty())
 		return;
 	wanted_item = index + direction;
 	changeCourseData(*map, std::move(data));
@@ -1060,6 +1160,183 @@ void CourseWidget::removeCurrentCourse()
 	changeCourseData(*map, std::move(data));
 	has_wanted_course = false;
 	wanted_item = keep_item;
+}
+
+
+
+bool CourseWidget::setCourseType(Course::Type type, int legs)
+{
+	last_refusal.clear();
+	auto data = map->courseData();
+	if (!OpenOrienteering::setCourseType(data, currentCourse(), type, legs, &last_refusal))
+		return false;
+	if (data != map->courseData())
+		changeCourseData(*map, std::move(data));
+	return true;
+}
+
+
+int CourseWidget::insertIndex(const Course& course) const
+{
+	auto const index = item_list->indexOfTopLevelItem(item_list->currentItem());
+	return index < 0 ? int(course.items.size()) : index + 1;
+}
+
+
+bool CourseWidget::addVariation(bool of_team, int branches, const QStringList& branch_legs)
+{
+	last_refusal.clear();
+	auto const name = currentCourse();
+	auto data = map->courseData();
+	auto const* course = data.findCourse(name);
+	if (!course)
+		return false;
+	auto const index = insertIndex(*course);
+	auto const done = of_team ? insertTeamVariation(data, name, index, branches, &last_refusal)
+	                          : insertLegVariation(data, name, index, branch_legs, &last_refusal);
+	if (!done)
+		return false;
+	// The first branch is current, so that Insert fills it.
+	wanted_item = index + 1;
+	changeCourseData(*map, std::move(data));
+	wanted_item = keep_item;
+	return true;
+}
+
+
+bool CourseWidget::addTeamVariation(int branches)
+{
+	return addVariation(true, branches, {});
+}
+
+
+bool CourseWidget::addLegVariation(const QStringList& branch_legs)
+{
+	return addVariation(false, 0, branch_legs);
+}
+
+
+bool CourseWidget::removeCurrentVariation()
+{
+	last_refusal.clear();
+	auto const name = currentCourse();
+	auto const index = item_list->indexOfTopLevelItem(item_list->currentItem());
+	auto data = map->courseData();
+	auto const* course = data.findCourse(name);
+	auto first = -1;
+	auto last = -1;
+	if (!course || !variationRange(*course, index, first, last) || !removeVariation(data, name, index))
+		return false;
+	wanted_item = first - 1;
+	changeCourseData(*map, std::move(data));
+	wanted_item = keep_item;
+	return true;
+}
+
+
+void CourseWidget::showRefusal()
+{
+	if (!last_refusal.isEmpty())
+		QMessageBox::warning(this, tr("Course"), last_refusal);
+}
+
+
+void CourseWidget::typeChosen(int index)
+{
+	auto const* course = map->courseData().findCourse(currentCourse());
+	if (!course || index < 0)
+		return;
+	auto const type = Course::Type(index);
+	auto legs = course->legs;
+	if (type != Course::Normal && legs < 2)
+		legs = type == Course::Relay ? 3 : 2;
+	if (!setCourseType(type, legs))
+	{
+		showRefusal();
+		refreshCourseValues();
+	}
+}
+
+
+void CourseWidget::legsEntered(int legs)
+{
+	if (refreshing)
+		return;
+	// Once the box is done with the click: a message under its arrow would keep it stepping.
+	QMetaObject::invokeMethod(this, [this, legs]() {
+		auto const* course = map->courseData().findCourse(currentCourse());
+		if (!course || course->type == Course::Normal || setCourseType(course->type, legs))
+			return;
+		showRefusal();
+		refreshCourseValues();
+	}, Qt::QueuedConnection);
+}
+
+
+void CourseWidget::teamVariationClicked()
+{
+	auto const* course = map->courseData().findCourse(currentCourse());
+	if (!course)
+		return;
+	auto const legs = int(relayLegsAt(*course, insertIndex(*course)).size());
+	if (legs < 2)
+	{
+		QMessageBox::warning(this, tr("Team variation"), tr("One leg alone is run at this place. A team variation needs two legs at least."));
+		return;
+	}
+	auto ok = false;
+	auto const branches = QInputDialog::getInt(this, tr("Team variation"),
+	                                           tr("The runners of different teams go to different controls.\nThe number of branches, which is the number of legs at this place (%1) or divides it:").arg(legs),
+	                                           legs, 2, legs, 1, &ok);
+	if (ok && !addTeamVariation(branches))
+		showRefusal();
+}
+
+
+void CourseWidget::legVariationClicked()
+{
+	auto const* course = map->courseData().findCourse(currentCourse());
+	if (!course)
+		return;
+	auto const legs = relayLegsAt(*course, insertIndex(*course));
+	if (legs.size() < 2)
+	{
+		QMessageBox::warning(this, tr("Leg variation"), tr("One leg alone is run at this place. A leg variation needs two legs at least."));
+		return;
+	}
+	// All legs but the last against the last.
+	QStringList first;
+	for (std::size_t i = 0; i + 1 < legs.size(); ++i)
+		first.push_back(QString::number(legs[i]));
+	auto const proposal = QString(first.join(QLatin1Char('-')) + QLatin1String(", ") + QString::number(legs.back()));
+	auto ok = false;
+	auto text = QInputDialog::getText(this, tr("Leg variation"),
+	                                  tr("The runners of different legs go to different controls.\nThe legs of each branch, with dashes between the legs and commas between the branches:"),
+	                                  QLineEdit::Normal, proposal, &ok);
+	if (!ok)
+		return;
+	text.replace(QLatin1Char(';'), QLatin1Char(','));
+	if (!addLegVariation(text.split(QLatin1Char(','), QString::SkipEmptyParts)))
+		showRefusal();
+}
+
+
+void CourseWidget::removeVariationClicked()
+{
+	auto const* course = map->courseData().findCourse(currentCourse());
+	auto const index = item_list->indexOfTopLevelItem(item_list->currentItem());
+	auto first = -1;
+	auto last = -1;
+	if (!course || !variationRange(*course, index, first, last))
+		return;
+	auto inside = 0;
+	for (int i = first; i <= last; ++i)
+		inside += isVariationItem(course->items[std::size_t(i)].type) ? 0 : 1;
+	auto question = first == last ? tr("The variation of this marker is not whole. Remove the marker?") : tr("Remove this variation?");
+	if (inside > 0)
+		question += QLatin1Char('\n') + tr("%n item(s) in it leave the course. The course objects stay in the map.", nullptr, inside);
+	if (QMessageBox::question(this, tr("Remove variation"), question) == QMessageBox::Yes)
+		removeCurrentVariation();
 }
 
 
@@ -1284,10 +1561,23 @@ void CourseWidget::addTextBlockClicked()
 
 bool CourseWidget::addClass(const QString& name)
 {
+	last_refusal.clear();
 	auto const course = currentCourse();
 	auto data = map->courseData();
 	if (course.isEmpty() || !isValidClassName(data, name))
+	{
+		last_refusal = tr("The name \"%1\" cannot be given. A name is not empty and is not the name of another class.").arg(name);
 		return false;
+	}
+	auto const* found = data.findCourse(course);
+	auto const has_class = std::any_of(begin(data.classes), end(data.classes), [&course](const CourseClass& entry) {
+		return entry.course == course;
+	});
+	if (found && found->type != Course::Normal && has_class)
+	{
+		last_refusal = tr("A relay or a one-man relay can have one class only.");
+		return false;
+	}
 	CourseClass entry;
 	entry.name = name;
 	entry.course = course;
@@ -1451,7 +1741,7 @@ void CourseWidget::addClassClicked()
 	auto ok = false;
 	auto const name = QInputDialog::getText(this, tr("Add class"), tr("Name:"), QLineEdit::Normal, {}, &ok).trimmed();
 	if (ok && !addClass(name))
-		QMessageBox::warning(this, tr("Add class"), tr("The name \"%1\" cannot be given. A name is not empty and is not the name of another class.").arg(name));
+		QMessageBox::warning(this, tr("Add class"), last_refusal);
 }
 
 
