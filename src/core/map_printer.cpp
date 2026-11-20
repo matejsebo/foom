@@ -1153,6 +1153,8 @@ void MapPrinter::drawPage(
 		
 			map.draw(map_painter, config);
 		}
+		if (overlay)  // foom
+			overlay(map_painter, config, overlay_side);
 			
 		if (map_buffer_painter.isActive())
 		{
@@ -1384,6 +1386,7 @@ bool MapPrinter::printMap(QPrinter* printer)
 	emit printProgress(0, message);
 	
 	bool need_new_page = false;
+	for (overlay_side = 0; overlay_side < overlay_sides; ++overlay_side)  // foom: the pages once for every side of the overlay
 	for (auto vpos : v_page_pos)
 	{
 		if (!painter.isActive())
@@ -1458,6 +1461,7 @@ bool MapPrinter::printMap(QPrinter* printer)
 		setPrintArea(front_area);
 		back_sides = sides;
 	}
+	overlay_side = 0;  // foom
 	
 	if (cancel_print_map)
 	{

@@ -22,6 +22,7 @@
 #ifndef OPENORIENTEERING_MAP_PRINTER_H
 #define OPENORIENTEERING_MAP_PRINTER_H
 
+#include <functional>  // foom
 #include <memory>
 #include <vector>
 
@@ -312,6 +313,23 @@ public:
 	/** foom: Sets the sides which printMap() prints after the print area. Setting a print area drops them. */
 	void setBackSides(std::vector<BackSide> sides) { back_sides = std::move(sides); }
 	
+	/**
+	 * foom: What is drawn over the map on every page, in map coordinates,
+	 * and which side of the sheet the page is of.
+	 * the design notes, "The maps of the courses as PDF files"
+	 */
+	using Overlay = std::function<void(QPainter*, const RenderConfig&, int)>;
+	
+	/**
+	 * foom: Sets the overlay and the number of sides. printMap() prints the
+	 * pages of the print area once for every side, and tells the overlay the
+	 * side, counted from 0.
+	 */
+	void setOverlay(Overlay new_overlay, int sides = 1) { overlay = std::move(new_overlay); overlay_sides = sides > 1 ? sides : 1; }
+	
+	/** foom: Returns the number of sides of the overlay. */
+	int overlaySides() const { return overlay_sides; }
+	
 	/** foom: Returns the back sides. */
 	const std::vector<BackSide>& backSides() const { return back_sides; }
 	
@@ -524,6 +542,9 @@ protected:
 	std::vector<qreal> v_page_pos;
 	bool cancel_print_map = false;
 	std::vector<BackSide> back_sides;  // foom
+	Overlay overlay;  // foom
+	int overlay_sides = 1;  // foom
+	int overlay_side = 0;  // foom
 };
 
 #endif

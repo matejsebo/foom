@@ -625,6 +625,7 @@ public slots:
 	void importIofCoursesClicked();
 	/** foom: Writes which team runs which variant of the relays, as a text file. */
 	void exportRelayVariationsClicked();
+	void exportCourseMapsClicked();
 	/** foom: Shows or hides the rangefinder. */
 	void rangefinderClicked(bool checked);
 	/** foom: Switches to the tool which sets the reference of the rangefinder. */
@@ -1197,6 +1198,7 @@ private:
 	QAction* course_export_kml_act = {};  // foom
 	QAction* course_import_iof_act = {};  // foom
 	QAction* course_relay_variations_act = {};  // foom
+	QAction* course_export_maps_act = {};  // foom
 	QPointer<QWidget> course_dock_widget;  // foom
 	QPointer<CourseWidget> course_widget;  // foom
 	QAction* rangefinder_act = {};  // foom

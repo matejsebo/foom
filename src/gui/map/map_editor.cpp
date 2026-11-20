@@ -170,6 +170,7 @@
 #include "gui/map/numeric_entry_bar.h"
 #include "gui/map/bookmark_dialog.h"
 #include "gui/map/course_bulk_dialog.h"  // foom
+#include "gui/map/course_maps_dialog.h"  // foom
 #include "gui/map/course_statistics_dialog.h"  // foom
 #include "check/issue.h"
 #include "check/legibility.h"
@@ -1315,6 +1316,7 @@ void MapEditorController::createActions()
 	course_export_kml_act = newAction("course-export-kml", tr("Export courses (KML)..."), this, SLOT(exportCoursesKmlClicked()), nullptr, tr("Write start, controls and finish as placemarks and the courses as lines."));
 	course_import_iof_act = newAction("course-import-iof", tr("Import IOF XML..."), this, SLOT(importIofCoursesClicked()), nullptr, tr("Take course objects, courses and classes from course data of the IOF Data Standard 3.0."));
 	// foom: the design notes, "Relays: variations, variants and their allocation"
+	course_export_maps_act = newAction("course-export-maps", tr("Export course maps (PDF)..."), this, SLOT(exportCourseMapsClicked()), nullptr, tr("Write a PDF file with the map of every course, of every part of a course with a map exchange, and of every variant or runner of a relay."));
 	course_relay_variations_act = newAction("course-relay-variations", tr("Export relay variations..."), this, SLOT(exportRelayVariationsClicked()), nullptr, tr("Write which team runs which variant of the relays, as a text file."));
 	// foom: the rangefinder; the design notes, "Rangefinder dock: detail"
 	rangefinder_act = newCheckAction("rangefinder", tr("Rangefinder"), this, SLOT(rangefinderClicked(bool)), nullptr, tr("Draw from a reference point with distance and azimuth."));
@@ -1743,6 +1745,7 @@ void MapEditorController::createMenuAndToolbars()
 	courses_menu->addAction(course_export_gpx_act);
 	courses_menu->addAction(course_export_kml_act);
 	courses_menu->addAction(course_relay_variations_act);
+	courses_menu->addAction(course_export_maps_act);
 	courses_menu->addAction(course_import_iof_act);
 	
 	// Extend and activate general toolbar
@@ -5145,6 +5148,39 @@ void MapEditorController::exportRelayVariationsClicked()
 		message += QLatin1Char('\n') + tr("Left out for the faults of their variations: %1.").arg(faulty.join(QLatin1String(", ")));
 	QMessageBox::information(window, title, message);
 }
+
+// the design notes, "The maps of the courses as PDF files"
+void MapEditorController::exportCourseMapsClicked()
+{
+	auto const title = tr("Export course maps");
+	if (map->courseData().courses.empty())
+	{
+		QMessageBox::information(window, title, tr("The map has no course."));
+		return;
+	}
+	auto const map_path = window->currentPath();
+	CourseMapsDialog dialog(map, QFileInfo(map_path).path(), window);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	auto options = dialog.options();
+	options.base_name = map_path.isEmpty() ? tr("map") : QFileInfo(map_path).completeBaseName();
+	options.view = main_view;
+	
+	QApplication::setOverrideCursor(Qt::WaitCursor);
+	auto const report = exportCourseMaps(*map, options);
+	QApplication::restoreOverrideCursor();
+	map_widget->update();
+	if (!report.ok)
+	{
+		QMessageBox::warning(window, title, report.error);
+		return;
+	}
+	QString message = tr("%n file(s) were written into %1.", nullptr, report.files.size()).arg(QDir::toNativeSeparators(options.folder));
+	if (!report.skipped.isEmpty())
+		message += QLatin1Char('\n') + tr("Left out, relays whose variations have a fault: %1.").arg(report.skipped.join(QLatin1String(", ")));
+	QMessageBox::information(window, title, message);
+}
+
 
 void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget) const
 {

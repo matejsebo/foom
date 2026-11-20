@@ -54,6 +54,7 @@
 #include "core/latlon.h"
 #include "core/extent_printing.h"
 #include "core/extents.h"
+#include "course/course_map.h"  // foom
 #include "core/map.h"
 #include "core/map_coord.h"
 #include "core/map_printer.h"
@@ -354,6 +355,34 @@ struct ExportExtent
 /**
  * Returns the layer names of the import step's "layer": a string or an array of strings.
  */
+// foom: the design notes, "The maps of the courses as PDF files"
+QStringList parseCourseNames(const Params& p)
+{
+	QStringList names;
+	if (!p.has("courses"))
+		return names;
+	auto const v = p.value("courses");
+	if (!v.isArray())
+		p.fail(QLatin1String("\"courses\" must be an array of course names"));
+	for (auto const& item : v.toArray())
+	{
+		if (!item.isString())
+			p.fail(QLatin1String("\"courses\" must be an array of course names"));
+		names.push_back(item.toString());
+	}
+	return names;
+}
+
+RelayMaps parseRelayMaps(const Params& p)
+{
+	auto const name = p.optionalString("relay");
+	if (name.isEmpty() || name == QLatin1String("variants"))
+		return RelayMaps::Variants;
+	if (name != QLatin1String("runners"))
+		p.fail(QLatin1String("\"relay\" must be \"variants\" or \"runners\""));
+	return RelayMaps::Runners;
+}
+
 QStringList parseImportLayers(const Params& p)
 {
 	QStringList layers;
@@ -848,6 +877,16 @@ void StepRunner::validate(const Step& step, bool& map_open)
 			break;
 		}
 	}
+	else if (name == QLatin1String("export-course-maps"))  // foom
+	{
+		p.requireMap(map_open);
+		p.checkKnown({ "folder", "courses", "relay", "extent", "scale" });
+		p.requireString("folder");
+		parseCourseNames(p);
+		parseRelayMaps(p);
+		if (p.has("scale"))
+			p.requirePositiveInt("scale");
+	}
 	else if (name == QLatin1String("save-as"))
 	{
 		p.requireMap(map_open);
@@ -906,6 +945,8 @@ StepResult StepRunner::run(const Step& step)
 		return exportMap(step);
 	if (name == QLatin1String("save-as"))
 		return saveAs(step);
+	if (name == QLatin1String("export-course-maps"))  // foom
+		return exportCourseMapsStep(step);
 	if (name == QLatin1String("field-copy-create"))
 		return fieldCopyCreate(step);
 	if (name == QLatin1String("merge-from-file"))
@@ -1328,6 +1369,30 @@ StepResult StepRunner::exportPdf(const Step& step, const QString& path)
 	result.details.insert(QLatin1String("format"), QStringLiteral("pdf"));
 	result.details.insert(QLatin1String("pages"), int(printer.horizontalPagePositions().size() * printer.verticalPagePositions().size() + printer.backSides().size()));
 	addWarnings(result, hiddenWarnings(*map));
+	return result;
+}
+
+
+// foom: the design notes, "The maps of the courses as PDF files"
+StepResult StepRunner::exportCourseMapsStep(const Step& step)
+{
+	Params p(step);
+	CourseMapExportOptions options;
+	options.folder = job.resolvePath(p.requireString("folder"));
+	options.base_name = map_path.isEmpty() ? QStringLiteral("map") : QFileInfo(map_path).completeBaseName();
+	options.courses = parseCourseNames(p);
+	options.relay_maps = parseRelayMaps(p);
+	options.extent = p.optionalString("extent");
+	options.scale = p.has("scale") ? p.requirePositiveInt("scale") : 0u;
+	auto const report = exportCourseMaps(*map, options);
+	if (!report.ok)
+		return failure(report.error);
+	
+	StepResult result;
+	result.details.insert(QLatin1String("folder"), options.folder);
+	result.details.insert(QLatin1String("files"), report.files.size());
+	if (!report.skipped.isEmpty())
+		result.details.insert(QLatin1String("skipped"), QJsonArray::fromStringList(report.skipped));
 	return result;
 }
 
