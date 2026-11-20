@@ -128,7 +128,8 @@ void paintCourseMap(QPainter* painter, Map* map, const CourseMapDrawing& drawing
 class CourseSymbolsHider
 {
 public:
-	explicit CourseSymbolsHider(Map& map);
+	/** Hides the symbols of course objects, and those with the given numbers, written as the canvases write them ("704.000"). */
+	explicit CourseSymbolsHider(Map& map, const QStringList& numbers = {});
 	~CourseSymbolsHider();
 	CourseSymbolsHider(const CourseSymbolsHider&) = delete;
 	CourseSymbolsHider& operator=(const CourseSymbolsHider&) = delete;
@@ -154,6 +155,11 @@ struct CourseMapExportOptions
 	QString extent;
 	/** The scale of the print; 0 for that of the extent or of the map. */
 	unsigned int scale = 0;
+	/**
+	 * The maps are those of the canvases of the course data: each sheet with the extent, the scale,
+	 * the description box and the hidden symbols of its canvas, named by it; extent and scale above are not used.
+	 */
+	bool use_canvases = false;
 	/** The view whose templates are printed as it shows them; without one every template which is loaded. */
 	const MapView* view = nullptr;
 };
@@ -164,7 +170,7 @@ struct CourseMapExportReport
 	QString error;
 	/** The files which were written, with their folders. */
 	QStringList files;
-	/** The courses which have no map: not there, or relays with a fault. */
+	/** The courses which have no map: not there, or relays with a fault; with canvases also the sheets which no canvas has. */
 	QStringList skipped;
 };
 

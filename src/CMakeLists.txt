@@ -106,6 +106,7 @@ set(Mapper_Common_SRCS
   core/print_output.cpp
   core/sync_record.cpp
   course/course_bulk.cpp  # foom
+  course/course_canvas.cpp  # foom
   course/course_compose.cpp  # foom
   course/course_data.cpp  # foom
   course/course_description.cpp  # foom

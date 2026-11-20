@@ -65,6 +65,8 @@
 #include "core/map_coord.h"
 #include "core/map_grid.h"
 #include "core/map_part.h"
+#include "core/extents.h"  // foom
+#include "course/course_canvas.h"  // foom
 #include "course/ocd_course_records.h"  // foom
 #include "course/course_storage.h"  // foom
 #include "course/course_data.h"  // foom
@@ -3208,6 +3210,9 @@ void OcdFileExport::exportForeignStrings(OcdFile<Format>& file)
 			continue;
 		if (has_course_data && (string.type == 2 || string.type == 3 || string.type == 31 || string.type == 1031))
 			continue;
+		// Nor the canvases, when the map has some.
+		if (string.type == 1093 && !map->courseData().canvases.isEmpty())
+			continue;
 		Ocd::ParameterStringIndexEntry entry = { 0, quint32(string.data.size()), string.type, string.object_index };
 		file.strings().insert(string.data, entry);
 	}
@@ -3286,6 +3291,12 @@ QString OcdFileExport::objectString(const Object* object, int* type) const
 // foom
 void OcdFileExport::exportCourseData()
 {
+	// The named extents of the map, which the canvases refer to; the design notes, "Canvases".
+	if (ocd_version >= 12)
+	{
+		for (auto const& extent : map->extents())
+			addParameterString(29, extentToOcdRecord(extent));
+	}
 	auto const& data = map->courseData();
 	if (data.isEmpty())
 		return;
@@ -3297,6 +3308,8 @@ void OcdFileExport::exportCourseData()
 	
 	if (!data.options.fields.empty())
 		addParameterString(1031, OcdCourse::formatOptions(data.options));
+	if (!data.canvases.isEmpty())
+		addParameterString(1093, canvasesToOcdXml(data.canvases));
 	for (auto const& course : data.courses)
 		addParameterString(2, OcdCourse::formatCourse(course));
 	for (auto const& course_class : data.classes)

@@ -49,6 +49,7 @@
 #include "core/objects/text_object.h"
 #include "core/renderables/renderable.h"
 #include "core/symbols/symbol.h"
+#include "course/course_canvas.h"
 #include "course/course_description.h"
 #include "course/course_parts.h"
 #include "course/course_render.h"
@@ -344,12 +345,14 @@ void paintCourseMap(QPainter* painter, Map* map, const CourseMapDrawing& drawing
 
 
 
-CourseSymbolsHider::CourseSymbolsHider(Map& map)
+CourseSymbolsHider::CourseSymbolsHider(Map& map, const QStringList& numbers)
 {
 	for (int i = 0; i < map.getNumSymbols(); ++i)
 	{
 		auto* symbol = map.getSymbol(i);
-		if (!symbol->isHidden() && isHiddenRole(symbol->courseRole()))
+		auto const named = !numbers.isEmpty()
+		                   && numbers.contains(canvasSymbolNumber(symbol->getNumberComponent(0), symbol->getNumberComponent(1)));
+		if (!symbol->isHidden() && (named || isHiddenRole(symbol->courseRole())))
 		{
 			symbol->setHidden(true);
 			hidden.push_back(symbol);
@@ -423,18 +426,49 @@ CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& o
 		}
 		for (auto const& sheet : sheets)
 		{
+			// With canvases the sheet is that of the canvas of its first side.
+			auto const* canvas = options.use_canvases ? canvasFor(data.canvases, sheet.sides.front().course, sheet.sides.front().part) : nullptr;
+			if (options.use_canvases && !canvas)
+			{
+				report.skipped.push_back(sheet.name);
+				continue;
+			}
+			auto sheet_data = data;
+			auto const* sheet_extent = extent;
+			auto sheet_scale = options.scale;
+			auto sheet_name = sheet.name;
+			QStringList hidden_numbers;
+			if (canvas)
+			{
+				auto const& extents = map.extents();
+				auto const named = std::find_if(begin(extents), end(extents), [canvas](const Extent& entry) { return entry.name == canvas->extent; });
+				if (named == end(extents))
+				{
+					report.error = tr("No extent found for the canvas \"%1\". Define its extent first.").arg(canvas->name);
+					return report;
+				}
+				sheet_extent = &*named;
+				sheet_scale = canvas->scale;
+				sheet_name = canvas->name + QLatin1Char('.') + sheet.name;
+				hidden_numbers = canvas->hidden_symbols;
+				if (canvas->box_size > 0.0)
+					sheet_data.options.setValue(QLatin1Char('s'), QString::number(canvas->box_size, 'f', 2));
+				if (canvas->max_rows > 0)
+					sheet_data.options.setValue(QLatin1Char('i'), QString::number(canvas->max_rows));
+			}
+			
 			// Drawn before the symbols are hidden: the copies are of symbols as the map shows them.
 			std::vector<CourseMapDrawing> sides;
 			for (auto const& side : sheet.sides)
-				sides.push_back(drawCourseMap(map, data, side));
+				sides.push_back(drawCourseMap(map, sheet_data, side));
 			
 			MapPrinter printer(map, options.view);
 			printer.setTarget(MapPrinter::pdfTarget());
 			printer.setMode(MapPrinterOptions::Vector);
 			printer.setPrintTemplates(true);
-			if (extent)
+			if (sheet_extent)
 			{
-				applyExtentToPrinter(printer, map, *extent);
+				applyExtentToPrinter(printer, map, *sheet_extent);
 				// The sides of the sheet are those of the course, not the backs of the extent.
 				printer.setBackSides({});
 			}
@@ -442,17 +476,17 @@ CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& o
 			{
 				printer.setPrintArea(map.calculateExtent(false, true, options.view));
 			}
-			if (options.scale > 0)
-				printer.setScale(options.scale);
+			if (sheet_scale > 0)
+				printer.setScale(sheet_scale);
 			// One page for a side: without an extent which brings its paper, the page is as large as the area.
-			if (!extent || options.scale > 0)
+			if (!sheet_extent || sheet_scale > 0)
 				printer.setCustomPageSize(printer.getPrintAreaPaperSize());
 			printer.setOverlay([&map, &sides](QPainter* painter, const RenderConfig& config, int side) {
 				if (side >= 0 && std::size_t(side) < sides.size())
 					paintCourseMap(painter, &map, sides[std::size_t(side)], config.bounding_box, config.scaling);
 			}, int(sides.size()));
 			
-			auto const path = folder.absoluteFilePath(courseMapFileName(options.base_name, sheet.name));
+			auto const path = folder.absoluteFilePath(courseMapFileName(options.base_name, sheet_name));
 			auto qprinter = printer.makePrinter();
 			auto written = false;
 			if (qprinter)
@@ -461,7 +495,7 @@ CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& o
 				qprinter->setOutputFileName(path);
 				qprinter->setCreator(QString::fromLatin1("FOOM " APP_VERSION));
 				qprinter->setDocName(QFileInfo(path).completeBaseName());
-				const CourseSymbolsHider hider(map);
+				const CourseSymbolsHider hider(map, hidden_numbers);
 				written = printer.printMap(qprinter.get());
 			}
 			if (!written)

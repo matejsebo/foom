@@ -190,6 +190,8 @@ void saveCourseData(const CourseData& data, QXmlStreamWriter& xml)
 		saveFields(data.options.fields, course_literal::option, xml);
 		xml.writeEndElement();
 	}
+	if (!data.canvases.isEmpty())
+		saveCanvases(data.canvases, xml);
 	
 	for (auto const& object : data.objects)
 	{
@@ -414,6 +416,10 @@ CourseData loadCourseData(QXmlStreamReader& xml, QStringList* problems)
 				}
 			}
 			data.classes.push_back(std::move(course_class));
+		}
+		else if (element == QLatin1String("canvases"))
+		{
+			data.canvases = loadCanvases(xml);
 		}
 		else if (element == course_literal::override_element)
 		{

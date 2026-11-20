@@ -93,7 +93,8 @@ bool operator==(const CourseData& lhs, const CourseData& rhs)
 	       && lhs.courses == rhs.courses
 	       && lhs.classes == rhs.classes
 	       && lhs.overrides == rhs.overrides
-	       && lhs.options == rhs.options;
+	       && lhs.options == rhs.options
+	       && lhs.canvases == rhs.canvases;
 }
 
 
@@ -174,7 +175,7 @@ bool CourseOptions::whiteBackground() const
 
 bool CourseData::isEmpty() const
 {
-	return objects.empty() && courses.empty() && classes.empty() && overrides.empty() && options.fields.empty();
+	return objects.empty() && courses.empty() && classes.empty() && overrides.empty() && options.fields.empty() && canvases.isEmpty();
 }
 
 const CourseObject* CourseData::findObject(const QString& code) const

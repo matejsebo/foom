@@ -68,6 +68,7 @@
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
 #include "core/symbols/text_symbol.h"
+#include "course/course_canvas.h"
 #include "course/course_data.h"
 #include "course/course_map.h"
 #include "course/course_relay.h"
@@ -300,6 +301,7 @@ private slots:
 	void printerTest();
 	void exportTest();
 	void runnerTest();
+	void canvasExportTest();
 	void dialogTest();
 };
 
@@ -638,6 +640,105 @@ void CourseMapTest::runnerTest()
 	for (auto const* name : { "event.X_1.pdf", "event.X_2.pdf", "event.R.1A.pdf", "event.R.1B.pdf", "event.R.2A.pdf", "event.R.2B.pdf" })
 		QVERIFY2(maps.exists(QString::fromLatin1(name)), name);
 	QCOMPARE(pagesOf(maps.absoluteFilePath(QStringLiteral("event.X_1.pdf"))), std::vector<QSize>{ QSize(283, 227) });
+}
+
+
+/// Canvases, Accept (5) and (6)
+void CourseMapTest::canvasExportTest()
+{
+	QVERIFY2(QFileInfo::exists(QString::fromUtf8(FOOM_CLI_EXECUTABLE)), FOOM_CLI_EXECUTABLE);
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	Map map;
+	fillMap(map);
+
+	auto data = map.courseData();
+	data.canvases.active = true;
+	data.canvases.used_symbols = QStringList{ QStringLiteral("101.000") };
+	CourseCanvas a;
+	a.name = QStringLiteral("A");
+	a.extent = QStringLiteral("Sheet");
+	a.scale = 5000;
+	a.box_size = 5.0;
+	a.hidden_symbols = QStringList{ QStringLiteral("101.000") };
+	CanvasCourse entry;
+	entry.course = QStringLiteral("X");
+	entry.part = 0;
+	a.courses.push_back(entry);
+	entry.course = QStringLiteral("Flip");
+	entry.flip = true;
+	a.courses.push_back(entry);
+	entry.part = 1;
+	a.courses.push_back(entry);
+	CourseCanvas b;
+	b.name = QStringLiteral("B");
+	b.extent = QStringLiteral("Sheet");
+	entry = {};
+	entry.course = QStringLiteral("Plain");
+	b.courses.push_back(entry);
+	data.canvases.canvases = { a, b };
+	changeCourseData(map, data);
+	map.setHasUnsavedChanges(false);
+
+	CourseMapExportOptions options;
+	options.folder = QDir(dir.path()).absoluteFilePath(QStringLiteral("out"));
+	options.base_name = QStringLiteral("m");
+	options.use_canvases = true;
+	auto report = exportCourseMaps(map, options);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QStringList names;
+	for (auto const& file : report.files)
+		names.push_back(QFileInfo(file).fileName());
+	QCOMPARE(names, (QStringList{ QStringLiteral("m.A.X_1.pdf"), QStringLiteral("m.A.Flip.pdf"), QStringLiteral("m.B.Plain.pdf") }));
+	QCOMPARE(report.skipped, (QStringList{ QStringLiteral("X_2"), QStringLiteral("R.1A"), QStringLiteral("R.1B"), QStringLiteral("R.2A"), QStringLiteral("R.2B") }));
+	auto const large = QSize(567, 454);
+	QCOMPARE(pagesOf(report.files[0]), std::vector<QSize>{ large });
+	QCOMPARE(pagesOf(report.files[1]), (std::vector<QSize>{ large, large }));
+	QCOMPARE(pagesOf(report.files[2]), std::vector<QSize>{ QSize(283, 227) });
+	QVERIFY(hiddenSymbols(map).isEmpty());
+	QVERIFY(!map.hasUnsavedChanges());
+
+	// A canvas whose extent the map has not.
+	data.canvases.canvases[1].extent = QStringLiteral("Gone");
+	changeCourseData(map, data);
+	report = exportCourseMaps(map, options);
+	QVERIFY(!report.ok);
+	QVERIFY2(report.error.contains(QLatin1Char('B')), qPrintable(report.error));
+	data.canvases.canvases[1].extent = QStringLiteral("Sheet");
+	changeCourseData(map, data);
+
+	// The runner, from the map file.
+	auto const map_path = QDir(dir.path()).absoluteFilePath(QStringLiteral("event.foom"));
+	{
+		XMLFileFormat format;
+		auto exporter = format.makeExporter(map_path, &map, nullptr);
+		QVERIFY(exporter && exporter->doExport());
+	}
+	auto const job_path = QDir(dir.path()).absoluteFilePath(QStringLiteral("job.json"));
+	{
+		QJsonArray steps;
+		steps.push_back(QJsonObject{ { QStringLiteral("step"), QStringLiteral("open") }, { QStringLiteral("path"), map_path } });
+		steps.push_back(QJsonObject{ { QStringLiteral("step"), QStringLiteral("export-course-maps") },
+		                             { QStringLiteral("folder"), QStringLiteral("maps") },
+		                             { QStringLiteral("canvases"), true } });
+		QFile job_file(job_path);
+		QVERIFY(job_file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+		job_file.write(QJsonDocument(QJsonObject{ { QStringLiteral("steps"), steps } }).toJson());
+	}
+	QProcess process;
+	auto env = QProcessEnvironment::systemEnvironment();
+	env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
+	process.setProcessEnvironment(env);
+	process.start(QString::fromUtf8(FOOM_CLI_EXECUTABLE), { QStringLiteral("--run"), job_path });
+	QVERIFY(process.waitForFinished(120000));
+	QByteArray output = process.readAllStandardOutput();
+	output += process.readAllStandardError();
+	QVERIFY2(process.exitCode() == 0, output.constData());
+	QVERIFY2(output.contains("\"files\":3"), output.constData());
+	auto const maps = QDir(QDir(dir.path()).absoluteFilePath(QStringLiteral("maps")));
+	for (auto const* name : { "event.A.X_1.pdf", "event.A.Flip.pdf", "event.B.Plain.pdf" })
+		QVERIFY2(maps.exists(QString::fromLatin1(name)), name);
+	QCOMPARE(pagesOf(maps.absoluteFilePath(QStringLiteral("event.A.Flip.pdf"))), (std::vector<QSize>{ large, large }));
 }
 
 

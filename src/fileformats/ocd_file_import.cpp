@@ -2574,6 +2574,8 @@ void OcdFileImport::importCourseData(bool course_file)
 	// the design notes, "Storage".
 	if (ocd_version < 12)
 		return;
+	// The named extents, which the canvases refer to; the design notes, "Canvases".
+	OcdCourse::takeNamedExtents(*map);
 	QStringList problems;
 	auto data = OcdCourse::readFromImportedMap(*map, &problems);
 	for (auto const& problem : problems)

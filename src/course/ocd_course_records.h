@@ -94,6 +94,13 @@ CourseData readFromImportedMap(const Map& map, QStringList* problems = nullptr);
  */
 void removeReadRecords(Map& map);
 
+/**
+ * Makes the named extents of an imported OCD file, its parameter strings
+ * of the type 29, extents of the map, and takes the strings away. An
+ * extent whose name the map has is left as it is. Returns their number.
+ */
+int takeNamedExtents(Map& map);
+
 }  // namespace OcdCourse
 
 

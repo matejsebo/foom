@@ -29,6 +29,8 @@
 #include <QStringList>
 #include <QUuid>
 
+#include "course/course_canvas.h"
+
 namespace OpenOrienteering {
 
 
@@ -234,6 +236,8 @@ struct CourseData
 	std::vector<CourseClass> classes;
 	std::vector<CourseOverride> overrides;
 	CourseOptions options;
+	/** For which courses which extent of the map is printed; course_canvas.h. */
+	CourseCanvases canvases;
 	
 	bool isEmpty() const;
 	

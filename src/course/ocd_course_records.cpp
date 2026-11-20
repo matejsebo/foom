@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "core/extents.h"
 #include "core/foreign_data.h"
 #include "core/map.h"
 #include "core/map_part.h"
@@ -539,6 +540,10 @@ CourseData readFromImportedMap(const Map& map, QStringList* problems)
 		case 1031:
 			data.options = parseOptions(foreignText(string.data));
 			break;
+		case 1093:
+			// The canvases; course_canvas.h.
+			canvasesFromOcdXml(string.data, data.canvases);
+			break;
 		default:
 			break;
 		}
@@ -581,11 +586,43 @@ void removeReadRecords(Map& map)
 		case 3:     return parseClass(foreignText(string.data), course_class);
 		case 31:    return parseObject(foreignText(string.data), object);
 		case 1031:  return true;
+		case 1093:
+			{
+				CourseCanvases canvases;
+				return canvasesFromOcdXml(string.data, canvases);
+			}
 		default:    return false;
 		}
 	};
 	foreign.strings.erase(std::remove_if(foreign.strings.begin(), foreign.strings.end(), read), foreign.strings.end());
 	map.setForeignData(std::move(foreign));
+}
+
+
+int takeNamedExtents(Map& map)
+{
+	auto foreign = map.foreignData();
+	auto extents = map.extents();
+	auto taken = 0;
+	auto const read = [&extents, &taken](const ForeignString& string) {
+		Extent extent;
+		if (string.type != 29 || !extentFromOcdRecord(foreignText(string.data), extent))
+			return false;
+		auto const known = std::any_of(extents.begin(), extents.end(), [&extent](const Extent& other) { return other.name == extent.name; });
+		if (!known)
+		{
+			extents.push_back(extent);
+			++taken;
+		}
+		return true;
+	};
+	auto const first = std::remove_if(foreign.strings.begin(), foreign.strings.end(), read);
+	if (first == foreign.strings.end())
+		return 0;
+	foreign.strings.erase(first, foreign.strings.end());
+	map.setForeignData(std::move(foreign));
+	map.setExtents(std::move(extents));
+	return taken;
 }
 
 }  // namespace OcdCourse
