@@ -48,7 +48,9 @@ struct CourseExportReport
 	int controls = 0;
 	int courses = 0;
 	int classes = 0;
-	/** The courses which were left out: those with variations, and for IOF XML those with fewer than two controls. */
+	/** The number of teams and runners of relays whose courses were assigned. */
+	int teams = 0;
+	/** The courses which were left out: those whose variations have a fault, and for IOF XML those with fewer than two controls. */
 	QStringList skipped_courses;
 };
 
@@ -117,6 +119,8 @@ struct IofImportReport
 	QStringList codes_missing;
 	/** The classes which were not added: the map has them, or their course is not there. */
 	QStringList classes_skipped;
+	/** The courses of the file which are variants of a course of the map (their CourseFamily is its name); they were not imported. */
+	int relay_variants = 0;
 	/** The number of taped routes of the file; they have no objects and were left out. */
 	int taped_routes = 0;
 };

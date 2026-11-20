@@ -178,6 +178,12 @@ QStringList allowedChildren(const QString& parent, const QString& name)
 		return list({ "Control", "MapText", "MapTextPosition", "LegLength", "Score", "Extensions" });
 	if (name == QLatin1String("ClassCourseAssignment"))
 		return list({ "ClassId", "ClassName", "AllowedOnLeg", "CourseName", "CourseFamily", "Extensions" });
+	if (name == QLatin1String("PersonCourseAssignment"))
+		return list({ "EntryId", "BibNumber", "PersonName", "ClassName", "CourseName", "CourseFamily", "Extensions" });
+	if (name == QLatin1String("TeamCourseAssignment"))
+		return list({ "BibNumber", "TeamName", "ClassName", "TeamMemberCourseAssignment", "Extensions" });
+	if (name == QLatin1String("TeamMemberCourseAssignment"))
+		return list({ "EntryId", "BibNumber", "Leg", "LegOrder", "TeamMemberName", "CourseName", "CourseFamily", "Extensions" });
 	return {};
 }
 
@@ -339,6 +345,10 @@ void fillInterchangeMap(Map& map, bool georeferenced = true)
 	};
 	data.courses.push_back(relay);
 	addCourseOf(data, QStringLiteral("Short"), QStringLiteral("31"));
+	Course broken = relay;
+	broken.name = QStringLiteral("Broken");
+	broken.items.erase(broken.items.begin() + 6);  // the end of its variation
+	data.courses.push_back(broken);
 	addClass(data, QStringLiteral("H21"), QStringLiteral("A"), 40);
 	addClass(data, QStringLiteral("H20"), QStringLiteral("A"), -1);
 	addClass(data, QStringLiteral("Teams"), QStringLiteral("R"), 12);
@@ -449,9 +459,10 @@ void CourseInterchangeTest::iofExportTest()
 	auto const bytes = iofOf(map, &report);
 	QVERIFY2(report.ok, qPrintable(report.error));
 	QCOMPARE(report.controls, 5);
-	QCOMPARE(report.courses, 2);
+	QCOMPARE(report.courses, 6);
 	QCOMPARE(report.classes, 2);
-	QCOMPARE(report.skipped_courses, (QStringList{ QStringLiteral("R"), QStringLiteral("Short") }));
+	QCOMPARE(report.teams, 12);
+	QCOMPARE(report.skipped_courses, (QStringList{ QStringLiteral("Short"), QStringLiteral("Broken") }));
 	
 	auto const root = parse(bytes);
 	QCOMPARE(root.name, QStringLiteral("CourseData"));
@@ -502,7 +513,29 @@ void CourseInterchangeTest::iofExportTest()
 	QCOMPARE(controls[3]->first("MapPosition")->attribute("y"), QStringLiteral("-10.00"));
 	
 	auto const courses = race->all("Course");
-	QCOMPARE(int(courses.size()), 2);
+	QCOMPARE(int(courses.size()), 6);
+	// The variants of the relay R, as the exports have those of relays.
+	QCOMPARE(courses[2]->textOf("Name"), QStringLiteral("R_1A"));
+	QCOMPARE(courses[2]->textOf("CourseFamily"), QStringLiteral("R"));
+	QCOMPARE(int(courses[2]->all("CourseControl").size()), 3);
+	QCOMPARE(courses[2]->all("CourseControl")[1]->textOf("Control"), QStringLiteral("31"));
+	QCOMPARE(courses[3]->textOf("Name"), QStringLiteral("R_1B"));
+	QCOMPARE(courses[3]->all("CourseControl")[1]->textOf("Control"), QStringLiteral("32"));
+	QCOMPARE(courses[5]->textOf("Name"), QStringLiteral("R_2B"));
+	QVERIFY(!courses[0]->first("CourseFamily"));
+	auto const teams = race->all("TeamCourseAssignment");
+	QCOMPARE(int(teams.size()), 12);
+	QCOMPARE(teams[0]->textOf("BibNumber"), QStringLiteral("1"));
+	QCOMPARE(teams[0]->textOf("ClassName"), QStringLiteral("Teams"));
+	auto const members = teams[0]->all("TeamMemberCourseAssignment");
+	QCOMPARE(int(members.size()), 2);
+	QCOMPARE(members[0]->textOf("Leg"), QStringLiteral("1"));
+	QCOMPARE(members[0]->textOf("CourseName"), QStringLiteral("R_1A"));
+	QCOMPARE(members[0]->textOf("CourseFamily"), QStringLiteral("R"));
+	QCOMPARE(members[1]->textOf("Leg"), QStringLiteral("2"));
+	QCOMPARE(members[1]->textOf("CourseName"), QStringLiteral("R_2B"));
+	QCOMPARE(teams[11]->textOf("BibNumber"), QStringLiteral("12"));
+	QVERIFY(race->all("PersonCourseAssignment").empty());
 	auto const* course_a = courses[0];
 	QCOMPARE(course_a->textOf("Name"), QStringLiteral("A"));
 	auto const length = measureCourse(map, map.courseData(), *map.courseData().findCourse(QStringLiteral("A")));
@@ -589,7 +622,9 @@ void CourseInterchangeTest::roundTripTest()
 	QVERIFY2(report.ok, qPrintable(report.error));
 	QCOMPARE(report.objects_added, 5);
 	QCOMPARE(report.objects_found, 0);
-	QCOMPARE(report.courses_added, 2);
+	// A, B and the four variants of R, which are courses in the file.
+	QCOMPARE(report.courses_added, 6);
+	QCOMPARE(report.relay_variants, 0);
 	QCOMPARE(report.classes_added, 2);
 	QCOMPARE(report.taped_routes, 1);
 	QVERIFY(report.objects_not_made.isEmpty());
@@ -609,7 +644,9 @@ void CourseInterchangeTest::roundTripTest()
 	auto const* start_object = map.findObject(data.findObject(QStringLiteral("S1"))->object);
 	QCOMPARE(start_object->getSymbol()->courseRole(), Symbol::CourseStart);
 	
-	QCOMPARE(int(data.courses.size()), 2);
+	QCOMPARE(int(data.courses.size()), 6);
+	QCOMPARE(itemsOf(data, QStringLiteral("R_2B")), QStringLiteral("S1 32 F1"));
+	QCOMPARE(data.findCourse(QStringLiteral("R_2B"))->type, Course::Normal);
 	QCOMPARE(itemsOf(data, QStringLiteral("A")), QStringLiteral("S1 31 32 33 F1"));
 	QCOMPARE(data.findCourse(QStringLiteral("A"))->climb_m, 50);
 	// The length of the course is that of the file: the extra length makes up for what the course
@@ -664,6 +701,8 @@ void CourseInterchangeTest::importIntoExistingTest()
 	QCOMPARE(report.objects_found, 5);
 	QCOMPARE(report.courses_added, 0);
 	QCOMPARE(report.courses_existing, (QStringList{ QStringLiteral("A"), QStringLiteral("B") }));
+	// The variants of R are not imported beside R.
+	QCOMPARE(report.relay_variants, 4);
 	QCOMPARE(report.classes_added, 0);
 	QVERIFY(map.courseData() == before);
 	QCOMPARE(map.getNumObjects(), objects);
@@ -691,7 +730,7 @@ void CourseInterchangeTest::importIntoExistingTest()
 	report = importBytes(empty, bytes, options);
 	QVERIFY(report.ok);
 	QCOMPARE(report.objects_added, 0);
-	QCOMPARE(report.courses_added, 2);
+	QCOMPARE(report.courses_added, 6);
 	QCOMPARE(report.classes_added, 2);
 	QCOMPARE(empty.getNumObjects(), 5);
 	
@@ -827,8 +866,8 @@ void CourseInterchangeTest::gpxTest()
 	auto report = writeCoursesGpx(map, buffer);
 	QVERIFY2(report.ok, qPrintable(report.error));
 	QCOMPARE(report.controls, 5);
-	QCOMPARE(report.courses, 3);
-	QCOMPARE(report.skipped_courses, QStringList{ QStringLiteral("R") });
+	QCOMPARE(report.courses, 7);
+	QCOMPARE(report.skipped_courses, QStringList{ QStringLiteral("Broken") });
 	
 	auto const root = parse(buffer.data());
 	QCOMPARE(root.name, QStringLiteral("gpx"));
@@ -843,10 +882,13 @@ void CourseInterchangeTest::gpxTest()
 	QVERIFY(std::abs(waypoints[1]->attribute("lon").toDouble() - expected.longitude()) < 1e-6);
 	
 	auto const tracks = root.all("trk");
-	QCOMPARE(int(tracks.size()), 3);
+	QCOMPARE(int(tracks.size()), 7);
 	QCOMPARE(tracks[0]->textOf("name"), QStringLiteral("A"));
 	QCOMPARE(tracks[1]->textOf("name"), QStringLiteral("B"));
-	QCOMPARE(tracks[2]->textOf("name"), QStringLiteral("Short"));
+	QCOMPARE(tracks[2]->textOf("name"), QStringLiteral("R_1A"));
+	QCOMPARE(int(tracks[2]->first("trkseg")->all("trkpt").size()), 3);
+	QCOMPARE(tracks[5]->textOf("name"), QStringLiteral("R_2B"));
+	QCOMPARE(tracks[6]->textOf("name"), QStringLiteral("Short"));
 	QVERIFY(tracks[0]->first("trkseg"));
 	auto const points = tracks[0]->first("trkseg")->all("trkpt");
 	QCOMPARE(int(points.size()), 8);
@@ -865,10 +907,20 @@ void CourseInterchangeTest::gpxTest()
 	QCOMPARE(one.all("wpt")[1]->textOf("name"), QStringLiteral("32"));
 	QCOMPARE(int(one.all("trk").size()), 1);
 	
-	// A relay, a course which is not there, and a map without georeferencing.
+	// A relay: its variants and its objects.
+	QBuffer of_relay;
+	of_relay.open(QIODevice::WriteOnly);
+	report = writeCoursesGpx(map, of_relay, QStringLiteral("R"));
+	QVERIFY2(report.ok, qPrintable(report.error));
+	auto const relay_root = parse(of_relay.data());
+	QCOMPARE(int(relay_root.all("wpt").size()), 4);
+	QCOMPARE(int(relay_root.all("trk").size()), 4);
+	QCOMPARE(relay_root.all("trk")[1]->textOf("name"), QStringLiteral("R_1B"));
+	
+	// A relay with a fault, a course which is not there, and a map without georeferencing.
 	QBuffer third;
 	third.open(QIODevice::WriteOnly);
-	QVERIFY(!writeCoursesGpx(map, third, QStringLiteral("R")).ok);
+	QVERIFY(!writeCoursesGpx(map, third, QStringLiteral("Broken")).ok);
 	QVERIFY(!writeCoursesGpx(map, third, QStringLiteral("Nowhere")).ok);
 	Map local;
 	fillInterchangeMap(local, false);
@@ -909,7 +961,8 @@ void CourseInterchangeTest::kmlTest()
 	QVERIFY(std::abs(tuple[1].toDouble() - expected.latitude()) < 1e-6);
 	
 	auto const courses = folders[1]->all("Placemark");
-	QCOMPARE(int(courses.size()), 3);
+	QCOMPARE(int(courses.size()), 7);
+	QCOMPARE(courses[2]->textOf("name"), QStringLiteral("R_1A"));
 	QCOMPARE(courses[0]->textOf("name"), QStringLiteral("A"));
 	QVERIFY(courses[0]->first("LineString"));
 	QCOMPARE(courses[0]->first("LineString")->textOf("coordinates").split(QLatin1Char(' '), QString::SkipEmptyParts).size(), 8);
@@ -934,13 +987,20 @@ void CourseInterchangeTest::filesTest()
 	
 	auto report = writeCourseFiles(map, dir.filePath(QStringLiteral("event.kml")), CourseFileKind::Kml, true);
 	QVERIFY2(report.ok, qPrintable(report.error));
-	QCOMPARE(report.files.size(), 3);
+	QCOMPARE(report.files.size(), 4);
 	QVERIFY(dir.exists(QStringLiteral("event.A.kml")));
 	QVERIFY(dir.exists(QStringLiteral("event.B.kml")));
 	QVERIFY(dir.exists(QStringLiteral("event.Short.kml")));
 	QVERIFY(!dir.exists(QStringLiteral("event.kml")));
-	QVERIFY(!dir.exists(QStringLiteral("event.R.kml")));
-	QCOMPARE(report.skipped_courses, QStringList{ QStringLiteral("R") });
+	QVERIFY(dir.exists(QStringLiteral("event.R.kml")));
+	QVERIFY(!dir.exists(QStringLiteral("event.Broken.kml")));
+	QCOMPARE(report.skipped_courses, QStringList{ QStringLiteral("Broken") });
+	{
+		QFile relay_file(dir.filePath(QStringLiteral("event.R.kml")));
+		QVERIFY(relay_file.open(QIODevice::ReadOnly));
+		auto const relay_root = parse(relay_file.readAll());
+		QCOMPARE(int(relay_root.first("Document")->all("Folder")[1]->all("Placemark").size()), 4);
+	}
 	QFile file(dir.filePath(QStringLiteral("event.B.kml")));
 	QVERIFY(file.open(QIODevice::ReadOnly));
 	auto const root = parse(file.readAll());

@@ -57,6 +57,7 @@
 #include "course/course_data.h"
 #include "course/course_description.h"
 #include "course/course_edit.h"
+#include "course/course_relay.h"
 #include "course/course_render.h"
 #include "course/course_storage.h"
 #include "undo/map_data_undo.h"
@@ -78,13 +79,6 @@ const QLatin1String iof_namespace("http://www.orienteering.org/datastandard/3.0"
 QString creator()
 {
 	return QStringLiteral("FOOM " APP_VERSION);
-}
-
-bool hasVariation(const Course& course)
-{
-	return std::any_of(begin(course.items), end(course.items), [](const CourseItem& item) {
-		return isVariationItem(item.type);
-	});
 }
 
 /// Start, control and finish: what the standard calls controls.
@@ -292,6 +286,119 @@ void writeMapPosition(QXmlStreamWriter& xml, const QString& name, const QPointF&
 }
 
 
+/// A course as it is written: a course without variations, or a variant of a relay.
+struct OutCourse
+{
+	QString name;
+	/// The relay of which it is a variant; empty for a course of its own.
+	QString family;
+	Course course;
+};
+
+/// The teams of a relay with the courses which they run.
+struct OutRelay
+{
+	QString course;
+	QString class_name;
+	bool one_man = false;
+	int first_number = 1;
+	/// For every team the names of its courses: one for each leg, or the one of a one-man relay.
+	std::vector<QStringList> teams;
+};
+
+struct OutData
+{
+	std::vector<OutCourse> courses;
+	std::vector<OutRelay> relays;
+	/// The courses whose variations have a fault.
+	QStringList faulty;
+};
+
+/// The courses as the format has them: every variant of a relay a course named by the relay, an
+/// underscore and the code; of a one-man relay one course for every combination of a runner,
+/// the loops one behind the other and only the last with its finish.
+OutData collectCourses(const CourseData& data, const QString& only_course = {})
+{
+	OutData out;
+	for (auto const& course : data.courses)
+	{
+		if (!only_course.isEmpty() && course.name != only_course)
+			continue;
+		auto const structure = relayStructure(course);
+		if (!structure.isValid())
+		{
+			out.faulty.push_back(course.name);
+			continue;
+		}
+		if (course.type == Course::Normal)
+		{
+			out.courses.push_back({ course.name, {}, course });
+			continue;
+		}
+		
+		auto const variant_name = [&course](const RelayVariant& variant) {
+			return QString(course.name + QLatin1Char('_') + relayVariantCode(variant).remove(QLatin1Char(' ')));
+		};
+		auto const teams = relayTeams(data, course.name);
+		auto const allocation = allocateRelay(structure, teams.count);
+		OutRelay relay;
+		relay.course = course.name;
+		relay.class_name = teams.class_name;
+		relay.one_man = course.type == Course::OneManRelay;
+		relay.first_number = teams.first_number;
+		
+		if (!relay.one_man)
+		{
+			for (auto const& variant : relayVariants(structure))
+			{
+				auto written = relayVariantCourse(course, structure, variant);
+				written.name = variant_name(variant);
+				out.courses.push_back({ written.name, course.name, written });
+			}
+			for (auto const& team : allocation.teams)
+			{
+				QStringList names;
+				for (auto const& variant : team)
+					names.push_back(variant_name(variant));
+				relay.teams.push_back(names);
+			}
+		}
+		else
+		{
+			QStringList known;
+			for (auto const& team : allocation.teams)
+			{
+				OutCourse written;
+				written.family = course.name;
+				written.course = course;
+				written.course.type = Course::Normal;
+				written.course.legs = 0;
+				written.course.items.clear();
+				written.name = course.name + QLatin1Char('_');
+				for (std::size_t loop = 0; loop < team.size(); ++loop)
+				{
+					written.name += relayVariantCode(team[loop]).remove(QLatin1Char(' '));
+					for (auto const& item : relayVariantItems(course, structure, team[loop]))
+					{
+						if (item.type != CourseItem::Finish || loop + 1 == team.size())
+							written.course.items.push_back(item);
+					}
+				}
+				written.course.name = written.name;
+				if (!known.contains(written.name))
+				{
+					known.push_back(written.name);
+					out.courses.push_back(written);
+				}
+				relay.teams.push_back(QStringList{ written.name });
+			}
+		}
+		out.relays.push_back(relay);
+	}
+	return out;
+}
+
+
 /// What a GPX or a KML file holds.
 struct Waypoint
 {
@@ -333,25 +440,20 @@ Geodata collectGeodata(const Map& map, const QString& only_course, CourseExportR
 		report.error = tr("There is no course %1.").arg(only_course);
 		return geodata;
 	}
-	if (chosen && hasVariation(*chosen))
+	auto const out = collectCourses(data, only_course);
+	if (chosen && out.courses.empty())
 	{
-		report.error = tr("The course %1 has variations and cannot be exported.").arg(only_course);
+		report.error = tr("The variations of the course %1 have a fault; it cannot be exported.").arg(only_course);
 		return geodata;
 	}
+	report.skipped_courses = out.faulty;
 	
-	for (auto const& course : data.courses)
+	for (auto const& written : out.courses)
 	{
-		if (chosen && &course != chosen)
-			continue;
-		if (hasVariation(course))
-		{
-			report.skipped_courses.push_back(course.name);
-			continue;
-		}
 		Track track;
-		track.name = course.name;
+		track.name = written.name;
 		std::vector<MapCoordF> points;
-		visitsOf(map, data, course, &points);
+		visitsOf(map, data, written.course, &points);
 		for (auto const& point : points)
 		{
 			auto ok = false;
@@ -418,6 +520,7 @@ struct InCourseControl
 struct InCourse
 {
 	QString name;
+	QString family;
 	bool has_length = false;
 	double length = 0.0;
 	bool has_climb = false;
@@ -513,6 +616,10 @@ InCourse readCourse(QXmlStreamReader& xml)
 		if (xml.name() == QLatin1String("Name"))
 		{
 			course.name = xml.readElementText().trimmed();
+		}
+		else if (xml.name() == QLatin1String("CourseFamily"))
+		{
+			course.family = xml.readElementText().trimmed();
 		}
 		else if (xml.name() == QLatin1String("Climb"))
 		{
@@ -751,23 +858,23 @@ CourseExportReport writeIofCourseData(const Map& map, QIODevice& device)
 		++report.controls;
 	}
 	
+	auto const out = collectCourses(data);
 	QStringList written;
-	for (auto const& course : data.courses)
+	QStringList left_out;
+	for (auto const& entry : out.courses)
 	{
-		if (hasVariation(course))
-		{
-			report.skipped_courses.push_back(course.name);
-			continue;
-		}
+		auto const& course = entry.course;
 		auto const visits = visitsOf(map, data, course);
 		if (visits.size() < 2)
 		{
-			report.skipped_courses.push_back(course.name);
+			left_out.push_back(entry.name);
 			continue;
 		}
 		
 		xml.writeStartElement(QStringLiteral("Course"));
-		xml.writeTextElement(QStringLiteral("Name"), course.name);
+		xml.writeTextElement(QStringLiteral("Name"), entry.name);
+		if (!entry.family.isEmpty())
+			xml.writeTextElement(QStringLiteral("CourseFamily"), entry.family);
 		auto const length = measureCourse(map, data, course);
 		if (length.known)
 			xml.writeTextElement(QStringLiteral("Length"), QString::number(qRound(length.total_m)));
@@ -796,8 +903,19 @@ CourseExportReport writeIofCourseData(const Map& map, QIODevice& device)
 			xml.writeEndElement();
 		}
 		xml.writeEndElement();
-		written.push_back(course.name);
+		written.push_back(entry.name);
 		++report.courses;
+	}
+	// In the order of the courses of the map: what was left out for its length, and what for a fault.
+	for (auto const& course : data.courses)
+	{
+		if (left_out.contains(course.name) || out.faulty.contains(course.name))
+			report.skipped_courses.push_back(course.name);
+	}
+	for (auto const& name : qAsConst(left_out))
+	{
+		if (!report.skipped_courses.contains(name))
+			report.skipped_courses.push_back(name);
 	}
 	
 	for (auto const& course_class : data.classes)
@@ -811,6 +929,46 @@ CourseExportReport writeIofCourseData(const Map& map, QIODevice& device)
 		xml.writeTextElement(QStringLiteral("CourseName"), course_class.course);
 		xml.writeEndElement();
 		++report.classes;
+	}
+	
+	// The runners of the one-man relays, then the teams of the relays, as the schema orders them.
+	for (auto const& relay : out.relays)
+	{
+		if (!relay.one_man)
+			continue;
+		for (std::size_t t = 0; t < relay.teams.size(); ++t)
+		{
+			if (!written.contains(relay.teams[t].front()))
+				continue;
+			xml.writeStartElement(QStringLiteral("PersonCourseAssignment"));
+			xml.writeTextElement(QStringLiteral("BibNumber"), QString::number(relay.first_number + int(t)));
+			xml.writeTextElement(QStringLiteral("CourseName"), relay.teams[t].front());
+			xml.writeTextElement(QStringLiteral("CourseFamily"), relay.course);
+			xml.writeEndElement();
+			++report.teams;
+		}
+	}
+	for (auto const& relay : out.relays)
+	{
+		if (relay.one_man)
+			continue;
+		for (std::size_t t = 0; t < relay.teams.size(); ++t)
+		{
+			xml.writeStartElement(QStringLiteral("TeamCourseAssignment"));
+			xml.writeTextElement(QStringLiteral("BibNumber"), QString::number(relay.first_number + int(t)));
+			if (!relay.class_name.isEmpty())
+				xml.writeTextElement(QStringLiteral("ClassName"), relay.class_name);
+			for (int leg = 0; leg < relay.teams[t].size(); ++leg)
+			{
+				xml.writeStartElement(QStringLiteral("TeamMemberCourseAssignment"));
+				xml.writeTextElement(QStringLiteral("Leg"), QString::number(leg + 1));
+				xml.writeTextElement(QStringLiteral("CourseName"), relay.teams[t][leg]);
+				xml.writeTextElement(QStringLiteral("CourseFamily"), relay.course);
+				xml.writeEndElement();
+			}
+			xml.writeEndElement();
+			++report.teams;
+		}
 	}
 	
 	xml.writeEndElement();  // RaceCourseData
@@ -991,7 +1149,7 @@ CourseFilesReport writeCourseFiles(const Map& map, const QString& path, CourseFi
 	auto const info = QFileInfo(path);
 	for (auto const& course : map.courseData().courses)
 	{
-		if (hasVariation(course))
+		if (!relayStructure(course).isValid())
 		{
 			report.skipped_courses.push_back(course.name);
 			continue;
@@ -1076,6 +1234,12 @@ IofImportReport importIofCourseData(Map& map, QIODevice& device, const IofImport
 		{
 			if (in_course.name.isEmpty())
 				continue;
+			// A variant of a course which the map has is not a course beside it.
+			if (!in_course.family.isEmpty() && in_course.family != in_course.name && map.courseData().findCourse(in_course.family))
+			{
+				++report.relay_variants;
+				continue;
+			}
 			if (data.findCourse(in_course.name))
 			{
 				report.courses_existing.push_back(in_course.name);

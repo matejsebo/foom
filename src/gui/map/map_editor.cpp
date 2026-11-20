@@ -5021,8 +5021,8 @@ static void exportCourses(MainWindow* window, Map* map, CourseFileKind kind)
 	if (!report.skipped_courses.isEmpty())
 	{
 		message += QLatin1Char('\n') + (kind == CourseFileKind::IofXml
-		                                ? MapEditorController::tr("Left out, for their variations or for having fewer than two controls: %1.")
-		                                : MapEditorController::tr("Left out for their variations: %1.")).arg(report.skipped_courses.join(QLatin1String(", ")));
+		                                ? MapEditorController::tr("Left out, for a fault of their variations or for having fewer than two controls: %1.")
+		                                : MapEditorController::tr("Left out for a fault of their variations: %1.")).arg(report.skipped_courses.join(QLatin1String(", ")));
 	}
 	QMessageBox::information(window, title, message);
 }
@@ -5097,6 +5097,8 @@ void MapEditorController::importIofCoursesClicked()
 		lines << tr("Used in the courses but not found in the map, and left out: %1.").arg(report.codes_missing.join(separator));
 	if (!report.classes_skipped.isEmpty())
 		lines << tr("Classes not added: %1.").arg(report.classes_skipped.join(separator));
+	if (report.relay_variants > 0)
+		lines << tr("Variants of relays which the map has, not imported as courses: %1.").arg(report.relay_variants);
 	if (report.taped_routes > 0)
 		lines << tr("Taped routes of the file, which have no objects and were left out: %1.").arg(report.taped_routes);
 	QMessageBox::information(window, title, lines.join(QLatin1Char('\n')));
