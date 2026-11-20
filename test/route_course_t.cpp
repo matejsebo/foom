@@ -260,8 +260,8 @@ void RouteCourseTest::partsTest()
 	auto const& data = m.map.courseData();
 	auto const terrain = buildRouteTerrain(m.map, RouteSettings{}, m.area());
 	RouteSearch search(terrain, RouteSettings{}, 10000);
-	// No leg crosses the exchange.
-	QCOMPARE(namesOf(analyseCourseRoutes(m.map, data, QStringLiteral("X"), -1, search)), QStringLiteral("S1-31 32-F1"));
+	// The whole course has the leg across the exchange, its parts have not.
+	QCOMPARE(namesOf(analyseCourseRoutes(m.map, data, QStringLiteral("X"), -1, search)), QStringLiteral("S1-31 31-32 32-F1"));
 	auto const first = analyseCourseRoutes(m.map, data, QStringLiteral("X"), 0, search);
 	QCOMPARE(namesOf(first), QStringLiteral("S1-31"));
 	QCOMPARE(first.part, 0);

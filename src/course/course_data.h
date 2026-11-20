@@ -31,6 +31,7 @@
 
 #include "course/course_canvas.h"
 #include "course/route_settings.h"
+#include "course/route_store.h"
 
 namespace OpenOrienteering {
 
@@ -241,6 +242,8 @@ struct CourseData
 	CourseCanvases canvases;
 	/** The settings of the route analysis; route_settings.h. */
 	RouteSettings route;
+	/** The routes of the route analysis which are kept; route_store.h. */
+	StoredRoutes routes;
 	
 	bool isEmpty() const;
 	

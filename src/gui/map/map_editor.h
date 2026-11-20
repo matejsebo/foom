@@ -39,7 +39,6 @@
 #include <QTimer>
 
 #include "core/map.h"
-#include "course/route_course.h"  // foom
 #include "check/issue.h"  // foom
 #include "core/bookmarks.h"  // foom
 #include "core/extents.h"  // foom
@@ -629,7 +628,11 @@ public slots:
 	void exportCourseMapsClicked();
 	void courseCanvasesClicked();
 	void analyseCourseRoutesClicked();
+	void analyseAllCourseRoutesClicked();
+	void showCourseRoutesClicked();
 	void hideCourseRoutesClicked();
+	void deleteCourseRoutesClicked();
+	void exportCourseRoutesClicked();
 	void routeSettingsClicked();
 	/** foom: Shows or hides the rangefinder. */
 	void rangefinderClicked(bool checked);
@@ -1206,10 +1209,14 @@ private:
 	QAction* course_export_maps_act = {};  // foom
 	QAction* course_canvases_act = {};  // foom
 	QAction* course_routes_analyse_act = {};  // foom
+	QAction* course_routes_analyse_all_act = {};  // foom
+	QAction* course_routes_show_act = {};  // foom
 	QAction* course_routes_hide_act = {};  // foom
+	QAction* course_routes_delete_act = {};  // foom
+	QAction* course_routes_export_act = {};  // foom
 	QAction* course_routes_settings_act = {};  // foom
-	/** foom: The routes which were analysed last; the design notes, "Route analysis: the routes of a course". */
-	CourseRoutes course_routes;
+	/** foom: The routes which the map keeps are drawn with the course; the design notes, "Route analysis: all courses, and the routes in the file". */
+	bool show_course_routes = false;
 	QPointer<QWidget> course_dock_widget;  // foom
 	QPointer<CourseWidget> course_widget;  // foom
 	QAction* rangefinder_act = {};  // foom

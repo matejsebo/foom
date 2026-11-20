@@ -55,6 +55,8 @@
 #include "core/extent_printing.h"
 #include "core/extents.h"
 #include "course/course_map.h"  // foom
+#include "course/route_course.h"  // foom
+#include "course/route_store.h"  // foom
 #include "core/map.h"
 #include "core/map_coord.h"
 #include "core/map_printer.h"
@@ -887,6 +889,12 @@ void StepRunner::validate(const Step& step, bool& map_open)
 		if (p.has("scale"))
 			p.requirePositiveInt("scale");
 	}
+	else if (name == QLatin1String("analyse-routes"))  // foom
+	{
+		p.requireMap(map_open);
+		p.checkKnown({ "out" });
+		p.optionalString("out");
+	}
 	else if (name == QLatin1String("save-as"))
 	{
 		p.requireMap(map_open);
@@ -947,6 +955,8 @@ StepResult StepRunner::run(const Step& step)
 		return saveAs(step);
 	if (name == QLatin1String("export-course-maps"))  // foom
 		return exportCourseMapsStep(step);
+	if (name == QLatin1String("analyse-routes"))  // foom
+		return analyseRoutesStep(step);
 	if (name == QLatin1String("field-copy-create"))
 		return fieldCopyCreate(step);
 	if (name == QLatin1String("merge-from-file"))
@@ -1394,6 +1404,41 @@ StepResult StepRunner::exportCourseMapsStep(const Step& step)
 	result.details.insert(QLatin1String("files"), report.files.size());
 	if (!report.skipped.isEmpty())
 		result.details.insert(QLatin1String("skipped"), QJsonArray::fromStringList(report.skipped));
+	return result;
+}
+
+
+// foom: the design notes, "Route analysis: all courses, and the routes in the file"
+StepResult StepRunner::analyseRoutesStep(const Step& step)
+{
+	Params p(step);
+	auto const out = p.optionalString("out");
+	StoredRoutes store;
+	auto const all = analyseAllRoutesOfMap(*map, store);
+	auto missing = 0;
+	for (auto const& route : store.routes)
+		missing += route.found ? 0 : 1;
+	if (!out.isEmpty())
+	{
+		auto const path = job.resolvePath(out);
+		// With a byte order mark, as the format has it.
+		QByteArray bytes("\xef\xbb\xbf");
+		bytes += allRoutesText(map->courseData(), store, all).toUtf8();
+		QFile file(path);
+		if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write(bytes) != bytes.size())
+			return failure(QString::fromLatin1("cannot write \"%1\"").arg(path));
+	}
+	// The routes are kept in the map: a save-as after this step writes them.
+	auto data = map->courseData();
+	data.routes = store;
+	map->setCourseData(std::move(data));
+	
+	StepResult result;
+	result.details.insert(QLatin1String("tables"), int(all.tables.size()));
+	result.details.insert(QLatin1String("routes"), int(store.routes.size()));
+	result.details.insert(QLatin1String("missing"), missing);
+	if (!all.skipped.isEmpty())
+		result.details.insert(QLatin1String("skipped"), QJsonArray::fromStringList(all.skipped));
 	return result;
 }
 

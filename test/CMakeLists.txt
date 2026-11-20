@@ -277,6 +277,9 @@ add_system_test(route_terrain_t)  # foom: the design notes, Route analysis: runn
 add_system_test(route_search_t)  # foom: the design notes, Route analysis: the search
 add_system_test(route_course_t)  # foom: the design notes, Route analysis: the routes of a course
 add_system_test(route_settings_t)  # foom: the design notes, Route analysis: the settings and the elevation
+add_system_test(route_store_t)  # foom: the design notes, Route analysis: all courses, and the routes in the file
+target_compile_definitions(route_store_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
+add_dependencies(route_store_t foom-cli)
 add_system_test(sketch_t)  # foom: the design notes, Sketch layer
 add_system_test(merge_t)  # foom: the design notes, Merge changes from file
 target_compile_definitions(merge_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")

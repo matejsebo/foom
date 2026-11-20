@@ -306,6 +306,7 @@ RouteTerrain buildRouteTerrain(const Map& map, const RouteSettings& settings, co
 	};
 	std::vector<Drawn> drawn;
 	QRectF extent;
+	QRectF points;
 	for (auto const& source : sources)
 	{
 		for (int p = 0; p < source.map->getNumParts(); ++p)
@@ -315,6 +316,12 @@ RouteTerrain buildRouteTerrain(const Map& map, const RouteSettings& settings, co
 			{
 				auto const* object = part->getObject(o);
 				auto const* symbol = object->getSymbol();
+				// An object of a course in the map itself is inside the rasters, whatever is drawn around it.
+				if (!source.placed && symbol && symbol->courseRole() != Symbol::NoCourseRole)
+				{
+					for (auto const& coord : object->getRawCoordinateVector())
+						points = points.united(QRectF(coord.x() - 1.0, coord.y() - 1.0, 2.0, 2.0));
+				}
 				if (!symbol || object->getType() != Object::Path)
 					continue;
 				auto const runnability = runnabilityOf(settings, *symbol);
@@ -350,7 +357,7 @@ RouteTerrain buildRouteTerrain(const Map& map, const RouteSettings& settings, co
 		}
 	}
 	
-	terrain.area = wanted_area.isValid() ? wanted_area : map.calculateExtent(false, true).united(extent);
+	terrain.area = wanted_area.isValid() ? wanted_area : map.calculateExtent(false, true).united(extent).united(points);
 	if (!terrain.area.isValid() || terrain.area.isEmpty())
 		terrain.area = extent;
 	if (!terrain.area.isValid() || terrain.area.isEmpty())

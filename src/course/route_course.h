@@ -24,9 +24,11 @@
 #include <vector>
 
 #include <QString>
+#include <QStringList>
 
 #include "course/course_data.h"
 #include "course/route_search.h"
+#include "course/route_store.h"
 
 namespace OpenOrienteering {
 
@@ -34,9 +36,10 @@ class Map;
 
 
 /**
- * The fastest routes of the legs of a course.
+ * The fastest routes of the legs of a course, and of all courses.
  *
- * See the design notes, "Route analysis: the routes of a course".
+ * See the design notes, "Route analysis: the routes of a
+ * course" and "Route analysis: all courses, and the routes in the file".
  */
 
 /** A leg of a course with its route, or a marked route which is followed. */
@@ -47,6 +50,8 @@ struct CourseRouteLeg
 	QString to;
 	/** The leg is a marked route itself: its path, and the time along it. */
 	bool marked = false;
+	/** False for a leg which has not been analysed, where the routes are those which the map keeps. */
+	bool known = true;
 	/** The straight length of the leg in m; for a marked route that of its path. */
 	double straight_m = 0.0;
 	RouteResult route;
@@ -57,10 +62,12 @@ struct CourseRoutes
 	/** False for a course which is not there, which has variations, or which has no leg. */
 	bool analysed = false;
 	QString course;
+	/** For a variant of a relay its code, "1AA"; the table is then named by the course and the code. */
+	QString variant;
 	/** The part of the course, counted from 0; -1 for the whole course. */
 	int part = -1;
 	std::vector<CourseRouteLeg> legs;
-	/** The length of the course along its straights and marked routes, in m. */
+	/** The length of the course as the course box has it, without its extra length, in m. */
 	double course_length_m = 0.0;
 	/** The length and the time along the fastest routes, and the ascent. */
 	double length_m = 0.0;
@@ -70,14 +77,59 @@ struct CourseRoutes
 	bool with_heights = false;
 	/** The legs for which no route was found; their straights count in the sums. */
 	int missing = 0;
+	/** The legs which have not been analysed; their straights count in the sums. */
+	int unknown = 0;
 };
 
 /**
  * Searches the fastest route of every leg of a course, or of one of its
- * parts. A marked route with which the course begins, before its start,
- * is not a leg, as it is not in the length of the course.
+ * parts. The whole course has a leg between every two items with a place
+ * which follow each other, from a marked route before the start on and
+ * across a map exchange or flip; a part has the legs between its items.
  */
 CourseRoutes analyseCourseRoutes(const Map& map, const CourseData& data, const QString& course, int part, RouteSearch& search);
+
+/**
+ * The same with routes which are kept: a leg whose route is in the store,
+ * with its ends where the leg begins and ends, is not searched again, and
+ * every route which is searched is put into the store.
+ */
+CourseRoutes analyseCourseRoutes(const Map& map, const CourseData& data, const QString& course, int part, RouteSearch& search, StoredRoutes& store);
+
+/**
+ * The routes of a course from those which the course data keep, without
+ * a search. A leg whose route is not kept, or no longer ends where the
+ * leg does, is not known.
+ */
+CourseRoutes storedCourseRoutes(const Map& map, const CourseData& data, const QString& course, int part);
+
+
+/** The routes of all courses. */
+struct AllCourseRoutes
+{
+	/** A table for every course, and for every variant of a relay, in the order of the courses. */
+	std::vector<CourseRoutes> tables;
+	/** The relays which were left out for a fault of their variations. */
+	QStringList skipped;
+};
+
+/**
+ * Analyses every course, a relay by its variants: those which have a
+ * course map, of a one-man relay every loop once. Every leg is searched
+ * once; the routes are put into the store, and what the store has and
+ * fits is not searched.
+ */
+AllCourseRoutes analyseAllRoutes(const Map& map, const CourseData& data, RouteSearch& search, StoredRoutes& store);
+
+/** The same from the routes which the course data keep, without a search. */
+AllCourseRoutes storedAllRoutes(const Map& map, const CourseData& data);
+
+/**
+ * Analyses all courses of a map with its route settings, the rasters of
+ * its terrain and the heights of its terrain model. The store is emptied
+ * first.
+ */
+AllCourseRoutes analyseAllRoutesOfMap(Map& map, StoredRoutes& store);
 
 /**
  * The heights of the terrain model of a map for the search, by the
@@ -97,6 +149,13 @@ QString formatRouteTime(double seconds);
  * column with the climb along every route and a line with their sum more.
  */
 QString courseRoutesText(const CourseRoutes& routes);
+
+/**
+ * The file of the export of the routes: every route of the store once,
+ * "Leg S1-31: <tab>291m", in the order of the objects, then for every
+ * course a line of dashes and its table. Lines end with a line feed.
+ */
+QString allRoutesText(const CourseData& data, const StoredRoutes& store, const AllCourseRoutes& all);
 
 
 }  // namespace OpenOrienteering

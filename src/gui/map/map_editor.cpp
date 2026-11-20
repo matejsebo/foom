@@ -201,7 +201,9 @@
 #include "course/course_render.h"  // foom
 #include "course/course_report.h"  // foom
 #include "course/course_storage.h"  // foom
+#include "course/route_course.h"  // foom
 #include "course/route_search.h"  // foom
+#include "course/route_store.h"  // foom
 #include "course/route_terrain.h"  // foom
 #include "course/course_symbols.h"  // foom
 #include "gui/widgets/course_widget.h"  // foom
@@ -1324,7 +1326,11 @@ void MapEditorController::createActions()
 	// foom: the design notes, "Relays: variations, variants and their allocation"
 	course_canvases_act = newAction("course-canvases", tr("Canvases..."), this, SLOT(courseCanvasesClicked()), nullptr, tr("Say for which courses which extent of the map is printed, at which scale and with which course symbols."));
 	course_routes_analyse_act = newAction("course-routes-analyse", tr("Analyse routes of the course"), this, SLOT(analyseCourseRoutesClicked()), nullptr, tr("Search the fastest route of every leg of the course which is chosen in the course dock, and draw the routes over the map."));
-	course_routes_hide_act = newAction("course-routes-hide", tr("Hide routes"), this, SLOT(hideCourseRoutesClicked()), nullptr, tr("Take the routes of the analysis away from the map."));
+	course_routes_analyse_all_act = newAction("course-routes-analyse-all", tr("Analyse routes of all courses"), this, SLOT(analyseAllCourseRoutesClicked()), nullptr, tr("Search the fastest route of every leg of all courses, and keep the routes in the map."));
+	course_routes_show_act = newAction("course-routes-show", tr("Show routes"), this, SLOT(showCourseRoutesClicked()), nullptr, tr("Draw the routes which the map keeps for the course which is chosen in the course dock."));
+	course_routes_hide_act = newAction("course-routes-hide", tr("Hide routes"), this, SLOT(hideCourseRoutesClicked()), nullptr, tr("Do not draw the routes of the analysis over the map. They stay in the map."));
+	course_routes_delete_act = newAction("course-routes-delete", tr("Delete routes"), this, SLOT(deleteCourseRoutesClicked()), nullptr, tr("Take the routes of the analysis out of the map."));
+	course_routes_export_act = newAction("course-routes-export", tr("Export routes..."), this, SLOT(exportCourseRoutesClicked()), nullptr, tr("Write the lengths and the times of the routes of all courses as a text file."));
 	course_routes_settings_act = newAction("course-routes-settings", tr("Route settings..."), this, SLOT(routeSettingsClicked()), nullptr, tr("The base pace of the route analysis, whether it uses runnability and elevation, and the runnability of the symbols."));
 	course_export_maps_act = newAction("course-export-maps", tr("Export course maps (PDF)..."), this, SLOT(exportCourseMapsClicked()), nullptr, tr("Write a PDF file with the map of every course, of every part of a course with a map exchange, and of every variant or runner of a relay."));
 	course_relay_variations_act = newAction("course-relay-variations", tr("Export relay variations..."), this, SLOT(exportRelayVariationsClicked()), nullptr, tr("Write which team runs which variant of the relays, as a text file."));
@@ -1759,7 +1765,11 @@ void MapEditorController::createMenuAndToolbars()
 	courses_menu->addAction(course_canvases_act);
 	courses_menu->addSeparator();
 	courses_menu->addAction(course_routes_analyse_act);
+	courses_menu->addAction(course_routes_analyse_all_act);
+	courses_menu->addAction(course_routes_show_act);
 	courses_menu->addAction(course_routes_hide_act);
+	courses_menu->addAction(course_routes_delete_act);
+	courses_menu->addAction(course_routes_export_act);
 	courses_menu->addAction(course_routes_settings_act);
 	courses_menu->addAction(course_import_iof_act);
 	
@@ -5179,22 +5189,135 @@ void MapEditorController::analyseCourseRoutesClicked()
 	auto const terrain = buildRouteTerrain(*map, settings);
 	RouteSearch search(terrain, settings, map->getScaleDenominator());
 	search.setHeights(routeHeightsOf(*map));
-	course_routes = analyseCourseRoutes(*map, course_widget->previewData(), course, course_widget->previewPart(), search);
+	// Every leg of the course is searched anew.
+	StoredRoutes fresh;
+	auto const routes = analyseCourseRoutes(*map, course_widget->previewData(), course, course_widget->previewPart(), search, fresh);
 	QApplication::restoreOverrideCursor();
-	map_widget->update();
-	if (!course_routes.analysed)
+	if (!routes.analysed)
 	{
 		QMessageBox::information(window, title, tr("The course has no leg which can be analysed: a relay is analysed by the variant which is chosen, and a course needs two items with a place."));
 		return;
 	}
-	QString text = courseRoutesText(course_routes);
-	if (course_routes.missing > 0)
-		text += QLatin1Char('\n') + tr("%n leg(s) have no route: something impassable lies between their ends. They count with their straight length.", nullptr, course_routes.missing);
+	// The routes are kept in the map, in the place of those of the same legs.
+	auto data = map->courseData();
+	data.routes.take(fresh);
+	if (data != map->courseData())
+		changeCourseData(*map, std::move(data));
+	show_course_routes = true;
+	map_widget->update();
+	
+	QString text = courseRoutesText(routes);
+	if (routes.missing > 0)
+		text += QLatin1Char('\n') + tr("%n leg(s) have no route: something impassable lies between their ends. They count with their straight length.", nullptr, routes.missing);
 	QMessageBox box(QMessageBox::Information, title, tr("The fastest routes of the course %1 take %2 over %3 m; the course itself is %4 m long.")
-	                .arg(course, formatRouteTime(course_routes.time_s)).arg(qRound(course_routes.length_m)).arg(qRound(course_routes.course_length_m)),
+	                .arg(course, formatRouteTime(routes.time_s)).arg(qRound(routes.length_m)).arg(qRound(routes.course_length_m)),
 	                QMessageBox::Ok, window);
 	box.setDetailedText(text);
 	box.exec();
+}
+
+
+// the design notes, "Route analysis: all courses, and the routes in the file"
+void MapEditorController::analyseAllCourseRoutesClicked()
+{
+	auto const title = tr("Analyse routes");
+	if (map->courseData().courses.empty())
+	{
+		QMessageBox::information(window, title, tr("The map has no course."));
+		return;
+	}
+	QApplication::setOverrideCursor(Qt::WaitCursor);
+	StoredRoutes fresh;
+	auto const all = analyseAllRoutesOfMap(*map, fresh);
+	QApplication::restoreOverrideCursor();
+	if (all.tables.empty())
+	{
+		QMessageBox::information(window, title, tr("No course has a leg which can be analysed."));
+		return;
+	}
+	auto missing = 0;
+	for (auto const& route : fresh.routes)
+		missing += route.found ? 0 : 1;
+	auto const text = allRoutesText(map->courseData(), fresh, all);
+	auto data = map->courseData();
+	data.routes = fresh;
+	if (data != map->courseData())
+		changeCourseData(*map, std::move(data));
+	show_course_routes = true;
+	map_widget->update();
+	
+	QString message = tr("%n route(s) were searched and are kept in the map.", nullptr, int(fresh.routes.size()))
+	                  + QLatin1Char('\n') + tr("They are the routes of %n course(s) and variant(s) of relays.", nullptr, int(all.tables.size()));
+	if (missing > 0)
+		message += QLatin1Char('\n') + tr("%n leg(s) have no route: something impassable lies between their ends.", nullptr, missing);
+	if (!all.skipped.isEmpty())
+		message += QLatin1Char('\n') + tr("Left out for the faults of their variations: %1.").arg(all.skipped.join(QLatin1String(", ")));
+	QMessageBox box(QMessageBox::Information, title, message, QMessageBox::Ok, window);
+	box.setDetailedText(text);
+	box.exec();
+}
+
+
+void MapEditorController::showCourseRoutesClicked()
+{
+	if (map->courseData().routes.isEmpty())
+	{
+		QMessageBox::information(window, tr("Show routes"), tr("The map keeps no routes. Analyse the routes of a course or of all courses first."));
+		return;
+	}
+	show_course_routes = true;
+	map_widget->update();
+}
+
+
+void MapEditorController::deleteCourseRoutesClicked()
+{
+	auto data = map->courseData();
+	if (data.routes.isEmpty())
+		return;
+	data.routes = {};
+	changeCourseData(*map, std::move(data));
+	map_widget->update();
+}
+
+
+void MapEditorController::exportCourseRoutesClicked()
+{
+	auto const title = tr("Export routes");
+	auto const& data = map->courseData();
+	if (data.routes.isEmpty())
+	{
+		QMessageBox::information(window, title, tr("The map keeps no routes. Analyse the routes of a course or of all courses first."));
+		return;
+	}
+	auto const map_path = window->currentPath();
+	QString proposal;
+	if (!map_path.isEmpty())
+		proposal = QDir(QFileInfo(map_path).path()).filePath(QFileInfo(map_path).completeBaseName() + QLatin1String(".AllLegsRouteLengths.txt"));
+	auto path = QFileDialog::getSaveFileName(window, title, proposal, tr("Text files (*.txt)"));
+	if (path.isEmpty())
+		return;
+	if (QFileInfo(path).suffix().isEmpty())
+		path += QLatin1String(".txt");
+	auto const all = storedAllRoutes(*map, data);
+	// With a byte order mark, as the format has it.
+	QByteArray bytes("\xef\xbb\xbf");
+	bytes += allRoutesText(data, data.routes, all).toUtf8();
+	QFile file(path);
+	if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write(bytes) != bytes.size())
+	{
+		QMessageBox::warning(window, title, tr("The file could not be written."));
+		return;
+	}
+	auto unknown = 0;
+	for (auto const& table : all.tables)
+		unknown += table.unknown;
+	QString message = tr("The routes of %n course(s) and variant(s) of relays were written.", nullptr, int(all.tables.size()));
+	if (unknown > 0)
+		message += QLatin1Char('\n') + tr("%n leg(s) of them have not been analysed, or not since an object of theirs was moved.", nullptr, unknown);
+	if (!all.skipped.isEmpty())
+		message += QLatin1Char('\n') + tr("Left out for the faults of their variations: %1.").arg(all.skipped.join(QLatin1String(", ")));
+	QMessageBox::information(window, title, message);
 }
 
 
@@ -5209,16 +5332,16 @@ void MapEditorController::routeSettingsClicked()
 	if (data.route == dialog.settings())
 		return;
 	data.route = dialog.settings();
+	// The routes which are kept are no longer those of the settings.
+	data.routes = {};
 	changeCourseData(*map, std::move(data));
-	// The routes which are shown are no longer those of the settings.
-	course_routes = {};
 	map_widget->update();
 }
 
 
 void MapEditorController::hideCourseRoutesClicked()
 {
-	course_routes = {};
+	show_course_routes = false;
 	map_widget->update();
 }
 
@@ -5297,9 +5420,10 @@ void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget
 	// The descriptions first: their white ground lies below the course.
 	paintCourseDescriptions(painter, map, descriptions, viewed_rect, map_view->calculateFinalZoomFactor());
 	paintCourseDrawing(painter, map, drawing, viewed_rect, map_view->calculateFinalZoomFactor());
-	// The routes of the analysis, for the course and the part for which they were searched.
-	if (course_routes.analysed && course_routes.course == course && course_routes.part == part)
+	// The routes which the map keeps, for the course, the part and the variant which are chosen.
+	if (show_course_routes && !preview_data.routes.isEmpty())
 	{
+		auto const course_routes = storedCourseRoutes(*map, preview_data, course, part);
 		QPen pen(QColor(225, 0, 50), 0.3);
 		pen.setCapStyle(Qt::RoundCap);
 		pen.setJoinStyle(Qt::RoundJoin);
