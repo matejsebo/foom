@@ -27,6 +27,7 @@
 #include <Qt>
 #include <QtGlobal>
 #include <QtTest>
+#include <QAction>
 #include <QByteArray>
 #include <QChar>
 #include <QComboBox>
@@ -953,8 +954,8 @@ void CourseRelayTest::dockEditTest()
 	CourseWidget widget(&map);
 	auto* type = widget.findChild<QComboBox*>(QStringLiteral("course-type"));
 	auto* legs = widget.findChild<QSpinBox*>(QStringLiteral("course-legs"));
-	auto* team_button = widget.findChild<QPushButton*>(QStringLiteral("course-team-variation"));
-	auto* leg_button = widget.findChild<QPushButton*>(QStringLiteral("course-leg-variation"));
+	auto* team_button = widget.findChild<QAction*>(QStringLiteral("course-team-variation"));
+	auto* leg_button = widget.findChild<QAction*>(QStringLiteral("course-leg-variation"));
 	auto* remove_button = widget.findChild<QPushButton*>(QStringLiteral("course-variation-remove"));
 	auto* items = widget.findChild<QTreeWidget*>(QStringLiteral("course-items"));
 	auto* objects = widget.findChild<QTreeWidget*>(QStringLiteral("course-objects"));

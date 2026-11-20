@@ -1105,11 +1105,11 @@ CourseDescriptionDrawing& CourseDescriptionDrawing::operator=(CourseDescriptionD
 CourseDescriptionDrawing::~CourseDescriptionDrawing() = default;
 
 
-CourseDescriptionDrawing drawCourseDescriptions(const Map& map, const CourseData& data, const QString& course)
+CourseDescriptionDrawing drawCourseDescriptions(const Map& map, const CourseData& data, const QString& course, int part)
 {
 	CourseDescriptionDrawing drawing;
 	auto const description = describeCourse(map, data, course);
-	if (!description.known)
+	if (!description.known || part >= description.parts)
 		return drawing;
 	drawing.drawn = true;
 	
@@ -1125,8 +1125,8 @@ CourseDescriptionDrawing drawCourseDescriptions(const Map& map, const CourseData
 		
 		auto const origin = QPointF(MapCoordF(place->getRawCoordinateVector().front()));
 		auto const in_text = courseObjectField(course_object, QLatin1Char('o')) == QLatin1String("t");
-		auto layout = in_text ? layoutCourseDescriptionText(description, data.options)
-		                      : layoutCourseDescription(description, data.options);
+		auto layout = in_text ? layoutCourseDescriptionText(description, data.options, part)
+		                      : layoutCourseDescription(description, data.options, part);
 		moveLayout(layout, origin);
 		
 		// Plainly, when the map has not the symbols of the rules and the texts.

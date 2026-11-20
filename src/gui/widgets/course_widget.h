@@ -29,6 +29,7 @@
 
 #include "course/course_data.h"
 
+class QAction;
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
@@ -116,6 +117,13 @@ public:
 	bool addLegVariation(const QStringList& branch_legs);
 	/** Removes the variation of the marker which is the current item, with all that is in it. */
 	bool removeCurrentVariation();
+	/**
+	 * Puts an item which has no course object behind the current one: a
+	 * mandatory crossing point, a mandatory passage, a map exchange or a map flip.
+	 */
+	bool insertMarker(CourseItem::Type type);
+	/** The part of the course which is drawn, counted from 0; -1 for the whole course. */
+	int previewPart() const;
 	/** Why the last change of the course was refused; empty when it was made. */
 	QString lastRefusal() const { return last_refusal; }
 	
@@ -169,6 +177,7 @@ private:
 	void objectDoubleClicked(QTreeWidgetItem* item, int column);
 	void courseChosen(int index);
 	void refreshVariants();
+	void refreshParts();
 	void variantChosen(int index);
 	void classCellChanged(int row, int column);
 	
@@ -203,6 +212,8 @@ private:
 	QComboBox* selector;
 	QComboBox* variant_box;
 	QString variant_course;
+	QComboBox* part_box;
+	QString part_course;
 	QComboBox* type_box;
 	QSpinBox* legs_edit;
 	QLabel* length_label;
@@ -221,8 +232,9 @@ private:
 	QPushButton* remove_button;
 	QPushButton* up_button;
 	QPushButton* down_button;
-	QPushButton* team_variation_button;
-	QPushButton* leg_variation_button;
+	QPushButton* other_button;
+	QAction* team_variation_act;
+	QAction* leg_variation_act;
 	QPushButton* remove_variation_button;
 	QPushButton* add_class_button;
 	QPushButton* delete_class_button;

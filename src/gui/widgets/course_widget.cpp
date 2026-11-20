@@ -28,6 +28,7 @@
 #include <vector>
 
 #include <QAbstractItemView>
+#include <QAction>
 #include <QBrush>
 #include <QChar>
 #include <QCheckBox>
@@ -43,6 +44,7 @@
 #include <QLabel>
 #include <QLatin1Char>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QPixmap>
@@ -69,6 +71,7 @@
 #include "core/symbols/symbol.h"
 #include "course/course_description.h"
 #include "course/course_edit.h"
+#include "course/course_parts.h"
 #include "course/course_relay.h"
 #include "course/course_relay_edit.h"
 #include "course/course_render.h"
@@ -290,6 +293,12 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	variant_box->setToolTip(tr("The variant of the relay which is measured and drawn: the leg, and a letter for the branch of every team variation."));
 	variant_box->hide();
 	selector_layout->addWidget(variant_box);
+	// The parts of a course with a map exchange or flip; the design notes, "The parts of a course".
+	part_box = new QComboBox();
+	part_box->setObjectName(QStringLiteral("course-part"));
+	part_box->setToolTip(tr("The part of the course which is drawn: a map exchange or a map flip ends a part."));
+	part_box->hide();
+	selector_layout->addWidget(part_box);
 	
 	// The type of the course and its legs; the design notes,
 	// "Editing relays: type, legs and variations in the dock".
@@ -361,10 +370,27 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	down_button = makeButton(tr("Down"), "course-item-down", item_buttons);
 	item_buttons->addStretch(1);
 	auto* variation_buttons = new QHBoxLayout();
-	team_variation_button = makeButton(tr("Team variation..."), "course-team-variation", variation_buttons);
-	team_variation_button->setToolTip(tr("Put a variation behind the current item at which the runners of different teams go to different controls."));
-	leg_variation_button = makeButton(tr("Leg variation..."), "course-leg-variation", variation_buttons);
-	leg_variation_button->setToolTip(tr("Put a variation behind the current item at which the runners of different legs go to different controls."));
+	other_button = makeButton(tr("Insert other..."), "course-item-insert-other", variation_buttons);
+	other_button->setToolTip(tr("Put an item which is no course object behind the current item."));
+	auto* other_menu = new QMenu(other_button);
+	other_menu->setToolTipsVisible(true);
+	auto const addEntry = [other_menu](const QString& text, const char* name) {
+		auto* action = other_menu->addAction(text);
+		action->setObjectName(QString::fromLatin1(name));
+		return action;
+	};
+	auto* crossing_act = addEntry(tr("Mandatory crossing point"), "course-insert-crossing");
+	auto* passage_act = addEntry(tr("Mandatory passage"), "course-insert-passage");
+	auto* exchange_act = addEntry(tr("Map exchange"), "course-insert-exchange");
+	exchange_act->setToolTip(tr("The runner gets another map here: the items behind are the next part of the course."));
+	auto* flip_act = addEntry(tr("Map flip"), "course-insert-flip");
+	flip_act->setToolTip(tr("The runner turns the map over here: the items behind are the next part of the course."));
+	other_menu->addSeparator();
+	team_variation_act = addEntry(tr("Team variation..."), "course-team-variation");
+	team_variation_act->setToolTip(tr("Put a variation behind the current item at which the runners of different teams go to different controls."));
+	leg_variation_act = addEntry(tr("Leg variation..."), "course-leg-variation");
+	leg_variation_act->setToolTip(tr("Put a variation behind the current item at which the runners of different legs go to different controls."));
+	other_button->setMenu(other_menu);
 	remove_variation_button = makeButton(tr("Remove variation"), "course-variation-remove", variation_buttons);
 	remove_variation_button->setToolTip(tr("Take the variation of the current marker out of the course, with all that is in it."));
 	variation_buttons->addStretch(1);
@@ -424,8 +450,13 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	connect(down_button, &QPushButton::clicked, this, [this]() { moveCurrentItem(1); showRefusal(); });
 	connect(type_box, QOverload<int>::of(&QComboBox::activated), this, &CourseWidget::typeChosen);
 	connect(legs_edit, QOverload<int>::of(&QSpinBox::valueChanged), this, &CourseWidget::legsEntered);
-	connect(team_variation_button, &QPushButton::clicked, this, &CourseWidget::teamVariationClicked);
-	connect(leg_variation_button, &QPushButton::clicked, this, &CourseWidget::legVariationClicked);
+	connect(crossing_act, &QAction::triggered, this, [this]() { insertMarker(CourseItem::CrossingPoint); showRefusal(); });
+	connect(passage_act, &QAction::triggered, this, [this]() { insertMarker(CourseItem::Passage); showRefusal(); });
+	connect(exchange_act, &QAction::triggered, this, [this]() { insertMarker(CourseItem::MapExchange); showRefusal(); });
+	connect(flip_act, &QAction::triggered, this, [this]() { insertMarker(CourseItem::MapFlip); showRefusal(); });
+	connect(team_variation_act, &QAction::triggered, this, &CourseWidget::teamVariationClicked);
+	connect(leg_variation_act, &QAction::triggered, this, &CourseWidget::legVariationClicked);
+	connect(part_box, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() { emit currentCourseChanged(); });
 	connect(remove_variation_button, &QPushButton::clicked, this, &CourseWidget::removeVariationClicked);
 	connect(add_class_button, &QPushButton::clicked, this, &CourseWidget::addClassClicked);
 	connect(delete_class_button, &QPushButton::clicked, this, &CourseWidget::removeCurrentClass);
@@ -675,6 +706,7 @@ CourseData CourseWidget::previewData() const
 void CourseWidget::refreshCourseValues()
 {
 	refreshVariants();
+	refreshParts();
 	auto const* course = map->courseData().findCourse(currentCourse());
 	{
 		const QSignalBlocker block_climb(climb_edit);
@@ -830,8 +862,9 @@ void CourseWidget::updateButtons()
 	up_button->setEnabled(movable && item > 0);
 	down_button->setEnabled(movable && item + 1 < item_list->topLevelItemCount());
 	auto const is_relay = course && course->type != Course::Normal;
-	team_variation_button->setEnabled(is_relay);
-	leg_variation_button->setEnabled(is_relay);
+	other_button->setEnabled(course != nullptr);
+	team_variation_act->setEnabled(is_relay);
+	leg_variation_act->setEnabled(is_relay);
 	remove_variation_button->setEnabled(course && item >= 0 && std::size_t(item) < course->items.size()
 	                                    && isVariationItem(course->items[std::size_t(item)].type));
 	add_class_button->setEnabled(course != nullptr);
@@ -1037,15 +1070,6 @@ void CourseWidget::insertCodes(const QStringList& codes)
 		return;
 	last_refusal.clear();
 	auto index = insertIndex(*course);
-	// Behind the begin of a variation is its first branch.
-	if (index > 0 && std::size_t(index) < course->items.size())
-	{
-		auto const before = course->items[std::size_t(index - 1)].type;
-		auto const here = course->items[std::size_t(index)].type;
-		if ((before == CourseItem::TeamForkBegin && here == CourseItem::ForkBranch)
-		    || (before == CourseItem::LegForkBegin && here == CourseItem::LegBranch))
-			++index;
-	}
 	auto inserted = false;
 	for (auto const& code : codes)
 	{
@@ -1178,8 +1202,72 @@ bool CourseWidget::setCourseType(Course::Type type, int legs)
 
 int CourseWidget::insertIndex(const Course& course) const
 {
-	auto const index = item_list->indexOfTopLevelItem(item_list->currentItem());
-	return index < 0 ? int(course.items.size()) : index + 1;
+	auto index = item_list->indexOfTopLevelItem(item_list->currentItem());
+	if (index < 0)
+		return int(course.items.size());
+	++index;
+	// Behind the begin of a variation is its first branch.
+	if (std::size_t(index) < course.items.size())
+	{
+		auto const before = course.items[std::size_t(index - 1)].type;
+		auto const here = course.items[std::size_t(index)].type;
+		if ((before == CourseItem::TeamForkBegin && here == CourseItem::ForkBranch)
+		    || (before == CourseItem::LegForkBegin && here == CourseItem::LegBranch))
+			++index;
+	}
+	return index;
+}
+
+
+bool CourseWidget::insertMarker(CourseItem::Type type)
+{
+	last_refusal.clear();
+	auto const name = currentCourse();
+	auto data = map->courseData();
+	auto const* course = data.findCourse(name);
+	if (!course)
+		return false;
+	auto const index = insertIndex(*course);
+	if (!insertCourseMarker(data, name, index, type))
+		return false;
+	last_refusal = relayFaultOfChange(map->courseData(), data, name);
+	if (!last_refusal.isEmpty())
+		return false;
+	wanted_item = index;
+	changeCourseData(*map, std::move(data));
+	wanted_item = keep_item;
+	return true;
+}
+
+
+void CourseWidget::refreshParts()
+{
+	auto const name = currentCourse();
+	auto const* course = map->courseData().findCourse(name);
+	auto const count = course ? int(courseParts(*course).size()) : 1;
+	auto const shown = part_box->count() > 0 ? part_box->count() - 1 : 1;
+	const QSignalBlocker block(part_box);
+	if (count != shown || name != part_course)
+	{
+		// The same course keeps its part; another course begins with all of them.
+		auto const index = name == part_course ? part_box->currentIndex() : 0;
+		part_box->clear();
+		if (count > 1)
+		{
+			part_box->addItem(tr("All parts"));
+			for (int part = 1; part <= count; ++part)
+				part_box->addItem(tr("Part %1").arg(part));
+			part_box->setCurrentIndex(index >= 0 && index <= count ? index : 0);
+		}
+		part_course = name;
+	}
+	part_box->setVisible(count > 1);
+}
+
+
+int CourseWidget::previewPart() const
+{
+	return part_box->isHidden() ? -1 : part_box->currentIndex() - 1;
 }
 
 

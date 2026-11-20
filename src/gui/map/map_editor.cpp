@@ -5156,8 +5156,10 @@ void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget
 	// Drawn anew at every painting, so that it follows an object which is being moved.
 	// A relay is drawn by the variant which is chosen in the dock.
 	auto const preview_data = course_widget->previewData();
-	auto const drawing = drawCourse(*map, preview_data, course);
-	auto const descriptions = drawCourseDescriptions(*map, preview_data, course);
+	// A course with a map exchange or flip by the part which is chosen there.
+	auto const part = course_widget->previewPart();
+	auto const drawing = drawCourse(*map, preview_data, course, part);
+	auto const descriptions = drawCourseDescriptions(*map, preview_data, course, part);
 	if (!drawing.drawn && !descriptions.drawn)
 		return;
 	

@@ -290,9 +290,11 @@ struct CourseDescriptionDrawing
 };
 
 /**
- * Draws the description of a course at every description object of the map.
+ * Draws the description of a course at every description object of the
+ * map: of one part, counted from 0, or of all parts when the part is
+ * negative. A part which the course has not is not drawn.
  */
-CourseDescriptionDrawing drawCourseDescriptions(const Map& map, const CourseData& data, const QString& course);
+CourseDescriptionDrawing drawCourseDescriptions(const Map& map, const CourseData& data, const QString& course, int part = -1);
 
 /**
  * Paints the descriptions with a painter which is set up for map coordinates.

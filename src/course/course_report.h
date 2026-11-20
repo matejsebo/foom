@@ -41,6 +41,7 @@ constexpr char course_climb_zero[] = "course-climb-zero";
 constexpr char course_identical[] = "course-identical";
 constexpr char course_not_checked[] = "course-not-checked";
 constexpr char relay_structure[] = "relay-structure";
+constexpr char course_part[] = "course-part";
 constexpr char control_unused[] = "control-unused";
 constexpr char control_too_close[] = "control-too-close";
 constexpr char leg_opposite[] = "leg-opposite";

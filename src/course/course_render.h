@@ -162,8 +162,12 @@ struct CourseDrawing
 /**
  * Draws a course: its legs, its numbers and the angles of its starts.
  * An item whose object is gone is passed over.
+ *
+ * With a part, counted from 0, only what is of the items of that part
+ * of the course is drawn, the numbers counted through the whole course;
+ * a part which the course has not is not drawn. See course_parts.h.
  */
-CourseDrawing drawCourse(const Map& map, const CourseData& data, const QString& course);
+CourseDrawing drawCourse(const Map& map, const CourseData& data, const QString& course, int part = -1);
 
 /**
  * Paints a drawing with a painter which is set up for map coordinates:

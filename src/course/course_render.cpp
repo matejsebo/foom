@@ -48,6 +48,7 @@
 #include "core/symbols/symbol.h"
 #include "core/symbols/text_symbol.h"
 #include "course/course_edit.h"
+#include "course/course_parts.h"
 
 namespace OpenOrienteering {
 
@@ -398,7 +399,7 @@ CourseDrawing& CourseDrawing::operator=(CourseDrawing&&) noexcept = default;
 CourseDrawing::~CourseDrawing() = default;
 
 
-CourseDrawing drawCourse(const Map& map, const CourseData& data, const QString& course_name)
+CourseDrawing drawCourse(const Map& map, const CourseData& data, const QString& course_name, int part)
 {
 	CourseDrawing drawing;
 	auto const* course = data.findCourse(course_name);
@@ -407,7 +408,13 @@ CourseDrawing drawCourse(const Map& map, const CourseData& data, const QString& 
 	auto const found = findStops(map, data, *course);
 	if (found.has_variation)
 		return drawing;
+	if (part >= 0 && std::size_t(part) >= courseParts(*course).size())
+		return drawing;
 	drawing.drawn = true;
+	// With a part, what is of another part is left out.
+	auto const in_part = [course, part](const Stop& stop) {
+		return part < 0 || coursePartOfItem(*course, int(stop.item - course->items.data())) == part;
+	};
 	
 	auto const& stops = found.stops;
 	auto const* line_symbol = courseLineSymbol(map);
@@ -419,7 +426,7 @@ CourseDrawing drawCourse(const Map& map, const CourseData& data, const QString& 
 	{
 		auto const& from = stops[i - 1];
 		auto const& to = stops[i];
-		if (to.after_break)
+		if (to.after_break || !in_part(to))
 			continue;
 		
 		CourseLegDrawing leg;
@@ -456,7 +463,7 @@ CourseDrawing drawCourse(const Map& map, const CourseData& data, const QString& 
 	// The starts: turned to where the next item is entered.
 	for (std::size_t i = 0; i < stops.size(); ++i)
 	{
-		if (stops[i].item->type != CourseItem::Start)
+		if (stops[i].item->type != CourseItem::Start || !in_part(stops[i]))
 			continue;
 		CourseStartDrawing start;
 		start.code = stops[i].item->code;
@@ -478,6 +485,8 @@ CourseDrawing drawCourse(const Map& map, const CourseData& data, const QString& 
 		if (stops[i].item->type != CourseItem::Control)
 			continue;
 		auto number = QString::number(++count);
+		if (!in_part(stops[i]))
+			continue;
 		if (full_stop)
 			number += QLatin1Char('.');
 		auto index = codes.indexOf(stops[i].item->code);

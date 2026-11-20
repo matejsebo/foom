@@ -38,6 +38,7 @@
 #include "core/map_coord.h"
 #include "core/objects/object.h"
 #include "course/course_edit.h"
+#include "course/course_parts.h"
 #include "course/course_relay.h"
 #include "course/course_render.h"
 
@@ -521,6 +522,10 @@ std::vector<Issue> checkCourses(const Map& map, const CourseData& data, double c
 		// the design notes, "Relays: variations, variants and their allocation"
 		for (auto const& fault : relayStructure(course).faults)
 			issues.push_back(courseIssue(rule::relay_structure, Issue::Error, course.name, tr("Course %1: %2").arg(course.name, fault)));
+		// the design notes, "The parts of a course: map exchange and flip"
+		auto const part_fault = coursePartFault(course);
+		if (!part_fault.isEmpty())
+			issues.push_back(courseIssue(rule::course_part, Issue::Warning, course.name, tr("Course %1: %2").arg(course.name, part_fault)));
 	}
 	for (auto const& group : statistics.identical)
 		issues.push_back(courseIssue(rule::course_identical, Issue::Warning, group.join(listSeparator()), tr("These courses are identical: %1.").arg(group.join(listSeparator()))));
