@@ -79,6 +79,7 @@
 #include <QPainter>
 #include <QColor>
 #include <QPen>
+#include <QPolygonF>
 #include <QPixmap>
 #include <QPoint>
 #include <QPointer>
@@ -199,6 +200,8 @@
 #include "course/course_render.h"  // foom
 #include "course/course_report.h"  // foom
 #include "course/course_storage.h"  // foom
+#include "course/route_search.h"  // foom
+#include "course/route_terrain.h"  // foom
 #include "course/course_symbols.h"  // foom
 #include "gui/widgets/course_widget.h"  // foom
 #include "gui/widgets/rangefinder_widget.h"  // foom
@@ -1319,6 +1322,8 @@ void MapEditorController::createActions()
 	course_import_iof_act = newAction("course-import-iof", tr("Import IOF XML..."), this, SLOT(importIofCoursesClicked()), nullptr, tr("Take course objects, courses and classes from course data of the IOF Data Standard 3.0."));
 	// foom: the design notes, "Relays: variations, variants and their allocation"
 	course_canvases_act = newAction("course-canvases", tr("Canvases..."), this, SLOT(courseCanvasesClicked()), nullptr, tr("Say for which courses which extent of the map is printed, at which scale and with which course symbols."));
+	course_routes_analyse_act = newAction("course-routes-analyse", tr("Analyse routes of the course"), this, SLOT(analyseCourseRoutesClicked()), nullptr, tr("Search the fastest route of every leg of the course which is chosen in the course dock, and draw the routes over the map."));
+	course_routes_hide_act = newAction("course-routes-hide", tr("Hide routes"), this, SLOT(hideCourseRoutesClicked()), nullptr, tr("Take the routes of the analysis away from the map."));
 	course_export_maps_act = newAction("course-export-maps", tr("Export course maps (PDF)..."), this, SLOT(exportCourseMapsClicked()), nullptr, tr("Write a PDF file with the map of every course, of every part of a course with a map exchange, and of every variant or runner of a relay."));
 	course_relay_variations_act = newAction("course-relay-variations", tr("Export relay variations..."), this, SLOT(exportRelayVariationsClicked()), nullptr, tr("Write which team runs which variant of the relays, as a text file."));
 	// foom: the rangefinder; the design notes, "Rangefinder dock: detail"
@@ -1750,6 +1755,9 @@ void MapEditorController::createMenuAndToolbars()
 	courses_menu->addAction(course_relay_variations_act);
 	courses_menu->addAction(course_export_maps_act);
 	courses_menu->addAction(course_canvases_act);
+	courses_menu->addSeparator();
+	courses_menu->addAction(course_routes_analyse_act);
+	courses_menu->addAction(course_routes_hide_act);
 	courses_menu->addAction(course_import_iof_act);
 	
 	// Extend and activate general toolbar
@@ -5153,6 +5161,47 @@ void MapEditorController::exportRelayVariationsClicked()
 	QMessageBox::information(window, title, message);
 }
 
+// the design notes, "Route analysis: the routes of a course"
+void MapEditorController::analyseCourseRoutesClicked()
+{
+	auto const title = tr("Analyse routes");
+	auto const course = course_widget && course_dock_widget && !course_dock_widget->isHidden() ? course_widget->currentCourse() : QString{};
+	if (course.isEmpty())
+	{
+		QMessageBox::information(window, title, tr("Choose a course in the course dock first."));
+		return;
+	}
+	QApplication::setOverrideCursor(Qt::WaitCursor);
+	RouteSettings settings;
+	settings.use_elevation = false;
+	auto const terrain = buildRouteTerrain(*map, settings);
+	RouteSearch search(terrain, settings, map->getScaleDenominator());
+	course_routes = analyseCourseRoutes(*map, course_widget->previewData(), course, course_widget->previewPart(), search);
+	QApplication::restoreOverrideCursor();
+	map_widget->update();
+	if (!course_routes.analysed)
+	{
+		QMessageBox::information(window, title, tr("The course has no leg which can be analysed: a relay is analysed by the variant which is chosen, and a course needs two items with a place."));
+		return;
+	}
+	QString text = courseRoutesText(course_routes);
+	if (course_routes.missing > 0)
+		text += QLatin1Char('\n') + tr("%n leg(s) have no route: something impassable lies between their ends. They count with their straight length.", nullptr, course_routes.missing);
+	QMessageBox box(QMessageBox::Information, title, tr("The fastest routes of the course %1 take %2 over %3 m; the course itself is %4 m long.")
+	                .arg(course, formatRouteTime(course_routes.time_s)).arg(qRound(course_routes.length_m)).arg(qRound(course_routes.course_length_m)),
+	                QMessageBox::Ok, window);
+	box.setDetailedText(text);
+	box.exec();
+}
+
+
+void MapEditorController::hideCourseRoutesClicked()
+{
+	course_routes = {};
+	map_widget->update();
+}
+
+
 // the design notes, "Canvases: the dialog"
 void MapEditorController::courseCanvasesClicked()
 {
@@ -5227,6 +5276,24 @@ void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget
 	// The descriptions first: their white ground lies below the course.
 	paintCourseDescriptions(painter, map, descriptions, viewed_rect, map_view->calculateFinalZoomFactor());
 	paintCourseDrawing(painter, map, drawing, viewed_rect, map_view->calculateFinalZoomFactor());
+	// The routes of the analysis, for the course and the part for which they were searched.
+	if (course_routes.analysed && course_routes.course == course && course_routes.part == part)
+	{
+		QPen pen(QColor(225, 0, 50), 0.3);
+		pen.setCapStyle(Qt::RoundCap);
+		pen.setJoinStyle(Qt::RoundJoin);
+		painter->setPen(pen);
+		painter->setBrush(Qt::NoBrush);
+		painter->setRenderHint(QPainter::Antialiasing, true);
+		for (auto const& leg : course_routes.legs)
+		{
+			QPolygonF line;
+			for (auto const& point : leg.route.points)
+				line.push_back(point);
+			if (line.size() >= 2)
+				painter->drawPolyline(line);
+		}
+	}
 	painter->restore();
 }
 

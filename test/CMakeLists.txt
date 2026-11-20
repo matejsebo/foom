@@ -275,6 +275,7 @@ add_system_test(course_parts_t)  # foom: the design notes, The parts of a course
 add_system_test(course_canvas_t)  # foom: the design notes, Canvases: the model, the files and the export
 add_system_test(route_terrain_t)  # foom: the design notes, Route analysis: runnability and the terrain rasters
 add_system_test(route_search_t)  # foom: the design notes, Route analysis: the search
+add_system_test(route_course_t)  # foom: the design notes, Route analysis: the routes of a course
 add_system_test(sketch_t)  # foom: the design notes, Sketch layer
 add_system_test(merge_t)  # foom: the design notes, Merge changes from file
 target_compile_definitions(merge_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")

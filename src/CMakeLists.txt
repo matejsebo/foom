@@ -122,6 +122,7 @@ set(Mapper_Common_SRCS
   course/course_symbols.cpp  # foom
   course/course_sync.cpp  # foom
   course/ocd_course_records.cpp  # foom
+  course/route_course.cpp  # foom
   course/route_search.cpp  # foom
   course/route_terrain.cpp  # foom
   sketch/sketch.cpp

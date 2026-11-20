@@ -39,6 +39,7 @@
 #include <QTimer>
 
 #include "core/map.h"
+#include "course/route_course.h"  // foom
 #include "check/issue.h"  // foom
 #include "core/bookmarks.h"  // foom
 #include "core/extents.h"  // foom
@@ -627,6 +628,8 @@ public slots:
 	void exportRelayVariationsClicked();
 	void exportCourseMapsClicked();
 	void courseCanvasesClicked();
+	void analyseCourseRoutesClicked();
+	void hideCourseRoutesClicked();
 	/** foom: Shows or hides the rangefinder. */
 	void rangefinderClicked(bool checked);
 	/** foom: Switches to the tool which sets the reference of the rangefinder. */
@@ -1201,6 +1204,10 @@ private:
 	QAction* course_relay_variations_act = {};  // foom
 	QAction* course_export_maps_act = {};  // foom
 	QAction* course_canvases_act = {};  // foom
+	QAction* course_routes_analyse_act = {};  // foom
+	QAction* course_routes_hide_act = {};  // foom
+	/** foom: The routes which were analysed last; the design notes, "Route analysis: the routes of a course". */
+	CourseRoutes course_routes;
 	QPointer<QWidget> course_dock_widget;  // foom
 	QPointer<CourseWidget> course_widget;  // foom
 	QAction* rangefinder_act = {};  // foom
