@@ -50,6 +50,7 @@
 #include "core/map_color.h"
 #include "core/map_coord.h"
 #include "core/objects/object.h"
+#include "core/renderables/renderable.h"
 #include "core/symbols/area_symbol.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
@@ -699,6 +700,7 @@ void CourseSymbolsTest::isomTest()
 	// A second time nothing is given.
 	QCOMPARE(addCourseSymbols(map, setPath()).roles_given, 0);
 }
+
 
 
 /// Accept (7)

@@ -618,6 +618,8 @@ CourseSymbolsReport addCourseSymbols(Map& map, const QString& symbol_set_path)
 	report.added = map.getNumSymbols() - symbols_before;
 	
 	raiseNewColours(map, colours_before);
+	// The objects are drawn by the places of their colours, which have moved; as the colour list does.
+	map.updateAllObjects();
 	map.setSymbolsDirty();
 	return report;
 }
