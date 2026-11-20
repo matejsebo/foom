@@ -516,6 +516,10 @@ void MapWidget::markTemplateCacheDirty(const QRectF& view_rect, int pixel_border
 void MapWidget::markObjectAreaDirty(const QRectF& map_rect)
 {
 	updateMapRect(map_rect, 0, map_cache_dirty_rect);
+	// foom: what the overlay draws may follow the objects far beyond their area (a course
+	// and its description follow the course objects), so the overlay is painted anew whole.
+	if (overlay)
+		update();
 }
 
 void MapWidget::setDrawingBoundingBox(QRectF map_rect, int pixel_border, bool do_update)
