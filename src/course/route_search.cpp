@@ -1,0 +1,366 @@
+/*
+ *    Copyright 2026 Matej Šebo
+ *
+ *    This file is part of FOOM.
+ *
+ *    FOOM is free software: you can redistribute it and/or modify
+ *    it under the terms of the GNU General Public License as published by
+ *    the Free Software Foundation, either version 3 of the License, or
+ *    (at your option) any later version.
+ *
+ *    FOOM is distributed in the hope that it will be useful,
+ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *    GNU General Public License for more details.
+ *
+ *    You should have received a copy of the GNU General Public License
+ *    along with FOOM.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+
+#include "route_search.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <functional>
+#include <limits>
+#include <queue>
+#include <utility>
+
+namespace OpenOrienteering {
+
+namespace {
+
+/// The steps from a pixel: the 16 headings.
+struct Step
+{
+	int dx;
+	int dy;
+	/** The pixels between the two ends which the step touches, as offsets; unused ones are (0, 0). */
+	int mx[2];
+	int my[2];
+	int between;
+	double length;
+};
+
+const Step steps[] = {
+    { 1, 0, { 0, 0 }, { 0, 0 }, 0, 1.0 },   { -1, 0, { 0, 0 }, { 0, 0 }, 0, 1.0 },
+    { 0, 1, { 0, 0 }, { 0, 0 }, 0, 1.0 },   { 0, -1, { 0, 0 }, { 0, 0 }, 0, 1.0 },
+    { 1, 1, { 1, 0 }, { 0, 1 }, 2, 1.41421356 },    { -1, 1, { -1, 0 }, { 0, 1 }, 2, 1.41421356 },
+    { 1, -1, { 1, 0 }, { 0, -1 }, 2, 1.41421356 },  { -1, -1, { -1, 0 }, { 0, -1 }, 2, 1.41421356 },
+    { 2, 1, { 1, 1 }, { 0, 1 }, 2, 2.23606798 },    { -2, 1, { -1, -1 }, { 0, 1 }, 2, 2.23606798 },
+    { 2, -1, { 1, 1 }, { 0, -1 }, 2, 2.23606798 },  { -2, -1, { -1, -1 }, { 0, -1 }, 2, 2.23606798 },
+    { 1, 2, { 0, 1 }, { 1, 1 }, 2, 2.23606798 },    { -1, 2, { 0, -1 }, { 1, 1 }, 2, 2.23606798 },
+    { 1, -2, { 0, 1 }, { -1, -1 }, 2, 2.23606798 }, { -1, -2, { 0, -1 }, { -1, -1 }, 2, 2.23606798 },
+};
+
+/// The smallest factor of a gradient: the heuristic of the search must not be larger than the truth.
+constexpr double least_slope_factor = 0.85;
+
+/// How far, in pixels, a place on an impassable pixel is taken to a passable one.
+constexpr int snap_radius = 8;
+
+}  // namespace
+
+
+
+double slopeFactor(double m)
+{
+	if (std::isnan(m))
+		return 1.0;
+	if (m > 0.0163)
+		return 11.45 * m + (m < 0.31 ? std::pow(1.0 - m / 0.31, 2.55) : 0.0);
+	if (m >= -0.0198)
+		return 1.0;
+	auto const a = -m;
+	if (m >= -0.1598)
+		return 0.998 - 3.225 * a + 18.07 * a * a;
+	if (m >= -0.1976)
+		return 1.0;
+	if (m >= -0.2618)
+		return 4.409 * a + 0.177;
+	return 4.30 * a;
+}
+
+
+
+struct RouteSearch::Data
+{
+	const RouteTerrain& terrain;
+	RouteSettings settings;
+	/** The size of a pixel in m of the terrain. */
+	double pixel_m;
+	/** The pace in s per m. */
+	double pace;
+	RouteHeights heights;
+	bool use_heights = false;
+	
+	std::vector<float> cost;
+	std::vector<qint32> parent;
+	std::vector<float> height;
+	std::vector<quint8> height_known;  ///< 0 not asked, 1 known, 2 not known
+	std::vector<std::size_t> touched;
+	
+	Data(const RouteTerrain& terrain, const RouteSettings& settings, unsigned int scale_denominator)
+	: terrain(terrain)
+	, settings(settings)
+	, pixel_m(terrain.pixel * scale_denominator / 1000.0)
+	, pace(settings.base_pace / 1000.0)
+	{}
+	
+	std::size_t indexOf(int x, int y) const { return std::size_t(y) * std::size_t(terrain.width) + std::size_t(x); }
+	bool inside(int x, int y) const { return x >= 0 && y >= 0 && x < terrain.width && y < terrain.height; }
+	bool passable(int x, int y) const
+	{
+		auto const i = indexOf(x, y);
+		return !terrain.impassable[i] && terrain.runnability[i] > 0;
+	}
+	MapCoordF centre(int x, int y) const
+	{
+		return MapCoordF(terrain.area.left() + (x + 0.5) * terrain.pixel, terrain.area.top() + (y + 0.5) * terrain.pixel);
+	}
+	
+	/// The height of a pixel; false where it is not known.
+	bool heightOf(int x, int y, double& result)
+	{
+		auto const i = indexOf(x, y);
+		if (height_known.empty())
+		{
+			height.assign(terrain.runnability.size(), 0.0f);
+			height_known.assign(terrain.runnability.size(), 0);
+		}
+		if (height_known[i] == 0)
+		{
+			auto const value = heights(centre(x, y));
+			height_known[i] = std::isnan(value) ? 2 : 1;
+			height[i] = float(value);
+		}
+		result = height[i];
+		return height_known[i] == 1;
+	}
+	
+	/// The time of a step from a pixel, in s; negative when the step cannot be made.
+	double stepTime(int x, int y, const Step& step)
+	{
+		auto const nx = x + step.dx;
+		auto const ny = y + step.dy;
+		if (!inside(nx, ny) || !passable(nx, ny))
+			return -1.0;
+		auto slowness = 100.0 / terrain.runnability[indexOf(x, y)] + 100.0 / terrain.runnability[indexOf(nx, ny)];
+		auto count = 2;
+		for (int b = 0; b < step.between; ++b)
+		{
+			auto const bx = x + step.mx[b];
+			auto const by = y + step.my[b];
+			if (!passable(bx, by))
+				return -1.0;
+			// A diagonal step touches the two pixels beside it only at their corners: they bar it, and do not slow it.
+			if (step.length > 2.0)
+			{
+				slowness += 100.0 / terrain.runnability[indexOf(bx, by)];
+				++count;
+			}
+		}
+		auto time = step.length * pixel_m * pace * slowness / count;
+		if (use_heights)
+		{
+			double here;
+			double there;
+			if (heightOf(x, y, here) && heightOf(nx, ny, there))
+				time *= slopeFactor((there - here) / (step.length * pixel_m));
+		}
+		return time;
+	}
+	
+	bool pixelOf(const MapCoordF& place, int& x, int& y) const
+	{
+		x = int(std::floor((place.x() - terrain.area.left()) / terrain.pixel));
+		y = int(std::floor((place.y() - terrain.area.top()) / terrain.pixel));
+		return inside(x, y);
+	}
+	
+	/// Takes a pixel to the nearest passable one within the snap radius.
+	bool snap(int& x, int& y) const
+	{
+		if (passable(x, y))
+			return true;
+		auto best = std::numeric_limits<int>::max();
+		auto bx = x;
+		auto by = y;
+		for (int dy = -snap_radius; dy <= snap_radius; ++dy)
+		{
+			for (int dx = -snap_radius; dx <= snap_radius; ++dx)
+			{
+				auto const distance = dx * dx + dy * dy;
+				if (distance < best && inside(x + dx, y + dy) && passable(x + dx, y + dy))
+				{
+					best = distance;
+					bx = x + dx;
+					by = y + dy;
+				}
+			}
+		}
+		if (best == std::numeric_limits<int>::max())
+			return false;
+		x = bx;
+		y = by;
+		return true;
+	}
+};
+
+
+
+RouteSearch::RouteSearch(const RouteTerrain& terrain, const RouteSettings& settings, unsigned int scale_denominator)
+: d(new Data(terrain, settings, scale_denominator))
+{}
+
+RouteSearch::~RouteSearch()
+{
+	delete d;
+}
+
+
+void RouteSearch::setHeights(RouteHeights heights)
+{
+	d->heights = std::move(heights);
+	d->use_heights = d->settings.use_elevation && bool(d->heights);
+	d->height.clear();
+	d->height_known.clear();
+}
+
+
+double RouteSearch::straightTime(const MapCoordF& from, const MapCoordF& to) const
+{
+	auto const length_mm = std::hypot(to.x() - from.x(), to.y() - from.y());
+	auto const steps_count = std::max(1, int(std::ceil(length_mm / d->terrain.pixel)));
+	auto slowness = 0.0;
+	for (int i = 0; i < steps_count; ++i)
+	{
+		auto const t = (i + 0.5) / steps_count;
+		auto const runnability = d->terrain.runnabilityAt(MapCoordF(from.x() + (to.x() - from.x()) * t, from.y() + (to.y() - from.y()) * t));
+		slowness += 100.0 / std::max(runnability, 1);
+	}
+	return length_mm * d->pixel_m / d->terrain.pixel * d->pace * slowness / steps_count;
+}
+
+
+RouteResult RouteSearch::fastest(const MapCoordF& from, const MapCoordF& to)
+{
+	RouteResult result;
+	auto const& terrain = d->terrain;
+	if (terrain.isEmpty())
+		return result;
+	auto sx = 0;
+	auto sy = 0;
+	auto gx = 0;
+	auto gy = 0;
+	if (!d->pixelOf(from, sx, sy) || !d->pixelOf(to, gx, gy) || !d->snap(sx, sy) || !d->snap(gx, gy))
+		return result;
+	
+	auto const count = terrain.runnability.size();
+	if (d->cost.size() != count)
+	{
+		d->cost.assign(count, std::numeric_limits<float>::infinity());
+		d->parent.assign(count, -1);
+	}
+	for (auto const i : d->touched)
+	{
+		d->cost[i] = std::numeric_limits<float>::infinity();
+		d->parent[i] = -1;
+	}
+	d->touched.clear();
+	
+	// The least time which is left from a pixel: the straight way at the full speed, downhill all along.
+	auto const least = d->pixel_m * d->pace * (d->use_heights ? least_slope_factor : 1.0);
+	auto const estimate = [gx, gy, least](int x, int y) { return float(std::hypot(double(gx - x), double(gy - y)) * least); };
+	
+	using Entry = std::pair<float, std::size_t>;
+	std::priority_queue<Entry, std::vector<Entry>, std::greater<Entry>> open;
+	auto const start = d->indexOf(sx, sy);
+	auto const goal = d->indexOf(gx, gy);
+	d->cost[start] = 0.0f;
+	d->touched.push_back(start);
+	open.push({ estimate(sx, sy), start });
+	auto reached = false;
+	while (!open.empty())
+	{
+		auto const entry = open.top();
+		open.pop();
+		auto const i = entry.second;
+		auto const x = int(i % std::size_t(terrain.width));
+		auto const y = int(i / std::size_t(terrain.width));
+		// An entry which was overtaken by a faster way to its pixel.
+		if (entry.first > d->cost[i] + estimate(x, y) + 1e-3f)
+			continue;
+		if (i == goal)
+		{
+			reached = true;
+			break;
+		}
+		for (auto const& step : steps)
+		{
+			auto const time = d->stepTime(x, y, step);
+			if (time < 0.0)
+				continue;
+			auto const next = d->indexOf(x + step.dx, y + step.dy);
+			auto const cost = d->cost[i] + float(time);
+			if (cost < d->cost[next])
+			{
+				if (d->parent[next] < 0 && next != start)
+					d->touched.push_back(next);
+				d->cost[next] = cost;
+				d->parent[next] = qint32(i);
+				open.push({ cost + estimate(x + step.dx, y + step.dy), next });
+			}
+		}
+	}
+	if (!reached)
+		return result;
+	
+	// The route, from the goal back; pixels in a straight row are left out.
+	std::vector<std::size_t> pixels;
+	for (auto i = goal; ; i = std::size_t(d->parent[i]))
+	{
+		pixels.push_back(i);
+		if (i == start)
+			break;
+	}
+	std::reverse(begin(pixels), end(pixels));
+	auto const xOf = [&terrain](std::size_t i) { return int(i % std::size_t(terrain.width)); };
+	auto const yOf = [&terrain](std::size_t i) { return int(i / std::size_t(terrain.width)); };
+	result.found = true;
+	result.time_s = d->cost[goal];
+	result.points.push_back(from);
+	for (std::size_t p = 0; p < pixels.size(); ++p)
+	{
+		auto const x = xOf(pixels[p]);
+		auto const y = yOf(pixels[p]);
+		if (p > 0)
+		{
+			auto const px = xOf(pixels[p - 1]);
+			auto const py = yOf(pixels[p - 1]);
+			result.length_m += std::hypot(double(x - px), double(y - py)) * d->pixel_m;
+			if (d->use_heights)
+			{
+				double here;
+				double before;
+				if (d->heightOf(x, y, here) && d->heightOf(px, py, before) && here > before)
+					result.climb_m += here - before;
+			}
+			if (p + 1 < pixels.size())
+			{
+				auto const nx = xOf(pixels[p + 1]);
+				auto const ny = yOf(pixels[p + 1]);
+				if ((x - px) * (ny - y) == (y - py) * (nx - x))
+					continue;
+			}
+		}
+		result.points.push_back(d->centre(x, y));
+	}
+	result.points.push_back(to);
+	return result;
+}
+
+
+}  // namespace OpenOrienteering
