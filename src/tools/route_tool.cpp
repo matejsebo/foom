@@ -306,7 +306,12 @@ void RouteTool::drawImpl(QPainter* painter, MapWidget* widget)
 			QPolygonF line;
 			for (auto const& point : last_route.points)
 				line.push_back(widget->mapToViewport(point));
-			painter->setPen(QPen(QColor(225, 0, 50), 2 * scaleFactor()));
+			// As wide as the routes which the editor draws with the course, 0.3 mm of the map.
+			auto const width = qMax(qreal(2 * scaleFactor()), widget->getMapView()->lengthToPixel(300.0));
+			QPen pen(QColor(225, 0, 50), width);
+			pen.setCapStyle(Qt::RoundCap);
+			pen.setJoinStyle(Qt::RoundJoin);
+			painter->setPen(pen);
 			painter->drawPolyline(line);
 		}
 		if (pressed)
@@ -357,7 +362,11 @@ int RouteTool::updateDirtyRectImpl(QRectF& rect)
 			rectIncludeSafe(rect, point);
 		any = true;
 	}
-	return any ? 3 : -1;
+	if (!any)
+		return -1;
+	// Half the width of the route, which is 0.3 mm of the map.
+	auto const half_width = cur_map_widget ? int(std::ceil(cur_map_widget->getMapView()->lengthToPixel(300.0) / 2)) : 0;
+	return qMax(3, half_width + 1);
 }
 
 
