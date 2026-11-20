@@ -70,6 +70,8 @@
 #include "course/ocd_course_records.h"  // foom
 #include "course/course_storage.h"  // foom
 #include "course/course_data.h"  // foom
+#include "course/course_render.h"  // foom
+#include "course/route_store.h"  // foom
 #include "core/map_view.h"
 #include "core/objects/image_object.h"  // foom
 #include "core/objects/object.h"
@@ -1128,6 +1130,7 @@ void OcdFileExport::exportSymbols(OcdFile<Format>& file)
 		FILEFORMAT_ASSERT(!ocd_symbol.isEmpty());
 		file.symbols().insert(ocd_symbol);
 	}
+	exportRouteSymbol(file);  // foom
 }
 
 
@@ -2617,6 +2620,7 @@ void OcdFileExport::exportObjects(OcdFile<Format>& file)
 			
 		}
 	}
+	exportRouteObjects(file);  // foom
 	exportForeignObjects(file);  // foom
 }
 
@@ -3218,6 +3222,78 @@ void OcdFileExport::exportForeignStrings(OcdFile<Format>& file)
 			continue;
 		Ocd::ParameterStringIndexEntry entry = { 0, quint32(string.data.size()), string.type, string.object_index };
 		file.strings().insert(string.data, entry);
+	}
+}
+
+
+// foom: the routes of the route analysis, the design notes, "Route analysis: the routes in OCD files".
+template< class Format >
+void OcdFileExport::exportRouteSymbol(OcdFile<Format>& file)
+{
+	route_symbol = nullptr;
+	if (ocd_version < 12 || map->courseData().routes.isEmpty())
+		return;
+	
+	// The symbol of the fastest routes, 10602.010, when the map has it.
+	auto const number = decltype(symbol_numbers.begin()->second)(10602 * Format::BaseSymbol::symbol_number_factor + 10);
+	for (auto const& entry : symbol_numbers)
+	{
+		if (entry.second != number)
+			continue;
+		if (entry.first->getType() == Symbol::Line)
+			route_symbol = entry.first;
+		else
+			addWarning(tr("The routes of the route analysis are not written: the symbol 10602.010 of the map is not a line symbol."));
+		return;
+	}
+	
+	// Or one which only the file has.
+	auto const* course_line = courseLineSymbol(*map);
+	auto const* color = course_line ? course_line->getColor() : nullptr;
+	if (!color && map->getNumColors() > 0)
+		color = map->getColor(0);
+	if (!color)
+	{
+		addWarning(tr("The routes of the route analysis are not written: the map has no colour for their symbol."));
+		return;
+	}
+	auto symbol = std::make_unique<LineSymbol>();
+	symbol->setNumberComponent(0, 10602);
+	symbol->setNumberComponent(1, 10);
+	symbol->setName(QStringLiteral("Fastest Route"));
+	symbol->setLineWidth(0.5);
+	symbol->setColor(color);
+	symbol_numbers[symbol.get()] = number;
+	auto const ocd_symbol = exportLineSymbol<typename Format::LineSymbol>(symbol.get());
+	FILEFORMAT_ASSERT(!ocd_symbol.isEmpty());
+	file.symbols().insert(ocd_symbol);
+	route_symbol = symbol.get();
+	temporary_symbols.push_back(std::move(symbol));
+}
+
+
+// foom
+template< class Format >
+void OcdFileExport::exportRouteObjects(OcdFile<Format>& file)
+{
+	if (!route_symbol)
+		return;
+	auto const& routes = map->courseData().routes;
+	auto number = 0;
+	for (auto const& route : routes.routes)
+	{
+		// a marked route has no object, and a leg without a route has none.
+		if (!route.found || route.isMarkedRoute() || route.points.size() < 2)
+			continue;
+		PathObject object(route_symbol);
+		for (auto const& point : route.points)
+			object.addCoordinate(MapCoord(point.x(), point.y()));
+		object.setTag(QStringLiteral("ocd:object_string_type"), QStringLiteral("5"));
+		object.setTag(QStringLiteral("ocd:object_string"), OcdCourse::formatRoute(++number, route, routes.with_heights));
+		if (area_offset.nativeX() != 0 || area_offset.nativeY() != 0)
+			object.move(-area_offset);
+		object.update();
+		exportPathObject<Format>(file, &object);
 	}
 }
 

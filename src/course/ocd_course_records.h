@@ -101,6 +101,25 @@ void removeReadRecords(Map& map);
  */
 int takeNamedExtents(Map& map);
 
+/**
+ * The record of a fastest route of the route analysis: the object string
+ * of type 5 of its line object, "<number> s1 n<name> f<from> t<to> i0
+ * z<seconds> c<caption>". Reading gives the codes, the time, and the
+ * length and the climb of the caption; it returns false for a record
+ * which is none, and for that of an alternative route.
+ *
+ * See the design notes, "Route analysis: the routes in OCD files".
+ */
+bool parseRoute(const QString& record, StoredRoute& route, bool* has_climb = nullptr);
+QString formatRoute(int number, const StoredRoute& route, bool with_heights);
+
+/**
+ * Makes the route objects of an imported OCD file kept routes, and takes
+ * them and the caption objects beside them out of the map. Returns the
+ * number of the routes.
+ */
+int takeRoutes(Map& map, StoredRoutes& routes);
+
 }  // namespace OcdCourse
 
 

@@ -2585,6 +2585,8 @@ void OcdFileImport::importCourseData(bool course_file)
 		return;
 	if (data.isEmpty())
 		return;
+	// The routes of the file's route analysis become kept routes; "Route analysis: the routes in OCD files".
+	OcdCourse::takeRoutes(*map, data.routes);
 	map->setCourseData(std::move(data));
 	// What became course data is not kept a second time.
 	OcdCourse::removeReadRecords(*map);

@@ -355,6 +355,13 @@ private:
 	QString objectString(const Object* object, int* type) const;
 	/** Writes the parameter strings of options, courses, classes and text blocks. */
 	void exportCourseData();
+	/** foom: Writes the symbol of the routes of the route analysis, when the map keeps routes and has no such symbol. */
+	template< class Format >
+	void exportRouteSymbol(OcdFile<Format>& file);
+	/** foom: Writes the routes which the map keeps as OCD route objects. */
+	template< class Format >
+	void exportRouteObjects(OcdFile<Format>& file);
+	const Symbol* route_symbol = nullptr;
 	QHash<QUuid, CourseRecord> course_records;
 	QSet<QUuid> hidden_course_objects;
 	bool course_records_prepared = false;

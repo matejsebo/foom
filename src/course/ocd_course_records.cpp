@@ -28,13 +28,20 @@
 #include <QLatin1String>
 
 #include <algorithm>
+#include <cmath>
+#include <cstddef>
 #include <utility>
+#include <vector>
 
 #include "core/extents.h"
 #include "core/foreign_data.h"
 #include "core/map.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
+#include "core/path_coord.h"
+#include "core/virtual_path.h"
+#include "course/route_course.h"
+#include "course/route_store.h"
 
 
 namespace OpenOrienteering {
@@ -632,6 +639,129 @@ int takeNamedExtents(Map& map)
 	map.setForeignData(std::move(foreign));
 	map.setExtents(std::move(extents));
 	return taken;
+}
+
+
+bool parseRoute(const QString& record, StoredRoute& route, bool* has_climb)
+{
+	auto const fields = record.split(QLatin1Char('\t'));
+	QString from;
+	QString to;
+	QString caption;
+	auto index = -1;
+	auto seconds = 0.0;
+	for (int i = 1; i < fields.size(); ++i)
+	{
+		auto const& field = fields[i];
+		if (field.isEmpty())
+			continue;
+		auto const value = field.mid(1);
+		switch (field.at(0).unicode())
+		{
+		case 'f':  from = value; break;
+		case 't':  to = value; break;
+		case 'i':  index = value.toInt(); break;
+		case 'z':  seconds = value.toDouble(); break;
+		case 'c':  caption = value; break;
+		default:   break;  // the mark s1 and the name of the leg
+		}
+	}
+	// An alternative route has an index above 0.
+	if (from.isEmpty() || to.isEmpty() || index != 0)
+		return false;
+	
+	route = {};
+	route.from = from;
+	route.to = to;
+	route.time_s = seconds;
+	// "308 m | 51 m | 02:14" with heights, "291 m | 00:58" without.
+	auto const parts = caption.split(QStringLiteral(" | "));
+	auto const metresOf = [](const QString& text) { return text.section(QLatin1Char(' '), 0, 0).toDouble(); };
+	if (!caption.isEmpty())
+		route.length_m = metresOf(parts[0]);
+	auto const with_climb = parts.size() == 3;
+	if (with_climb)
+		route.climb_m = metresOf(parts[1]);
+	if (has_climb)
+		*has_climb = with_climb;
+	return true;
+}
+
+QString formatRoute(int number, const StoredRoute& route, bool with_heights)
+{
+	auto const metres = [](double value) { return QString(QString::number(qRound64(value)) + QLatin1String(" m")); };
+	QStringList caption;
+	caption.push_back(metres(route.length_m));
+	if (with_heights)
+		caption.push_back(metres(route.climb_m));
+	caption.push_back(formatRouteTime(route.time_s));
+	QStringList fields;
+	fields.push_back(QString::number(number));
+	fields.push_back(QStringLiteral("s1"));
+	fields.push_back(QLatin1String("nLeg ") + route.from + QLatin1Char('-') + route.to);
+	fields.push_back(QLatin1Char('f') + route.from);
+	fields.push_back(QLatin1Char('t') + route.to);
+	fields.push_back(QStringLiteral("i0"));
+	fields.push_back(QLatin1Char('z') + QString::number(qRound64(route.time_s)));
+	fields.push_back(QLatin1Char('c') + caption.join(QStringLiteral(" | ")));
+	return fields.join(QLatin1Char('\t'));
+}
+
+
+int takeRoutes(Map& map, StoredRoutes& routes)
+{
+	auto const type_key = QStringLiteral("ocd:object_string_type");
+	auto const string_key = QStringLiteral("ocd:object_string");
+	auto const mm_to_m = map.getScaleDenominator() / 1000.0;
+	std::vector<StoredRoute> taken;
+	auto with_heights = false;
+	for (int p = 0; p < map.getNumParts(); ++p)
+	{
+		auto* part = map.getPart(std::size_t(p));
+		for (int i = part->getNumObjects() - 1; i >= 0; --i)
+		{
+			auto* object = part->getObject(i);
+			if (object->getTag(type_key) != QLatin1String("5"))
+				continue;
+			StoredRoute route;
+			auto has_climb = false;
+			if (!parseRoute(object->getTag(string_key), route, &has_climb))
+				continue;
+			if (object->getType() == Object::Path)
+			{
+				object->update();
+				for (auto const& path_part : object->asPath()->parts())
+				{
+					for (auto const& coord : path_part.path_coords)
+						route.points.push_back(coord.pos);
+				}
+				if (route.points.size() >= 2)
+				{
+					// The length is that of the caption; without a caption that of the line.
+					auto line_m = 0.0;
+					for (std::size_t point = 1; point < route.points.size(); ++point)
+					{
+						line_m += std::hypot(route.points[point].x() - route.points[point - 1].x(),
+						                     route.points[point].y() - route.points[point - 1].y()) * mm_to_m;
+					}
+					if (route.length_m <= 0.0)
+						route.length_m = line_m;
+					with_heights = with_heights || has_climb;
+					taken.push_back(std::move(route));
+				}
+			}
+			// The line of the route, or the caption beside it.
+			part->deleteObject(i);
+		}
+	}
+	if (taken.empty())
+		return 0;
+	if (routes.isEmpty())
+		routes.with_heights = with_heights;
+	// In the order of the file.
+	for (auto route = taken.rbegin(); route != taken.rend(); ++route)
+		routes.put(std::move(*route));
+	return int(taken.size());
 }
 
 }  // namespace OcdCourse
