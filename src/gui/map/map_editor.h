@@ -425,6 +425,8 @@ public slots:
 	void baselineView(bool checked);
 	/** Sets the "hide all templates" view option. */
 	void hideAllTemplates(bool checked);
+	/** foom: Shows the favourite templates only, or all again (view-favourites-only). */
+	void favouriteTemplatesOnly(bool checked);
 	/** Sets the overprinting simulation view option. */
 	void overprintingSimulation(bool checked);
 	
@@ -1257,6 +1259,7 @@ private:
 	QAction* hatch_areas_view_act = {};
 	QAction* baseline_view_act = {};
 	QAction* hide_all_templates_act = {};
+	QAction* favourite_templates_act = {};  // foom
 	QAction* overprinting_simulation_act = {};
 	
 	QAction* map_coordinates_act = {};

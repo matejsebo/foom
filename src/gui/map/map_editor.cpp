@@ -1222,6 +1222,7 @@ void MapEditorController::createActions()
 	hatch_areas_view_act = newCheckAction("hatchareasview", tr("Hatch areas"), this, SLOT(hatchAreas(bool)), "view-hatch-areas.png", QString{}, "view_menu.html");
 	baseline_view_act = newCheckAction("baselineview", tr("Baseline view"), this, SLOT(baselineView(bool)), "view-baseline.png", QString{}, "view_menu.html");
 	hide_all_templates_act = newCheckAction("hidealltemplates", tr("Hide all templates"), this, SLOT(hideAllTemplates(bool)), nullptr, QString{}, "view_menu.html");
+	favourite_templates_act = newCheckAction("view-favourites-only", tr("Favourite templates only"), this, SLOT(favouriteTemplatesOnly(bool)));  // foom
 	overprinting_simulation_act = newCheckAction("overprintsimulation", tr("Overprinting simulation"), this, SLOT(overprintingSimulation(bool)), nullptr, QString{}, "view_menu.html");
 	
 	symbol_window_act = newCheckAction("symbolwindow", tr("Symbol window"), this, SLOT(showSymbolWindow(bool)), "symbols.png", tr("Show/Hide the symbol window"), "symbol_dock_widget.html");
@@ -1629,6 +1630,7 @@ void MapEditorController::createMenuAndToolbars()
 	view_menu->addAction(baseline_view_act);
 	view_menu->addAction(overprinting_simulation_act);
 	view_menu->addAction(hide_all_templates_act);
+	view_menu->addAction(favourite_templates_act);  // foom
 	view_menu->addAction(layout_hide_act);  // foom
 	view_menu->addSeparator();
 	QMenu* coordinates_menu = new QMenu(tr("Display coordinates as..."), view_menu);
@@ -2802,6 +2804,13 @@ void MapEditorController::hideAllTemplates(bool checked)
 {
 	hide_all_templates_act->setChecked(checked);
 	main_view->setAllTemplatesHidden(checked);
+}
+
+// foom: the design notes, "Favourite templates"
+void MapEditorController::favouriteTemplatesOnly(bool checked)
+{
+	favourite_templates_act->setChecked(checked);
+	main_view->setFavouriteTemplatesOnly(checked);
 }
 
 void MapEditorController::overprintingSimulation(bool checked)
@@ -7451,6 +7460,7 @@ void MapEditorController::updateWidgets()
 		{
 			show_grid_act->setChecked(main_view->isGridVisible());
 			hide_all_templates_act->setChecked(main_view->areAllTemplatesHidden());
+			favourite_templates_act->setChecked(main_view->areFavouriteTemplatesOnly());  // foom
 			overprinting_simulation_act->setChecked(main_view->isOverprintingSimulationEnabled());
 		}
 		if (map)
@@ -8145,6 +8155,7 @@ void MapEditorController::setViewOptionsEnabled(bool enabled)
 // 	baseline_view_act->setEnabled(enabled);
 	overprinting_simulation_act->setEnabled(enabled);
 	hide_all_templates_act->setEnabled(enabled);
+	favourite_templates_act->setEnabled(enabled);  // foom
 }
 
 

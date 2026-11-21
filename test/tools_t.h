@@ -48,6 +48,9 @@ private slots:
 	/** foom: Tests relinking templates by folder. */
 	void relinkTemplatesCommand();
 	
+	/** foom: Tests the view of the favourite templates only. */
+	void favouriteTemplatesCommand();
+	
 	/** foom: Tests the mirror action. */
 	void mirror();
 	

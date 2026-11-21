@@ -467,6 +467,24 @@ void ToolsTest::relinkTemplatesCommand()
 }
 
 
+void ToolsTest::favouriteTemplatesCommand()
+{
+	// the design notes, "Favourite templates", Accept (editor).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* action = editor.editor->getAction("view-favourites-only");
+	QVERIFY(action);
+	QVERIFY(action->isCheckable());
+	auto* view = editor.editor->getMainWidget()->getMapView();
+	QVERIFY(!view->areFavouriteTemplatesOnly());
+	action->trigger();
+	QVERIFY(view->areFavouriteTemplatesOnly());
+	QVERIFY(action->isChecked());
+	action->trigger();
+	QVERIFY(!view->areFavouriteTemplatesOnly());
+}
+
+
 void ToolsTest::mirror()
 {
 	// the design notes, "Mirror", editor paragraph.

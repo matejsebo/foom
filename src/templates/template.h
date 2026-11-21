@@ -558,6 +558,11 @@ public:
 	inline int getTemplateGroup() const {return template_group;}
 	inline void setTemplateGroup(int value) {template_group = value;}
 	
+	/** foom: Whether the template is a favourite (the design notes, "Favourite templates"). */
+	inline bool isFavourite() const {return is_favourite;}
+	/** foom: Makes the template a favourite or not; marks the templates changed. */
+	void setFavourite(bool value);
+	
 	inline bool hasUnsavedChanges() const {return has_unsaved_changes;}
 	void setHasUnsavedChanges(bool value);
 	
@@ -798,6 +803,9 @@ protected:
 	/// Number of the template group. If the template is not grouped, this is set to -1.
 	/// \todo Switch to initialization with -1. ATM 0 is kept for compatibility.
 	int template_group = 0;
+	
+	/// foom: A favourite template.
+	bool is_favourite = false;
 	
 	// Transformation matrices calculated from cur_trans
 	Matrix map_to_template;

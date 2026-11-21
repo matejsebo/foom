@@ -52,6 +52,7 @@ namespace literal
 	static const QLatin1String visible("visible");
 	static const QLatin1String templates("templates");
 	static const QLatin1String hidden("hidden");
+	static const QLatin1String favourites_only("favourites_only");  // foom
 	static const QLatin1String ref("ref");
 	static const QLatin1String template_string("template");
 }
@@ -123,6 +124,8 @@ void MapView::save(QXmlStreamWriter& xml, const QLatin1String& element_name, boo
 	{
 		XmlElementWriter templates_element(xml, literal::templates);
 		templates_element.writeAttribute(literal::hidden, all_templates_hidden);
+		if (favourite_templates_only)  // foom
+			templates_element.writeAttribute(literal::favourites_only, true);
 		if (template_details)
 		{
 			templates_element.writeAttribute(XmlStreamLiteral::count, template_visibilities.size());
@@ -185,6 +188,8 @@ void MapView::load(QXmlStreamReader& xml, int version)
 			auto num_template_visibilities = templates_element.attribute<unsigned int>(XmlStreamLiteral::count);
 			template_visibilities.reserve(qBound(20u, num_template_visibilities, 1000u));
 			all_templates_hidden = templates_element.attribute<bool>(literal::hidden);
+			favourite_templates_only = templates_element.hasAttribute(literal::favourites_only)
+			                           && templates_element.attribute<bool>(literal::favourites_only);  // foom
 			
 			while (xml.readNextStartElement())
 			{
@@ -398,7 +403,8 @@ bool MapView::isTemplateVisible(const Template* temp) const
 	auto entry = findVisibility(temp);
 	return entry != end(template_visibilities)
 	       && entry->visible
-	       && entry->opacity > 0;
+	       && entry->opacity > 0
+	       && (!favourite_templates_only || temp->isFavourite());  // foom
 }
 
 TemplateVisibility MapView::getTemplateVisibility(const Template* temp) const
@@ -458,6 +464,16 @@ void MapView::setAllTemplatesHidden(bool value)
 	{
 		all_templates_hidden = value;
 		emit visibilityChanged(VisibilityFeature::AllTemplatesHidden, value);
+	}
+}
+
+// foom: the design notes, "Favourite templates"
+void MapView::setFavouriteTemplatesOnly(bool value)
+{
+	if (favourite_templates_only != value)
+	{
+		favourite_templates_only = value;
+		emit visibilityChanged(VisibilityFeature::FavouriteTemplatesOnly, value);
 	}
 }
 

@@ -281,6 +281,12 @@ TemplateListWidget::TemplateListWidget(Map& map, MapView& main_view, MapEditorCo
 	auto* edit_menu = new QMenu(this);
 	georef_action = edit_menu->addAction(tr("Georeferenced"), this, &TemplateListWidget::changeGeorefClicked);
 	georef_action->setCheckable(true);
+	// foom: the design notes, "Favourite templates"
+	favourite_action = edit_menu->addAction(tr("Favourite"), this, [this](bool checked) {
+		if (auto* temp = currentTemplate())
+			temp->setFavourite(checked);
+	});
+	favourite_action->setCheckable(true);
 	position_action = edit_menu->addAction(tr("Positioning..."));
 	position_action->setCheckable(true);
 	edit_menu->addSeparator();
@@ -502,6 +508,8 @@ void TemplateListWidget::updateButtons()
 		edit_button->setEnabled(edit_enabled);
 		georef_action->setChecked(is_georeferenced);
 		georef_action->setEnabled(georef_enabled);
+		favourite_action->setChecked(temp && temp->isFavourite());  // foom
+		favourite_action->setEnabled(bool(temp));  // foom
 		move_by_hand_action->setEnabled(custom_enabled);
 		adjust_button->setEnabled(custom_enabled);
 		position_action->setEnabled(custom_enabled);

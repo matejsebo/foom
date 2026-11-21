@@ -161,6 +161,7 @@ private:
 	QAction* position_action;
 	QAction* import_action;
 	QAction* georef_action;
+	QAction* favourite_action = nullptr;  // foom
 	QAction* vectorize_action;
 	
 	// Buttons

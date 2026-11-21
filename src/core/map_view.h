@@ -98,6 +98,7 @@ public:
 		AllTemplatesHidden  =  4,
 		TemplateVisible     =  8,
 		MapVisible          = 16,
+		FavouriteTemplatesOnly = 32,  // foom
 	};
 	
 	
@@ -296,11 +297,17 @@ public:
 	/** Enables or disables hiding all templates in this view */
 	void setAllTemplatesHidden(bool value);
 	
+	/** foom: Shows the favourite templates only (the design notes, "Favourite templates"). */
+	void setFavouriteTemplatesOnly(bool value);
+	
 	/**
 	 * Returns if the "hide all templates" toggle is active.
 	 * See also setHideAllTemplates().
 	 */
 	bool areAllTemplatesHidden() const;
+	
+	/** foom: Whether the view shows the favourite templates only. */
+	bool areFavouriteTemplatesOnly() const { return favourite_templates_only; }
 	
 	
 	/** Returns if the map grid is visible. */
@@ -415,6 +422,7 @@ private:
 	TemplateVisibilityVector template_visibilities;
 	
 	bool all_templates_hidden;
+	bool favourite_templates_only = false;  // foom
 	bool grid_visible;
 	bool overprinting_simulation_enabled;
 };

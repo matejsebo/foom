@@ -255,6 +255,7 @@ Template::Template(const Template& proto)
 , adjustment_dirty(proto.adjustment_dirty)
 , passpoints(proto.passpoints)
 , template_group(proto.template_group)
+, is_favourite(proto.is_favourite)  // foom
 , map_to_template(proto.map_to_template)
 , template_to_map(proto.template_to_map)
 , template_to_map_other(proto.template_to_map_other)
@@ -296,6 +297,8 @@ void Template::saveTemplateConfiguration(QXmlStreamWriter& xml, bool open, const
 	{
 		xml.writeAttribute(QString::fromLatin1("group"), QString::number(template_group));
 	}
+	if (is_favourite)  // foom
+		xml.writeAttribute(QString::fromLatin1("favourite"), QString::fromLatin1("true"));
 	
 	if (is_georeferenced)
 	{
@@ -350,6 +353,7 @@ std::unique_ptr<Template> Template::loadTemplateConfiguration(QXmlStreamReader& 
 	temp->setTemplateRelativePath(attributes.value(QLatin1String("relpath")).toString());
 	if (attributes.hasAttribute(QLatin1String("name")))
 		temp->template_file = attributes.value(QLatin1String("name")).toString();
+	temp->is_favourite = (attributes.value(QLatin1String("favourite")) == QLatin1String("true"));  // foom
 	temp->is_georeferenced = (attributes.value(QLatin1String("georef")) == QLatin1String("true"));
 	if (attributes.hasAttribute(QLatin1String("group")))
 		temp->template_group = attributes.value(QLatin1String("group")).toInt();
@@ -911,6 +915,18 @@ void Template::setTemplateFileInfo(const QFileInfo& file_info)
 	if (template_path.isEmpty())
 		template_path = file_info.filePath();
 	template_file = file_info.fileName();
+}
+
+// foom: the design notes, "Favourite templates"
+void Template::setFavourite(bool value)
+{
+	if (is_favourite == value)
+		return;
+	is_favourite = value;
+	map->setTemplatesDirty();
+	if (template_state == Loaded)
+		setTemplateAreaDirty();
+	map->emitTemplateChanged(this);
 }
 
 void Template::setTemplatePath(const QString& value)
