@@ -123,6 +123,8 @@
 #include "elevation/elevation_set.h"  // foom
 #include "elevation/landforms.h"  // foom
 #include "elevation/point_cloud.h"  // foom
+#include "core/map_transform.h"  // foom
+#include "gui/map/map_transform_dialogs.h"  // foom
 #include "elevation/raster_products.h"  // foom
 #include "core/ops/align.h"
 #include "core/ops/apply_op.h"
@@ -569,6 +571,9 @@ void MapEditorController::setEditingInProgress(bool value)
 		georeferencing_act->setEnabled(!editing_in_progress);
 		scale_map_act->setEnabled(!editing_in_progress);
 		rotate_map_act->setEnabled(!editing_in_progress);
+		map_move_act->setEnabled(!editing_in_progress);  // foom
+		map_stretch_act->setEnabled(!editing_in_progress);  // foom
+		map_mirror_act->setEnabled(!editing_in_progress);  // foom
 		map_notes_act->setEnabled(!editing_in_progress);
 		map_info_act->setEnabled(!editing_in_progress);
 		
@@ -1192,6 +1197,9 @@ void MapEditorController::createActions()
 	georeferencing_act = newAction("georef", tr("Georeferencing..."), this, SLOT(editGeoreferencing()), nullptr, QString{}, "georeferencing.html");
 	scale_map_act = newAction("scalemap", tr("Change map scale..."), this, SLOT(scaleMapClicked()), "tool-scale.png", tr("Change the map scale and adjust map objects and symbol sizes"), "map_menu.html");
 	rotate_map_act = newAction("rotatemap", tr("Rotate map..."), this, SLOT(rotateMapClicked()), "tool-rotate.png", tr("Rotate the whole map"), "map_menu.html");
+	map_move_act = newAction("map-move", tr("Move map..."), this, SLOT(mapMoveClicked()));  // foom
+	map_stretch_act = newAction("map-stretch", tr("Stretch / shrink map..."), this, SLOT(mapStretchClicked()));  // foom
+	map_mirror_act = newAction("map-mirror", tr("Mirror map..."), this, SLOT(mapMirrorClicked()));  // foom
 	map_notes_act = newAction("mapnotes", tr("Map notes..."), this, SLOT(mapNotesClicked()), nullptr, QString{}, "map_menu.html");
 	map_info_act = newAction("mapinfo", tr("Map information..."), this, SLOT(mapInfoClicked()), "map-information.png", QString{}, "map_menu.html");
 	
@@ -1679,6 +1687,10 @@ void MapEditorController::createMenuAndToolbars()
 	map_menu->addSeparator();
 	map_menu->addAction(scale_map_act);
 	map_menu->addAction(rotate_map_act);
+	auto* transform_menu = map_menu->addMenu(tr("Transform"));  // foom: the design notes, "Menu placement"
+	transform_menu->addAction(map_move_act);
+	transform_menu->addAction(map_stretch_act);
+	transform_menu->addAction(map_mirror_act);
 	map_menu->addAction(map_notes_act);
 	map_menu->addAction(map_info_act);
 	map_menu->addSeparator();
@@ -7607,6 +7619,50 @@ void MapEditorController::elevationFeaturesClicked()
 	auto const count = extractLandforms(dialog.params());
 	if (count == 0)
 		QMessageBox::information(window, tr("Extract features"), tr("No knoll and no small depression was found."));
+}
+
+void MapEditorController::mapMoveClicked()
+{
+	MapMoveDialog dialog(window);
+	if (dialog.exec() == QDialog::Accepted)
+		moveMap(dialog.east(), dialog.north(), dialog.carry());
+}
+
+void MapEditorController::mapStretchClicked()
+{
+	MapStretchDialog dialog(false, window);
+	if (dialog.exec() == QDialog::Accepted)
+		stretchMap(dialog.factorX(), dialog.factorY(), dialog.mirrorHorizontally(), dialog.mirrorVertically(), dialog.carry());
+}
+
+void MapEditorController::mapMirrorClicked()
+{
+	MapStretchDialog dialog(true, window);
+	if (dialog.exec() == QDialog::Accepted)
+		stretchMap(dialog.factorX(), dialog.factorY(), dialog.mirrorHorizontally(), dialog.mirrorVertically(), dialog.carry());
+}
+
+// foom: the design notes, "Move, stretch and mirror".
+bool MapEditorController::moveMap(double east_m, double north_m, bool carry)
+{
+	MapTransformOptions options;
+	options.carry = carry;
+	if (!transformMap(*map, mapMoveTransform(*map, east_m, north_m), options))
+		return false;
+	map->setHasUnsavedChanges(true);
+	return true;
+}
+
+bool MapEditorController::stretchMap(double factor_x, double factor_y, bool mirror_horizontally, bool mirror_vertically, bool carry)
+{
+	if (!(factor_x > 0) || !(factor_y > 0))
+		return false;
+	MapTransformOptions options;
+	options.carry = carry;
+	if (!transformMap(*map, mapStretchTransform(factor_x, factor_y, mirror_horizontally, mirror_vertically), options))
+		return false;
+	map->setHasUnsavedChanges(true);
+	return true;
 }
 
 void MapEditorController::elevationPointCloudClicked()

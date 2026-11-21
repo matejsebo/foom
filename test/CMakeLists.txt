@@ -207,6 +207,7 @@ add_dependencies(cli_t foom-cli)
 add_system_test(duplicate_equals_t)
 add_system_test(map_t)
 add_system_test(map_printer_t)
+add_system_test(map_transform_t)  # foom: the design notes, Move, stretch and mirror
 target_link_libraries(map_printer_t PRIVATE MapperTestUtils)
 add_system_test(object_t)
 add_system_test(object_query_t)

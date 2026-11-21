@@ -46,7 +46,9 @@ public:
 	{
 		UndefinedSection = 0,
 		Extents = 1,
-		Courses = 2  ///< the course data, see the design notes
+		Courses = 2,  ///< the course data, see the design notes
+		Bookmarks = 3,  ///< see the design notes
+		Templates = 4   ///< the templates' placements, see the design notes
 	};
 	
 	/** Creates a step which restores the section to the given serialisation. */

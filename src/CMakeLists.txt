@@ -102,6 +102,7 @@ set(Mapper_Common_SRCS
   core/map_information.cpp
   core/map_part.cpp
   core/map_printer.cpp
+  core/map_transform.cpp
   core/print_job.cpp
   core/print_output.cpp
   core/sync_record.cpp
@@ -248,6 +249,7 @@ set(Mapper_Common_SRCS
   gui/map/route_settings_dialog.cpp  # foom
   gui/map/extent_dialog.cpp
   gui/map/elevation_dialogs.cpp
+  gui/map/map_transform_dialogs.cpp
   gui/map/legibility_dialog.cpp
   gui/map/topology_dialogs.cpp
   gui/map/generator_dialog.cpp

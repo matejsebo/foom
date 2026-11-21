@@ -91,6 +91,9 @@ private slots:
 	/** foom: Tests the point cloud import command. */
 	void demPointCloud();
 	
+	/** foom: Tests the map transform commands. */
+	void mapTransforms();
+	
 	/** foom: Tests the map check command and the Issues window. */
 	void mapCheck();
 	

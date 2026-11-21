@@ -45,6 +45,7 @@
 #include "core/map_coord.h"
 #include "core/map_part.h"
 #include "core/map_printer.h"
+#include "core/map_transform.h"
 #include "core/objects/object.h"
 #include "core/objects/object_query.h"
 #include "core/ops/align.h"
@@ -1281,6 +1282,28 @@ void ToolsTest::demPointCloud()
 	
 	QVERIFY(!editor.editor->importPointClouds({ dir.filePath(QStringLiteral("absent.laz")) }, GriddingParams(), PointCloudProducts(), &error));
 	QVERIFY(!error.isEmpty());
+}
+
+
+void ToolsTest::mapTransforms()
+{
+	// the design notes, "Move, stretch and mirror", Accept (6).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("map-move"));
+	QVERIFY(editor.editor->getAction("map-stretch"));
+	QVERIFY(editor.editor->getAction("map-mirror"));
+	auto const first = MapCoordF(map.line_object->getRawCoordinateVector().front());
+	auto const expected = MapCoordF(mapMoveTransform(*map.map, 40.0, -20.0).map(QPointF(first)));
+	auto const steps = map.map->undoManager().undoStepCount();
+	QVERIFY(editor.editor->moveMap(40.0, -20.0, true));
+	auto moved = MapCoordF(map.line_object->getRawCoordinateVector().front());
+	QVERIFY(std::abs(moved.x() - expected.x()) < 0.001 && std::abs(moved.y() - expected.y()) < 0.001);
+	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 1);
+	QVERIFY(editor.editor->stretchMap(2.0, 0.5, false, false, true));
+	auto const stretched = MapCoordF(map.line_object->getRawCoordinateVector().front());
+	QVERIFY(std::abs(stretched.x() - 2 * moved.x()) < 0.001 && std::abs(stretched.y() - 0.5 * moved.y()) < 0.001);
+	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 2);
 }
 
 

@@ -761,6 +761,16 @@ public slots:
 	int extractLandforms(const LandformParams& params);
 	/** foom: Asks for point clouds and grids them (dem-point-cloud). */
 	void elevationPointCloudClicked();
+	/** foom: Asks for metres east and north and moves the map (map-move). */
+	void mapMoveClicked();
+	/** foom: Asks for stretch factors and mirrors (map-stretch). */
+	void mapStretchClicked();
+	/** foom: As map-stretch, with both mirrors ticked (map-mirror). */
+	void mapMirrorClicked();
+	/** foom: Moves the map in the world; see the design notes. */
+	bool moveMap(double east_m, double north_m, bool carry);
+	/** foom: Stretches and mirrors the map about its origin. */
+	bool stretchMap(double factor_x, double factor_y, bool mirror_horizontally, bool mirror_vertically, bool carry);
 	/** foom: Grids the point clouds into the map's terrain and surface models, saved as GeoTIFF, and makes the products. */
 	bool importPointClouds(const QStringList& paths, const GriddingParams& params, const PointCloudProducts& products, QString* error);
 	/** foom: Saves the terrain grid in a chosen format (dem-export). */
@@ -1284,6 +1294,9 @@ private:
 	QAction* make_rectangular_act = {};  // foom
 	QAction* generalize_buildings_act = {};  // foom
 	QAction* dem_open_act = {};  // foom
+	QAction* map_move_act = {};  // foom
+	QAction* map_stretch_act = {};  // foom
+	QAction* map_mirror_act = {};  // foom
 	QAction* dem_point_cloud_act = {};  // foom
 	QAction* dem_info_act = {};  // foom
 	QAction* dem_contours_act = {};  // foom
