@@ -1453,6 +1453,8 @@ private:
 	QAction* selection_delete_act = {};  // foom
 	/// foom: Replaces the selection with the objects and reports their number.
 	int selectFound(const std::vector<Object*>& found);
+	/** foom: Moves the view so that the first selected object is visible. */
+	void showSelectedObject();
 	QAction* dem_merge_contours_act = {};  // foom
 	QAction* dem_vegetation_height_act = {};  // foom
 	QAction* dem_features_act = {};  // foom

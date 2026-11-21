@@ -1755,6 +1755,26 @@ void ToolsTest::symbolUpdateCommand()
 }
 
 
+void ToolsTest::pasteStampsObjects()
+{
+	// the design notes, "Object identity and timestamps", Accept (5).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	map.line_object->setIdentity(map.line_object->uuid(), 0, 0);
+	map.map->clearObjectSelection(false);
+	map.map->addObjectToSelection(map.line_object, true);
+	editor.editor->copy();
+	auto const before = Object::currentTime();
+	editor.editor->paste(0);
+	auto const* pasted = map.map->getFirstSelectedObject();
+	QVERIFY(pasted);
+	QVERIFY(pasted != map.line_object);
+	QCOMPARE(pasted->createdTime(), qint64(0));
+	QVERIFY(pasted->modifiedTime() >= before);
+	QCOMPARE(map.line_object->modifiedTime(), qint64(0));
+}
+
+
 void ToolsTest::demPointCloud()
 {
 	// the design notes, "Reading point clouds and gridding them", Accept (9).

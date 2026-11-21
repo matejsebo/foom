@@ -21,7 +21,11 @@
 
 #include <algorithm>
 
+#include <QHash>
 #include <QRegularExpression>
+#include <QSet>
+#include <QString>
+#include <QStringList>
 
 #include "core/map.h"
 #include "core/map_color.h"
@@ -64,6 +68,52 @@ void changed(Map& map, const std::vector<int>& indices)
 	}
 	map.updateAllObjects();
 	map.setSymbolsDirty();
+}
+
+/// The favourites, status sets and symbol groups follow renumbered symbols;
+/// a number which a symbol outside the renumbering still carries stays.
+void renumberReferences(Map& map, const QHash<QString, QStringList>& renamed, const std::vector<int>& renumbered)
+{
+	QSet<QString> kept;
+	for (int i = 0; i < map.getNumPublicSymbols(); ++i)
+	{
+		if (std::find(renumbered.begin(), renumbered.end(), i) == renumbered.end())
+			kept.insert(map.getSymbol(i)->getNumberAsString());
+	}
+	auto const remap = [&renamed, &kept](const QStringList& numbers) {
+		QStringList result;
+		auto const add = [&result](const QString& number) {
+			if (!result.contains(number))
+				result << number;
+		};
+		for (auto const& number : numbers)
+		{
+			auto const found = renamed.constFind(number);
+			if (found == renamed.constEnd())
+			{
+				add(number);
+				continue;
+			}
+			for (auto const& new_number : *found)
+				add(new_number);
+			if (kept.contains(number))
+				add(number);
+		}
+		return result;
+	};
+	
+	map.setFavouriteSymbols(remap(map.favouriteSymbols()));
+	auto sets = map.statusSets();
+	for (auto& set : sets)
+	{
+		set.hidden = remap(set.hidden);
+		set.protected_symbols = remap(set.protected_symbols);
+	}
+	map.setStatusSets(std::move(sets));
+	auto groups = map.symbolTree();
+	for (auto& group : groups)
+		group.numbers = remap(group.numbers);
+	map.setSymbolTree(std::move(groups));
 }
 
 }  // namespace
@@ -166,18 +216,23 @@ int replaceColor(Map& map, const MapColor* from, const MapColor* to, const std::
 int renumberSymbols(Map& map, int start, int step, const std::vector<const Symbol*>& scope)
 {
 	std::vector<int> indices;
+	QHash<QString, QStringList> renamed;  // old number -> new numbers
 	auto number = start;
 	for (int i = 0; i < map.getNumPublicSymbols(); ++i)
 	{
 		auto* symbol = map.getSymbol(i);
 		if (!inScope(scope, symbol))
 			continue;
+		auto const old_number = symbol->getNumberAsString();
 		symbol->setNumberComponent(0, number);
 		symbol->setNumberComponent(1, -1);
 		symbol->setNumberComponent(2, -1);
+		renamed[old_number] << symbol->getNumberAsString();
 		number += step;
 		indices.push_back(i);
 	}
+	if (!renamed.isEmpty())
+		renumberReferences(map, renamed, indices);
 	changed(map, indices);
 	return int(indices.size());
 }

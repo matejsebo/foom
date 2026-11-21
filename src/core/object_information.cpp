@@ -57,7 +57,7 @@ QString flagsText(const MapCoord& coord)
 	if (coord.isGapPoint())
 		flags << QStringLiteral("gap");
 	if (coord.isHolePoint())
-		flags << QStringLiteral("hole");
+		flags << QStringLiteral("end of part");  // OOM's hole flag ends every part, the outer one too
 	if (coord.isClosePoint())
 		flags << QStringLiteral("close");
 	return flags.join(QStringLiteral(", "));

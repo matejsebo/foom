@@ -2647,6 +2647,15 @@ void MapEditorController::paste(int paste_at_center)
 			part->getObject(i)->move(offset);
 	}
 	
+	// foom: a pasted object is modified now (the design notes, "Object identity and timestamps").
+	auto const now = Object::currentTime();
+	for (int p = 0; p < paste_map.getNumParts(); ++p)
+	{
+		auto* part = paste_map.getPart(p);
+		for (int i = 0; i < part->getNumObjects(); ++i)
+			part->getObject(i)->touch(now);
+	}
+
 	// Import pasted map. Do not blindly import all colors.
 	importMap(paste_map, Map::MinimalObjectImport, window);
 	
@@ -4516,7 +4525,9 @@ int MapEditorController::selectByIndex(int number)
 	auto* part = map->getCurrentPart();
 	if (number < 1 || number > part->getNumObjects())
 		return selectFound({});
-	return selectFound({ part->getObject(number - 1) });
+	auto const count = selectFound({ part->getObject(number - 1) });
+	showSelectedObject();
+	return count;
 }
 
 void MapEditorController::selectNext()
@@ -4532,6 +4543,17 @@ void MapEditorController::selectNext()
 			last = i;
 	}
 	selectFound({ part->getObject((last + 1) % count) });
+	showSelectedObject();
+}
+
+// foom: the one object found by index or as the next lies in the view.
+void MapEditorController::showSelectedObject()
+{
+	auto* object = map->getFirstSelectedObject();
+	if (!object || !map_widget)
+		return;
+	object->update();
+	map_widget->ensureVisibilityOfRect(object->getExtent(), MapWidget::ContinuousZoom);
 }
 
 void MapEditorController::selectByDateClicked()
@@ -8697,6 +8719,8 @@ void MapEditorController::elevationResizeClicked()
 	QString error;
 	if (!cropElevation(dialog.box(), &error))
 		QMessageBox::warning(window, tr("Crop elevation grid"), error);
+	else
+		window->showStatusBarMessage(tr("Elevation grid cropped"), 5000);
 }
 
 void MapEditorController::elevationSmoothClicked()
@@ -8710,6 +8734,8 @@ void MapEditorController::elevationSmoothClicked()
 	QString error;
 	if (!smoothElevation(radius, &error))
 		QMessageBox::warning(window, tr("Smooth elevation grid"), error);
+	else
+		window->showStatusBarMessage(tr("Elevation grid smoothed"), 5000);
 }
 
 void MapEditorController::elevationCloseClicked()

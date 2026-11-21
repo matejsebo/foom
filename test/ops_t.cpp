@@ -1570,7 +1570,7 @@ void OpsTest::objectInformationTest()
 	auto const has_flag = [&info](const char* flag) {
 		return std::any_of(info.vertices.begin(), info.vertices.end(), [flag](const ObjectInformation::Vertex& v) { return v.flags.contains(QLatin1String(flag)); });
 	};
-	QVERIFY(has_flag("close") && has_flag("hole"));
+	QVERIFY(has_flag("close") && has_flag("end of part"));
 	
 	MapCoord curve(40.0, 0.0);
 	curve.setCurveStart(true);
@@ -1665,8 +1665,21 @@ void OpsTest::symbolToolsTest()
 	QCOMPARE(replaceColor(map, brown, black), 1);
 	QVERIFY(symbolsUsingColor(map, brown).empty());
 	
+	map.setFavouriteSymbols({ QStringLiteral("900"), QStringLiteral("101") });
+	StatusSet status_set;
+	status_set.name = QStringLiteral("field");
+	status_set.hidden = QStringList{ QStringLiteral("900") };
+	map.setStatusSets({ status_set });
+	SymbolGroup group;
+	group.name = QStringLiteral("Lines");
+	group.numbers = QStringList{ QStringLiteral("901"), QStringLiteral("102") };
+	map.setSymbolTree({ group });
 	QCOMPARE(renumberSymbols(map, 200, 10, { arial, verdana }), 2);
 	QCOMPARE(arial->getNumberAsString(), QStringLiteral("200"));
+	// Accept (6): the favourites, the status set and the group follow.
+	QCOMPARE(map.favouriteSymbols(), (QStringList{ QStringLiteral("200"), QStringLiteral("101") }));
+	QCOMPARE(map.statusSets().front().hidden, QStringList{ QStringLiteral("200") });
+	QCOMPARE(map.symbolTree().front().numbers, (QStringList{ QStringLiteral("210"), QStringLiteral("102") }));
 	QCOMPARE(verdana->getNumberAsString(), QStringLiteral("210"));
 	QCOMPARE(contour->getNumberAsString(), QStringLiteral("101"));
 	QCOMPARE(renumberSymbols(map, 200, 10), 6);

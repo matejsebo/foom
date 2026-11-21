@@ -145,6 +145,9 @@ private slots:
 	/** foom: Tests the update from file command. */
 	void symbolUpdateCommand();
 	
+	/** foom: Tests that a paste stamps the pasted objects. */
+	void pasteStampsObjects();
+	
 	/** foom: Tests the point cloud import command. */
 	void demPointCloud();
 	

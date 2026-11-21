@@ -62,7 +62,7 @@ SelectByDateDialog::SelectByDateDialog(QWidget* parent)
 	auto const now = QDateTime::currentDateTime();
 	from_edit = new QDateTimeEdit(QDateTime(now.date(), QTime(0, 0)));
 	from_edit->setCalendarPopup(true);
-	to_edit = new QDateTimeEdit(now);
+	to_edit = new QDateTimeEdit(QDateTime(now.date(), QTime(23, 59, 59)));  // the whole of today, whatever the shown precision
 	to_edit->setCalendarPopup(true);
 	auto* form = new QFormLayout();
 	form->addRow(created_button);
