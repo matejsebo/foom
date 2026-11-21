@@ -31,6 +31,8 @@
 #include <QString>
 #include <QStringList>
 
+#include "elevation/raster_products.h"
+
 namespace OpenOrienteering {
 
 class ElevationModel;
@@ -94,6 +96,38 @@ struct GriddingResult
 
 
 /**
+ * The settings of the vegetation base map.
+ *
+ * See the design notes, "Vegetation height and vegetation base map".
+ */
+struct VegetationParams
+{
+	double cell = 1.0;
+	double undergrowth_from = 0.3;   ///< Height band above the terrain model, m.
+	double undergrowth_to = 1.3;
+	int undergrowth_kernel = 7;      ///< Cells per side.
+	std::array<double, 2> undergrowth_thresholds = {{ -0.80, -0.60 }};
+	double vegetation_from = 0.3;
+	double vegetation_to = 3.0;
+	int vegetation_kernel = 5;
+	std::array<double, 3> vegetation_thresholds = {{ -0.60, -0.30, -0.10 }};
+	double open_height = 0.1;        ///< A cell without a return this high above the terrain model is open.
+	bool no_data_red = true;         ///< Otherwise white.
+};
+
+
+/**
+ * The products made with an import of point clouds.
+ */
+struct PointCloudProducts
+{
+	bool vegetation_height = false;
+	bool vegetation_map = false;
+	VegetationParams vegetation;
+};
+
+
+/**
  * Point clouds through LASzip.
  *
  * See the design notes, "Reading point clouds and gridding them".
@@ -103,6 +137,20 @@ class PointCloud
 	Q_DECLARE_TR_FUNCTIONS(OpenOrienteering::PointCloud)
 	
 public:
+	/// The classes of the vegetation base map, as indices of the palette.
+	enum VegetationClass
+	{
+		NoData = 0,
+		Open = 1,
+		Runnable = 2,
+		Slow = 3,
+		Walk = 4,
+		Fight = 5,
+		UndergrowthDense = 6,
+		OpenRough = 7,          ///< In the palette; not assigned.
+		UndergrowthSome = 8,
+	};
+	
 	/// False when FOOM was built without LASzip.
 	static bool supported();
 	
@@ -123,6 +171,13 @@ public:
 	static PointCloudInfo analyse(const QStringList& paths);
 	
 	static GriddingResult grid(const QStringList& paths, const GriddingParams& params);
+	
+	/**
+	 * The vegetation base map of the points over the terrain model, on the model's extent.
+	 * 
+	 * An Indexed8 image of VegetationClass values with the palette.
+	 */
+	static RasterProduct vegetationBaseMap(const QStringList& paths, const ElevationModel& dtm, const VegetationParams& params);
 };
 
 

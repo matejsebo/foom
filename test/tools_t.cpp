@@ -1258,7 +1258,14 @@ void ToolsTest::demPointCloud()
 	auto const cloud = dir.filePath(QStringLiteral("plane.laz"));
 	QString error;
 	QVERIFY2(PointCloud::write(cloud, points, {}, 0, &error), qPrintable(error));
-	QVERIFY2(editor.editor->importPointClouds({ cloud }, GriddingParams(), &error), qPrintable(error));
+	auto const templates = map.map->getNumTemplates();
+	PointCloudProducts products;
+	products.vegetation_height = true;
+	products.vegetation_map = true;
+	QVERIFY2(editor.editor->importPointClouds({ cloud }, GriddingParams(), products, &error), qPrintable(error));
+	QVERIFY(QFileInfo::exists(dir.filePath(QStringLiteral("plane_vegetation_height.tif"))));
+	QVERIFY(QFileInfo::exists(dir.filePath(QStringLiteral("plane_vegetation.tif"))));
+	QCOMPARE(map.map->getNumTemplates(), templates + 2);
 	auto& set = map.map->elevationSet();
 	QCOMPARE(QFileInfo(set.href(ElevationSet::Terrain)).fileName(), QStringLiteral("plane_DTM.tif"));
 	QCOMPARE(QFileInfo(set.href(ElevationSet::Surface)).fileName(), QStringLiteral("plane_DSM.tif"));
@@ -1272,7 +1279,7 @@ void ToolsTest::demPointCloud()
 	auto const c = terrain->cellCenter(5, 7);
 	QVERIFY(std::abs(terrain->value(5, 7) - (300.0 + 0.1 * (c.x() - 1000.0))) < 0.05);
 	
-	QVERIFY(!editor.editor->importPointClouds({ dir.filePath(QStringLiteral("absent.laz")) }, GriddingParams(), &error));
+	QVERIFY(!editor.editor->importPointClouds({ dir.filePath(QStringLiteral("absent.laz")) }, GriddingParams(), PointCloudProducts(), &error));
 	QVERIFY(!error.isEmpty());
 }
 

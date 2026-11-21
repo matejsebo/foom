@@ -89,6 +89,7 @@ class IssueModel;  // foom
 struct LegibilityParams;  // foom
 struct LandformParams;  // foom
 struct GriddingParams;  // foom
+struct PointCloudProducts;  // foom
 class FindReplaceTextDialog;  // foom
 class MoveParallelDialog;  // foom
 class NumericEntryBar;  // foom
@@ -760,8 +761,8 @@ public slots:
 	int extractLandforms(const LandformParams& params);
 	/** foom: Asks for point clouds and grids them (dem-point-cloud). */
 	void elevationPointCloudClicked();
-	/** foom: Grids the point clouds into the map's terrain and surface models, saved as GeoTIFF. */
-	bool importPointClouds(const QStringList& paths, const GriddingParams& params, QString* error);
+	/** foom: Grids the point clouds into the map's terrain and surface models, saved as GeoTIFF, and makes the products. */
+	bool importPointClouds(const QStringList& paths, const GriddingParams& params, const PointCloudProducts& products, QString* error);
 	/** foom: Saves the terrain grid in a chosen format (dem-export). */
 	void elevationExportClicked();
 	/** foom: Runs the map check and shows the issues; returns their number. */

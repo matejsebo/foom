@@ -20,11 +20,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <vector>
 
 #include <QtGlobal>
 #include <QtTest>
 #include <QFileInfo>
+#include <QImage>
 #include <QObject>
 #include <QPointF>
 #include <QRectF>
@@ -33,6 +35,7 @@
 #include <QTemporaryDir>
 
 #include <cpl_conv.h>
+#include <gdal.h>
 #include <ogr_srs_api.h>
 
 #include "elevation/elevation_model.h"
@@ -158,6 +161,7 @@ private slots:
 		if (!PointCloud::supported())
 			QSKIP("Built without LASzip");
 		QVERIFY(dir.isValid());
+		GDALAllRegister();
 	}
 	
 	
@@ -385,6 +389,118 @@ private slots:
 		QVERIFY(result.dtm);
 		QVERIFY(result.dtm->crsSpec().isEmpty());
 	}
+	
+	void dsmMeanTest()
+	{
+		// the design notes, "Vegetation height and vegetation base map", Accept (1).
+		std::vector<CloudPoint> points;
+		for (int i = 0; i < 4; ++i)
+		{
+			for (int j = 0; j < 4; ++j)
+			{
+				CloudPoint ground;
+				ground.x = east0 + 0.25 + 0.5 * i;
+				ground.y = north0 + 0.25 + 0.5 * j;
+				ground.z = 100.0;
+				ground.classification = 2;
+				points.push_back(ground);
+			}
+		}
+		// Only vegetation as first returns in the south-west cell.
+		for (auto& p : points)
+		{
+			if (p.x < east0 + 1 && p.y < north0 + 1)
+			{
+				p.return_number = 2;
+				p.number_of_returns = 2;
+			}
+		}
+		for (double h : { 1.0, 2.0, 6.0 })
+		{
+			CloudPoint top;
+			top.x = east0 + 0.3 + 0.1 * h;
+			top.y = north0 + 0.5;
+			top.z = 100.0 + h;
+			top.classification = 5;
+			top.return_number = 1;
+			top.number_of_returns = 2;
+			points.push_back(top);
+		}
+		auto const result = PointCloud::grid({ writeCloud(QStringLiteral("mean.laz"), points) }, GriddingParams());
+		QVERIFY2(result.dsm, qPrintable(result.error));
+		QCOMPARE(result.dsm->width(), 2);
+		QCOMPARE(result.dsm->height(), 2);
+		QVERIFY(std::abs(result.dsm->value(0, 1) - 103.0) < 0.005);
+		QVERIFY(std::abs(result.dsm->value(1, 1) - 100.0) < 0.005);
+		QVERIFY(std::abs(result.dtm->value(0, 1) - 100.0) < 0.005);
+	}
+	
+	
+	void baseMapRulesTest()
+	{
+		// Accept (3): blocks of 10 by 10 m, 20 returns per cell of 1 m, flat ground at 100 m.
+		struct Block { int ground, canopy, vegetation, undergrowth; int expected; };
+		Block const blocks[] = {
+		    { 20, 0, 0, 0, PointCloud::Open },
+		    { 10, 10, 0, 0, PointCloud::Runnable },
+		    { 15, 0, 5, 0, PointCloud::Slow },
+		    { 12, 0, 8, 0, PointCloud::Walk },
+		    { 8, 0, 12, 0, PointCloud::Fight },
+		    { 17, 0, 0, 3, PointCloud::UndergrowthSome },
+		    { 14, 0, 0, 6, PointCloud::UndergrowthDense },
+		    { 10, 0, 8, 2, PointCloud::Fight },
+		    { 8, 0, 12, 0, PointCloud::NoData },   // its centre cell has no returns
+		};
+		auto const count = int(sizeof(blocks) / sizeof(blocks[0]));
+		std::vector<CloudPoint> points;
+		for (int b = 0; b < count; ++b)
+		{
+			for (int col = 0; col < 10; ++col)
+			{
+				for (int row = 0; row < 10; ++row)
+				{
+					if (b == count - 1 && col == 5 && row == 5)
+						continue;
+					auto const& block = blocks[b];
+					int k = 0;
+					auto add = [&](int n, double h, quint8 classification) {
+						for (int i = 0; i < n; ++i, ++k)
+						{
+							CloudPoint p;
+							p.x = east0 + 10 * b + col + 0.1 + 0.2 * (k % 5);
+							p.y = north0 + row + 0.1 + 0.2 * (k / 5);
+							p.z = 100.0 + h;
+							p.classification = classification;
+							points.push_back(p);
+						}
+					};
+					add(block.ground, 0.0, 2);
+					add(block.canopy, 12.0, 5);
+					add(block.vegetation, 2.0, 5);
+					add(block.undergrowth, 0.7, 3);
+				}
+			}
+		}
+		auto const path = writeCloud(QStringLiteral("rules.laz"), points);
+		auto const result = PointCloud::grid({ path }, GriddingParams());
+		QVERIFY2(result.dtm, qPrintable(result.error));
+		QCOMPARE(result.dtm->width(), 10 * count);
+		auto const product = PointCloud::vegetationBaseMap({ path }, *result.dtm, VegetationParams());
+		QVERIFY2(product.error.isEmpty(), qPrintable(product.error));
+		QCOMPARE(product.image.format(), QImage::Format_Indexed8);
+		QCOMPARE(product.image.width(), 10 * count);
+		QCOMPARE(product.image.height(), 10);
+		QCOMPARE(product.extent, result.dtm->extent());
+		for (int b = 0; b < count; ++b)
+			QCOMPARE(product.image.pixelIndex(10 * b + 5, 4), blocks[b].expected);
+		// The palette.
+		QCOMPARE(product.image.color(PointCloud::Open), qRgb(255, 201, 15));
+		QCOMPARE(product.image.color(PointCloud::NoData), qRgb(255, 0, 0));
+		QCOMPARE(product.image.color(PointCloud::Fight), qRgb(51, 255, 0));
+		QCOMPARE(product.image.color(PointCloud::UndergrowthDense), qRgb(128, 0, 255));
+	}
+	
+	
 };
 
 

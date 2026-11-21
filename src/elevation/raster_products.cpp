@@ -213,7 +213,10 @@ bool writeGeoTiff(const RasterProduct& product, const QString& path, QString* er
 	options = CSLSetNameValue(options, "COMPRESS", "DEFLATE");
 	options = CSLSetNameValue(options, "TILED", "YES");
 	auto const width = product.image.width(), height = product.image.height();
-	auto dataset = GDALCreate(driver, path.toUtf8().constData(), width, height, 1, GDT_Byte, options);
+	auto const format = product.image.format();
+	auto const single = format == QImage::Format_Grayscale8 || format == QImage::Format_Indexed8;
+	auto const image = single ? product.image : product.image.convertToFormat(QImage::Format_RGB32);
+	auto dataset = GDALCreate(driver, path.toUtf8().constData(), width, height, single ? 1 : 3, GDT_Byte, options);
 	CSLDestroy(options);
 	if (!dataset)
 	{
@@ -236,13 +239,49 @@ bool writeGeoTiff(const RasterProduct& product, const QString& path, QString* er
 		}
 		OSRDestroySpatialReference(srs);
 	}
-	auto band = GDALGetRasterBand(dataset, 1);
-	GDALSetRasterColorInterpretation(band, GCI_GrayIndex);
 	bool ok = true;
-	for (int r = 0; r < height && ok; ++r)
+	if (single)
 	{
-		std::vector<quint8> row(product.image.constScanLine(r), product.image.constScanLine(r) + width);
-		ok = GDALRasterIO(band, GF_Write, 0, r, width, 1, row.data(), width, 1, GDT_Byte, 0, 0) == CE_None;
+		auto band = GDALGetRasterBand(dataset, 1);
+		if (format == QImage::Format_Indexed8)
+		{
+			GDALSetRasterColorInterpretation(band, GCI_PaletteIndex);
+			auto table = GDALCreateColorTable(GPI_RGB);
+			auto const colours = image.colorTable();
+			for (int i = 0; i < colours.size(); ++i)
+			{
+				GDALColorEntry entry = { short(qRed(colours[i])), short(qGreen(colours[i])), short(qBlue(colours[i])), 255 };
+				GDALSetColorEntry(table, i, &entry);
+			}
+			GDALSetRasterColorTable(band, table);
+			GDALDestroyColorTable(table);
+		}
+		else
+		{
+			GDALSetRasterColorInterpretation(band, GCI_GrayIndex);
+		}
+		for (int r = 0; r < height && ok; ++r)
+		{
+			std::vector<quint8> row(image.constScanLine(r), image.constScanLine(r) + width);
+			ok = GDALRasterIO(band, GF_Write, 0, r, width, 1, row.data(), width, 1, GDT_Byte, 0, 0) == CE_None;
+		}
+	}
+	else
+	{
+		GDALColorInterp const interpretation[] = { GCI_RedBand, GCI_GreenBand, GCI_BlueBand };
+		for (int b = 0; b < 3 && ok; ++b)
+		{
+			auto band = GDALGetRasterBand(dataset, b + 1);
+			GDALSetRasterColorInterpretation(band, interpretation[b]);
+			std::vector<quint8> row(static_cast<std::size_t>(width));
+			for (int r = 0; r < height && ok; ++r)
+			{
+				auto const* pixels = reinterpret_cast<const QRgb*>(image.constScanLine(r));
+				for (int c = 0; c < width; ++c)
+					row[std::size_t(c)] = quint8(b == 0 ? qRed(pixels[c]) : b == 1 ? qGreen(pixels[c]) : qBlue(pixels[c]));
+				ok = GDALRasterIO(band, GF_Write, 0, r, width, 1, row.data(), width, 1, GDT_Byte, 0, 0) == CE_None;
+			}
+		}
 	}
 	GDALClose(dataset);
 	if (!ok && error)
@@ -284,6 +323,57 @@ QString productPath(const QString& map_path, const QString& grid_path, const QSt
 	QFileInfo const info(base);
 	auto const name = info.completeBaseName().isEmpty() ? QStringLiteral("elevation") : info.completeBaseName();
 	return info.absoluteDir().absoluteFilePath(name + QLatin1Char('_') + suffix + QLatin1String(".tif"));
+}
+
+
+std::vector<HeightClass> defaultHeightClasses()
+{
+	// The defaults.
+	return {
+		{ 0.0, 0.1, qRgb(255, 255, 55), qRgb(255, 255, 55) },
+		{ 0.1, 2.0, qRgb(255, 215, 0), qRgb(255, 45, 55) },
+		{ 2.0, 12.0, qRgb(0, 180, 0), qRgb(255, 255, 255) },
+		{ 12.0, 30.0, qRgb(255, 255, 255), qRgb(255, 255, 255) },
+	};
+}
+
+RasterProduct vegetationHeightRaster(const ElevationModel& heights, const std::vector<HeightClass>& classes)
+{
+	RasterProduct product;
+	if (classes.empty())
+	{
+		product.error = ElevationModel::tr("No height class");
+		return product;
+	}
+	auto const mix = [](QRgb a, QRgb b, double t) {
+		auto const channel = [t](int x, int y) { return int(std::lround(x + (y - x) * t)); };
+		return qRgb(channel(qRed(a), qRed(b)), channel(qGreen(a), qGreen(b)), channel(qBlue(a), qBlue(b)));
+	};
+	auto const colour = [&classes, &mix](double h) {
+		if (h < classes.front().from)
+			return classes.front().from_color;
+		for (auto const& c : classes)
+		{
+			if (h >= c.from && h < c.to)
+				return mix(c.from_color, c.to_color, c.to > c.from ? (h - c.from) / (c.to - c.from) : 0.0);
+		}
+		if (h >= classes.back().to)
+			return classes.back().to_color;
+		return qRgb(255, 255, 255);   // in a gap between classes
+	};
+	product.image = QImage(heights.width(), heights.height(), QImage::Format_RGB32);
+	for (int row = 0; row < heights.height(); ++row)
+	{
+		auto* line = reinterpret_cast<QRgb*>(product.image.scanLine(row));
+		for (int col = 0; col < heights.width(); ++col)
+		{
+			auto const h = heights.value(col, row);
+			line[col] = std::isnan(h) ? qRgb(0, 0, 0) : colour(double(h));
+		}
+	}
+	product.extent = heights.extent();
+	product.crs_spec = heights.crsSpec();
+	return product;
 }
 
 

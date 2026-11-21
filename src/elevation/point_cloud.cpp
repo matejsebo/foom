@@ -451,19 +451,21 @@ GriddingResult PointCloud::grid(const QStringList& paths, const GriddingParams& 
 		return result;
 	}
 	
-	// The points.
+	// The points: sums relative to the first height keep the precision of float.
 	auto const n = std::size_t(cells);
 	auto const nan = std::numeric_limits<float>::quiet_NaN();
-	std::vector<float> sum;
-	std::vector<quint32> count;
-	std::vector<float> highest;
+	std::vector<float> dtm_sum, dsm_sum;
+	std::vector<quint32> dtm_count, dsm_count;
 	if (params.dtm)
 	{
-		sum.assign(n, 0.0f);
-		count.assign(n, 0);
+		dtm_sum.assign(n, 0.0f);
+		dtm_count.assign(n, 0);
 	}
 	if (params.dsm)
-		highest.assign(n, nan);
+	{
+		dsm_sum.assign(n, 0.0f);
+		dsm_count.assign(n, 0);
+	}
 	auto reference = std::numeric_limits<double>::quiet_NaN();
 	QString crs_spec;
 	auto const right = left + width * cell;
@@ -471,22 +473,22 @@ GriddingResult PointCloud::grid(const QStringList& paths, const GriddingParams& 
 		if (p.x < left || p.x > right || p.y < bottom || p.y > top)
 			return;
 		auto const col = std::min(width - 1, int((p.x - left) / cell));
-		auto const row = std::min(height - 1, int((top - p.y) / cell));
+		// Cells include their south and west edges.
+		auto const row = height - 1 - std::min(height - 1, int((p.y - bottom) / cell));
 		auto const k = std::size_t(row) * std::size_t(width) + std::size_t(col);
 		auto const c = p.classification;
+		if (std::isnan(reference))
+			reference = p.z;
 		if (params.dtm && (c == 2 || c == 9) && p.return_number >= p.number_of_returns)
 		{
-			// Sums relative to the first height keep the precision of float.
-			if (std::isnan(reference))
-				reference = p.z;
-			sum[k] += float(p.z - reference);
-			++count[k];
+			dtm_sum[k] += float(p.z - reference);
+			++dtm_count[k];
 		}
+		// The mean.
 		if (params.dsm && (c == 2 || c == 3 || c == 4 || c == 5 || c == 6 || c == 9) && p.return_number <= 1)
 		{
-			auto const z = float(p.z);
-			if (std::isnan(highest[k]) || z > highest[k])
-				highest[k] = z;
+			dsm_sum[k] += float(p.z - reference);
+			++dsm_count[k];
 		}
 	};
 	for (auto const& path : paths)
@@ -499,8 +501,7 @@ GriddingResult PointCloud::grid(const QStringList& paths, const GriddingParams& 
 	}
 	
 	// The grids.
-	if (params.dtm)
-	{
+	auto const makeGrid = [&](std::vector<float>& sum, std::vector<quint32>& count) {
 		std::vector<float> values(n, nan);
 		for (std::size_t k = 0; k < n; ++k)
 		{
@@ -511,16 +512,154 @@ GriddingResult PointCloud::grid(const QStringList& paths, const GriddingParams& 
 		sum.shrink_to_fit();
 		count.clear();
 		count.shrink_to_fit();
-		result.dtm = std::make_unique<ElevationModel>(width, height, QPointF(left, top), cell, std::move(values), crs_spec);
-		fillVoids(*result.dtm, params.fill_cells);
-	}
+		auto grid = std::make_unique<ElevationModel>(width, height, QPointF(left, top), cell, std::move(values), crs_spec);
+		fillVoids(*grid, params.fill_cells);
+		return grid;
+	};
+	if (params.dtm)
+		result.dtm = makeGrid(dtm_sum, dtm_count);
 	if (params.dsm)
-	{
-		result.dsm = std::make_unique<ElevationModel>(width, height, QPointF(left, top), cell, std::move(highest), crs_spec);
-		fillVoids(*result.dsm, params.fill_cells);
-	}
+		result.dsm = makeGrid(dsm_sum, dsm_count);
 	return result;
 }
 
+
+// static
+RasterProduct PointCloud::vegetationBaseMap(const QStringList& paths, const ElevationModel& dtm, const VegetationParams& params)
+{
+	// the design notes, "Vegetation height and vegetation base map".
+	RasterProduct product;
+	if (!supported())
+	{
+		product.error = tr("This build of FOOM does not read point clouds.");
+		return product;
+	}
+	auto const extent = dtm.extent();
+	auto const cell = params.cell;
+	if (!(cell > 0))
+	{
+		product.error = tr("Nothing to grid.");
+		return product;
+	}
+	auto const width = std::max(1, int(std::lround(extent.width() / cell)));
+	auto const height = std::max(1, int(std::lround(extent.height() / cell)));
+	if (qint64(width) * qint64(height) > max_cells)
+	{
+		product.error = tr("The grid of %1 by %2 cells is too large; choose a larger cell or a box.").arg(width).arg(height);
+		return product;
+	}
+	auto const left = extent.left();
+	auto const top = extent.top() + extent.height();
+	
+	// Counts per cell.
+	auto const n = std::size_t(width) * std::size_t(height);
+	std::vector<quint32> returns(n, 0), raised(n, 0), ground(n, 0), vegetation(n, 0), undergrowth(n, 0);
+	auto const add = [&](const CloudPoint& p) {
+		auto const col = int(std::floor((p.x - left) / cell));
+		auto const row = height - 1 - int(std::floor((p.y - (top - height * cell)) / cell));
+		if (col < 0 || row < 0 || col >= width || row >= height)
+			return;
+		auto const k = std::size_t(row) * std::size_t(width) + std::size_t(col);
+		++returns[k];
+		auto base = dtm.at(QPointF(p.x, p.y));
+		if (std::isnan(base))
+		{
+			int c, r;
+			if (!dtm.cellAt(QPointF(p.x, p.y), c, r) || std::isnan(dtm.value(c, r)))
+				return;
+			base = dtm.value(c, r);
+		}
+		auto const h = p.z - base;
+		if (p.classification == 2 || p.classification == 9)
+			++ground[k];
+		if (h >= params.open_height)
+			++raised[k];
+		if (h >= params.vegetation_from && h < params.vegetation_to)
+			++vegetation[k];
+		if (h >= params.undergrowth_from && h < params.undergrowth_to)
+			++undergrowth[k];
+	};
+	for (auto const& path : paths)
+	{
+		if (!read(path, add, nullptr, &product.error))
+			return product;
+	}
+	
+	// Sums over windows through summed-area tables.
+	auto const table = [width, height](const std::vector<quint32>& counts) {
+		std::vector<qint64> sums(std::size_t(width + 1) * std::size_t(height + 1), 0);
+		for (int row = 0; row < height; ++row)
+		{
+			qint64 line = 0;
+			for (int col = 0; col < width; ++col)
+			{
+				line += counts[std::size_t(row) * std::size_t(width) + std::size_t(col)];
+				sums[std::size_t(row + 1) * std::size_t(width + 1) + std::size_t(col + 1)] = sums[std::size_t(row) * std::size_t(width + 1) + std::size_t(col + 1)] + line;
+			}
+		}
+		return sums;
+	};
+	auto const ground_sums = table(ground);
+	auto const vegetation_sums = table(vegetation);
+	auto const undergrowth_sums = table(undergrowth);
+	auto const window = [width, height](const std::vector<qint64>& sums, int col, int row, int size) {
+		auto const half = size / 2;
+		auto const c0 = std::max(0, col - half), c1 = std::min(width, col + half + 1);
+		auto const r0 = std::max(0, row - half), r1 = std::min(height, row + half + 1);
+		auto const at = [&sums, width](int c, int r) { return sums[std::size_t(r) * std::size_t(width + 1) + std::size_t(c)]; };
+		return at(c1, r1) - at(c0, r1) - at(c1, r0) + at(c0, r0);
+	};
+	// The normalised difference of vegetation and ground; returns 2 when undefined.
+	auto const ndvd = [](qint64 v, qint64 g) {
+		return v + g > 0 ? double(v - g) / double(v + g) : 2.0;
+	};
+	
+	product.image = QImage(width, height, QImage::Format_Indexed8);
+	product.image.setColorTable({
+	    params.no_data_red ? qRgb(255, 0, 0) : qRgb(255, 255, 255),
+	    qRgb(255, 201, 15),
+	    qRgb(255, 255, 255),
+	    qRgb(204, 255, 179),
+	    qRgb(153, 255, 102),
+	    qRgb(51, 255, 0),
+	    qRgb(128, 0, 255),
+	    qRgb(255, 224, 119),
+	    qRgb(191, 128, 255),
+	});
+	auto const& u = params.undergrowth_thresholds;
+	auto const& t = params.vegetation_thresholds;
+	for (int row = 0; row < height; ++row)
+	{
+		auto* line = product.image.scanLine(row);
+		for (int col = 0; col < width; ++col)
+		{
+			auto const k = std::size_t(row) * std::size_t(width) + std::size_t(col);
+			auto value = Runnable;
+			if (returns[k] == 0)
+			{
+				value = NoData;
+			}
+			else if (raised[k] == 0)
+			{
+				value = Open;
+			}
+			else
+			{
+				auto const iu = ndvd(window(undergrowth_sums, col, row, params.undergrowth_kernel), window(ground_sums, col, row, params.undergrowth_kernel));
+				auto const iv = ndvd(window(vegetation_sums, col, row, params.vegetation_kernel), window(ground_sums, col, row, params.vegetation_kernel));
+				auto const has_iu = iu <= 1.0;
+				auto const has_iv = iv <= 1.0;
+				if (has_iu && iu >= u[0] && (!has_iv || iu >= iv))
+					value = iu >= u[1] ? UndergrowthDense : UndergrowthSome;
+				else if (has_iv)
+					value = iv >= t[2] ? Fight : iv >= t[1] ? Walk : iv >= t[0] ? Slow : Runnable;
+			}
+			line[col] = quint8(value);
+		}
+	}
+	product.extent = QRectF(left, extent.top(), width * cell, height * cell);
+	product.crs_spec = dtm.crsSpec();
+	return product;
+}
 
 }  // namespace OpenOrienteering

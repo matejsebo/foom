@@ -257,6 +257,8 @@ if(TARGET mapper-elevation)
 	add_system_test(point_cloud_t)  # foom: the design notes, Reading point clouds and gridding them
 	target_link_libraries(point_cloud_t PRIVATE mapper-elevation)
 	target_include_directories(point_cloud_t SYSTEM PRIVATE ${GDAL_INCLUDE_DIRS})
+	target_compile_definitions(point_cloud_t PRIVATE "FOOM_FIXTURES_DIR=\"${FOOM_FIXTURES_DIR}\"")
+	target_include_directories(elevation_t SYSTEM PRIVATE ${GDAL_INCLUDE_DIRS})
 endif()
 add_system_test(map_part_role_t)  # foom: the design notes, Map part roles
 add_system_test(private_symbol_t)  # foom: the design notes, Private symbols

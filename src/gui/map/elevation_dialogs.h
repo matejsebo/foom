@@ -21,6 +21,7 @@
 #ifndef OPENORIENTEERING_ELEVATION_DIALOGS_H
 #define OPENORIENTEERING_ELEVATION_DIALOGS_H
 
+#include <array>
 #include <vector>
 
 #include <QDialog>
@@ -39,6 +40,7 @@ class QDoubleSpinBox;
 class QGroupBox;
 class QLabel;
 class QRadioButton;
+class QSpinBox;
 class QWidget;
 
 namespace OpenOrienteering {
@@ -129,6 +131,7 @@ public:
 	~PointCloudDialog() override;
 	
 	GriddingParams params() const;
+	PointCloudProducts products() const;
 	
 private:
 	void analyse();
@@ -138,6 +141,13 @@ private:
 	QDoubleSpinBox* cell_edit;
 	QCheckBox* dtm_check;
 	QCheckBox* dsm_check;
+	QCheckBox* height_check;
+	QGroupBox* vegetation_box;
+	std::array<QDoubleSpinBox*, 4> undergrowth_edits;   ///< from, to, two thresholds
+	std::array<QDoubleSpinBox*, 5> vegetation_edits;    ///< from, to, three thresholds
+	QSpinBox* undergrowth_kernel_edit;
+	QSpinBox* vegetation_kernel_edit;
+	QCheckBox* no_data_check;
 };
 
 

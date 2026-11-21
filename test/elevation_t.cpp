@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstring>
 #include <functional>
 #include <limits>
 #include <map>
@@ -40,6 +41,8 @@
 #include <QRectF>
 #include <QString>
 #include <QTemporaryDir>
+
+#include <gdal.h>
 
 #include "global.h"
 #include "core/georeferencing.h"
@@ -709,6 +712,73 @@ private slots:
 		QCOMPARE(tagValue(objects[0].get(), "feature"), QStringLiteral("knoll"));
 		QCOMPARE(tagValue(objects[0].get(), "size"), QStringLiteral("1.23"));
 		QCOMPARE(tagValue(objects[1].get(), "feature"), QStringLiteral("depression"));
+	}
+
+
+	void vegetationHeight()
+	{
+		// the design notes, "Vegetation height and vegetation base map", Accept (2).
+		auto const nan = std::numeric_limits<float>::quiet_NaN();
+		ElevationModel heights(4, 2, QPointF(950000.0, 500002.0), 1.0, { 0.05f, 1.05f, 7.0f, 20.0f, -1.0f, 40.0f, nan, 0.0f }, QStringLiteral("EPSG:26954"));
+		auto const classes = defaultHeightClasses();
+		QCOMPARE(int(classes.size()), 4);
+		auto const product = vegetationHeightRaster(heights, classes);
+		QVERIFY2(product.error.isEmpty(), qPrintable(product.error));
+		QCOMPARE(product.image.width(), 4);
+		QCOMPARE(product.image.height(), 2);
+		QCOMPARE(product.extent, heights.extent());
+		auto const near = [](QRgb a, QRgb b) {
+			return std::abs(qRed(a) - qRed(b)) <= 1 && std::abs(qGreen(a) - qGreen(b)) <= 1 && std::abs(qBlue(a) - qBlue(b)) <= 1;
+		};
+		QRgb const expected[] = { qRgb(255, 255, 55), qRgb(255, 130, 28), qRgb(128, 218, 128), qRgb(255, 255, 255),
+		                          qRgb(255, 255, 55), qRgb(255, 255, 255), qRgb(0, 0, 0), qRgb(255, 255, 55) };
+		for (int i = 0; i < 8; ++i)
+		{
+			auto const actual = product.image.pixel(i % 4, i / 4);
+			QVERIFY2(near(actual, expected[i]), qPrintable(QStringLiteral("%1: %2 %3 %4").arg(i).arg(qRed(actual)).arg(qGreen(actual)).arg(qBlue(actual))));
+		}
+		
+		QTemporaryDir dir;
+		auto const path = dir.filePath(QStringLiteral("height.tif"));
+		QString error;
+		QVERIFY2(writeGeoTiff(product, path, &error), qPrintable(error));
+		auto dataset = GDALOpen(path.toUtf8().constData(), GA_ReadOnly);
+		QVERIFY(dataset);
+		QCOMPARE(GDALGetRasterCount(dataset), 3);
+		double gt[6] = {};
+		QCOMPARE(GDALGetGeoTransform(dataset, gt), CE_None);
+		QCOMPARE(gt[0], 950000.0);
+		QCOMPARE(gt[3], 500002.0);
+		QVERIFY(std::strlen(GDALGetProjectionRef(dataset)) > 0);
+		quint8 green = 0;
+		QCOMPARE(GDALRasterIO(GDALGetRasterBand(dataset, 2), GF_Read, 1, 0, 1, 1, &green, 1, 1, GDT_Byte, 0, 0), CE_None);
+		QVERIFY(std::abs(int(green) - 130) <= 1);
+		GDALClose(dataset);
+		
+		// A palette image is written with its palette (the vegetation base map).
+		RasterProduct indexed;
+		indexed.image = QImage(3, 2, QImage::Format_Indexed8);
+		indexed.image.setColorTable({ qRgb(255, 0, 0), qRgb(255, 201, 15), qRgb(255, 255, 255) });
+		indexed.image.fill(1);
+		indexed.image.setPixel(2, 1, 2);
+		indexed.extent = QRectF(950000.0, 500000.0, 3.0, 2.0);
+		auto const palette_path = dir.filePath(QStringLiteral("palette.tif"));
+		QVERIFY2(writeGeoTiff(indexed, palette_path, &error), qPrintable(error));
+		dataset = GDALOpen(palette_path.toUtf8().constData(), GA_ReadOnly);
+		QVERIFY(dataset);
+		QCOMPARE(GDALGetRasterCount(dataset), 1);
+		auto band = GDALGetRasterBand(dataset, 1);
+		QCOMPARE(int(GDALGetRasterColorInterpretation(band)), int(GCI_PaletteIndex));
+		auto table = GDALGetRasterColorTable(band);
+		QVERIFY(table);
+		auto const* open = GDALGetColorEntry(table, 1);
+		QCOMPARE(open->c1, short(255));
+		QCOMPARE(open->c2, short(201));
+		QCOMPARE(open->c3, short(15));
+		quint8 index = 0;
+		QCOMPARE(GDALRasterIO(band, GF_Read, 2, 1, 1, 1, &index, 1, 1, GDT_Byte, 0, 0), CE_None);
+		QCOMPARE(int(index), 2);
+		GDALClose(dataset);
 	}
 };
 

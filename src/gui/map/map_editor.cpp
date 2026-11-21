@@ -7621,18 +7621,21 @@ void MapEditorController::elevationPointCloudClicked()
 		return;
 	QString error;
 	QApplication::setOverrideCursor(Qt::WaitCursor);
-	auto const ok = importPointClouds(paths, dialog.params(), &error);
+	auto const ok = importPointClouds(paths, dialog.params(), dialog.products(), &error);
 	QApplication::restoreOverrideCursor();
 	if (!ok)
 		QMessageBox::warning(window, tr("Import point cloud"), error);
 }
 
 // foom: the design notes, "Reading point clouds and gridding them".
-bool MapEditorController::importPointClouds(const QStringList& paths, const GriddingParams& params, QString* error)
+bool MapEditorController::importPointClouds(const QStringList& paths, const GriddingParams& params, const PointCloudProducts& products, QString* error)
 {
 	if (paths.isEmpty())
 		return false;
-	auto result = PointCloud::grid(paths, params);
+	auto grid_params = params;
+	grid_params.dtm = params.dtm || products.vegetation_height || products.vegetation_map;
+	grid_params.dsm = params.dsm || products.vegetation_height;
+	auto result = PointCloud::grid(paths, grid_params);
 	if (!result.error.isEmpty())
 	{
 		*error = result.error;
@@ -7666,6 +7669,36 @@ bool MapEditorController::importPointClouds(const QStringList& paths, const Grid
 		names.push_back(QFileInfo(href).fileName());
 		return true;
 	};
+	// The products, from the grids in the clouds' system.
+	auto const product = [&](const RasterProduct& raster, const QString& suffix) {
+		if (!raster.error.isEmpty())
+		{
+			*error = raster.error;
+			return false;
+		}
+		auto const path = productPath(map_path, paths.front(), suffix);
+		if (!writeGeoTiff(raster, path, error) || !attachProductTemplate(*map, path, error))
+			return false;
+		names.push_back(QFileInfo(path).fileName());
+		return true;
+	};
+	if (products.vegetation_height && result.dtm && result.dsm)
+	{
+		auto const heights = ElevationModel::difference(*result.dsm, *result.dtm);
+		if (!heights || !product(vegetationHeightRaster(*heights, defaultHeightClasses()), QStringLiteral("vegetation_height")))
+		{
+			if (!heights)
+				*error = tr("The surface and terrain models do not overlap.");
+			return false;
+		}
+	}
+	if (products.vegetation_map && result.dtm
+	    && !product(PointCloud::vegetationBaseMap(paths, *result.dtm, products.vegetation), QStringLiteral("vegetation")))
+		return false;
+	if (!params.dtm)
+		result.dtm.reset();
+	if (!params.dsm)
+		result.dsm.reset();
 	if (!store(std::move(result.dtm), ElevationSet::Terrain, QStringLiteral("DTM"))
 	    || !store(std::move(result.dsm), ElevationSet::Surface, QStringLiteral("DSM")))
 		return false;

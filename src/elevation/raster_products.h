@@ -21,6 +21,8 @@
 #ifndef OPENORIENTEERING_ELEVATION_RASTER_PRODUCTS_H
 #define OPENORIENTEERING_ELEVATION_RASTER_PRODUCTS_H
 
+#include <vector>
+
 #include <QImage>
 #include <QRectF>
 #include <QString>
@@ -65,7 +67,8 @@ struct SlopeParams
 
 
 /**
- * A grey raster with its position: Grayscale8, 255 white; void cells are black.
+ * A raster with its position: Grayscale8 (255 white; void cells black), Indexed8 with its
+ * colour table, or RGB32.
  */
 struct RasterProduct
 {
@@ -80,7 +83,29 @@ RasterProduct hillShade(const ElevationModel& grid, const HillShadeParams& param
 
 RasterProduct slopeRaster(const ElevationModel& grid, const SlopeParams& params);
 
-/// Writes the product as a GeoTIFF with one Byte band (DEFLATE, tiled).
+/**
+ * A class of the vegetation height raster: heights from..to coloured from from_color to to_color.
+ */
+struct HeightClass
+{
+	double from;
+	double to;
+	QRgb from_color;
+	QRgb to_color;
+};
+
+/// The default classes, see the design notes.
+std::vector<HeightClass> defaultHeightClasses();
+
+/**
+ * Colours the heights of vegetation (surface model minus terrain model) through the classes.
+ *
+ * Heights below the first class take its first colour, above the last its last colour;
+ * void cells are black. The image is RGB32.
+ */
+RasterProduct vegetationHeightRaster(const ElevationModel& heights, const std::vector<HeightClass>& classes);
+
+/// Writes the product as a GeoTIFF (DEFLATE, tiled): one Byte band, with the palette for Indexed8; three for RGB32.
 bool writeGeoTiff(const RasterProduct& product, const QString& path, QString* error = nullptr);
 
 /**

@@ -22,8 +22,8 @@
 
 #include <cmath>
 
-#include <QCheckBox>
 #include <QApplication>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
@@ -34,6 +34,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QSpinBox>
 #include <QVBoxLayout>
 
 
@@ -263,21 +264,72 @@ PointCloudDialog::PointCloudDialog(const QStringList& paths, QWidget* parent)
 	dsm_check->setChecked(defaults.dsm);
 	connect(analyse_button, &QPushButton::clicked, this, &PointCloudDialog::analyse);
 	
+	// The products: the design notes, "Vegetation height and vegetation base map".
+	height_check = new QCheckBox(tr("Vegetation height (surface minus terrain model, coloured)"));
+	VegetationParams const vegetation;
+	auto const makeEdit = [](double value, double minimum, double maximum, int decimals) {
+		auto* edit = new QDoubleSpinBox();
+		edit->setDecimals(decimals);
+		edit->setRange(minimum, maximum);
+		edit->setSingleStep(decimals == 1 ? 0.1 : 0.05);
+		edit->setValue(value);
+		return edit;
+	};
+	auto const makeKernel = [this](int value) {
+		auto* edit = new QSpinBox();
+		edit->setRange(1, 25);
+		edit->setSingleStep(2);
+		edit->setSuffix(tr(" cells square"));
+		edit->setValue(value);
+		return edit;
+	};
+	auto const makeRow = [](const std::vector<QWidget*>& widgets) {
+		auto* row = new QHBoxLayout();
+		for (auto* widget : widgets)
+			row->addWidget(widget);
+		row->addStretch(1);
+		return row;
+	};
+	undergrowth_edits = {{ makeEdit(vegetation.undergrowth_from, 0.0, 10.0, 1), makeEdit(vegetation.undergrowth_to, 0.0, 10.0, 1),
+	                       makeEdit(vegetation.undergrowth_thresholds[0], -1.0, 1.0, 2), makeEdit(vegetation.undergrowth_thresholds[1], -1.0, 1.0, 2) }};
+	vegetation_edits = {{ makeEdit(vegetation.vegetation_from, 0.0, 10.0, 1), makeEdit(vegetation.vegetation_to, 0.0, 10.0, 1),
+	                      makeEdit(vegetation.vegetation_thresholds[0], -1.0, 1.0, 2), makeEdit(vegetation.vegetation_thresholds[1], -1.0, 1.0, 2),
+	                      makeEdit(vegetation.vegetation_thresholds[2], -1.0, 1.0, 2) }};
+	undergrowth_kernel_edit = makeKernel(vegetation.undergrowth_kernel);
+	vegetation_kernel_edit = makeKernel(vegetation.vegetation_kernel);
+	no_data_check = new QCheckBox(tr("Show cells without returns in red"));
+	no_data_check->setChecked(vegetation.no_data_red);
+	vegetation_box = new QGroupBox(tr("Vegetation base map"));
+	vegetation_box->setCheckable(true);
+	vegetation_box->setChecked(false);
+	auto* vegetation_layout = new QFormLayout(vegetation_box);
+	vegetation_layout->addRow(tr("Undergrowth from:"), makeRow({ undergrowth_edits[0], new QLabel(tr("to")), undergrowth_edits[1], new QLabel(tr("m above ground")) }));
+	vegetation_layout->addRow(tr("Kernel:"), undergrowth_kernel_edit);
+	vegetation_layout->addRow(tr("Thresholds:"), makeRow({ undergrowth_edits[2], undergrowth_edits[3] }));
+	vegetation_layout->addRow(tr("Vegetation from:"), makeRow({ vegetation_edits[0], new QLabel(tr("to")), vegetation_edits[1], new QLabel(tr("m above ground")) }));
+	vegetation_layout->addRow(tr("Kernel:"), vegetation_kernel_edit);
+	vegetation_layout->addRow(tr("Thresholds:"), makeRow({ vegetation_edits[2], vegetation_edits[3], vegetation_edits[4] }));
+	vegetation_layout->addRow(no_data_check);
+	
 	auto* layout = new QFormLayout();
 	layout->addRow(tr("Files:"), files_label);
 	layout->addRow(analyse_button, report_label);
 	layout->addRow(tr("Cell size:"), cell_edit);
 	layout->addRow(dtm_check);
 	layout->addRow(dsm_check);
+	layout->addRow(height_check);
 	auto* main_layout = new QVBoxLayout(this);
 	main_layout->addLayout(layout);
+	main_layout->addWidget(vegetation_box);
 	auto* buttons = makeButtons(this);
 	main_layout->addWidget(buttons);
 	auto const update = [this, buttons]() {
-		buttons->button(QDialogButtonBox::Ok)->setEnabled(dtm_check->isChecked() || dsm_check->isChecked());
+		buttons->button(QDialogButtonBox::Ok)->setEnabled(dtm_check->isChecked() || dsm_check->isChecked() || height_check->isChecked() || vegetation_box->isChecked());
 	};
 	connect(dtm_check, &QCheckBox::toggled, this, update);
 	connect(dsm_check, &QCheckBox::toggled, this, update);
+	connect(height_check, &QCheckBox::toggled, this, update);
+	connect(vegetation_box, &QGroupBox::toggled, this, update);
 }
 
 PointCloudDialog::~PointCloudDialog() = default;
@@ -316,6 +368,24 @@ GriddingParams PointCloudDialog::params() const
 	params.dtm = dtm_check->isChecked();
 	params.dsm = dsm_check->isChecked();
 	return params;
+}
+
+PointCloudProducts PointCloudDialog::products() const
+{
+	PointCloudProducts products;
+	products.vegetation_height = height_check->isChecked();
+	products.vegetation_map = vegetation_box->isChecked();
+	auto& v = products.vegetation;
+	v.undergrowth_from = undergrowth_edits[0]->value();
+	v.undergrowth_to = undergrowth_edits[1]->value();
+	v.undergrowth_thresholds = {{ undergrowth_edits[2]->value(), undergrowth_edits[3]->value() }};
+	v.undergrowth_kernel = undergrowth_kernel_edit->value();
+	v.vegetation_from = vegetation_edits[0]->value();
+	v.vegetation_to = vegetation_edits[1]->value();
+	v.vegetation_thresholds = {{ vegetation_edits[2]->value(), vegetation_edits[3]->value(), vegetation_edits[4]->value() }};
+	v.vegetation_kernel = vegetation_kernel_edit->value();
+	v.no_data_red = no_data_check->isChecked();
+	return products;
 }
 
 
