@@ -92,6 +92,7 @@ struct GriddingParams;  // foom
 struct PointCloudProducts;  // foom
 struct PointPair;  // foom
 struct RubbersheetParams;  // foom
+struct LocalWarpParams;  // foom
 class FindReplaceTextDialog;  // foom
 class MoveParallelDialog;  // foom
 class NumericEntryBar;  // foom
@@ -773,6 +774,12 @@ public slots:
 	void mapAffineClicked();
 	/** foom: Starts the rubbersheet tool (map-rubbersheet). */
 	void mapRubbersheetClicked();
+	/** foom: Asks for the radius, then starts the local transformation tool (map-local-warp). */
+	void mapLocalWarpClicked();
+	/** foom: Starts the local transformation tool with the settings, without asking. */
+	void startLocalWarp(const LocalWarpParams& settings);
+	/** foom: One drag of the local transformation; see the design notes. */
+	bool localWarpMapWith(const LocalWarpParams& params);
 	/** foom: Rubbersheets the map; see the design notes. */
 	bool rubbersheetMapWith(const RubbersheetParams& params);
 	/** foom: Transforms the map by the fit to the point pairs, turning orientations; see the design notes. */
@@ -1309,6 +1316,7 @@ private:
 	QAction* map_mirror_act = {};  // foom
 	QAction* map_affine_act = {};  // foom
 	QAction* map_rubbersheet_act = {};  // foom
+	QAction* map_local_warp_act = {};  // foom
 	QAction* dem_point_cloud_act = {};  // foom
 	QAction* dem_info_act = {};  // foom
 	QAction* dem_contours_act = {};  // foom

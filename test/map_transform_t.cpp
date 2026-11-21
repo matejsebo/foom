@@ -511,10 +511,12 @@ private slots:
 		auto const guarded_before = guarded->getRawCoordinateVector();
 		auto const layout_before = t.layout_path->getRawCoordinateVector();
 		QVERIFY(rubbersheetMap(t.map, params));
+		// The path's handles 2 and 3 belong to the vertices 1 and 4.
+		std::size_t const vertex[] = { 0, 1, 1, 4, 4 };
 		for (std::size_t i = 0; i < path_before.size(); ++i)
 		{
-			auto const p = MapCoordF(path_before[i]);
-			QVERIFY(near(MapCoordF(t.path->getRawCoordinateVector()[i]), p + rubbersheetDisplacement(params, p)));
+			auto const at = MapCoordF(path_before[vertex[i]]);
+			QVERIFY(near(MapCoordF(t.path->getRawCoordinateVector()[i]), MapCoordF(path_before[i]) + rubbersheetDisplacement(params, at)));
 		}
 		QVERIFY(near(MapCoordF(t.rotated->getCoordF()), point_before + rubbersheetDisplacement(params, point_before)));
 		QVERIFY(near(MapCoordF(t.label->getAnchorCoordF()), anchor_before + rubbersheetDisplacement(params, anchor_before)));
@@ -600,6 +602,54 @@ private slots:
 			QVERIFY(near(undone.coords[i], before.coords[i], 0.0));
 		for (std::size_t i = 0; i < before.route.size(); ++i)
 			QVERIFY(near(undone.route[i], before.route[i], 0.0));
+	}
+	
+	
+	void localFieldTest()
+	{
+		// the design notes, "Local transformation", Accept (1).
+		LocalWarpParams params;
+		params.center = MapCoordF(0, 0);
+		params.target = MapCoordF(10, 0);
+		params.radius = 100;
+		QVERIFY(near(localWarpDisplacement(params, MapCoordF(0, 0)), MapCoordF(10, 0), 1e-9));
+		QVERIFY(near(localWarpDisplacement(params, MapCoordF(50, 0)), MapCoordF(5, 0), 1e-9));
+		QVERIFY(near(localWarpDisplacement(params, MapCoordF(0, 50)), MapCoordF(5, 0), 1e-9));
+		QVERIFY(near(localWarpDisplacement(params, MapCoordF(100, 0)), MapCoordF(0, 0), 1e-9));
+		QVERIFY(near(localWarpDisplacement(params, MapCoordF(0, -250)), MapCoordF(0, 0), 1e-9));
+	}
+	
+	
+	void localMapTest()
+	{
+		// Accept (2).
+		TestMap t;
+		MapCoordVector coords = { MapCoord(0.0, 0.0), MapCoord(80.0, 0.0), MapCoord(95.0, 10.0), MapCoord(98.0, -10.0), MapCoord(150.0, 0.0) };
+		coords[1].setCurveStart(true);
+		auto* curve = new PathObject(t.line, coords);
+		t.map.addObject(curve);
+		auto const index = t.map.getCurrentPart()->findObjectIndex(curve);
+		LocalWarpParams params;
+		params.center = MapCoordF(0, 0);
+		params.target = MapCoordF(10, 0);
+		params.radius = 100;
+		auto const steps = t.map.undoManager().undoStepCount();
+		QVERIFY(localWarpMap(t.map, params));
+		auto const& after = curve->getRawCoordinateVector();
+		QVERIFY(near(MapCoordF(after[0]), MapCoordF(10, 0)));
+		QVERIFY(near(MapCoordF(after[1]), MapCoordF(82, 0)));
+		QVERIFY(near(MapCoordF(after[2]), MapCoordF(97, 10)));
+		QVERIFY(near(MapCoordF(after[3]), MapCoordF(98, -10)));
+		QVERIFY(near(MapCoordF(after[4]), MapCoordF(150, 0)));
+		QVERIFY(after[1].isCurveStart());
+		QCOMPARE(t.map.undoManager().undoStepCount(), steps + 1);
+		QVERIFY(t.map.undoManager().undo());
+		// Undo puts the stored copy in the object's place.
+		QVERIFY(t.map.getCurrentPart()->getObject(index)->getRawCoordinateVector() == coords);
+		
+		// The release must lie within the radius.
+		params.target = MapCoordF(120, 0);
+		QVERIFY(!localWarpMap(t.map, params));
 	}
 };
 

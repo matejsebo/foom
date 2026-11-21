@@ -72,6 +72,7 @@
 #include "gui/map/numeric_entry_bar.h"
 #include "gui/widgets/symbol_widget.h"
 #include "tools/affine_transform_tool.h"
+#include "tools/local_warp_tool.h"
 #include "tools/rubbersheet_tool.h"
 #include "tools/draw_path_tool.h"
 #include "tools/lasso_tool.h"
@@ -1411,6 +1412,33 @@ void ToolsTest::mapRubbersheetTool()
 	QVERIFY(std::abs(inside.x() - shift.x()) < 0.001 && std::abs(inside.y() - shift.y()) < 0.001);
 	QVERIFY(std::abs(inside.x() - 5.0) < 0.5);
 	QCOMPARE(MapCoordF(probe->getRawCoordinateVector()[1]), MapCoordF(60.0, 0.0));
+	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 1);
+	QTest::keyClick(widget, Qt::Key_Escape);
+}
+
+
+void ToolsTest::mapLocalWarpTool()
+{
+	// the design notes, "Local transformation", Accept (4).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("map-local-warp"));
+	auto* widget = editor.map_widget;
+	auto* probe = new PathObject(map.line_symbol, MapCoordVector{ MapCoord(0.0, 0.0), MapCoord(30.0, 0.0) });
+	map.map->addObject(probe);
+	LocalWarpParams settings;
+	settings.radius = 20.0;
+	editor.editor->startLocalWarp(settings);
+	QVERIFY(dynamic_cast<LocalWarpTool*>(editor.editor->getTool()));
+	auto const steps = map.map->undoManager().undoStepCount();
+	editor.simulateDrag(widget->mapToViewport(MapCoord(0.0, 0.0)).toPoint(), widget->mapToViewport(MapCoord(5.0, 0.0)).toPoint());
+	auto const moved = MapCoordF(probe->getRawCoordinateVector()[0]);
+	QVERIFY2(std::abs(moved.x() - 5.0) < 0.5 && std::abs(moved.y()) < 0.5, qPrintable(QStringLiteral("%1 %2").arg(moved.x()).arg(moved.y())));
+	QCOMPARE(MapCoordF(probe->getRawCoordinateVector()[1]), MapCoordF(30.0, 0.0));
+	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 1);
+	// The tool stays; a release beyond the radius changes nothing.
+	QVERIFY(dynamic_cast<LocalWarpTool*>(editor.editor->getTool()));
+	editor.simulateDrag(widget->mapToViewport(MapCoord(5.0, 0.0)).toPoint(), widget->mapToViewport(MapCoord(30.0, 0.0)).toPoint());
 	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 1);
 	QTest::keyClick(widget, Qt::Key_Escape);
 }

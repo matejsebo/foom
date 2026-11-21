@@ -359,6 +359,7 @@ set(Mapper_Common_SRCS
   tools/gps_offset_tool.cpp  # foom
   tools/affine_transform_tool.cpp  # foom
   tools/rubbersheet_tool.cpp  # foom
+  tools/local_warp_tool.cpp  # foom
   tools/object_selector.cpp
   tools/pan_tool.cpp
   tools/point_handles.cpp

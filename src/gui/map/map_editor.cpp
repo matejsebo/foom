@@ -126,6 +126,7 @@
 #include "core/map_transform.h"  // foom
 #include "gui/map/map_transform_dialogs.h"  // foom
 #include "tools/affine_transform_tool.h"  // foom
+#include "tools/local_warp_tool.h"  // foom
 #include "tools/rubbersheet_tool.h"  // foom
 #include "elevation/raster_products.h"  // foom
 #include "core/ops/align.h"
@@ -578,6 +579,7 @@ void MapEditorController::setEditingInProgress(bool value)
 		map_mirror_act->setEnabled(!editing_in_progress);  // foom
 		map_affine_act->setEnabled(!editing_in_progress);  // foom
 		map_rubbersheet_act->setEnabled(!editing_in_progress);  // foom
+		map_local_warp_act->setEnabled(!editing_in_progress);  // foom
 		map_notes_act->setEnabled(!editing_in_progress);
 		map_info_act->setEnabled(!editing_in_progress);
 		
@@ -1204,6 +1206,7 @@ void MapEditorController::createActions()
 	map_move_act = newAction("map-move", tr("Move map..."), this, SLOT(mapMoveClicked()));  // foom
 	map_stretch_act = newAction("map-stretch", tr("Stretch / shrink map..."), this, SLOT(mapStretchClicked()));  // foom
 	map_mirror_act = newAction("map-mirror", tr("Mirror map..."), this, SLOT(mapMirrorClicked()));  // foom
+	map_local_warp_act = newToolAction("map-local-warp", tr("Local transformation..."), this, SLOT(mapLocalWarpClicked()), nullptr, tr("Drag from a centre to a target to warp the map within a radius."));  // foom
 	map_rubbersheet_act = newToolAction("map-rubbersheet", tr("Rubbersheeting..."), this, SLOT(mapRubbersheetClicked()), nullptr, tr("Click a point of the map, then the same point on the reference; Enter shows the options. The selected closed path is the perimeter."));  // foom
 	map_affine_act = newToolAction("map-affine", tr("Affine..."), this, SLOT(mapAffineClicked()), nullptr, tr("Click a point of the map, then the same point on the reference; Enter transforms the map."));  // foom
 	map_notes_act = newAction("mapnotes", tr("Map notes..."), this, SLOT(mapNotesClicked()), nullptr, QString{}, "map_menu.html");
@@ -1699,6 +1702,7 @@ void MapEditorController::createMenuAndToolbars()
 	transform_menu->addAction(map_mirror_act);
 	transform_menu->addAction(map_affine_act);
 	transform_menu->addAction(map_rubbersheet_act);
+	transform_menu->addAction(map_local_warp_act);
 	map_menu->addAction(map_notes_act);
 	map_menu->addAction(map_info_act);
 	map_menu->addSeparator();
@@ -7627,6 +7631,29 @@ void MapEditorController::elevationFeaturesClicked()
 	auto const count = extractLandforms(dialog.params());
 	if (count == 0)
 		QMessageBox::information(window, tr("Extract features"), tr("No knoll and no small depression was found."));
+}
+
+void MapEditorController::mapLocalWarpClicked()
+{
+	LocalWarpDialog dialog(window);
+	if (dialog.exec() == QDialog::Accepted)
+		startLocalWarp(dialog.settings());
+	else if (map_local_warp_act)
+		map_local_warp_act->setChecked(false);
+}
+
+void MapEditorController::startLocalWarp(const LocalWarpParams& settings)
+{
+	setTool(new LocalWarpTool(this, map_local_warp_act, settings));
+}
+
+// foom: the design notes, "Local transformation".
+bool MapEditorController::localWarpMapWith(const LocalWarpParams& params)
+{
+	if (!localWarpMap(*map, params))
+		return false;
+	map->setHasUnsavedChanges(true);
+	return true;
 }
 
 void MapEditorController::mapRubbersheetClicked()

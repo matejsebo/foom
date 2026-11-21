@@ -132,6 +132,29 @@ bool writeRubbersheetPerimeter(const QString& path, const Map& map, const std::v
 std::vector<MapCoordF> readRubbersheetPerimeter(const QString& path, const Map& map, QString* error);
 
 
+/**
+ * One drag of the local transformation; the radius in map millimetres.
+ */
+struct LocalWarpParams
+{
+	MapCoordF center;
+	MapCoordF target;
+	double radius = 10.0;            ///< mm on paper.
+	bool include_protected = false;  ///< Transform objects of protected symbols.
+	bool include_layout = false;     ///< Transform the objects of layout parts.
+};
+
+/**
+ * (target - center) * max(0, 1 - |p - center| / radius).
+ *
+ * See the design notes, "Local transformation".
+ */
+MapCoordF localWarpDisplacement(const LocalWarpParams& params, const MapCoordF& point);
+
+/// Moves what lies within the radius, as one undo step; false when the target lies beyond the radius.
+bool localWarpMap(Map& map, const LocalWarpParams& params);
+
+
 }  // namespace OpenOrienteering
 
 #endif

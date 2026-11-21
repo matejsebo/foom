@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <vector>
@@ -343,6 +344,124 @@ QStringList readLines(const QString& path, QString* error)
 	return lines;
 }
 
+/**
+ * Moves the vertices inside the region by the displacement at them, curve handles
+ * with their vertices and texts as a whole by their anchors, for rubbersheeting
+ * and the local transformation; the stored routes follow; one undo step.
+ */
+bool warpMap(Map& map, const std::function<bool (const MapCoordF&)>& inside,
+             const std::function<MapCoordF (const MapCoordF&)>& displacement,
+             bool include_protected, bool include_layout)
+{
+	auto const moved = [&displacement](const MapCoordF& c) { return c + displacement(c); };
+	
+	// The selection's drawing shares the objects' output, which the change replaces:
+	// the selection is cleared.
+	auto const had_selection = map.getNumSelectedObjects() > 0;
+	map.clearObjectSelection(false);
+	auto undo_step = std::make_unique<CombinedUndoStep>(&map);
+	auto const has_routes = !map.courseData().routes.isEmpty();
+	if (has_routes)
+		undo_step->push(new MapDataUndoStep(&map, MapDataUndoStep::Courses, MapDataUndoStep::currentXml(map, MapDataUndoStep::Courses)));
+	
+	for (int p = 0; p < map.getNumParts(); ++p)
+	{
+		auto* part = map.getPart(p);
+		if (!include_layout && part->role() == MapPart::Role::Layout)
+			continue;
+		ReplaceObjectsUndoStep* step = nullptr;
+		for (int i = 0; i < part->getNumObjects(); ++i)
+		{
+			auto* object = part->getObject(i);
+			auto const* symbol = object->getSymbol();
+			if (symbol && symbol->isProtected() && !include_protected)
+				continue;
+			auto const original = object->getRawCoordinateVector();
+			auto const touches = std::any_of(original.begin(), original.end(), [&inside](const MapCoord& c) { return inside(MapCoordF(c)); });
+			if (!touches)
+				continue;
+			if (!step)
+			{
+				step = new ReplaceObjectsUndoStep(&map);
+				step->setPartIndex(p);
+			}
+			step->addObject(i, object->duplicate());
+			// asText() and its kin do not check the type.
+			if (object->getType() == Object::Text)
+			{
+				// A text moves as a whole, by the displacement at its anchor.
+				auto const anchor = object->asText()->getAnchorCoordF();
+				if (inside(anchor))
+				{
+					auto const d = displacement(anchor);
+					object->transform(QTransform::fromTranslate(d.x(), d.y()));
+				}
+			}
+			else if (object->getType() == Object::Path)
+			{
+				// A curve's first handle belongs to the vertex before it, the second to the vertex after it.
+				std::vector<std::size_t> vertex(original.size());
+				for (std::size_t k = 0; k < original.size(); ++k)
+					vertex[k] = k;
+				for (std::size_t k = 0; k + 3 < original.size(); ++k)
+				{
+					if (original[k].isCurveStart())
+					{
+						vertex[k + 1] = k;
+						vertex[k + 2] = k + 3;
+						k += 2;
+					}
+				}
+				auto* path = object->asPath();
+				for (std::size_t k = 0; k < original.size(); ++k)
+				{
+					auto const at = MapCoordF(original[vertex[k]]);
+					if (!inside(at))
+						continue;
+					auto const d = displacement(at);
+					auto coord = original[k];
+					coord.setX(coord.x() + d.x());
+					coord.setY(coord.y() + d.y());
+					path->setCoordinate(k, coord);
+				}
+			}
+			else if (object->getType() == Object::Point)
+			{
+				auto const position = MapCoordF(original.front());
+				if (inside(position))
+					object->asPoint()->setPosition(MapCoord(moved(position)));
+			}
+		}
+		if (step)
+			undo_step->push(step);
+	}
+	
+	if (has_routes)
+	{
+		auto data = map.courseData();
+		for (auto& route : data.routes.routes)
+		{
+			for (auto& point : route.points)
+				if (inside(point))
+					point = moved(point);
+			for (auto& point : route.via)
+				if (inside(point))
+					point = moved(point);
+		}
+		map.setCourseData(data);
+	}
+	
+	if (undo_step->getNumSubSteps() > 0)
+		map.push(undo_step.release());
+	map.updateAllObjects();
+	if (had_selection)
+		map.emitSelectionChanged();
+	map.setObjectsDirty();
+	map.setOtherDirty();
+	map.updateAllMapWidgets();
+	return true;
+}
+
 }  // namespace
 
 
@@ -380,100 +499,34 @@ bool rubbersheetMap(Map& map, const RubbersheetParams& params)
 	if (params.pairs.empty() || params.perimeter.size() < 3)
 		return false;
 	auto const polygon = toPolygon(params.perimeter);
-	auto const inside = [&polygon](const MapCoordF& c) { return polygon.containsPoint(QPointF(c), Qt::OddEvenFill); };
-	auto const moved = [&params](const MapCoordF& c) { return c + rubbersheetDisplacement(params, c); };
-	
-	// The selection's drawing shares the objects' output, which the change replaces:
-	// the selection is cleared.
-	auto const had_selection = map.getNumSelectedObjects() > 0;
-	map.clearObjectSelection(false);
-	auto undo_step = std::make_unique<CombinedUndoStep>(&map);
-	auto const has_routes = !map.courseData().routes.isEmpty();
-	if (has_routes)
-		undo_step->push(new MapDataUndoStep(&map, MapDataUndoStep::Courses, MapDataUndoStep::currentXml(map, MapDataUndoStep::Courses)));
-	
-	for (int p = 0; p < map.getNumParts(); ++p)
-	{
-		auto* part = map.getPart(p);
-		if (!params.include_layout && part->role() == MapPart::Role::Layout)
-			continue;
-		ReplaceObjectsUndoStep* step = nullptr;
-		for (int i = 0; i < part->getNumObjects(); ++i)
-		{
-			auto* object = part->getObject(i);
-			auto const* symbol = object->getSymbol();
-			if (symbol && symbol->isProtected() && !params.include_protected)
-				continue;
-			auto const original = object->getRawCoordinateVector();
-			auto const touches = std::any_of(original.begin(), original.end(), [&inside](const MapCoord& c) { return inside(MapCoordF(c)); });
-			if (!touches)
-				continue;
-			if (!step)
-			{
-				step = new ReplaceObjectsUndoStep(&map);
-				step->setPartIndex(p);
-			}
-			step->addObject(i, object->duplicate());
-			// asText() and its kin do not check the type.
-			if (object->getType() == Object::Text)
-			{
-				auto* text = object->asText();
-				// A text moves as a whole, by the displacement at its anchor.
-				auto const anchor = text->getAnchorCoordF();
-				if (inside(anchor))
-				{
-					auto const d = rubbersheetDisplacement(params, anchor);
-					text->transform(QTransform::fromTranslate(d.x(), d.y()));
-				}
-			}
-			else if (object->getType() == Object::Path)
-			{
-				auto* path = object->asPath();
-				for (std::size_t k = 0; k < original.size(); ++k)
-				{
-					auto const c = MapCoordF(original[k]);
-					if (!inside(c))
-						continue;
-					auto coord = original[k];
-					auto const target = moved(c);
-					coord.setX(target.x());
-					coord.setY(target.y());
-					path->setCoordinate(k, coord);
-				}
-			}
-			else if (object->getType() == Object::Point)
-			{
-				object->asPoint()->setPosition(MapCoord(moved(MapCoordF(original.front()))));
-			}
-		}
-		if (step)
-			undo_step->push(step);
-	}
-	
-	if (has_routes)
-	{
-		auto data = map.courseData();
-		for (auto& route : data.routes.routes)
-		{
-			for (auto& point : route.points)
-				if (inside(point))
-					point = moved(point);
-			for (auto& point : route.via)
-				if (inside(point))
-					point = moved(point);
-		}
-		map.setCourseData(data);
-	}
-	
-	if (undo_step->getNumSubSteps() > 0)
-		map.push(undo_step.release());
-	map.updateAllObjects();
-	if (had_selection)
-		map.emitSelectionChanged();
-	map.setObjectsDirty();
-	map.setOtherDirty();
-	map.updateAllMapWidgets();
-	return true;
+	return warpMap(map,
+	               [&polygon](const MapCoordF& c) { return polygon.containsPoint(QPointF(c), Qt::OddEvenFill); },
+	               [&params](const MapCoordF& c) { return rubbersheetDisplacement(params, c); },
+	               params.include_protected, params.include_layout);
+}
+
+
+MapCoordF localWarpDisplacement(const LocalWarpParams& params, const MapCoordF& point)
+{
+	// the design notes, "Local transformation".
+	if (!(params.radius > 0))
+		return MapCoordF(0, 0);
+	auto const f = std::max(0.0, 1 - std::hypot(point.x() - params.center.x(), point.y() - params.center.y()) / params.radius);
+	auto const d = params.target - params.center;
+	return MapCoordF(d.x() * f, d.y() * f);
+}
+
+
+bool localWarpMap(Map& map, const LocalWarpParams& params)
+{
+	// The mouse must be released within the radius.
+	auto const drag = std::hypot(params.target.x() - params.center.x(), params.target.y() - params.center.y());
+	if (!(params.radius > 0) || !(drag < params.radius))
+		return false;
+	return warpMap(map,
+	               [&params](const MapCoordF& c) { return std::hypot(c.x() - params.center.x(), c.y() - params.center.y()) < params.radius; },
+	               [&params](const MapCoordF& c) { return localWarpDisplacement(params, c); },
+	               params.include_protected, params.include_layout);
 }
 
 
