@@ -37,6 +37,7 @@
 #include "gui/modifier_key.h"
 #include "gui/map/map_editor.h"
 #include "gui/map/map_widget.h"
+#include "tools/legibility_feedback.h"  // foom
 #include "tools/tool.h"
 
 
@@ -148,6 +149,8 @@ bool DrawFreehandTool::keyPressEvent(QKeyEvent* event)
 
 void DrawFreehandTool::draw(QPainter* painter, MapWidget* widget)
 {
+	if (editingInProgress() && preview_path && !is_helper_tool && legibilityHaloEnabled())  // foom
+		drawLegibilityHalo(painter, widget, *preview_path, drawing_symbol, legibilityHaloDistance(*map()));
 	drawPreviewObjects(painter, widget);
 }
 
@@ -155,7 +158,7 @@ void DrawFreehandTool::draw(QPainter* painter, MapWidget* widget)
 
 void DrawFreehandTool::finishDrawing()
 {
-	updateStatusText();
+	updateStatusText(false);  // foom: without the readout
 	
 	// Clean up path: remove superfluous points
 	if (preview_path->getCoordinateCount() > 2)
@@ -199,7 +202,7 @@ void DrawFreehandTool::finishDrawing()
 
 void DrawFreehandTool::abortDrawing()
 {
-	updateStatusText();
+	updateStatusText(false);  // foom: without the readout
 	
 	DrawLineAndAreaTool::abortDrawing();
 }
@@ -275,6 +278,7 @@ void DrawFreehandTool::updatePath()
 	
 	updatePreviewPath();
 	setDirtyRect();
+	updateStatusText();  // foom: the legibility readout follows the preview
 }
 
 
@@ -283,6 +287,11 @@ void DrawFreehandTool::setDirtyRect()
 {
 	QRectF rect;
 	includePreviewRects(rect);
+	if (editingInProgress() && preview_path && rect.isValid() && !is_helper_tool && legibilityHaloEnabled())  // foom: the clearance halo
+	{
+		auto const margin = legibilityHaloMargin(*map(), drawing_symbol);
+		rect.adjust(-margin, -margin, margin, margin);
+	}
 	
 	if (is_helper_tool)
 	{
@@ -300,11 +309,17 @@ void DrawFreehandTool::setDirtyRect()
 
 
 
-void DrawFreehandTool::updateStatusText()
+void DrawFreehandTool::updateStatusText(bool with_readout)
 {
 	QString text;
 	text = tr("<b>Drag</b>: Draw a path. ") +
 			OpenOrienteering::MapEditorTool::tr("<b>%1</b>: Abort. ").arg(ModifierKey::escape());
+	if (with_readout && editingInProgress() && preview_path && !is_helper_tool)  // foom
+	{
+		auto const readout = legibilityReadout(*map(), drawing_symbol, *preview_path);
+		if (!readout.isEmpty())
+			text = readout + QLatin1String(" | ") + text;
+	}
 	setStatusBarText(text);
 }
 

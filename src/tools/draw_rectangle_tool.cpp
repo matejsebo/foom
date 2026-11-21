@@ -51,6 +51,7 @@
 #include "gui/map/map_editor.h"
 #include "gui/map/map_widget.h"
 #include "gui/widgets/key_button_bar.h"
+#include "tools/legibility_feedback.h"  // foom
 #include "tools/tool.h"
 #include "tools/tool_helpers.h"
 #include "util/util.h"
@@ -428,6 +429,8 @@ bool DrawRectangleTool::keyReleaseEvent(QKeyEvent* event)
 
 void DrawRectangleTool::draw(QPainter* painter, MapWidget* widget)
 {
+	if (editingInProgress() && preview_path && showsLegibilityFeedback() && legibilityHaloEnabled())  // foom
+		drawLegibilityHalo(painter, widget, *preview_path, drawing_symbol, legibilityHaloDistance(*map()));
 	drawPreviewObjects(painter, widget);
 	
 	if (editingInProgress())
@@ -697,12 +700,18 @@ void DrawRectangleTool::updateRectangle()
 	
 	updatePreviewPath();
 	updateDirtyRect();
+	updateStatusText();  // foom: the legibility readout follows the preview
 }
 
 void DrawRectangleTool::updateDirtyRect()
 {
 	QRectF rect;
 	includePreviewRects(rect);
+	if (editingInProgress() && preview_path && rect.isValid() && showsLegibilityFeedback() && legibilityHaloEnabled())  // foom: the clearance halo
+	{
+		auto const margin = legibilityHaloMargin(*map(), drawing_symbol);
+		rect.adjust(-margin, -margin, margin, margin);
+	}
 	
 	if (shift_pressed)
 		snap_helper->includeDirtyRect(rect);
@@ -730,6 +739,12 @@ void DrawRectangleTool::updateDirtyRect()
 void DrawRectangleTool::updateStatusText()
 {
 	QString text;
+	if (editingInProgress() && preview_path && showsLegibilityFeedback())  // foom
+	{
+		auto const readout = legibilityReadout(*map(), drawing_symbol, *preview_path);
+		if (!readout.isEmpty())
+			text += readout + QLatin1String(" | ");
+	}
 	static const QString text_more_shift_control_space(::OpenOrienteering::MapEditorTool::tr("More: %1, %2, %3").arg(ModifierKey::shift(), ModifierKey::control(), ModifierKey::space()));
 	static const QString text_more_shift_space(::OpenOrienteering::MapEditorTool::tr("More: %1, %2").arg(ModifierKey::shift(), ModifierKey::space()));
 	static const QString text_more_control_space(::OpenOrienteering::MapEditorTool::tr("More: %1, %2").arg(ModifierKey::control(), ModifierKey::space()));
@@ -785,6 +800,12 @@ void DrawRectangleTool::updateStatusText()
 	text += QLatin1String("| ") + text_more;
 	
 	setStatusBarText(text);
+}
+
+// foom: the design notes, "Legibility", the other drawing tools
+bool DrawRectangleTool::showsLegibilityFeedback() const
+{
+	return !is_helper_tool;
 }
 
 

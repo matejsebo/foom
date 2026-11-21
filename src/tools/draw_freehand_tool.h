@@ -69,7 +69,7 @@ protected:
 	
 	void updatePath();
 	void setDirtyRect();
-	void updateStatusText();
+	void updateStatusText(bool with_readout = true);  // foom: with_readout
 	
 private:
 	void checkLineSegment(std::size_t first, std::size_t last);

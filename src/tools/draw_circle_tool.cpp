@@ -41,6 +41,7 @@
 #include "gui/map/map_widget.h"
 #include "gui/modifier_key.h"
 #include "gui/widgets/key_button_bar.h"
+#include "tools/legibility_feedback.h"  // foom
 #include "tools/tool.h"
 #include "util/util.h"
 
@@ -214,6 +215,8 @@ bool DrawCircleTool::keyPressEvent(QKeyEvent* event)
 
 void DrawCircleTool::draw(QPainter* painter, MapWidget* widget)
 {
+	if (editingInProgress() && first_point_set && preview_path && !is_helper_tool && legibilityHaloEnabled())  // foom
+		drawLegibilityHalo(painter, widget, *preview_path, drawing_symbol, legibilityHaloDistance(*map()));
 	drawPreviewObjects(painter, widget);
 }
 
@@ -287,12 +290,18 @@ void DrawCircleTool::updateCircle()
 	
 	updatePreviewPath();
 	setDirtyRect();
+	updateStatusText();  // foom: the legibility readout follows the preview
 }
 
 void DrawCircleTool::setDirtyRect()
 {
 	QRectF rect;
 	includePreviewRects(rect);
+	if (editingInProgress() && first_point_set && preview_path && rect.isValid() && !is_helper_tool && legibilityHaloEnabled())  // foom: the clearance halo
+	{
+		auto const margin = legibilityHaloMargin(*map(), drawing_symbol);
+		rect.adjust(-margin, -margin, margin, margin);
+	}
 	
 	if (is_helper_tool)
 		emit dirtyRectChanged(rect);
@@ -320,6 +329,12 @@ void DrawCircleTool::updateStatusText()
 		text = tr("<b>Click</b>: Finish the circle. ")
 		       + tr("<b>Drag</b>: Draw an ellipse. ")
 		       + OpenOrienteering::MapEditorTool::tr("<b>%1</b>: Abort. ").arg(ModifierKey::escape());
+	}
+	if (editingInProgress() && first_point_set && preview_path && !is_helper_tool)  // foom
+	{
+		auto const readout = legibilityReadout(*map(), drawing_symbol, *preview_path);
+		if (!readout.isEmpty())
+			text = readout + QLatin1String(" | ") + text;
 	}
 	setStatusBarText(text);
 }

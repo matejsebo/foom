@@ -78,6 +78,11 @@ QString legibilityReadout(const Map& map, const Symbol* symbol, const PathObject
 		return {};
 	if (preview.getCoordinateCount() < 2 || preview.parts().empty())
 		return {};
+	for (auto const& part : preview.parts())
+	{
+		if (part.path_coords.empty())
+			return {};  // not updated yet
+	}
 	
 	auto const types = symbol->getContainedTypes();
 	if (types & Symbol::Line)
