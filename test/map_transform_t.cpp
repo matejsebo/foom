@@ -705,6 +705,138 @@ private slots:
 		
 		QVERIFY(!reprojectMap(t.map, QStringLiteral("PROJ.4"), QStringLiteral("+proj=nonsense"), {}));
 	}
+	
+	void magneticNorthTest()
+	{
+		// the design notes, "Rotation to magnetic north and centring", Accept (1) to (4).
+		TestMap t;
+		auto georef = t.map.getGeoreferencing();
+		georef.setMapRefPoint(MapCoord(10.0, 20.0));
+		t.map.setGeoreferencing(georef);
+		auto* a = new PathObject(t.line, MapCoordVector{ MapCoord(60.0, 20.0), MapCoord(-35.0, 48.0) });
+		t.map.addObject(a);
+		auto* fixed_symbol = new PointSymbol();
+		fixed_symbol->setRotatable(true);
+		t.map.addSymbol(fixed_symbol, t.map.getNumSymbols());
+		auto* fixed = new PointObject(fixed_symbol);
+		fixed->setPosition(MapCoord(10.0, 10.0));
+		fixed->setRotation(0.25);
+		t.map.addObject(fixed);
+		t.map.undoManager().clear();
+		
+		Georeferencing const old(t.map.getGeoreferencing());
+		QCOMPARE(old.getDeclination(), 0.0);
+		auto const before = t.snapshot();
+		auto const index = t.map.getCurrentPart()->findObjectIndex(a);
+		auto const coords_before = a->getRawCoordinateVector();
+		auto const rotated_before = old.toProjectedCoords(t.rotated->getCoordF());
+		auto const layout_before = t.layout_path->getRawCoordinateVector();
+		auto const extent_before = t.map.extents().front().rect_mm;
+		
+		MapTransformOptions options;
+		options.fixed_symbols = { fixed_symbol };
+		options.keep_layout = true;
+		QVERIFY(rotateMapToMagneticNorth(t.map, 3.3, options));
+		auto const& after = t.map.getGeoreferencing();
+		QCOMPARE(after.getDeclination(), 3.3);
+		QCOMPARE(after.getGrivation(), 3.3);
+		QCOMPARE(after.getMapRefPoint(), MapCoord(10.0, 20.0));
+		
+		// Counter-clockwise on screen, about the reference point.
+		auto const angle = qDegreesToRadians(3.3);
+		auto const& moved = a->getRawCoordinateVector();
+		QVERIFY(near(MapCoordF(moved[0]), MapCoordF(10.0 + 50.0 * std::cos(angle), 20.0 - 50.0 * std::sin(angle))));
+		
+		// The real world kept.
+		for (std::size_t i = 0; i < moved.size(); ++i)
+		{
+			auto const p = old.toProjectedCoords(MapCoordF(coords_before[i]));
+			auto const q = after.toProjectedCoords(MapCoordF(moved[i]));
+			QVERIFY2(std::abs(p.x() - q.x()) < 0.01 && std::abs(p.y() - q.y()) < 0.01, qPrintable(QStringLiteral("%1 %2").arg(q.x() - p.x()).arg(q.y() - p.y())));
+		}
+		auto const rotated_after = after.toProjectedCoords(t.rotated->getCoordF());
+		QVERIFY(std::abs(rotated_after.x() - rotated_before.x()) < 0.01 && std::abs(rotated_after.y() - rotated_before.y()) < 0.01);
+		
+		// Orientation and options.
+		QVERIFY(std::abs(t.rotated->getRotation() - (0.5 + angle)) < 1e-9);
+		QCOMPARE(fixed->getCoord(), MapCoord(10.0, 10.0));
+		QCOMPARE(fixed->getRotation(), 0.25);
+		QVERIFY(t.layout_path->getRawCoordinateVector() == layout_before);
+		auto const turned = MapCoordF(10.0, 20.0) + MapCoordF((before.template_origin.x() - 10.0) * std::cos(angle) + (before.template_origin.y() - 20.0) * std::sin(angle),
+		                                                     -(before.template_origin.x() - 10.0) * std::sin(angle) + (before.template_origin.y() - 20.0) * std::cos(angle));
+		QVERIFY(near(t.snapshot().template_origin, turned));
+		QVERIFY(near(t.snapshot().georeferenced_origin, before.georeferenced_origin));
+		QVERIFY(t.map.extents().front().rect_mm != extent_before);
+		
+		// Undo.
+		QCOMPARE(t.map.undoManager().undoStepCount(), 1);
+		QVERIFY(t.map.undoManager().undo());
+		QCOMPARE(t.map.getGeoreferencing().getDeclination(), 0.0);
+		QCOMPARE(t.map.getGeoreferencing().getGrivation(), 0.0);
+		QVERIFY(t.map.getCurrentPart()->getObject(index)->getRawCoordinateVector() == coords_before);
+		QCOMPARE(t.map.extents().front().rect_mm, extent_before);
+		
+		// The layout turns when it is not kept.
+		options.keep_layout = false;
+		QVERIFY(rotateMapToMagneticNorth(t.map, 3.3, options));
+		QVERIFY(t.layout_path->getRawCoordinateVector() != layout_before);
+	}
+	
+	void centerTest()
+	{
+		// the design notes, "Rotation to magnetic north and centring", Accept (5) and (6).
+		{
+			Map m;
+			Georeferencing g;
+			g.setScaleDenominator(4000);
+			g.setProjectedRefPoint(QPointF(955000.0, 525000.0), false, false);
+			g.setMapRefPoint(MapCoord(0.0, 0.0));
+			g.setGrivation(3.3);
+			m.setGeoreferencing(g);
+			auto* symbol = new LineSymbol();
+			m.addSymbol(symbol, 0);
+			auto const c = m.getGeoreferencing().toMapCoordF(QPointF(957590.0, 528578.0));
+			m.addObject(new PathObject(symbol, MapCoordVector{ MapCoord(c.x() - 5.0, c.y() - 5.0), MapCoord(c.x() + 5.0, c.y() + 5.0) }));
+			QCOMPARE(proposedMapOffset(m), QPointF(958000.0, 529000.0));
+			auto const offset = mapOffset(m);
+			QVERIFY(std::abs(offset.x() - 955000.0) < 0.001 && std::abs(offset.y() - 525000.0) < 0.001);
+		}
+		
+		TestMap t(3.3);
+		Georeferencing const old(t.map.getGeoreferencing());
+		auto const before = t.snapshot();
+		auto const path_before = t.path->getRawCoordinateVector();
+		auto const layout_before = t.layout_path->getRawCoordinateVector();
+		
+		QVERIFY(centerMap(t.map, QPointF(953000.0, 504000.0)));
+		auto const offset = mapOffset(t.map);
+		QVERIFY2(std::abs(offset.x() - 953000.0) < 0.004 && std::abs(offset.y() - 504000.0) < 0.004, qPrintable(QStringLiteral("%1 %2").arg(offset.x(), 0, 'f', 4).arg(offset.y(), 0, 'f', 4)));
+		auto const& georef = t.map.getGeoreferencing();
+		QCOMPARE(georef.getProjectedRefPoint(), old.getProjectedRefPoint());
+		QCOMPARE(georef.getGrivation(), 3.3);
+		
+		auto const after = t.snapshot();
+		QCOMPARE(after.coords.size(), before.coords.size());
+		auto const shift = after.coords.front() - before.coords.front();
+		QVERIFY2(near(shift, MapCoordF(-691.19, 1041.52), 0.01), qPrintable(QStringLiteral("%1 %2").arg(shift.x()).arg(shift.y())));
+		for (std::size_t i = 0; i < after.coords.size(); ++i)
+		{
+			auto const p = old.toProjectedCoords(before.coords[i]);
+			auto const q = georef.toProjectedCoords(after.coords[i]);
+			QVERIFY(std::abs(p.x() - q.x()) < 0.01 && std::abs(p.y() - q.y()) < 0.01);
+		}
+		QVERIFY(near(MapCoordF(t.layout_path->getRawCoordinateVector().front()), MapCoordF(layout_before.front()) + shift));
+		QVERIFY(near(after.template_origin, before.template_origin + shift));
+		QVERIFY(near(MapCoordF(after.extents.front().rect_mm.topLeft()), MapCoordF(before.extents.front().rect_mm.topLeft()) + shift));
+		QVERIFY(near(MapCoordF(after.bookmarks.front().center), MapCoordF(before.bookmarks.front().center) + shift));
+		
+		QCOMPARE(t.map.undoManager().undoStepCount(), 1);
+		QVERIFY(t.map.undoManager().undo());
+		auto const restored = mapOffset(t.map);
+		QVERIFY(std::abs(restored.x() - 950000.0) < 0.001 && std::abs(restored.y() - 500000.0) < 0.001);
+		QVERIFY(t.map.getPart(0)->getObject(0)->getRawCoordinateVector() == path_before);
+		QCOMPARE(t.map.extents().front().rect_mm, before.extents.front().rect_mm);
+	}
 };
 
 

@@ -20,20 +20,26 @@
 #ifndef OPENORIENTEERING_MAP_TRANSFORM_DIALOGS_H
 #define OPENORIENTEERING_MAP_TRANSFORM_DIALOGS_H
 
+#include <memory>
 #include <vector>
 
 #include <QDialog>
 #include <QObject>
+#include <QPointF>
 #include <QString>
 
 class QCheckBox;
 class QDoubleSpinBox;
+class QLabel;
+class QNetworkAccessManager;
+class QPushButton;
 class QWidget;
 
 namespace OpenOrienteering {
 
 class CRSSelector;
 class Georeferencing;
+class Map;
 
 
 /**
@@ -100,6 +106,54 @@ public:
 	
 private:
 	CRSSelector* selector;
+};
+
+
+/**
+ * The map-rotate-magnetic dialog: the declination, with the online lookup, and the resulting rotation.
+ */
+class MagneticNorthDialog : public QDialog
+{
+Q_OBJECT
+public:
+	MagneticNorthDialog(const Georeferencing& georef, QWidget* parent);
+	~MagneticNorthDialog() override;
+	
+	double declination() const;
+	bool keepSelectedSymbols() const;
+	bool keepLayout() const;
+	
+private:
+	void updateAngles();
+	void lookUpDeclination();
+	
+	std::unique_ptr<Georeferencing> georef;
+	QDoubleSpinBox* declination_edit;
+	QPushButton* lookup_button;
+	QLabel* lookup_label;
+	QLabel* angle_label;
+	QLabel* rotate_label;
+	QCheckBox* symbols_check;
+	QCheckBox* layout_check;
+	QNetworkAccessManager* network = nullptr;
+};
+
+
+/**
+ * The map-center dialog: the map's offset and the new one.
+ */
+class CenterMapDialog : public QDialog
+{
+Q_OBJECT
+public:
+	CenterMapDialog(const Map& map, QWidget* parent);
+	~CenterMapDialog() override;
+	
+	QPointF offset() const;
+	
+private:
+	QDoubleSpinBox* east_edit;
+	QDoubleSpinBox* north_edit;
 };
 
 

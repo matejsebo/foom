@@ -22,6 +22,8 @@
 
 #include "tools_t.h"
 
+#include <cmath>
+
 #include <Qt>
 #include <QtGlobal>
 #include <QtTest>
@@ -34,6 +36,7 @@
 #include <QPointF>
 #include <QKeySequence>
 #include <QLabel>
+#include <QMenu>
 #include <QSettings>
 #include <QStatusBar>
 #include <QVariant>
@@ -1460,6 +1463,39 @@ void ToolsTest::mapReproject()
 	QVERIFY(editor.editor->reprojectMap(QStringLiteral("EPSG"), QStringLiteral("EPSG:26913"), { QStringLiteral("26913") }));
 	QCOMPARE(map.map->getGeoreferencing().getProjectedCRSSpec(), QStringLiteral("EPSG:26913"));
 	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 1);
+}
+
+
+void ToolsTest::mapRotateMagneticAndCenter()
+{
+	// the design notes, "Rotation to magnetic north and centring", Accept (7).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* magnetic = editor.editor->getAction("map-rotate-magnetic");
+	auto* center = editor.editor->getAction("map-center");
+	QVERIFY(magnetic);
+	QVERIFY(center);
+	QMenu* transform_menu = nullptr;
+	for (auto* widget : editor.editor->getAction("map-move")->associatedWidgets())
+	{
+		if (auto* menu = qobject_cast<QMenu*>(widget))
+			transform_menu = menu;
+	}
+	QVERIFY(transform_menu);
+	auto const actions = transform_menu->actions();
+	auto const rotate_index = actions.indexOf(editor.editor->getAction("rotatemap"));
+	QVERIFY(rotate_index > actions.indexOf(editor.editor->getAction("map-mirror")));
+	QCOMPARE(actions.indexOf(magnetic), rotate_index + 1);
+	QCOMPARE(actions.indexOf(center), actions.size() - 1);
+	
+	auto const steps = map.map->undoManager().undoStepCount();
+	QVERIFY(editor.editor->rotateMapToMagneticNorth(3.3, false, true));
+	QCOMPARE(map.map->getGeoreferencing().getDeclination(), 3.3);
+	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 1);
+	QVERIFY(editor.editor->centerMap(QPointF(1000.0, 2000.0)));
+	auto const offset = mapOffset(*map.map);
+	QVERIFY(std::abs(offset.x() - 1000.0) < 0.1 && std::abs(offset.y() - 2000.0) < 0.1);
+	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 2);
 }
 
 

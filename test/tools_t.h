@@ -106,6 +106,9 @@ private slots:
 	/** foom: Tests the change of coordinate system command. */
 	void mapReproject();
 	
+	/** foom: Tests the rotation to magnetic north and the centring commands. */
+	void mapRotateMagneticAndCenter();
+	
 	/** foom: Tests the map check command and the Issues window. */
 	void mapCheck();
 	

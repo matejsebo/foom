@@ -29,7 +29,9 @@
 
 namespace OpenOrienteering {
 
+class Georeferencing;
 class Map;
+class Symbol;
 
 
 /**
@@ -44,6 +46,15 @@ struct MapTransformOptions
 	/// Add the rotation of the transformation's x axis to the orientation of objects
 	/// whose symbol is rotatable or has a rotatable pattern.
 	bool rotate_orientations = false;
+	
+	/// Leave the layout parts' objects in place, even when carrying the rest.
+	bool keep_layout = false;
+	
+	/// Symbols whose objects stay in place.
+	std::vector<const Symbol*> fixed_symbols;
+	
+	/// When set, the map takes this georeferencing in the same undo step.
+	const Georeferencing* georeferencing = nullptr;
 };
 
 
@@ -85,6 +96,34 @@ QTransform mapMoveTransform(const Map& map, double east_m, double north_m);
 
 /// Scaling by the factors, with the mirrors, about the map's origin.
 QTransform mapStretchTransform(double factor_x, double factor_y, bool mirror_horizontally, bool mirror_vertically);
+
+/// Rotation by the angle, counter-clockwise on screen, about the centre.
+QTransform mapRotationTransform(const MapCoordF& centre, double degrees);
+
+/// The angle in degrees by which rotateMapToMagneticNorth() turns the map for the declination.
+double magneticNorthRotation(const Georeferencing& georef, double declination);
+
+/**
+ * Gives the map the declination and turns it by the change of grivation about the
+ * georeferencing's map reference point, so that every object keeps its projected
+ * coordinates. One undo step.
+ *
+ * See the design notes, "Rotation to magnetic north and centring".
+ */
+bool rotateMapToMagneticNorth(Map& map, double declination, MapTransformOptions options);
+
+/// The projected coordinates of the map's origin (the map offset).
+QPointF mapOffset(const Map& map);
+
+/// The projected coordinates of the centre of the objects' coordinates' bounding box, rounded to whole kilometres.
+QPointF proposedMapOffset(const Map& map);
+
+/**
+ * Moves everything so that the projected point comes to the map's origin, and the
+ * georeferencing's map reference point with it.
+ * One undo step.
+ */
+bool centerMap(Map& map, const QPointF& offset);
 
 /**
  * Fits a transformation to the point pairs: one pair a translation, two a similarity,

@@ -581,6 +581,8 @@ void MapEditorController::setEditingInProgress(bool value)
 		map_rubbersheet_act->setEnabled(!editing_in_progress);  // foom
 		map_local_warp_act->setEnabled(!editing_in_progress);  // foom
 		map_reproject_act->setEnabled(!editing_in_progress);  // foom
+		map_rotate_magnetic_act->setEnabled(!editing_in_progress);  // foom
+		map_center_act->setEnabled(!editing_in_progress);  // foom
 		map_notes_act->setEnabled(!editing_in_progress);
 		map_info_act->setEnabled(!editing_in_progress);
 		
@@ -1207,6 +1209,8 @@ void MapEditorController::createActions()
 	map_move_act = newAction("map-move", tr("Move map..."), this, SLOT(mapMoveClicked()));  // foom
 	map_stretch_act = newAction("map-stretch", tr("Stretch / shrink map..."), this, SLOT(mapStretchClicked()));  // foom
 	map_mirror_act = newAction("map-mirror", tr("Mirror map..."), this, SLOT(mapMirrorClicked()));  // foom
+	map_rotate_magnetic_act = newAction("map-rotate-magnetic", tr("Rotate map to magnetic north..."), this, SLOT(mapRotateMagneticClicked()));  // foom
+	map_center_act = newAction("map-center", tr("Center map in drawing area..."), this, SLOT(mapCenterClicked()));  // foom
 	map_reproject_act = newAction("map-reproject", tr("Change coordinate system..."), this, SLOT(mapReprojectClicked()));  // foom
 	map_local_warp_act = newToolAction("map-local-warp", tr("Local transformation..."), this, SLOT(mapLocalWarpClicked()), nullptr, tr("Drag from a centre to a target to warp the map within a radius."));  // foom
 	map_rubbersheet_act = newToolAction("map-rubbersheet", tr("Rubbersheeting..."), this, SLOT(mapRubbersheetClicked()), nullptr, tr("Click a point of the map, then the same point on the reference; Enter shows the options. The selected closed path is the perimeter."));  // foom
@@ -1702,11 +1706,13 @@ void MapEditorController::createMenuAndToolbars()
 	transform_menu->addAction(map_move_act);
 	transform_menu->addAction(map_stretch_act);
 	transform_menu->addAction(map_mirror_act);
+	transform_menu->addAction(rotate_map_act);
+	transform_menu->addAction(map_rotate_magnetic_act);
+	transform_menu->addAction(map_reproject_act);
 	transform_menu->addAction(map_affine_act);
 	transform_menu->addAction(map_rubbersheet_act);
 	transform_menu->addAction(map_local_warp_act);
-	transform_menu->addSeparator();
-	transform_menu->addAction(map_reproject_act);
+	transform_menu->addAction(map_center_act);
 	map_menu->addAction(map_notes_act);
 	map_menu->addAction(map_info_act);
 	map_menu->addSeparator();
@@ -7635,6 +7641,48 @@ void MapEditorController::elevationFeaturesClicked()
 	auto const count = extractLandforms(dialog.params());
 	if (count == 0)
 		QMessageBox::information(window, tr("Extract features"), tr("No knoll and no small depression was found."));
+}
+
+void MapEditorController::mapRotateMagneticClicked()
+{
+	MagneticNorthDialog dialog(map->getGeoreferencing(), window);
+	if (dialog.exec() == QDialog::Accepted)
+		rotateMapToMagneticNorth(dialog.declination(), dialog.keepSelectedSymbols(), dialog.keepLayout());
+}
+
+// foom: the design notes, "Rotation to magnetic north and centring".
+bool MapEditorController::rotateMapToMagneticNorth(double declination, bool keep_selected_symbols, bool keep_layout)
+{
+	MapTransformOptions options;
+	options.keep_layout = keep_layout;
+	if (keep_selected_symbols && symbol_widget)
+	{
+		for (int i = 0; i < map->getNumSymbols(); ++i)
+		{
+			if (symbol_widget->isSymbolSelected(map->getSymbol(i)))
+				options.fixed_symbols.push_back(map->getSymbol(i));
+		}
+	}
+	if (!OpenOrienteering::rotateMapToMagneticNorth(*map, declination, options))
+		return false;
+	map->setHasUnsavedChanges(true);
+	return true;
+}
+
+void MapEditorController::mapCenterClicked()
+{
+	CenterMapDialog dialog(*map, window);
+	if (dialog.exec() == QDialog::Accepted)
+		centerMap(dialog.offset());
+}
+
+// foom: the design notes, "Rotation to magnetic north and centring".
+bool MapEditorController::centerMap(const QPointF& offset)
+{
+	if (!OpenOrienteering::centerMap(*map, offset))
+		return false;
+	map->setHasUnsavedChanges(true);
+	return true;
 }
 
 void MapEditorController::mapReprojectClicked()

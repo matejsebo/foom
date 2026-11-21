@@ -62,6 +62,7 @@ class QFrame;
 class QKeyEvent;
 class QLabel;
 class QMenu;
+class QPointF;  // foom
 class QSignalMapper;
 // IWYU pragma: no_forward_declare QString
 class QToolBar;
@@ -780,6 +781,14 @@ public slots:
 	void mapReprojectClicked();
 	/** foom: Changes the map's coordinate reference system; see the design notes. */
 	bool reprojectMap(const QString& id, const QString& spec, const std::vector<QString>& params);
+	/** foom: Asks for the declination and turns the map to magnetic north (map-rotate-magnetic). */
+	void mapRotateMagneticClicked();
+	/** foom: Turns the map to magnetic north; see the design notes. */
+	bool rotateMapToMagneticNorth(double declination, bool keep_selected_symbols, bool keep_layout);
+	/** foom: Asks for the new offset and centres the map (map-center). */
+	void mapCenterClicked();
+	/** foom: Moves the map so that the projected offset is its origin; see the design notes. */
+	bool centerMap(const QPointF& offset);
 	/** foom: Starts the local transformation tool with the settings, without asking. */
 	void startLocalWarp(const LocalWarpParams& settings);
 	/** foom: One drag of the local transformation; see the design notes. */
@@ -1322,6 +1331,8 @@ private:
 	QAction* map_rubbersheet_act = {};  // foom
 	QAction* map_local_warp_act = {};  // foom
 	QAction* map_reproject_act = {};  // foom
+	QAction* map_rotate_magnetic_act = {};  // foom
+	QAction* map_center_act = {};  // foom
 	QAction* dem_point_cloud_act = {};  // foom
 	QAction* dem_info_act = {};  // foom
 	QAction* dem_contours_act = {};  // foom

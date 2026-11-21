@@ -20,15 +20,32 @@
 #include "map_transform_dialogs.h"
 
 #include <QCheckBox>
+#include <QDate>
+#include <QDesktopServices>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QHBoxLayout>
 #include <QLabel>
+#include <QLatin1String>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QString>
+#include <QUrl>
+#include <QUrlQuery>
 #include <QVBoxLayout>
+#include <QXmlStreamReader>
+#if defined(QT_NETWORK_LIB)
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#endif
 
 #include "core/crs_template.h"
 #include "core/georeferencing.h"
+#include "core/latlon.h"
+#include "core/map.h"
+#include "core/map_transform.h"
 #include "gui/widgets/crs_selector.h"
 
 
@@ -141,6 +158,139 @@ QString ReprojectDialog::crsId() const
 
 QString ReprojectDialog::crsSpec() const { return selector->currentCRSSpec(); }
 std::vector<QString> ReprojectDialog::crsParameters() const { return selector->parameters(); }
+
+
+
+MagneticNorthDialog::MagneticNorthDialog(const Georeferencing& georef, QWidget* parent)
+: QDialog(parent)
+, georef(std::make_unique<Georeferencing>(georef))
+{
+	setWindowTitle(tr("Rotate map to magnetic north"));
+	auto* form = new QFormLayout();
+	auto const geospatial = georef.getState() == Georeferencing::Geospatial;
+	if (geospatial)
+	{
+		auto const lat_lon = georef.getGeographicRefPoint();
+		form->addRow(tr("Reference point:"), new QLabel(tr("Latitude %1°, longitude %2°").arg(lat_lon.latitude(), 0, 'f', 5).arg(lat_lon.longitude(), 0, 'f', 5)));
+	}
+	declination_edit = makeEdit(georef.getDeclination(), -180.0, 180.0, QStringLiteral(" °"));
+	lookup_button = new QPushButton(tr("Lookup..."));
+	lookup_button->setEnabled(geospatial);
+	auto* declination_row = new QHBoxLayout();
+	declination_row->addWidget(declination_edit, 1);
+	declination_row->addWidget(lookup_button, 0);
+	form->addRow(tr("Magnetic declination:"), declination_row);
+	lookup_label = new QLabel();
+	form->addRow(lookup_label);
+	form->addRow(tr("Grid convergence:"), new QLabel(QString::number(georef.getConvergence(), 'f', 2) + QStringLiteral(" °")));
+	angle_label = new QLabel();
+	form->addRow(tr("Grid magnetic angle:"), angle_label);
+	form->addRow(tr("Current angle:"), new QLabel(QString::number(georef.getGrivation(), 'f', 2) + QStringLiteral(" °")));
+	rotate_label = new QLabel();
+	form->addRow(tr("Rotate by:"), rotate_label);
+	symbols_check = new QCheckBox(tr("Do not rotate objects of the selected symbols"));
+	layout_check = new QCheckBox(tr("Do not rotate layout objects"));
+	layout_check->setChecked(true);
+	form->addRow(symbols_check);
+	form->addRow(layout_check);
+	connect(declination_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MagneticNorthDialog::updateAngles);
+	connect(lookup_button, &QPushButton::clicked, this, &MagneticNorthDialog::lookUpDeclination);
+	updateAngles();
+	finish(this, form);
+}
+
+MagneticNorthDialog::~MagneticNorthDialog() = default;
+
+double MagneticNorthDialog::declination() const { return declination_edit->value(); }
+bool MagneticNorthDialog::keepSelectedSymbols() const { return symbols_check->isChecked(); }
+bool MagneticNorthDialog::keepLayout() const { return layout_check->isChecked(); }
+
+void MagneticNorthDialog::updateAngles()
+{
+	auto const rotation = magneticNorthRotation(*georef, declination());
+	angle_label->setText(QString::number(georef->getGrivation() + rotation, 'f', 2) + QStringLiteral(" °"));
+	rotate_label->setText(QString::number(rotation, 'f', 2) + QStringLiteral(" °"));
+}
+
+void MagneticNorthDialog::lookUpDeclination()
+{
+	// The online lookup of OOM's georeferencing dialog: the same service, request and question.
+	auto const lat_lon = georef->getGeographicRefPoint();
+	QString const service(QStringLiteral("https://geomag.bgs.ac.uk"));
+	if (QMessageBox::question(this, tr("Online declination lookup"),
+	                          tr("The magnetic declination for the reference point %1° %2° will now be retrieved from <a href=\"%3\">%3</a>. Do you want to continue?")
+	                          .arg(lat_lon.latitude()).arg(lat_lon.longitude()).arg(service),
+	                          QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes) != QMessageBox::Yes)
+		return;
+	QUrl url(service + QStringLiteral("/web_service/GMModels/wmm/2025"));
+	QUrlQuery query;
+	query.addQueryItem(QStringLiteral("latitude"), QString::number(lat_lon.latitude()));
+	query.addQueryItem(QStringLiteral("longitude"), QString::number(lat_lon.longitude()));
+	query.addQueryItem(QStringLiteral("altitude"), QStringLiteral("0"));
+	query.addQueryItem(QStringLiteral("date"), QDate::currentDate().toString(Qt::ISODate));
+#if defined(QT_NETWORK_LIB)
+	query.addQueryItem(QStringLiteral("format"), QStringLiteral("xml"));
+	url.setQuery(query);
+	if (!network)
+		network = new QNetworkAccessManager(this);
+	lookup_button->setEnabled(false);
+	lookup_label->setText(tr("Looking up the declination..."));
+	auto* reply = network->get(QNetworkRequest(url));
+	connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+		reply->deleteLater();
+		lookup_button->setEnabled(true);
+		auto found = false;
+		if (reply->error() == QNetworkReply::NoError)
+		{
+			QXmlStreamReader xml(reply);
+			while (!xml.atEnd() && !found)
+			{
+				if (xml.readNext() == QXmlStreamReader::StartElement && xml.name() == QLatin1String("declination"))
+				{
+					bool ok = false;
+					auto const value = xml.readElementText(QXmlStreamReader::IncludeChildElements).toDouble(&ok);
+					if (ok)
+					{
+						declination_edit->setValue(Georeferencing::roundDeclination(value));
+						found = true;
+					}
+				}
+			}
+		}
+		lookup_label->setText(found ? QString{} : tr("The online lookup failed."));
+	});
+#else
+	query.addQueryItem(QStringLiteral("format"), QStringLiteral("html"));
+	url.setQuery(query);
+	QDesktopServices::openUrl(url);
+#endif
+}
+
+
+
+CenterMapDialog::CenterMapDialog(const Map& map, QWidget* parent)
+: QDialog(parent)
+{
+	setWindowTitle(tr("Center map in drawing area"));
+	auto const offset = mapOffset(map);
+	auto const proposed = proposedMapOffset(map);
+	auto* form = new QFormLayout();
+	form->addRow(new QLabel(tr("Existing map offset:")));
+	form->addRow(tr("Easting:"), new QLabel(QString::number(offset.x(), 'f', 2) + QStringLiteral(" m")));
+	form->addRow(tr("Northing:"), new QLabel(QString::number(offset.y(), 'f', 2) + QStringLiteral(" m")));
+	form->addRow(new QLabel(tr("New map offset:")));
+	east_edit = makeEdit(proposed.x(), -100000000.0, 100000000.0, QStringLiteral(" m"));
+	north_edit = makeEdit(proposed.y(), -100000000.0, 100000000.0, QStringLiteral(" m"));
+	form->addRow(tr("Easting:"), east_edit);
+	form->addRow(tr("Northing:"), north_edit);
+	finish(this, form);
+	if (auto* buttons = findChild<QDialogButtonBox*>())
+		buttons->button(QDialogButtonBox::Ok)->setText(tr("Center map"));
+}
+
+CenterMapDialog::~CenterMapDialog() = default;
+
+QPointF CenterMapDialog::offset() const { return { east_edit->value(), north_edit->value() }; }
 
 
 }  // namespace OpenOrienteering

@@ -110,12 +110,14 @@ bool transformMap(Map& map, const QTransform& transform, const MapTransformOptio
 	}
 	if (!map.courseData().routes.isEmpty())
 		save(MapDataUndoStep::Courses);
+	if (options.georeferencing)
+		save(MapDataUndoStep::Georef);
 	
 	// The objects, part by part.
 	for (int p = 0; p < map.getNumParts(); ++p)
 	{
 		auto* part = map.getPart(p);
-		if (part->getNumObjects() == 0 || (!options.carry && part->role() == MapPart::Role::Layout))
+		if (part->getNumObjects() == 0 || ((!options.carry || options.keep_layout) && part->role() == MapPart::Role::Layout))
 			continue;
 		// The rotation of the x axis, cf. Object::rotate().
 		auto const angle = std::atan2(-transform.m12(), transform.m11());
@@ -124,9 +126,11 @@ bool transformMap(Map& map, const QTransform& transform, const MapTransformOptio
 		for (int i = 0; i < part->getNumObjects(); ++i)
 		{
 			auto* object = part->getObject(i);
+			auto const* symbol = object->getSymbol();
+			if (std::find(options.fixed_symbols.begin(), options.fixed_symbols.end(), symbol) != options.fixed_symbols.end())
+				continue;
 			step->addObject(i, object->duplicate());
 			object->transform(transform);
-			auto const* symbol = object->getSymbol();
 			if (options.rotate_orientations && symbol && (symbol->hasRotatableFillPattern() || symbol->isRotatable()))
 				object->setRotation(object->getRotation() + angle);
 		}
@@ -175,6 +179,9 @@ bool transformMap(Map& map, const QTransform& transform, const MapTransformOptio
 		}
 		map.setCourseData(data);
 	}
+	
+	if (options.georeferencing)
+		map.setGeoreferencing(*options.georeferencing);
 	
 	map.push(undo_step.release());
 	map.updateAllObjects();
@@ -618,6 +625,66 @@ bool reprojectMap(Map& map, const QString& id, const QString& spec, const std::v
 	map.setOtherDirty();
 	map.updateAllMapWidgets();
 	return true;
+}
+
+
+QTransform mapRotationTransform(const MapCoordF& centre, double degrees)
+{
+	// QTransform::rotate() turns clockwise on screen, where y grows south.
+	QTransform transform;
+	transform.translate(centre.x(), centre.y());
+	transform.rotate(-degrees);
+	transform.translate(-centre.x(), -centre.y());
+	return transform;
+}
+
+double magneticNorthRotation(const Georeferencing& georef, double declination)
+{
+	Georeferencing next(georef);
+	next.setDeclination(declination);
+	return next.getGrivation() - georef.getGrivation();
+}
+
+bool rotateMapToMagneticNorth(Map& map, double declination, MapTransformOptions options)
+{
+	// the design notes, "Rotation to magnetic north and centring".
+	Georeferencing const old_georef(map.getGeoreferencing());
+	Georeferencing next(old_georef);
+	next.setDeclination(declination);
+	auto const degrees = next.getGrivation() - old_georef.getGrivation();
+	options.rotate_orientations = true;
+	options.georeferencing = &next;
+	return transformMap(map, mapRotationTransform(MapCoordF(old_georef.getMapRefPoint()), degrees), options);
+}
+
+QPointF mapOffset(const Map& map)
+{
+	return map.getGeoreferencing().toProjectedCoords(MapCoordF(0.0, 0.0));
+}
+
+QPointF proposedMapOffset(const Map& map)
+{
+	// The bounding box of the coordinates.
+	QRectF box;
+	map.applyOnAllObjects([&box](const Object* object) {
+		for (auto const& coord : object->getRawCoordinateVector())
+			rectIncludeSafe(box, QPointF(MapCoordF(coord)));
+	});
+	auto const centre = map.getGeoreferencing().toProjectedCoords(MapCoordF(box.center()));
+	return { std::round(centre.x() / 1000.0) * 1000.0, std::round(centre.y() / 1000.0) * 1000.0 };
+}
+
+bool centerMap(Map& map, const QPointF& offset)
+{
+	// the design notes, "Rotation to magnetic north and centring".
+	Georeferencing const old_georef(map.getGeoreferencing());
+	// Whole map units, so that the reference point moves exactly as the objects do.
+	auto const shift = -MapCoord(old_georef.toMapCoordF(offset));
+	Georeferencing next(old_georef);
+	next.setMapRefPoint(old_georef.getMapRefPoint() + shift);
+	MapTransformOptions options;
+	options.georeferencing = &next;
+	return transformMap(map, QTransform::fromTranslate(MapCoordF(shift).x(), MapCoordF(shift).y()), options);
 }
 
 
