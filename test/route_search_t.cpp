@@ -111,6 +111,7 @@ private slots:
 	void aroundTest();
 	void roadTest();
 	void slopeTest();
+	void sideSlopeTest();
 };
 
 
@@ -280,6 +281,57 @@ void RouteSearchTest::slopeTest()
 	RouteSearch flat_search(terrain, without, 10000);
 	flat_search.setHeights([](const MapCoordF& place) { return place.x(); });
 	QVERIFY(std::abs(flat_search.fastest(MapCoordF(2.0, 5.0), MapCoordF(18.0, 5.0)).time_s - flat) < 0.8);
+}
+
+
+/// Accept (1) to (5) of "the extra time across a slope"
+void RouteSearchTest::sideSlopeTest()
+{
+	auto const degree = std::atan(1.0) / 45.0;
+	auto const narrow = std::atan(0.5);
+	auto const wide = std::atan(2.0);
+	QCOMPARE(sideSlopeFactor(0.0), 0.0);
+	QVERIFY(std::abs(sideSlopeFactor(narrow) - 1.0 / 3.0) < 1e-9);
+	QVERIFY(std::abs(sideSlopeFactor(45 * degree) - 1.0 / 3.0) < 1e-9);
+	QVERIFY(std::abs(sideSlopeFactor(wide) - 1.0 / 3.0) < 1e-9);
+	QVERIFY(std::abs(sideSlopeFactor(90 * degree) - 1.0) < 1e-9);
+	QVERIFY(std::abs(sideSlopeFactor((wide + 90 * degree) / 2) - 2.0 / 3.0) < 1e-9);
+	QVERIFY(std::abs(sideSlopeFactor(narrow / 2) - 1.0 / 6.0) < 1e-9);
+	QVERIFY(std::abs(sideSlopeExtra(0.18, 90 * degree) - 0.02916) < 1e-6);
+	QCOMPARE(sideSlopeExtra(0.0, 90 * degree), 0.0);
+	
+	Map map;
+	map.setScaleDenominator(10000);
+	auto* open = addSymbol<AreaSymbol>(map, 401);
+	auto* road = addSymbol<LineSymbol>(map, 503);
+	addArea(map, open, fieldArea());
+	addStroke(map, road, { QPointF(15.0, 0.5), QPointF(15.0, 9.5) });
+	auto const terrain = buildRouteTerrain(map, RouteSettings{}, fieldArea());
+	// A plane which rises to the east by 1 m in 4 m.
+	auto const plane = [](const MapCoordF& place) { return place.x() * 10.0 * 0.25; };
+	RouteSearch search(terrain, RouteSettings{}, 10000);
+	search.setHeights(plane);
+	
+	// Along the contour, in the open land.
+	auto route = search.fastest(MapCoordF(5.0, 1.0), MapCoordF(5.0, 9.0));
+	QVERIFY(route.found);
+	auto const contour = 80.0 * 0.2 * (100.0 / 86.0 + 5.0 * 0.25 * 0.25 * 0.25);
+	QVERIFY2(std::abs(route.time_s - contour) < 0.3, qPrintable(QString::number(route.time_s)));
+	// Along the road.
+	route = search.fastest(MapCoordF(15.0, 1.0), MapCoordF(15.0, 9.0));
+	QVERIFY(route.found);
+	QVERIFY2(std::abs(route.time_s - 16.0) < 0.3, qPrintable(QString::number(route.time_s)));
+	
+	// Without heights, and with settings which do not use them, no extra.
+	RouteSettings without;
+	without.use_elevation = false;
+	RouteSearch flat_search(terrain, without, 10000);
+	flat_search.setHeights(plane);
+	route = flat_search.fastest(MapCoordF(5.0, 1.0), MapCoordF(5.0, 9.0));
+	QVERIFY2(std::abs(route.time_s - 80.0 * 0.2 / 0.86) < 0.3, qPrintable(QString::number(route.time_s)));
+	search.setHeights([](const MapCoordF&) { return std::nan(""); });
+	route = search.fastest(MapCoordF(5.0, 1.0), MapCoordF(5.0, 9.0));
+	QVERIFY2(std::abs(route.time_s - 80.0 * 0.2 / 0.86) < 0.3, qPrintable(QString::number(route.time_s)));
 }
 
 

@@ -61,6 +61,12 @@ constexpr double least_slope_factor = 0.85;
 /// How far, in pixels, a place on an impassable pixel is taken to a passable one.
 constexpr int snap_radius = 8;
 
+/// Half the distance in m over which the slope of the terrain is taken.
+constexpr double slope_half_distance_m = 5.0;
+
+/// From this runnability on, as on roads, tracks and footpaths, running across a slope costs nothing extra.
+constexpr int path_runnability = 93;
+
 }  // namespace
 
 
@@ -84,6 +90,28 @@ double slopeFactor(double m)
 }
 
 
+double sideSlopeFactor(double angle_to_fall_line)
+{
+	// At the headings 0, atan(1/2), 45 degrees, atan(2) and 90 degrees to the fall line; joined by straight lines.
+	auto const quarter = 2 * std::atan(1.0);
+	auto const narrow = std::atan(0.5);
+	auto const wide = std::atan(2.0);
+	auto const angle = std::max(0.0, std::min(std::abs(angle_to_fall_line), quarter));
+	if (angle <= narrow)
+		return angle / narrow / 3.0;
+	if (angle <= wide)
+		return 1.0 / 3.0;
+	return 1.0 / 3.0 + (angle - wide) / (quarter - wide) * 2.0 / 3.0;
+}
+
+double sideSlopeExtra(double slope, double angle_to_fall_line)
+{
+	if (!(slope > 0.0))
+		return 0.0;
+	return 5.0 * slope * slope * slope * sideSlopeFactor(angle_to_fall_line);
+}
+
+
 
 struct RouteSearch::Data
 {
@@ -100,6 +128,9 @@ struct RouteSearch::Data
 	std::vector<qint32> parent;
 	std::vector<float> height;
 	std::vector<quint8> height_known;  ///< 0 not asked, 1 known, 2 not known
+	std::vector<float> gradient_x;     ///< the slope of the terrain, per m to the east
+	std::vector<float> gradient_y;     ///< per m to the south
+	std::vector<quint8> gradient_known;  ///< 0 not asked, 1 known, 2 not known
 	std::vector<std::size_t> touched;
 	
 	Data(const RouteTerrain& terrain, const RouteSettings& settings, unsigned int scale_denominator)
@@ -140,6 +171,57 @@ struct RouteSearch::Data
 		return height_known[i] == 1;
 	}
 	
+	/// The gradient of the heights at a pixel, over the slope distance; false where it is not known.
+	bool gradientOf(int x, int y, double& gx, double& gy)
+	{
+		auto const i = indexOf(x, y);
+		if (gradient_known.empty())
+		{
+			gradient_x.assign(terrain.runnability.size(), 0.0f);
+			gradient_y.assign(terrain.runnability.size(), 0.0f);
+			gradient_known.assign(terrain.runnability.size(), 0);
+		}
+		if (gradient_known[i] == 0)
+		{
+			auto const c = centre(x, y);
+			auto const d = slope_half_distance_m / pixel_m * terrain.pixel;  // in mm of the map
+			auto const east = heights(MapCoordF(c.x() + d, c.y()));
+			auto const west = heights(MapCoordF(c.x() - d, c.y()));
+			auto const south = heights(MapCoordF(c.x(), c.y() + d));
+			auto const north = heights(MapCoordF(c.x(), c.y() - d));
+			auto const known = !std::isnan(east) && !std::isnan(west) && !std::isnan(south) && !std::isnan(north);
+			gradient_known[i] = known ? 1 : 2;
+			if (known)
+			{
+				gradient_x[i] = float((east - west) / (2 * slope_half_distance_m));
+				gradient_y[i] = float((south - north) / (2 * slope_half_distance_m));
+			}
+		}
+		gx = gradient_x[i];
+		gy = gradient_y[i];
+		return gradient_known[i] == 1;
+	}
+	
+	/// The extra time across the slope of a step, in s; the design notes, "Route analysis: the extra time across a slope".
+	double sideSlopeTime(int x, int y, int nx, int ny, const Step& step)
+	{
+		auto const off_path = (terrain.runnability[indexOf(x, y)] < path_runnability ? 1 : 0)
+		                      + (terrain.runnability[indexOf(nx, ny)] < path_runnability ? 1 : 0);
+		if (off_path == 0)
+			return 0.0;
+		double ax, ay, bx, by;
+		if (!gradientOf(x, y, ax, ay) || !gradientOf(nx, ny, bx, by))
+			return 0.0;
+		auto const gx = (ax + bx) / 2;
+		auto const gy = (ay + by) / 2;
+		auto const slope = std::hypot(gx, gy);
+		if (slope <= 0.0)
+			return 0.0;
+		auto const along = std::abs(step.dx * gx + step.dy * gy) / (std::hypot(double(step.dx), double(step.dy)) * slope);
+		auto const angle = std::acos(std::min(1.0, along));
+		return step.length * pixel_m * pace * sideSlopeExtra(slope, angle) * off_path / 2;
+	}
+	
 	/// The time of a step from a pixel, in s; negative when the step cannot be made.
 	double stepTime(int x, int y, const Step& step)
 	{
@@ -169,6 +251,7 @@ struct RouteSearch::Data
 			double there;
 			if (heightOf(x, y, here) && heightOf(nx, ny, there))
 				time *= slopeFactor((there - here) / (step.length * pixel_m));
+			time += sideSlopeTime(x, y, nx, ny, step);
 		}
 		return time;
 	}
@@ -227,6 +310,9 @@ void RouteSearch::setHeights(RouteHeights heights)
 	d->use_heights = d->settings.use_elevation && bool(d->heights);
 	d->height.clear();
 	d->height_known.clear();
+	d->gradient_x.clear();
+	d->gradient_y.clear();
+	d->gradient_known.clear();
 }
 
 

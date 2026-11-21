@@ -46,6 +46,21 @@ namespace OpenOrienteering {
  */
 double slopeFactor(double gradient);
 
+/**
+ * Which part of the full extra time across a slope a step has at this
+ * angle to the fall line, in radians: 0 straight up or down, 1/3 from
+ * atan(1/2) to atan(2), 1 along the contour, and straight lines between.
+ * See "Route analysis: the extra time across a slope".
+ */
+double sideSlopeFactor(double angle_to_fall_line);
+
+/**
+ * The extra time across a slope per m of horizontal length, in units of
+ * the pace: 5.0 times the cube of the slope of the terrain times
+ * sideSlopeFactor() of the angle.
+ */
+double sideSlopeExtra(double slope, double angle_to_fall_line);
+
 /** The height of a place of the map in m, or NaN where it is not known. */
 using RouteHeights = std::function<double(const MapCoordF&)>;
 
