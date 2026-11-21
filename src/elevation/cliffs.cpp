@@ -23,6 +23,7 @@
 #include <cmath>
 #include <limits>
 #include <map>
+#include <numeric>
 #include <utility>
 
 #include <QtGlobal>
@@ -103,25 +104,29 @@ struct Edge
 
 
 
-std::unique_ptr<ElevationModel> gaussianFiltered(const ElevationModel& grid)
+std::unique_ptr<ElevationModel> gaussianFiltered(const ElevationModel& grid, int n)
 {
-	// the design notes, "Cliffs from the slope gradient": the filter of one cell.
+	// the design notes, "Cliffs from the slope gradient" and "Trees": the filter of n cells.
 	auto result = std::make_unique<ElevationModel>(grid);
 	auto const width = grid.width();
 	auto const height = grid.height();
-	if (width < 3 || height < 3)
+	if (n < 1 || width < 2 * n + 1 || height < 2 * n + 1)
 		return result;
-	auto const side = std::exp(-0.5);
-	double const weights[3] = { side / (1 + 2 * side), 1 / (1 + 2 * side), side / (1 + 2 * side) };
-	for (int row = 1; row + 1 < height; ++row)
+	std::vector<double> weights;
+	for (int k = -n; k <= n; ++k)
+		weights.push_back(std::exp(-0.5 * k * k / (double(n) * n)));
+	auto const total = std::accumulate(weights.begin(), weights.end(), 0.0);
+	for (auto& w : weights)
+		w /= total;
+	for (int row = n; row + n < height; ++row)
 	{
-		for (int col = 1; col + 1 < width; ++col)
+		for (int col = n; col + n < width; ++col)
 		{
 			double sum = 0.0;
 			auto valid = true;
-			for (int dr = -1; dr <= 1 && valid; ++dr)
+			for (int dr = -n; dr <= n && valid; ++dr)
 			{
-				for (int dc = -1; dc <= 1; ++dc)
+				for (int dc = -n; dc <= n; ++dc)
 				{
 					auto const value = grid.value(col + dc, row + dr);
 					if (std::isnan(value))
@@ -129,7 +134,7 @@ std::unique_ptr<ElevationModel> gaussianFiltered(const ElevationModel& grid)
 						valid = false;
 						break;
 					}
-					sum += weights[dr + 1] * weights[dc + 1] * value;
+					sum += weights[std::size_t(dr + n)] * weights[std::size_t(dc + n)] * value;
 				}
 			}
 			if (valid)

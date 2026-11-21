@@ -49,6 +49,8 @@ struct LandformParams
 	double cliff_threshold = 45.0; ///< The slope threshold, degrees.
 	int cliff_min_area = 3;       ///< Pixels.
 	int cliff_min_length = 3;     ///< Pixels.
+	bool trees = false;           ///< Also trees from the vegetation heights, see trees.h (MapEditorController::extractLandforms).
+	double tree_min_height = 4.0; ///< m.
 };
 
 struct Landform

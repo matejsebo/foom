@@ -33,6 +33,7 @@ set(MAPPER_ELEVATION_SOURCES
   landforms.cpp
   point_cloud.cpp
   raster_products.cpp
+  trees.cpp
 )
 
 mapper_translations_sources(${MAPPER_ELEVATION_SOURCES})

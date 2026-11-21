@@ -1265,6 +1265,37 @@ void ToolsTest::demCliffs()
 }
 
 
+void ToolsTest::demTrees()
+{
+	// the design notes, "Trees", Accept (5).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	LandformParams params;
+	params.trees = true;
+	map.map->elevationSet().setModel(ElevationSet::Terrain, std::make_unique<ElevationModel>(50, 30, QPointF(0.0, 30.0), 1.0, std::vector<float>(50 * 30, 100.0f)), QStringLiteral("dtm.asc"));
+	QCOMPARE(editor.editor->extractLandforms(params), 0);
+	// Two trees of 12 m, 20 m apart.
+	std::vector<float> values(50 * 30);
+	for (int row = 0; row < 30; ++row)
+	{
+		for (int col = 0; col < 50; ++col)
+		{
+			auto const a = std::hypot(col - 15.0, row - 15.0);
+			auto const b = std::hypot(col - 35.0, row - 15.0);
+			values[std::size_t(row) * 50 + std::size_t(col)] = float(100.0 + 12.0 * std::max(std::exp(-a * a / 4.5), std::exp(-b * b / 4.5)));
+		}
+	}
+	map.map->elevationSet().setModel(ElevationSet::Surface, std::make_unique<ElevationModel>(50, 30, QPointF(0.0, 30.0), 1.0, std::move(values)), QStringLiteral("dsm.asc"));
+	auto const objects = map.map->getNumObjects();
+	auto const undo_steps = map.map->undoManager().undoStepCount();
+	QCOMPARE(editor.editor->extractLandforms(params), 2);
+	QCOMPARE(map.map->getNumObjects(), objects + 2);
+	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 1);
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(map.map->getNumObjects(), objects);
+}
+
+
 void ToolsTest::demPointCloud()
 {
 	// the design notes, "Reading point clouds and gridding them", Accept (9).

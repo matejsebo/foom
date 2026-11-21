@@ -91,6 +91,9 @@ private slots:
 	/** foom: Tests the cliffs of the Extract features command. */
 	void demCliffs();
 	
+	/** foom: Tests the trees of the Extract features command. */
+	void demTrees();
+	
 	/** foom: Tests the point cloud import command. */
 	void demPointCloud();
 	

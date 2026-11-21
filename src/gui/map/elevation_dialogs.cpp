@@ -237,6 +237,14 @@ LandformDialog::LandformDialog(QWidget* parent)
 		widget->setEnabled(defaults.cliffs);
 		connect(cliffs_check, &QCheckBox::toggled, widget, &QWidget::setEnabled);
 	}
+	trees_check = new QCheckBox(tr("Trees (symbol 418)"));
+	trees_check->setChecked(defaults.trees);
+	tree_height_edit = new QSpinBox();
+	tree_height_edit->setRange(1, 50);
+	tree_height_edit->setSuffix(QStringLiteral(" m"));
+	tree_height_edit->setValue(int(defaults.tree_min_height));
+	tree_height_edit->setEnabled(defaults.trees);
+	connect(trees_check, &QCheckBox::toggled, tree_height_edit, &QWidget::setEnabled);
 	
 	auto* layout = new QFormLayout();
 	layout->addRow(knolls_check);
@@ -247,6 +255,8 @@ LandformDialog::LandformDialog(QWidget* parent)
 	layout->addRow(tr("Slope threshold:"), threshold_edit);
 	layout->addRow(tr("Minimum area:"), area_edit);
 	layout->addRow(tr("Minimum length:"), length_edit);
+	layout->addRow(trees_check);
+	layout->addRow(tr("Minimum tree height:"), tree_height_edit);
 	auto* main_layout = new QVBoxLayout(this);
 	main_layout->addLayout(layout);
 	main_layout->addWidget(makeButtons(this));
@@ -265,6 +275,8 @@ LandformParams LandformDialog::params() const
 	params.cliff_threshold = threshold_edit->value();
 	params.cliff_min_area = area_edit->value();
 	params.cliff_min_length = length_edit->value();
+	params.trees = trees_check->isChecked();
+	params.tree_min_height = tree_height_edit->value();
 	return params;
 }
 

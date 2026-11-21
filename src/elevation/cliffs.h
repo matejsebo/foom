@@ -77,8 +77,8 @@ struct CliffArea
 };
 
 
-/// The filter: a 3 by 3 Gaussian of one cell's standard deviation; border cells and cells beside a void cell keep their value.
-std::unique_ptr<ElevationModel> gaussianFiltered(const ElevationModel& grid);
+/// The filter of n cells: a Gaussian of n cells' standard deviation over 2n + 1 by 2n + 1 cells; cells within n of the border or near a void cell keep their value.
+std::unique_ptr<ElevationModel> gaussianFiltered(const ElevationModel& grid, int n = 1);
 
 /// The gradient above which the slope raster is black for the threshold in degrees.
 double steepGradient(double threshold);

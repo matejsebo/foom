@@ -101,7 +101,7 @@ private:
 
 
 /**
- * The dem-features dialog: knolls, small depressions and cliffs.
+ * The dem-features dialog: knolls, small depressions, cliffs and trees.
  */
 class LandformDialog : public QDialog
 {
@@ -121,6 +121,8 @@ private:
 	QDoubleSpinBox* threshold_edit;
 	QSpinBox* area_edit;
 	QSpinBox* length_edit;
+	QCheckBox* trees_check;  // the design notes, "Trees"
+	QSpinBox* tree_height_edit;
 };
 
 

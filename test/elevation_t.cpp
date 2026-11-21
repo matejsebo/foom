@@ -67,6 +67,7 @@
 #include "elevation/elevation_set.h"
 #include "elevation/landforms.h"
 #include "elevation/raster_products.h"
+#include "elevation/trees.h"
 #include "fileformats/file_format.h"
 #include "fileformats/file_format_registry.h"
 #include "fileformats/file_import_export.h"
@@ -911,6 +912,54 @@ private slots:
 		auto const actual = MapCoordF(coords[1]);
 		QVERIFY(std::abs(actual.x() - expected.x()) < 0.001 && std::abs(actual.y() - expected.y()) < 0.001);
 		QCOMPARE(tagValue(objects[0].get(), "feature"), QStringLiteral("cliff"));
+	}
+
+	void treeCases()
+	{
+		// the design notes, "Trees", Accept (3).
+		auto const bumps = [](double separation) {
+			return makeGrid(60, 30, 0.0, 30.0, 1.0, [separation](double x, double y) {
+				auto const a = std::hypot(x - 20.5, y - 15.5);
+				auto const b = std::hypot(x - 20.5 - separation, y - 15.5);
+				return 10.0 * std::max(std::exp(-a * a / 4.5), std::exp(-b * b / 4.5));
+			});
+		};
+		auto const close = findTrees(*bumps(6.0), TreeParams{});
+		QCOMPARE(int(close.size()), 1);
+		QVERIFY2(std::abs(close.front().projected.x() - 23.5) < 0.1 && std::abs(close.front().projected.y() - 15.5) < 0.1,
+		         qPrintable(QStringLiteral("%1 %2").arg(close.front().projected.x()).arg(close.front().projected.y())));
+		QCOMPARE(int(findTrees(*bumps(9.0), TreeParams{}).size()), 2);
+		TreeParams high;
+		high.min_height = 20.0;
+		QVERIFY(findTrees(*bumps(9.0), high).empty());
+	}
+
+	void treeObjects()
+	{
+		// the design notes, "Trees", Accept (4).
+		Map map;
+		map.setGeoreferencing(utm32Georeferencing());
+		map.setScaleDenominator(10000);
+		auto const* symbol = treeSymbol(map);
+		QVERIFY(symbol);
+		QCOMPARE(symbol->getNumberComponent(0), 418);
+		QCOMPARE(symbol->getType(), Symbol::Point);
+		auto const count = map.getNumSymbols();
+		QCOMPARE(treeSymbol(map), symbol);
+		QCOMPARE(map.getNumSymbols(), count);
+	
+		std::vector<Tree> trees(1);
+		trees[0].projected = QPointF(500010.0, 4999990.0);
+		trees[0].height = 12.345;
+		auto const objects = makeTreeObjects(map, trees, symbol);
+		QCOMPARE(int(objects.size()), 1);
+		QCOMPARE(objects[0]->getType(), Object::Point);
+		QCOMPARE(objects[0]->getSymbol(), static_cast<const Symbol*>(symbol));
+		auto const expected = map.getGeoreferencing().toMapCoordF(trees[0].projected);
+		auto const position = objects[0]->asPoint()->getCoordF();
+		QVERIFY(std::abs(position.x() - expected.x()) < 0.001 && std::abs(position.y() - expected.y()) < 0.001);
+		QCOMPARE(tagValue(objects[0].get(), "feature"), QStringLiteral("tree"));
+		QCOMPARE(tagValue(objects[0].get(), "height"), QStringLiteral("12.35"));
 	}
 
 

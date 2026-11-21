@@ -123,6 +123,7 @@
 #include "elevation/elevation_set.h"  // foom
 #include "elevation/cliffs.h"  // foom
 #include "elevation/landforms.h"  // foom
+#include "elevation/trees.h"  // foom
 #include "elevation/point_cloud.h"  // foom
 #include "core/map_transform.h"  // foom
 #include "gui/map/map_transform_dialogs.h"  // foom
@@ -7925,7 +7926,24 @@ int MapEditorController::extractLandforms(const LandformParams& params)
 		cliff_params.min_length = params.cliff_min_length;
 		cliffs = findCliffs(*model, cliff_params);
 	}
-	if (landforms.empty() && cliffs.empty())
+	// the design notes, "Trees": from the surface less the terrain.
+	std::vector<Tree> trees;
+	if (params.trees)
+	{
+		auto const* surface = map->elevationSet().model(ElevationSet::Surface, map->getGeoreferencing().getProjectedCRSSpec());
+		auto const heights = surface ? ElevationModel::difference(*surface, *model) : nullptr;
+		if (heights)
+		{
+			TreeParams tree_params;
+			tree_params.min_height = params.tree_min_height;
+			trees = findTrees(*heights, tree_params);
+		}
+		else if (window)
+		{
+			window->showStatusBarMessage(tr("Trees need a surface model; import a point cloud with the surface model first."), 5000);
+		}
+	}
+	if (landforms.empty() && cliffs.empty() && trees.empty())
 		return 0;
 	auto const knolls = int(std::count_if(landforms.begin(), landforms.end(), [](const Landform& l) { return l.kind == Landform::Knoll; }));
 	std::vector<std::unique_ptr<Object>> objects;
@@ -7937,12 +7955,17 @@ int MapEditorController::extractLandforms(const LandformParams& params)
 		auto cliff_objects = makeCliffObjects(*map, cliffs, cliffSymbol(*map));
 		std::move(cliff_objects.begin(), cliff_objects.end(), std::back_inserter(objects));
 	}
+	if (!trees.empty())
+	{
+		auto tree_objects = makeTreeObjects(*map, trees, treeSymbol(*map));
+		std::move(tree_objects.begin(), tree_objects.end(), std::back_inserter(objects));
+	}
 	auto const count = int(objects.size());
 	addContours(*map, std::move(objects));
 	if (window)
 	{
-		if (params.cliffs)
-			window->showStatusBarMessage(tr("%1 knoll(s), %2 small depression(s) and %3 cliff(s) extracted").arg(knolls).arg(landform_count - knolls).arg(count - landform_count), 5000);
+		if (params.cliffs || params.trees)
+			window->showStatusBarMessage(tr("%1 knoll(s), %2 small depression(s), %3 cliff(s) and %4 tree(s) extracted").arg(knolls).arg(landform_count - knolls).arg(int(cliffs.size())).arg(int(trees.size())), 5000);
 		else
 			window->showStatusBarMessage(tr("%1 knoll(s) and %2 small depression(s) extracted").arg(knolls).arg(count - knolls), 5000);
 	}
