@@ -468,6 +468,29 @@ private slots:
 			step(QStringLiteral("open"), {{ QStringLiteral("path"), testData(QStringLiteral("rotated.omap")) }}),
 			step(QStringLiteral("course-statistics"), {}),
 		});
+		QTest::newRow("export-courses to PDF") << jobDocument({
+			step(QStringLiteral("open"), {{ QStringLiteral("path"), testData(QStringLiteral("rotated.omap")) }}),
+			step(QStringLiteral("export-courses"), {{ QStringLiteral("path"), outPath(QStringLiteral("malformed.pdf")) }}),
+		});
+		QTest::newRow("export-courses of one course to IOF XML") << jobDocument({
+			step(QStringLiteral("open"), {{ QStringLiteral("path"), testData(QStringLiteral("rotated.omap")) }}),
+			step(QStringLiteral("export-courses"), {
+				{ QStringLiteral("path"), outPath(QStringLiteral("malformed.xml")) },
+				{ QStringLiteral("course"), QStringLiteral("A") },
+			}),
+		});
+		QTest::newRow("export-courses with course and per_course") << jobDocument({
+			step(QStringLiteral("open"), {{ QStringLiteral("path"), testData(QStringLiteral("rotated.omap")) }}),
+			step(QStringLiteral("export-courses"), {
+				{ QStringLiteral("path"), outPath(QStringLiteral("malformed.gpx")) },
+				{ QStringLiteral("course"), QStringLiteral("A") },
+				{ QStringLiteral("per_course"), true },
+			}),
+		});
+		QTest::newRow("import-courses without path") << jobDocument({
+			step(QStringLiteral("open"), {{ QStringLiteral("path"), testData(QStringLiteral("rotated.omap")) }}),
+			step(QStringLiteral("import-courses"), {}),
+		});
 		QTest::newRow("export course is unsupported") << jobDocument({
 			step(QStringLiteral("open"), {{ QStringLiteral("path"), testData(QStringLiteral("rotated.omap")) }}),
 			step(QStringLiteral("export"), {

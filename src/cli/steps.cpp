@@ -39,6 +39,7 @@
 #include <QJsonObject>  // foom
 #include <QJsonValue>
 #include <QList>  // foom
+#include <QSaveFile>  // foom
 #include <QLatin1Char>
 #include <QLatin1String>
 #include <QPageSize>
@@ -63,6 +64,7 @@
 #include "core/extent_printing.h"
 #include "core/extents.h"
 #include "course/course_map.h"  // foom
+#include "course/course_interchange.h"  // foom
 #include "course/course_report.h"  // foom
 #include "course/route_course.h"  // foom
 #include "course/route_store.h"  // foom
@@ -518,6 +520,41 @@ bool writeBytes(const QString& path, const QByteArray& bytes)
 {
 	QFile file(path);
 	return file.open(QIODevice::WriteOnly | QIODevice::Truncate) && file.write(bytes) == bytes.size();
+}
+
+// foom: the design notes, "Headless runner", the step `export-courses`.
+CourseFileKind parseCourseFileKind(const Params& p, const QString& path)
+{
+	auto format = p.optionalString("format");
+	if (format.isEmpty())
+	{
+		format = QFileInfo(path).suffix().toLower();
+		if (format == QLatin1String("xml"))
+			format = QStringLiteral("iof");
+	}
+	if (format == QLatin1String("iof"))
+		return CourseFileKind::IofXml;
+	if (format == QLatin1String("gpx"))
+		return CourseFileKind::Gpx;
+	if (format == QLatin1String("kml"))
+		return CourseFileKind::Kml;
+	p.fail(QString::fromLatin1("unknown course format \"%1\": expected \"iof\" (.xml), \"gpx\" or \"kml\"").arg(format));
+}
+
+void validateExportCourses(const Params& p)
+{
+	auto const kind = parseCourseFileKind(p, p.requireString("path"));
+	auto const course = p.optionalString("course");
+	auto const per_course = p.optionalBool("per_course", false);
+	if (kind == CourseFileKind::IofXml && (!course.isEmpty() || per_course))
+		p.fail(QLatin1String("\"course\" and \"per_course\" apply to GPX and KML only: IOF XML holds all courses"));
+	if (!course.isEmpty() && per_course)
+		p.fail(QLatin1String("give \"course\" or \"per_course\", not both"));
+}
+
+QJsonArray jsonList(const QStringList& list)
+{
+	return QJsonArray::fromStringList(list);
 }
 
 // foom: the design notes, "The maps of the courses as PDF files"
@@ -1028,13 +1065,27 @@ void StepRunner::validate(const Step& step, bool& map_open)
 		p.checkKnown({ "out" });
 		p.requireString("out");
 	}
+	else if (name == QLatin1String("export-courses"))  // foom
+	{
+		p.requireMap(map_open);
+		p.checkKnown({ "path", "format", "course", "per_course" });
+		validateExportCourses(p);
+	}
+	else if (name == QLatin1String("import-courses"))  // foom
+	{
+		p.requireMap(map_open);
+		p.checkKnown({ "path", "objects", "courses", "classes" });
+		p.requireString("path");
+		for (auto parameter : { "objects", "courses", "classes" })
+			p.optionalBool(parameter, true);
+	}
 	else if (name == QLatin1String("export"))
 	{
 		p.requireMap(map_open);
 		p.checkKnown({ "format", "path", "extent", "scale", "dpi", "mode", "course",
 		               "plates", "depth", "halftone", "templates", "grid", "overprinting", "paper", "orientation", "overlap" });
 		auto const path = p.requireString("path");
-		p.unsupported("course", "course setting is not built yet");
+		p.unsupported("course", "the course data are written by the step \"export-courses\", the maps of the courses by \"export-course-maps\"");  // foom
 		auto const target = resolveExportFormat(p, path, p.optionalString("format"));
 		switch (target.kind)
 		{
@@ -1158,6 +1209,10 @@ StepResult StepRunner::run(const Step& step)
 		return checkStep(step);
 	if (name == QLatin1String("course-statistics"))  // foom
 		return courseStatisticsStep(step);
+	if (name == QLatin1String("export-courses"))  // foom
+		return exportCoursesStep(step);
+	if (name == QLatin1String("import-courses"))  // foom
+		return importCoursesStep(step);
 	if (name == QLatin1String("field-copy-create"))
 		return fieldCopyCreate(step);
 	if (name == QLatin1String("merge-from-file"))
@@ -1742,6 +1797,84 @@ StepResult StepRunner::courseStatisticsStep(const Step& step)
 	result.details.insert(QLatin1String("courses"), statistics.course_count);
 	result.details.insert(QLatin1String("controls"), statistics.control_count);
 	result.details.insert(QLatin1String("classes"), statistics.class_count);
+	return result;
+}
+
+
+// foom: the design notes, "Interchange: IOF XML, GPX and KML"
+StepResult StepRunner::exportCoursesStep(const Step& step)
+{
+	Params p(step);
+	auto const path = job.resolvePath(p.requireString("path"));
+	auto const kind = parseCourseFileKind(p, path);
+	auto const course = p.optionalString("course");
+	
+	CourseFilesReport report;
+	if (course.isEmpty())
+	{
+		report = writeCourseFiles(*map, path, kind, p.optionalBool("per_course", false));
+	}
+	else
+	{
+		// One course: validate() lets this through for GPX and KML only.
+		QSaveFile file(path);
+		if (!file.open(QIODevice::WriteOnly))
+			return failure(QString::fromLatin1("cannot write \"%1\"").arg(path));
+		auto const written = kind == CourseFileKind::Gpx ? writeCoursesGpx(*map, file, course) : writeCoursesKml(*map, file, course);
+		if (!written.ok)
+		{
+			file.cancelWriting();
+			return failure(written.error);
+		}
+		if (!file.commit())
+			return failure(QString::fromLatin1("cannot write \"%1\"").arg(path));
+		report.ok = true;
+		report.files.push_back(path);
+		report.skipped_courses = written.skipped_courses;
+	}
+	if (!report.ok)
+		return failure(report.error);
+	
+	StepResult result;
+	result.details.insert(QLatin1String("files"), jsonList(report.files));
+	if (!report.skipped_courses.isEmpty())
+		result.details.insert(QLatin1String("skipped"), jsonList(report.skipped_courses));
+	return result;
+}
+
+
+// foom: the design notes, "Interchange: IOF XML, GPX and KML"
+StepResult StepRunner::importCoursesStep(const Step& step)
+{
+	Params p(step);
+	auto const path = job.resolvePath(p.requireString("path"));
+	QFile file(path);
+	if (!file.open(QIODevice::ReadOnly))
+		return failure(QString::fromLatin1("cannot read \"%1\"").arg(path));
+	IofImportOptions options;
+	options.objects = p.optionalBool("objects", true);
+	options.courses = p.optionalBool("courses", true);
+	options.classes = p.optionalBool("classes", true);
+	auto const report = importIofCourseData(*map, file, options);
+	if (!report.ok)
+		return failure(report.error);
+	
+	StepResult result;
+	result.details.insert(QLatin1String("path"), path);
+	result.details.insert(QLatin1String("objects_added"), report.objects_added);
+	result.details.insert(QLatin1String("objects_found"), report.objects_found);
+	result.details.insert(QLatin1String("courses_added"), report.courses_added);
+	result.details.insert(QLatin1String("classes_added"), report.classes_added);
+	result.details.insert(QLatin1String("relay_variants"), report.relay_variants);
+	result.details.insert(QLatin1String("taped_routes"), report.taped_routes);
+	auto const insertList = [&result](const char* name, const QStringList& list) {
+		if (!list.isEmpty())
+			result.details.insert(QLatin1String(name), jsonList(list));
+	};
+	insertList("objects_not_made", report.objects_not_made);
+	insertList("courses_existing", report.courses_existing);
+	insertList("codes_missing", report.codes_missing);
+	insertList("classes_skipped", report.classes_skipped);
 	return result;
 }
 

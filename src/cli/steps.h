@@ -93,6 +93,8 @@ private:
 	StepResult analyseRoutesStep(const Step& step);  // foom
 	StepResult checkStep(const Step& step);  // foom
 	StepResult courseStatisticsStep(const Step& step);  // foom
+	StepResult exportCoursesStep(const Step& step);  // foom
+	StepResult importCoursesStep(const Step& step);  // foom
 	StepResult fieldCopyCreate(const Step& step);  // foom
 	StepResult mergeFromFile(const Step& step);  // foom
 	StepResult fieldCopyClose(const Step& step);  // foom
