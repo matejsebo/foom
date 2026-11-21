@@ -121,6 +121,7 @@
 #include "elevation/contours.h"  // foom
 #include "elevation/elevation_model.h"  // foom
 #include "elevation/elevation_set.h"  // foom
+#include "elevation/landforms.h"  // foom
 #include "elevation/raster_products.h"  // foom
 #include "core/ops/align.h"
 #include "core/ops/apply_op.h"
@@ -1157,6 +1158,7 @@ void MapEditorController::createActions()
 	dem_contours_act = newAction("dem-contours", tr("Contours..."), this, SLOT(elevationContoursClicked()));  // foom
 	dem_hillshade_act = newAction("dem-hillshade", tr("Hill shading..."), this, SLOT(elevationHillShadeClicked()));  // foom
 	dem_slope_act = newAction("dem-slope", tr("Slope gradient..."), this, SLOT(elevationSlopeClicked()));  // foom
+	dem_features_act = newAction("dem-features", tr("Extract features..."), this, SLOT(elevationFeaturesClicked()));  // foom
 	dem_export_act = newAction("dem-export", tr("Export grid..."), this, SLOT(elevationExportClicked()));  // foom
 	issues_window_act = newCheckAction("issueswindow", tr("Issues window"), this, SLOT(showIssuesWindow(bool)));  // foom
 	issue_model = new IssueModel(this);
@@ -1747,6 +1749,7 @@ void MapEditorController::createMenuAndToolbars()
 	elevation_menu->addAction(dem_contours_act);
 	elevation_menu->addAction(dem_hillshade_act);
 	elevation_menu->addAction(dem_slope_act);
+	elevation_menu->addAction(dem_features_act);
 	
 	QMenu* courses_menu = window->menuBar()->addMenu(tr("&Courses"));  // foom: the design notes, "Menu placement"
 	courses_menu->addAction(course_dock_act);
@@ -7586,6 +7589,37 @@ void MapEditorController::elevationHillShadeClicked()
 		showTemplateWindow(true);
 	}
 	window->showStatusBarMessage(tr("Hill shading written to %1").arg(path), 5000);
+}
+
+// foom
+void MapEditorController::elevationFeaturesClicked()
+{
+	if (!terrainModel(*map, window))
+		return;
+	LandformDialog dialog(window);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	auto const count = extractLandforms(dialog.params());
+	if (count == 0)
+		QMessageBox::information(window, tr("Extract features"), tr("No knoll and no small depression was found."));
+}
+
+// foom: the design notes, "Knolls and small depressions".
+int MapEditorController::extractLandforms(const LandformParams& params)
+{
+	auto const* model = map->elevationSet().model(ElevationSet::Terrain, map->getGeoreferencing().getProjectedCRSSpec());
+	if (!model)
+		return 0;
+	auto const landforms = findLandforms(*model, params);
+	if (landforms.empty())
+		return 0;
+	auto const knolls = int(std::count_if(landforms.begin(), landforms.end(), [](const Landform& l) { return l.kind == Landform::Knoll; }));
+	auto objects = makeLandformObjects(*map, landforms, landformSymbols(*map));
+	auto const count = int(objects.size());
+	addContours(*map, std::move(objects));
+	if (window)
+		window->showStatusBarMessage(tr("%1 knoll(s) and %2 small depression(s) extracted").arg(knolls).arg(count - knolls), 5000);
+	return count;
 }
 
 void MapEditorController::elevationSlopeClicked()

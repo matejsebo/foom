@@ -33,6 +33,7 @@ namespace OpenOrienteering {
 class ElevationModel;
 class LineSymbol;
 class Map;
+class MapColor;
 class Object;
 
 
@@ -105,6 +106,9 @@ struct ContourSymbols
  * depressions.
  */
 ContourSymbols contourSymbols(Map& map, bool smoothed);
+
+/** foom: The map's brown, which the contours take; made when the map has none. */
+const MapColor* contourBrown(Map& map);
 
 
 struct ContourResult

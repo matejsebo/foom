@@ -86,6 +86,7 @@ private slots:
 	
 	/** foom: Tests the named extent commands. */
 	void extents();
+	void demFeatures();
 	
 	/** foom: Tests the map check command and the Issues window. */
 	void mapCheck();

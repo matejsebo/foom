@@ -22,6 +22,7 @@
 #include <cmath>
 #include <cstddef>
 #include <functional>
+#include <limits>
 #include <map>
 #include <memory>
 #include <vector>
@@ -49,10 +50,12 @@
 #include "core/objects/object.h"
 #include "core/renderables/renderable.h"
 #include "core/symbols/line_symbol.h"
+#include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
 #include "elevation/contours.h"
 #include "elevation/elevation_model.h"
 #include "elevation/elevation_set.h"
+#include "elevation/landforms.h"
 #include "elevation/raster_products.h"
 #include "fileformats/file_format.h"
 #include "fileformats/file_format_registry.h"
@@ -650,6 +653,62 @@ private slots:
 			map.clear();
 			QVERIFY(map.elevationSet().isEmpty());
 		}
+	}
+	
+	/// "Knolls and small depressions", Accept (2)
+	void landformsNone()
+	{
+		auto const plane = makeGrid(41, 41, 0.0, 41.0, 1.0, [](double x, double y) { return 100.0 + 0.1 * x + 0.05 * y; });
+		QVERIFY(findLandforms(*plane, LandformParams{}).empty());
+		// A cone of 3 m at the edge: its ring leaves the grid.
+		auto const edge = makeGrid(41, 41, 0.0, 41.0, 1.0, [](double x, double y) {
+			auto const d = std::hypot(x - 1.5, y - 20.5);
+			return 100.0 + (d < 6.0 ? 3.0 * (1.0 - d / 6.0) : 0.0);
+		});
+		QVERIFY(findLandforms(*edge, LandformParams{}).empty());
+		// The same cone in the middle, once with a void cell on its ring.
+		auto middle = makeGrid(41, 41, 0.0, 41.0, 1.0, [](double x, double y) {
+			auto const d = std::hypot(x - 20.5, y - 20.5);
+			return 100.0 + (d < 6.0 ? 3.0 * (1.0 - d / 6.0) : 0.0);
+		});
+		QCOMPARE(int(findLandforms(*middle, LandformParams{}).size()), 1);
+		middle->setValue(24, 20, std::numeric_limits<float>::quiet_NaN());
+		QVERIFY(findLandforms(*middle, LandformParams{}).empty());
+	}
+
+	/// "Knolls and small depressions", Accept (3)
+	void landformObjects()
+	{
+		Map map;
+		map.setGeoreferencing(utm32Georeferencing());
+		map.setScaleDenominator(10000);
+		auto const symbols = landformSymbols(map);
+		QVERIFY(symbols.knoll && symbols.depression);
+		QCOMPARE(symbols.knoll->getNumberComponent(0), 109);
+		QCOMPARE(symbols.depression->getNumberComponent(0), 111);
+		auto const count = map.getNumSymbols();
+		auto const again = landformSymbols(map);
+		QCOMPARE(map.getNumSymbols(), count);
+		QCOMPARE(again.knoll, symbols.knoll);
+		
+		std::vector<Landform> landforms(2);
+		landforms[0].kind = Landform::Knoll;
+		landforms[0].projected = QPointF(500010.0, 4999990.0);
+		landforms[0].size = 1.234;
+		landforms[1].kind = Landform::Depression;
+		landforms[1].projected = QPointF(500020.0, 5000000.0);
+		landforms[1].size = 2.0;
+		auto const objects = makeLandformObjects(map, landforms, symbols);
+		QCOMPARE(int(objects.size()), 2);
+		QCOMPARE(objects[0]->getType(), Object::Point);
+		QCOMPARE(objects[0]->getSymbol(), static_cast<const Symbol*>(symbols.knoll));
+		QCOMPARE(objects[1]->getSymbol(), static_cast<const Symbol*>(symbols.depression));
+		auto const expected = map.getGeoreferencing().toMapCoordF(landforms[0].projected);
+		auto const position = objects[0]->asPoint()->getCoordF();
+		QVERIFY(std::abs(position.x() - expected.x()) < 0.001 && std::abs(position.y() - expected.y()) < 0.001);
+		QCOMPARE(tagValue(objects[0].get(), "feature"), QStringLiteral("knoll"));
+		QCOMPARE(tagValue(objects[0].get(), "size"), QStringLiteral("1.23"));
+		QCOMPARE(tagValue(objects[1].get(), "feature"), QStringLiteral("depression"));
 	}
 };
 

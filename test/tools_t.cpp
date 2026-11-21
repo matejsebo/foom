@@ -49,6 +49,9 @@
 #include "core/ops/align.h"
 #include "core/bookmarks.h"
 #include "core/extents.h"
+#include "elevation/elevation_model.h"
+#include "elevation/elevation_set.h"
+#include "elevation/landforms.h"
 #include "gui/map/extent_dialog.h"
 #include "check/issue.h"
 #include "check/legibility.h"
@@ -1196,6 +1199,34 @@ void ToolsTest::extents()
 	auto const area = static_cast<const Map&>(*map.map).printerConfig().print_area;
 	QVERIFY(std::abs(dialog.extent().rect_mm.width() - area.width()) < 0.011);
 	QVERIFY(std::abs(dialog.extent().rect_mm.height() - area.height()) < 0.011);
+}
+
+
+void ToolsTest::demFeatures()
+{
+	// the design notes, "Knolls and small depressions", Accept (4).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("dem-features"));
+	// A cone of 2 m and a pit of 2 m on flat ground, 1 m cells.
+	std::vector<float> values(41 * 21);
+	for (int row = 0; row < 21; ++row)
+	{
+		for (int col = 0; col < 41; ++col)
+		{
+			auto const up = std::hypot(col - 10.0, row - 10.0);
+			auto const down = std::hypot(col - 30.0, row - 10.0);
+			values[std::size_t(row) * 41 + std::size_t(col)] = float(100.0 + (up < 6 ? 2.0 * (1 - up / 6) : 0.0) - (down < 6 ? 2.0 * (1 - down / 6) : 0.0));
+		}
+	}
+	map.map->elevationSet().setModel(ElevationSet::Terrain, std::make_unique<ElevationModel>(41, 21, QPointF(0.0, 21.0), 1.0, std::move(values)), QStringLiteral("cone.asc"));
+	auto const objects = map.map->getNumObjects();
+	auto const undo_steps = map.map->undoManager().undoStepCount();
+	QCOMPARE(editor.editor->extractLandforms(LandformParams{}), 2);
+	QCOMPARE(map.map->getNumObjects(), objects + 2);
+	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 1);
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(map.map->getNumObjects(), objects);
 }
 
 

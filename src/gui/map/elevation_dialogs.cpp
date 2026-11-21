@@ -189,6 +189,52 @@ std::vector<ContourParams> ContourDialog::sets() const
 
 
 
+LandformDialog::LandformDialog(QWidget* parent)
+: QDialog(parent)
+{
+	setWindowTitle(tr("Extract features"));
+	LandformParams const defaults;
+	auto const makeEdit = [](double value) {
+		auto* edit = new QDoubleSpinBox();
+		edit->setDecimals(1);
+		edit->setRange(0.1, 10.0);
+		edit->setSingleStep(0.1);
+		edit->setSuffix(QStringLiteral(" m"));
+		edit->setValue(value);
+		return edit;
+	};
+	knolls_check = new QCheckBox(tr("Knolls (symbol 109)"));
+	knolls_check->setChecked(defaults.knolls);
+	height_edit = makeEdit(defaults.min_height);
+	depressions_check = new QCheckBox(tr("Small depressions (symbol 111)"));
+	depressions_check->setChecked(defaults.depressions);
+	depth_edit = makeEdit(defaults.min_depth);
+	connect(knolls_check, &QCheckBox::toggled, height_edit, &QWidget::setEnabled);
+	connect(depressions_check, &QCheckBox::toggled, depth_edit, &QWidget::setEnabled);
+	
+	auto* layout = new QFormLayout();
+	layout->addRow(knolls_check);
+	layout->addRow(tr("Minimum height:"), height_edit);
+	layout->addRow(depressions_check);
+	layout->addRow(tr("Minimum depth:"), depth_edit);
+	auto* main_layout = new QVBoxLayout(this);
+	main_layout->addLayout(layout);
+	main_layout->addWidget(makeButtons(this));
+}
+
+LandformDialog::~LandformDialog() = default;
+
+LandformParams LandformDialog::params() const
+{
+	LandformParams params;
+	params.knolls = knolls_check->isChecked();
+	params.min_height = height_edit->value();
+	params.depressions = depressions_check->isChecked();
+	params.min_depth = depth_edit->value();
+	return params;
+}
+
+
 HillShadeDialog::HillShadeDialog(double cell_size, QWidget* parent)
 : QDialog(parent)
 {

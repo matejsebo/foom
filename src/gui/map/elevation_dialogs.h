@@ -29,6 +29,7 @@
 #include "elevation/contours.h"
 #include "elevation/elevation_model.h"
 #include "elevation/elevation_set.h"
+#include "elevation/landforms.h"
 #include "elevation/raster_products.h"
 
 class QCheckBox;
@@ -92,6 +93,26 @@ private:
 	SetWidgets smoothed;
 	QDoubleSpinBox* minimum_edit;
 	QDoubleSpinBox* maximum_edit;
+};
+
+
+/**
+ * The dem-features dialog: knolls and small depressions.
+ */
+class LandformDialog : public QDialog
+{
+Q_OBJECT
+public:
+	explicit LandformDialog(QWidget* parent);
+	~LandformDialog() override;
+	
+	LandformParams params() const;
+	
+private:
+	QCheckBox* knolls_check;
+	QDoubleSpinBox* height_edit;
+	QCheckBox* depressions_check;
+	QDoubleSpinBox* depth_edit;
 };
 
 

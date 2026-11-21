@@ -29,6 +29,7 @@ set(MAPPER_ELEVATION_SOURCES
   contours.cpp
   elevation_model.cpp
   elevation_set.cpp
+  landforms.cpp
   raster_products.cpp
 )
 

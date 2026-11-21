@@ -653,6 +653,12 @@ std::vector<ContourLine> traceContours(const ElevationModel& grid, const Contour
 }
 
 
+const MapColor* contourBrown(Map& map)
+{
+	return contourColor(map);
+}
+
+
 ContourSymbols contourSymbols(Map& map, bool smoothed)
 {
 	auto const base = smoothed ? 10060 : 10050;

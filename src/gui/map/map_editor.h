@@ -87,6 +87,7 @@ class ElevationModel;  // foom
 class ExtentDialog;  // foom
 class IssueModel;  // foom
 struct LegibilityParams;  // foom
+struct LandformParams;  // foom
 class FindReplaceTextDialog;  // foom
 class MoveParallelDialog;  // foom
 class NumericEntryBar;  // foom
@@ -752,6 +753,10 @@ public slots:
 	void elevationHillShadeClicked();
 	/** foom: Asks for the parameters, then writes and attaches a slope gradient raster (dem-slope). */
 	void elevationSlopeClicked();
+	/** foom: Asks for the minimum height and depth, then extracts knolls and small depressions (dem-features). */
+	void elevationFeaturesClicked();
+	/** foom: Extracts knolls and small depressions of the terrain model as one undo step; returns their number. */
+	int extractLandforms(const LandformParams& params);
 	/** foom: Saves the terrain grid in a chosen format (dem-export). */
 	void elevationExportClicked();
 	/** foom: Runs the map check and shows the issues; returns their number. */
@@ -1277,6 +1282,7 @@ private:
 	QAction* dem_contours_act = {};  // foom
 	QAction* dem_hillshade_act = {};  // foom
 	QAction* dem_slope_act = {};  // foom
+	QAction* dem_features_act = {};  // foom
 	QAction* dem_export_act = {};  // foom
 	QAction* check_legibility_act = {};  // foom
 	std::function<std::vector<Issue>()> last_check;  // foom: what Check again repeats
