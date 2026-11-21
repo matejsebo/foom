@@ -26,6 +26,7 @@ find_package(Qt5Gui REQUIRED)
 set(CMAKE_AUTOMOC ON)
 
 set(MAPPER_ELEVATION_SOURCES
+  cliffs.cpp
   contours.cpp
   elevation_model.cpp
   elevation_set.cpp

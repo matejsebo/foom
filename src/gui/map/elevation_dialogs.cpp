@@ -21,6 +21,7 @@
 #include "elevation_dialogs.h"
 
 #include <cmath>
+#include <initializer_list>
 
 #include <QApplication>
 #include <QCheckBox>
@@ -215,12 +216,37 @@ LandformDialog::LandformDialog(QWidget* parent)
 	depth_edit = makeEdit(defaults.min_depth);
 	connect(knolls_check, &QCheckBox::toggled, height_edit, &QWidget::setEnabled);
 	connect(depressions_check, &QCheckBox::toggled, depth_edit, &QWidget::setEnabled);
+	cliffs_check = new QCheckBox(tr("Cliffs from the slope gradient (symbol 10080)"));
+	cliffs_check->setChecked(defaults.cliffs);
+	threshold_edit = new QDoubleSpinBox();
+	threshold_edit->setDecimals(0);
+	threshold_edit->setRange(1.0, 89.0);
+	threshold_edit->setSuffix(QStringLiteral(" °"));
+	threshold_edit->setValue(defaults.cliff_threshold);
+	auto const makeCount = [](int value) {
+		auto* edit = new QSpinBox();
+		edit->setRange(1, 1000);
+		edit->setSuffix(QStringLiteral(" px"));
+		edit->setValue(value);
+		return edit;
+	};
+	area_edit = makeCount(defaults.cliff_min_area);
+	length_edit = makeCount(defaults.cliff_min_length);
+	for (auto* widget : std::initializer_list<QWidget*>{ threshold_edit, area_edit, length_edit })
+	{
+		widget->setEnabled(defaults.cliffs);
+		connect(cliffs_check, &QCheckBox::toggled, widget, &QWidget::setEnabled);
+	}
 	
 	auto* layout = new QFormLayout();
 	layout->addRow(knolls_check);
 	layout->addRow(tr("Minimum height:"), height_edit);
 	layout->addRow(depressions_check);
 	layout->addRow(tr("Minimum depth:"), depth_edit);
+	layout->addRow(cliffs_check);
+	layout->addRow(tr("Slope threshold:"), threshold_edit);
+	layout->addRow(tr("Minimum area:"), area_edit);
+	layout->addRow(tr("Minimum length:"), length_edit);
 	auto* main_layout = new QVBoxLayout(this);
 	main_layout->addLayout(layout);
 	main_layout->addWidget(makeButtons(this));
@@ -235,6 +261,10 @@ LandformParams LandformDialog::params() const
 	params.min_height = height_edit->value();
 	params.depressions = depressions_check->isChecked();
 	params.min_depth = depth_edit->value();
+	params.cliffs = cliffs_check->isChecked();
+	params.cliff_threshold = threshold_edit->value();
+	params.cliff_min_area = area_edit->value();
+	params.cliff_min_length = length_edit->value();
 	return params;
 }
 

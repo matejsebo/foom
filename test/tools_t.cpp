@@ -1240,6 +1240,31 @@ void ToolsTest::demFeatures()
 }
 
 
+void ToolsTest::demCliffs()
+{
+	// the design notes, "Cliffs from the slope gradient", Accept (7).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	// A block of 8 m, 10 by 10 cells, on flat ground.
+	std::vector<float> values(40 * 40, 100.0f);
+	for (int row = 15; row < 25; ++row)
+	{
+		for (int col = 15; col < 25; ++col)
+			values[std::size_t(row) * 40 + std::size_t(col)] = 108.0f;
+	}
+	map.map->elevationSet().setModel(ElevationSet::Terrain, std::make_unique<ElevationModel>(40, 40, QPointF(0.0, 40.0), 1.0, std::move(values)), QStringLiteral("block.asc"));
+	auto const objects = map.map->getNumObjects();
+	auto const undo_steps = map.map->undoManager().undoStepCount();
+	LandformParams params;
+	params.cliffs = true;
+	QCOMPARE(editor.editor->extractLandforms(params), 1);
+	QCOMPARE(map.map->getNumObjects(), objects + 1);
+	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 1);
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(map.map->getNumObjects(), objects);
+}
+
+
 void ToolsTest::demPointCloud()
 {
 	// the design notes, "Reading point clouds and gridding them", Accept (9).

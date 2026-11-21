@@ -88,6 +88,9 @@ private slots:
 	void extents();
 	void demFeatures();
 	
+	/** foom: Tests the cliffs of the Extract features command. */
+	void demCliffs();
+	
 	/** foom: Tests the point cloud import command. */
 	void demPointCloud();
 	

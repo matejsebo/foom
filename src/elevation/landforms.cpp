@@ -32,6 +32,7 @@
 #include "core/objects/object.h"
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
+#include "elevation/cliffs.h"
 #include "elevation/contours.h"
 #include "elevation/elevation_model.h"
 
@@ -66,7 +67,7 @@ std::vector<Landform> findLandforms(const ElevationModel& grid, const LandformPa
 	std::vector<Landform> found;
 	if (!params.knolls && !params.depressions)
 		return found;
-	auto const smoothed = grid.smoothed(1);
+	auto const smoothed = gaussianFiltered(grid);
 	auto const& g = *smoothed;
 	auto const width = g.width();
 	auto const height = g.height();

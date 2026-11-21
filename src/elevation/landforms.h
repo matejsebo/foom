@@ -45,6 +45,10 @@ struct LandformParams
 	bool depressions = true;
 	double min_depth = 1.0;       ///< m
 	double ring_m = 4.0;          ///< The distance at which the surroundings are taken.
+	bool cliffs = false;          ///< Also cliffs from the slope gradient, see cliffs.h (MapEditorController::extractLandforms).
+	double cliff_threshold = 45.0; ///< The slope threshold, degrees.
+	int cliff_min_area = 3;       ///< Pixels.
+	int cliff_min_length = 3;     ///< Pixels.
 };
 
 struct Landform
@@ -56,7 +60,7 @@ struct Landform
 };
 
 /**
- * Filters the grid once with the binomial kernel and takes every cell which
+ * Filters the grid once with a Gaussian and takes every cell which
  * is higher (lower) than its eight neighbours and at least the minimum above
  * the lowest (below the highest) cell of a ring around it.
  */

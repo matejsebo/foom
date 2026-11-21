@@ -26,6 +26,8 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <set>
+#include <utility>
 #include <vector>
 
 #include <QtGlobal>
@@ -34,6 +36,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QIODevice>
+#include <QLatin1Char>
+#include <QLatin1String>
 #include <QImage>
 #include <QPainter>
 #include <QObject>
@@ -55,6 +60,8 @@
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
+#include "core/symbols/area_symbol.h"
+#include "elevation/cliffs.h"
 #include "elevation/contours.h"
 #include "elevation/elevation_model.h"
 #include "elevation/elevation_set.h"
@@ -111,6 +118,54 @@ double length(const std::vector<QPointF>& points, bool closed)
 	if (closed && points.size() > 1)
 		l += std::hypot(points.front().x() - points.back().x(), points.front().y() - points.back().y());
 	return l;
+}
+
+/// Steps, steep ridges and blocks on flat ground at 400 m.
+std::unique_ptr<ElevationModel> cliffsGrid()
+{
+	auto const x0 = 966000.0;
+	auto const top = 557230.0;
+	return makeGrid(330, 230, x0, top, 1.0, [x0, top](double px, double py) {
+		auto const x = px - x0;
+		auto const y = top - py;
+		auto z = 400.0;
+		if (20 <= y && y < 60)
+		{
+			double const heights[] = { 3.0, 3.25, 3.5, 3.75, 4.0, 4.5 };
+			for (int i = 0; i < 6; ++i)
+			{
+				auto const s = 20.0 + 50 * i;
+				if (s <= x && x < s + 20)
+					z += heights[i];
+				else if (s + 20 <= x && x < s + 45)
+					z += heights[i] * (1 - (x - s - 20) / 25);
+			}
+		}
+		if (90 <= y && y < 130)
+		{
+			double const angles[] = { 40, 43, 44, 46, 47, 50 };
+			for (int i = 0; i < 6; ++i)
+			{
+				auto const s = 20.0 + 50 * i;
+				auto const rise = 10 * std::tan(qDegreesToRadians(angles[i]));
+				if (s <= x && x < s + 10)
+					z += (x - s) * rise / 10;
+				else if (s + 10 <= x && x < s + 20)
+					z += rise;
+				else if (s + 20 <= x && x < s + 30)
+					z += rise * (1 - (x - s - 20) / 10);
+			}
+		}
+		int const lengths[] = { 1, 2, 3, 4, 6 };
+		for (int i = 0; i < 5; ++i)
+		{
+			auto const s = 30.0 + 60 * i;
+			if (s <= x && x < s + 10 && 180 <= y && y < 180 + lengths[i])
+				z += 8.0;
+		}
+		// The heights of the .asc file, in millimetres.
+		return std::round(z * 1000.0) / 1000.0;
+	});
 }
 
 ContourParams standardParams()
@@ -712,6 +767,150 @@ private slots:
 		QCOMPARE(tagValue(objects[0].get(), "feature"), QStringLiteral("knoll"));
 		QCOMPARE(tagValue(objects[0].get(), "size"), QStringLiteral("1.23"));
 		QCOMPARE(tagValue(objects[1].get(), "feature"), QStringLiteral("depression"));
+	}
+
+	void cliffFilterAndThresholds()
+	{
+		// the design notes, "Cliffs from the slope gradient", Accept (1) and (2).
+		auto const grid = cliffsGrid();
+		auto const filtered = gaussianFiltered(*grid);
+		// The 3.0 m step east of x = 20, row y = 40; the block of 8 m one cell long at x = 30..40, y = 180.
+		QVERIFY2(std::abs(filtered->value(19, 40) - 400.82) < 0.005, qPrintable(QString::number(filtered->value(19, 40))));
+		QVERIFY2(std::abs(filtered->value(20, 40) - 402.18) < 0.005, qPrintable(QString::number(filtered->value(20, 40))));
+		QVERIFY(std::abs(filtered->value(35, 180) - 403.61) < 0.005);
+		QVERIFY(std::abs(filtered->value(35, 179) - 402.19) < 0.005);
+	
+		QVERIFY(std::abs(steepGradient(30) - 0.7125) < 0.002);
+		QVERIFY(std::abs(steepGradient(40) - 1.1115) < 0.002);
+		QVERIFY(std::abs(steepGradient(45) - 1.413) < 0.002);
+		for (int degrees = 2; degrees <= 89; ++degrees)
+		{
+			// Rising up to the measured range, never falling beyond it.
+			QVERIFY(degrees > 45 ? steepGradient(degrees) >= steepGradient(degrees - 1) : steepGradient(degrees) > steepGradient(degrees - 1));
+			QVERIFY(cliffGradient(degrees) > steepGradient(degrees));
+		}
+		// A region of steep corners is a cliff from its steepest corner: the 3.0 m step
+		// stays out at 40 degrees and the 3.25 m step comes in; at 45 the 4.0 and 4.5 m steps.
+		QVERIFY(cliffGradient(40) > 1.36 && cliffGradient(40) <= 1.47);
+		QVERIFY(cliffGradient(45) > 1.82 && cliffGradient(45) <= 2.04);
+		QVERIFY(cliffGradient(30) <= 1.36);
+	}
+
+	void cliffAreasOfFixture()
+	{
+		// the design notes, "Cliffs from the slope gradient", Accept (4).
+		auto const grid = cliffsGrid();
+		auto const x0 = 966000.0;
+		auto const top = 557230.0;
+		auto const covers = [x0, top](const std::vector<CliffArea>& areas, double x, double y) {
+			QPointF const p(x0 + x, top - y);
+			for (auto const& area : areas)
+			{
+				auto inside = false;
+				for (auto const& ring : area.rings)
+				{
+					for (std::size_t k = 0, n = ring.size(); k < n; ++k)
+					{
+						auto const& a = ring[k];
+						auto const& b = ring[(k + 1) % n];
+						if ((a.y() > p.y()) != (b.y() > p.y()) && p.x() < a.x() + (p.y() - a.y()) * (b.x() - a.x()) / (b.y() - a.y()))
+							inside = !inside;
+					}
+				}
+				if (inside)
+					return true;
+			}
+			return false;
+		};
+		CliffParams params;
+		auto const areas = findCliffs(*grid, params);
+		QVERIFY(!areas.empty());
+		// The 4.5 m step: its west edge at x = 270 and its north and south edges at y = 20 and 60.
+		QVERIFY(covers(areas, 270.0, 40.0));
+		QVERIFY(covers(areas, 280.0, 20.0));
+		QVERIFY(covers(areas, 280.0, 60.0));
+		// The ridges' ends at y = 90 and 130, the blocks' edges.
+		for (int i = 0; i < 6; ++i)
+		{
+			QVERIFY(covers(areas, 35.0 + 50 * i, 90.0));
+			QVERIFY(covers(areas, 35.0 + 50 * i, 130.0));
+			QVERIFY(!covers(areas, 25.0 + 50 * i, 110.0));
+		}
+		for (int i = 0; i < 5; ++i)
+			QVERIFY(covers(areas, 35.0 + 60 * i, 180.0));
+		for (int i = 0; i < 5; ++i)
+			QVERIFY2(!covers(areas, 20.0 + 50 * i, 40.0), qPrintable(QString::number(i)));
+	
+		for (auto const& area : areas)
+		{
+			double sum = 0.0;
+			for (auto const& ring : area.rings)
+			{
+				for (std::size_t k = 0, n = ring.size(); k < n; ++k)
+					sum += ring[k].x() * ring[(k + 1) % n].y() - ring[(k + 1) % n].x() * ring[k].y();
+			}
+			QVERIFY2(std::abs(std::abs(sum) / 2 - area.pixels) < 1e-6, qPrintable(QStringLiteral("%1 %2").arg(std::abs(sum) / 2).arg(area.pixels)));
+		}
+	
+		params.threshold = 30;
+		auto const lower = findCliffs(*grid, params);
+		QVERIFY(covers(lower, 25.0, 110.0));
+		QVERIFY(covers(lower, 20.0, 40.0));
+	}
+
+	void cliffMinimums()
+	{
+		// the design notes, "Cliffs from the slope gradient", Accept (5).
+		CliffRaster raster;
+		raster.width = 10;
+		raster.height = 10;
+		raster.first = QPointF(100.0, 200.0);
+		raster.gradient.assign(100, 0.0f);
+		raster.state.assign(100, CliffRaster::Flat);
+		raster.state[44] = CliffRaster::Cliff;
+		CliffParams params;
+		QVERIFY(cliffAreas(raster, params).empty());
+		params.min_area = 1;
+		params.min_length = 1;
+		auto const one = cliffAreas(raster, params);
+		QCOMPARE(int(one.size()), 1);
+		QCOMPARE(one.front().pixels, 1);
+		QCOMPARE(int(one.front().rings.size()), 1);
+		QCOMPARE(int(one.front().rings.front().size()), 4);
+		raster.state[45] = CliffRaster::Cliff;
+		params.min_length = 3;
+		QVERIFY(cliffAreas(raster, params).empty());
+		params.min_length = 2;
+		QCOMPARE(int(cliffAreas(raster, params).size()), 1);
+	}
+
+	void cliffObjects()
+	{
+		// the design notes, "Cliffs from the slope gradient", Accept (6).
+		Map map;
+		map.setGeoreferencing(utm32Georeferencing());
+		map.setScaleDenominator(10000);
+		auto const* symbol = cliffSymbol(map);
+		QVERIFY(symbol);
+		QCOMPARE(symbol->getNumberComponent(0), 10080);
+		QCOMPARE(symbol->getType(), Symbol::Area);
+		auto const count = map.getNumSymbols();
+		QCOMPARE(cliffSymbol(map), symbol);
+		QCOMPARE(map.getNumSymbols(), count);
+	
+		CliffArea area;
+		area.rings = { { QPointF(500000.0, 5000000.0), QPointF(500002.0, 5000000.0), QPointF(500002.0, 4999999.0), QPointF(500000.0, 4999999.0) } };
+		area.pixels = 2;
+		auto const objects = makeCliffObjects(map, { area }, symbol);
+		QCOMPARE(int(objects.size()), 1);
+		QCOMPARE(objects[0]->getType(), Object::Path);
+		QCOMPARE(objects[0]->getSymbol(), static_cast<const Symbol*>(symbol));
+		auto const expected = map.getGeoreferencing().toMapCoordF(QPointF(500002.0, 5000000.0));
+		auto const& coords = objects[0]->getRawCoordinateVector();
+		QVERIFY(coords.size() >= 4);
+		auto const actual = MapCoordF(coords[1]);
+		QVERIFY(std::abs(actual.x() - expected.x()) < 0.001 && std::abs(actual.y() - expected.y()) < 0.001);
+		QCOMPARE(tagValue(objects[0].get(), "feature"), QStringLiteral("cliff"));
 	}
 
 

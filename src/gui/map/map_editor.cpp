@@ -121,6 +121,7 @@
 #include "elevation/contours.h"  // foom
 #include "elevation/elevation_model.h"  // foom
 #include "elevation/elevation_set.h"  // foom
+#include "elevation/cliffs.h"  // foom
 #include "elevation/landforms.h"  // foom
 #include "elevation/point_cloud.h"  // foom
 #include "core/map_transform.h"  // foom
@@ -7914,14 +7915,37 @@ int MapEditorController::extractLandforms(const LandformParams& params)
 	if (!model)
 		return 0;
 	auto const landforms = findLandforms(*model, params);
-	if (landforms.empty())
+	// the design notes, "Cliffs from the slope gradient".
+	std::vector<CliffArea> cliffs;
+	if (params.cliffs)
+	{
+		CliffParams cliff_params;
+		cliff_params.threshold = params.cliff_threshold;
+		cliff_params.min_area = params.cliff_min_area;
+		cliff_params.min_length = params.cliff_min_length;
+		cliffs = findCliffs(*model, cliff_params);
+	}
+	if (landforms.empty() && cliffs.empty())
 		return 0;
 	auto const knolls = int(std::count_if(landforms.begin(), landforms.end(), [](const Landform& l) { return l.kind == Landform::Knoll; }));
-	auto objects = makeLandformObjects(*map, landforms, landformSymbols(*map));
+	std::vector<std::unique_ptr<Object>> objects;
+	if (!landforms.empty())
+		objects = makeLandformObjects(*map, landforms, landformSymbols(*map));
+	auto const landform_count = int(objects.size());
+	if (!cliffs.empty())
+	{
+		auto cliff_objects = makeCliffObjects(*map, cliffs, cliffSymbol(*map));
+		std::move(cliff_objects.begin(), cliff_objects.end(), std::back_inserter(objects));
+	}
 	auto const count = int(objects.size());
 	addContours(*map, std::move(objects));
 	if (window)
-		window->showStatusBarMessage(tr("%1 knoll(s) and %2 small depression(s) extracted").arg(knolls).arg(count - knolls), 5000);
+	{
+		if (params.cliffs)
+			window->showStatusBarMessage(tr("%1 knoll(s), %2 small depression(s) and %3 cliff(s) extracted").arg(knolls).arg(landform_count - knolls).arg(count - landform_count), 5000);
+		else
+			window->showStatusBarMessage(tr("%1 knoll(s) and %2 small depression(s) extracted").arg(knolls).arg(count - knolls), 5000);
+	}
 	return count;
 }
 

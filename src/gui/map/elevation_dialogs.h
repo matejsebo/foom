@@ -101,7 +101,7 @@ private:
 
 
 /**
- * The dem-features dialog: knolls and small depressions.
+ * The dem-features dialog: knolls, small depressions and cliffs.
  */
 class LandformDialog : public QDialog
 {
@@ -117,6 +117,10 @@ private:
 	QDoubleSpinBox* height_edit;
 	QCheckBox* depressions_check;
 	QDoubleSpinBox* depth_edit;
+	QCheckBox* cliffs_check;  // the design notes, "Cliffs from the slope gradient"
+	QDoubleSpinBox* threshold_edit;
+	QSpinBox* area_edit;
+	QSpinBox* length_edit;
 };
 
 
