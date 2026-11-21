@@ -90,6 +90,7 @@ struct LegibilityParams;  // foom
 struct LandformParams;  // foom
 struct GriddingParams;  // foom
 struct PointCloudProducts;  // foom
+struct PointPair;  // foom
 class FindReplaceTextDialog;  // foom
 class MoveParallelDialog;  // foom
 class NumericEntryBar;  // foom
@@ -767,6 +768,10 @@ public slots:
 	void mapStretchClicked();
 	/** foom: As map-stretch, with both mirrors ticked (map-mirror). */
 	void mapMirrorClicked();
+	/** foom: Starts the affine tool (map-affine). */
+	void mapAffineClicked();
+	/** foom: Transforms the map by the fit to the point pairs, turning orientations; see the design notes. */
+	bool affineTransformMap(const std::vector<PointPair>& pairs);
 	/** foom: Moves the map in the world; see the design notes. */
 	bool moveMap(double east_m, double north_m, bool carry);
 	/** foom: Stretches and mirrors the map about its origin. */
@@ -1297,6 +1302,7 @@ private:
 	QAction* map_move_act = {};  // foom
 	QAction* map_stretch_act = {};  // foom
 	QAction* map_mirror_act = {};  // foom
+	QAction* map_affine_act = {};  // foom
 	QAction* dem_point_cloud_act = {};  // foom
 	QAction* dem_info_act = {};  // foom
 	QAction* dem_contours_act = {};  // foom

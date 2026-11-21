@@ -125,6 +125,7 @@
 #include "elevation/point_cloud.h"  // foom
 #include "core/map_transform.h"  // foom
 #include "gui/map/map_transform_dialogs.h"  // foom
+#include "tools/affine_transform_tool.h"  // foom
 #include "elevation/raster_products.h"  // foom
 #include "core/ops/align.h"
 #include "core/ops/apply_op.h"
@@ -574,6 +575,7 @@ void MapEditorController::setEditingInProgress(bool value)
 		map_move_act->setEnabled(!editing_in_progress);  // foom
 		map_stretch_act->setEnabled(!editing_in_progress);  // foom
 		map_mirror_act->setEnabled(!editing_in_progress);  // foom
+		map_affine_act->setEnabled(!editing_in_progress);  // foom
 		map_notes_act->setEnabled(!editing_in_progress);
 		map_info_act->setEnabled(!editing_in_progress);
 		
@@ -1200,6 +1202,7 @@ void MapEditorController::createActions()
 	map_move_act = newAction("map-move", tr("Move map..."), this, SLOT(mapMoveClicked()));  // foom
 	map_stretch_act = newAction("map-stretch", tr("Stretch / shrink map..."), this, SLOT(mapStretchClicked()));  // foom
 	map_mirror_act = newAction("map-mirror", tr("Mirror map..."), this, SLOT(mapMirrorClicked()));  // foom
+	map_affine_act = newToolAction("map-affine", tr("Affine..."), this, SLOT(mapAffineClicked()), nullptr, tr("Click a point of the map, then the same point on the reference; Enter transforms the map."));  // foom
 	map_notes_act = newAction("mapnotes", tr("Map notes..."), this, SLOT(mapNotesClicked()), nullptr, QString{}, "map_menu.html");
 	map_info_act = newAction("mapinfo", tr("Map information..."), this, SLOT(mapInfoClicked()), "map-information.png", QString{}, "map_menu.html");
 	
@@ -1691,6 +1694,7 @@ void MapEditorController::createMenuAndToolbars()
 	transform_menu->addAction(map_move_act);
 	transform_menu->addAction(map_stretch_act);
 	transform_menu->addAction(map_mirror_act);
+	transform_menu->addAction(map_affine_act);
 	map_menu->addAction(map_notes_act);
 	map_menu->addAction(map_info_act);
 	map_menu->addSeparator();
@@ -7619,6 +7623,25 @@ void MapEditorController::elevationFeaturesClicked()
 	auto const count = extractLandforms(dialog.params());
 	if (count == 0)
 		QMessageBox::information(window, tr("Extract features"), tr("No knoll and no small depression was found."));
+}
+
+void MapEditorController::mapAffineClicked()
+{
+	setTool(new AffineTransformTool(this, map_affine_act));
+}
+
+// foom: the design notes, "Affine by point pairs".
+bool MapEditorController::affineTransformMap(const std::vector<PointPair>& pairs)
+{
+	auto const fit = fitPointPairs(pairs);
+	if (!fit.ok)
+		return false;
+	MapTransformOptions options;
+	options.rotate_orientations = true;
+	if (!transformMap(*map, fit.transform, options))
+		return false;
+	map->setHasUnsavedChanges(true);
+	return true;
 }
 
 void MapEditorController::mapMoveClicked()

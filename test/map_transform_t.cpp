@@ -29,6 +29,7 @@
 #include <QRectF>
 #include <QString>
 #include <QTransform>
+#include <QtMath>
 
 #include "core/bookmarks.h"
 #include "core/extents.h"
@@ -340,6 +341,111 @@ private slots:
 			QCOMPARE(redone.extents.front().rect_mm, done.extents.front().rect_mm);
 			QVERIFY(near(redone.template_origin, done.template_origin, 1e-6));
 		}
+	}
+	
+	
+	void fitTest()
+	{
+		// the design notes, "Affine by point pairs", Accept (1).
+		auto const maps = [](const QTransform& t, const MapCoordF& from, const MapCoordF& to, double tolerance) {
+			return near(MapCoordF(t.map(QPointF(from))), to, tolerance);
+		};
+		auto fit = fitPointPairs({ { MapCoordF(0.0, 0.0), MapCoordF(3.0, -4.0) } });
+		QVERIFY(fit.ok);
+		QVERIFY(fit.transform.type() <= QTransform::TxTranslate);
+		QVERIFY(maps(fit.transform, MapCoordF(50.0, 60.0), MapCoordF(53.0, 56.0), 1e-9));
+		
+		std::vector<PointPair> pairs = {
+		    { MapCoordF(10.0, 20.0), MapCoordF(14.0, 18.0) },
+		    { MapCoordF(110.0, -30.0), MapCoordF(118.5, -41.0) },
+		};
+		fit = fitPointPairs(pairs);
+		QVERIFY(fit.ok);
+		for (auto const& pair : pairs)
+			QVERIFY(maps(fit.transform, pair.map, pair.reference, 1e-9));
+		// A similarity: equal scales, no shear.
+		QVERIFY(std::abs(fit.transform.m11() - fit.transform.m22()) < 1e-12);
+		QVERIFY(std::abs(fit.transform.m12() + fit.transform.m21()) < 1e-12);
+		QCOMPARE(int(fit.residuals.size()), 2);
+		
+		pairs.push_back({ MapCoordF(40.0, 70.0), MapCoordF(41.0, 80.0) });
+		fit = fitPointPairs(pairs);
+		QVERIFY(fit.ok);
+		for (auto const& pair : pairs)
+			QVERIFY(maps(fit.transform, pair.map, pair.reference, 1e-9));
+		QVERIFY(std::abs(fit.transform.m11() - fit.transform.m22()) > 1e-3);  // not a similarity
+		
+		pairs.push_back({ MapCoordF(-20.0, -50.0), MapCoordF(-25.0, -47.0) });
+		fit = fitPointPairs(pairs);
+		QVERIFY(fit.ok);
+		// The least-squares solution: the normal equations, solved here by Cramer's rule.
+		double sxx = 0, sxy = 0, syy = 0, sx = 0, sy = 0, n = 0;
+		double ux = 0, uy = 0, u = 0, vx = 0, vy = 0, v = 0;
+		for (auto const& pair : pairs)
+		{
+			auto const x = pair.map.x(), y = pair.map.y();
+			sxx += x * x; sxy += x * y; syy += y * y; sx += x; sy += y; n += 1;
+			ux += x * pair.reference.x(); uy += y * pair.reference.x(); u += pair.reference.x();
+			vx += x * pair.reference.y(); vy += y * pair.reference.y(); v += pair.reference.y();
+		}
+		auto const det3 = [](double a, double b, double c, double d, double e, double f, double g, double h, double i) {
+			return a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+		};
+		auto const d = det3(sxx, sxy, sx, sxy, syy, sy, sx, sy, n);
+		auto const a = det3(ux, sxy, sx, uy, syy, sy, u, sy, n) / d;
+		auto const b = det3(sxx, ux, sx, sxy, uy, sy, sx, u, n) / d;
+		auto const c = det3(sxx, sxy, ux, sxy, syy, uy, sx, sy, u) / d;
+		auto const e = det3(vx, sxy, sx, vy, syy, sy, v, sy, n) / d;
+		auto const f = det3(sxx, vx, sx, sxy, vy, sy, sx, v, n) / d;
+		auto const g = det3(sxx, sxy, vx, sxy, syy, vy, sx, sy, v) / d;
+		QVERIFY(std::abs(fit.transform.m11() - a) < 1e-9);
+		QVERIFY(std::abs(fit.transform.m21() - b) < 1e-9);
+		QVERIFY(std::abs(fit.transform.dx() - c) < 1e-9);
+		QVERIFY(std::abs(fit.transform.m12() - e) < 1e-9);
+		QVERIFY(std::abs(fit.transform.m22() - f) < 1e-9);
+		QVERIFY(std::abs(fit.transform.dy() - g) < 1e-9);
+		QCOMPARE(int(fit.residuals.size()), 4);
+		for (std::size_t i = 0; i < pairs.size(); ++i)
+		{
+			auto const p = fit.transform.map(QPointF(pairs[i].map));
+			QVERIFY(std::abs(fit.residuals[i] - std::hypot(p.x() - pairs[i].reference.x(), p.y() - pairs[i].reference.y())) < 1e-9);
+		}
+		QVERIFY(fit.residuals[3] > 0.01);
+		
+		QVERIFY(!fitPointPairs({}).ok);
+		QVERIFY(!fitPointPairs({ { MapCoordF(1.0, 1.0), MapCoordF(2.0, 2.0) }, { MapCoordF(1.0, 1.0), MapCoordF(5.0, 2.0) } }).ok);
+		QVERIFY(!fitPointPairs({ { MapCoordF(0.0, 0.0), MapCoordF(0.0, 1.0) }, { MapCoordF(1.0, 1.0), MapCoordF(1.0, 2.0) }, { MapCoordF(2.0, 2.0), MapCoordF(2.0, 4.0) } }).ok);
+	}
+	
+	
+	void orientationTest()
+	{
+		// Accept (2).
+		auto const angle = qDegreesToRadians(30.0);
+		// The similarity of two pairs which turns by 30 degrees counter-clockwise on paper (y grows south).
+		auto const turn = [angle](const MapCoordF& p) {
+			return MapCoordF(std::cos(angle) * p.x() + std::sin(angle) * p.y(), -std::sin(angle) * p.x() + std::cos(angle) * p.y());
+		};
+		auto const fit = fitPointPairs({ { MapCoordF(0.0, 0.0), turn(MapCoordF(0.0, 0.0)) }, { MapCoordF(100.0, 0.0), turn(MapCoordF(100.0, 0.0)) } });
+		QVERIFY(fit.ok);
+		
+		TestMap t;
+		auto* fixed_symbol = new PointSymbol();
+		fixed_symbol->setRotatable(false);
+		t.map.addSymbol(fixed_symbol, t.map.getNumSymbols());
+		auto* fixed = new PointObject(fixed_symbol);
+		fixed->setPosition(MapCoord(1.0, 1.0));
+		t.map.addObject(fixed);
+		MapTransformOptions options;
+		options.rotate_orientations = true;
+		QVERIFY(transformMap(t.map, fit.transform, options));
+		QVERIFY(std::abs(t.rotated->getRotation() - (0.5 + angle)) < 1e-9);
+		QCOMPARE(fixed->getRotation(), 0.0);
+		QVERIFY(near(MapCoordF(t.rotated->getCoordF()), turn(MapCoordF(-30.0, 12.0))));
+		
+		TestMap plain;
+		QVERIFY(transformMap(plain.map, fit.transform, MapTransformOptions()));
+		QCOMPARE(plain.rotated->getRotation(), 0.5);
 	}
 };
 

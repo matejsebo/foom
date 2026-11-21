@@ -33,6 +33,7 @@
 #include "core/map_coord.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
+#include "core/symbols/symbol.h"
 #include "course/course_data.h"
 #include "templates/template.h"
 #include "undo/map_data_undo.h"
@@ -101,6 +102,8 @@ bool transformMap(Map& map, const QTransform& transform, const MapTransformOptio
 		auto* part = map.getPart(p);
 		if (part->getNumObjects() == 0 || (!options.carry && part->role() == MapPart::Role::Layout))
 			continue;
+		// The rotation of the x axis, cf. Object::rotate().
+		auto const angle = std::atan2(-transform.m12(), transform.m11());
 		auto* step = new ReplaceObjectsUndoStep(&map);
 		step->setPartIndex(p);
 		for (int i = 0; i < part->getNumObjects(); ++i)
@@ -108,6 +111,9 @@ bool transformMap(Map& map, const QTransform& transform, const MapTransformOptio
 			auto* object = part->getObject(i);
 			step->addObject(i, object->duplicate());
 			object->transform(transform);
+			auto const* symbol = object->getSymbol();
+			if (options.rotate_orientations && symbol && (symbol->hasRotatableFillPattern() || symbol->isRotatable()))
+				object->setRotation(object->getRotation() + angle);
 		}
 		undo_step->push(step);
 	}
@@ -177,6 +183,81 @@ QTransform mapMoveTransform(const Map& map, double east_m, double north_m)
 QTransform mapStretchTransform(double factor_x, double factor_y, bool mirror_horizontally, bool mirror_vertically)
 {
 	return QTransform::fromScale(mirror_horizontally ? -factor_x : factor_x, mirror_vertically ? -factor_y : factor_y);
+}
+
+
+PairFit fitPointPairs(const std::vector<PointPair>& pairs)
+{
+	// the design notes, "Affine by point pairs".
+	PairFit fit;
+	auto const n = pairs.size();
+	if (n == 0)
+		return fit;
+	if (n == 1)
+	{
+		auto const d = pairs.front().reference - pairs.front().map;
+		fit.transform = QTransform::fromTranslate(d.x(), d.y());
+	}
+	else if (n == 2)
+	{
+		// The similarity as a complex multiplication: z' = s z + t.
+		auto const p = pairs[1].map - pairs[0].map;
+		auto const q = pairs[1].reference - pairs[0].reference;
+		auto const norm = p.x() * p.x() + p.y() * p.y();
+		if (!(norm > 1e-12))
+			return fit;
+		auto const a = (q.x() * p.x() + q.y() * p.y()) / norm;
+		auto const b = (q.y() * p.x() - q.x() * p.y()) / norm;
+		auto const& m = pairs[0].map;
+		auto const& r = pairs[0].reference;
+		fit.transform = QTransform(a, b, -b, a, r.x() - (a * m.x() - b * m.y()), r.y() - (b * m.x() + a * m.y()));
+	}
+	else
+	{
+		// Least squares, exact for three pairs; centred for precision.
+		double mx = 0, my = 0, rx = 0, ry = 0;
+		for (auto const& pair : pairs)
+		{
+			mx += pair.map.x();
+			my += pair.map.y();
+			rx += pair.reference.x();
+			ry += pair.reference.y();
+		}
+		mx /= n;
+		my /= n;
+		rx /= n;
+		ry /= n;
+		double sxx = 0, sxy = 0, syy = 0, sxu = 0, syu = 0, sxv = 0, syv = 0;
+		for (auto const& pair : pairs)
+		{
+			auto const x = pair.map.x() - mx;
+			auto const y = pair.map.y() - my;
+			auto const u = pair.reference.x() - rx;
+			auto const v = pair.reference.y() - ry;
+			sxx += x * x;
+			sxy += x * y;
+			syy += y * y;
+			sxu += x * u;
+			syu += y * u;
+			sxv += x * v;
+			syv += y * v;
+		}
+		auto const det = sxx * syy - sxy * sxy;
+		if (!(det > 1e-12 * (sxx + syy) * (sxx + syy)))
+			return fit;   // collinear
+		auto const a = (sxu * syy - syu * sxy) / det;
+		auto const b = (syu * sxx - sxu * sxy) / det;
+		auto const d = (sxv * syy - syv * sxy) / det;
+		auto const e = (syv * sxx - sxv * sxy) / det;
+		fit.transform = QTransform(a, d, b, e, rx - a * mx - b * my, ry - d * mx - e * my);
+	}
+	for (auto const& pair : pairs)
+	{
+		auto const p = fit.transform.map(QPointF(pair.map));
+		fit.residuals.push_back(std::hypot(p.x() - pair.reference.x(), p.y() - pair.reference.y()));
+	}
+	fit.ok = true;
+	return fit;
 }
 
 

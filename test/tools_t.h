@@ -94,6 +94,9 @@ private slots:
 	/** foom: Tests the map transform commands. */
 	void mapTransforms();
 	
+	/** foom: Tests the affine transformation tool. */
+	void mapAffineTool();
+	
 	/** foom: Tests the map check command and the Issues window. */
 	void mapCheck();
 	

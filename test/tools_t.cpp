@@ -71,6 +71,7 @@
 #include "gui/widgets/shortcut_settings.h"
 #include "gui/map/numeric_entry_bar.h"
 #include "gui/widgets/symbol_widget.h"
+#include "tools/affine_transform_tool.h"
 #include "tools/draw_path_tool.h"
 #include "tools/lasso_tool.h"
 #include "tools/sketch_tools.h"
@@ -1304,6 +1305,54 @@ void ToolsTest::mapTransforms()
 	auto const stretched = MapCoordF(map.line_object->getRawCoordinateVector().front());
 	QVERIFY(std::abs(stretched.x() - 2 * moved.x()) < 0.001 && std::abs(stretched.y() - 0.5 * moved.y()) < 0.001);
 	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 2);
+}
+
+
+void ToolsTest::mapAffineTool()
+{
+	// the design notes, "Affine by point pairs", Accept (3).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* action = editor.editor->getAction("map-affine");
+	QVERIFY(action);
+	auto* widget = editor.map_widget;
+	auto const click = [&](double x, double y) { editor.simulateClick(widget->mapToViewport(MapCoord(x, y))); };
+	auto const original = MapCoordF(map.line_object->getRawCoordinateVector().front());
+	
+	// Escape: no change.
+	action->trigger();
+	QVERIFY(dynamic_cast<AffineTransformTool*>(editor.editor->getTool()));
+	click(0.0, 0.0);
+	click(10.0, 0.0);
+	click(20.0, 0.0);
+	click(30.0, 0.0);
+	QTest::keyClick(widget, Qt::Key_Escape);
+	QVERIFY(!dynamic_cast<AffineTransformTool*>(editor.editor->getTool()));
+	// The tool is deleted later; so is the unchecking of its action.
+	QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+	QCOMPARE(MapCoordF(map.line_object->getRawCoordinateVector().front()), original);
+	
+	// Two pairs, the second point taken back once, and Enter.
+	auto const steps = map.map->undoManager().undoStepCount();
+	action->trigger();
+	auto* tool = dynamic_cast<AffineTransformTool*>(editor.editor->getTool());
+	QVERIFY(tool);
+	click(0.0, 0.0);
+	click(10.0, 0.0);
+	click(25.0, 5.0);
+	QTest::keyClick(widget, Qt::Key_Backspace);
+	click(20.0, 0.0);
+	click(30.0, 0.0);
+	auto const pairs = tool->pairs();
+	QCOMPARE(int(pairs.size()), 2);
+	QVERIFY(std::abs(pairs[1].map.x() - 20.0) < 0.5 && std::abs(pairs[1].map.y()) < 0.5);
+	auto const expected = MapCoordF(fitPointPairs(pairs).transform.map(QPointF(original)));
+	QTest::keyClick(widget, Qt::Key_Return);
+	QVERIFY(!dynamic_cast<AffineTransformTool*>(editor.editor->getTool()));
+	auto const moved = MapCoordF(map.line_object->getRawCoordinateVector().front());
+	QVERIFY(std::abs(moved.x() - expected.x()) < 0.001 && std::abs(moved.y() - expected.y()) < 0.001);
+	QVERIFY(std::abs(moved.x() - original.x() - 10.0) < 0.5 && std::abs(moved.y() - original.y()) < 0.5);
+	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 1);
 }
 
 
