@@ -1296,6 +1296,82 @@ void ToolsTest::demTrees()
 }
 
 
+void ToolsTest::demGridCommands()
+{
+	// the design notes, "Grid commands", Accept.
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	TestMap map;
+	TestMapEditor editor(map.map);
+	for (auto const* id : { "dem-merge", "dem-difference", "dem-resize", "dem-smooth", "dem-close" })
+		QVERIFY2(editor.editor->getAction(id), id);
+	auto& set = map.map->elevationSet();
+	auto const flat = [](double x0, double value, int width = 11) {
+		return std::make_unique<ElevationModel>(width, 11, QPointF(x0, 11.0), 1.0, std::vector<float>(std::size_t(width) * 11, float(value)));
+	};
+	
+	// Merge.
+	auto const a_path = dir.filePath(QStringLiteral("a.asc"));
+	auto const b_path = dir.filePath(QStringLiteral("b.asc"));
+	QVERIFY(flat(0.0, 1.0)->save(a_path));
+	QVERIFY(flat(5.0, 2.0)->save(b_path));
+	set.setModel(ElevationSet::Terrain, ElevationModel::open(a_path), a_path);
+	QString error;
+	QVERIFY2(editor.editor->mergeElevationFiles({ b_path }, &error), qPrintable(error));
+	auto const* merged = set.model(ElevationSet::Terrain);
+	QVERIFY(merged);
+	QCOMPARE(merged->extent(), QRectF(0.0, 0.0, 16.0, 11.0));
+	QCOMPARE(merged->at(QPointF(2.5, 5.5)), 1.0);
+	QCOMPARE(merged->at(QPointF(8.5, 5.5)), 2.0);
+	auto const merged_href = set.href(ElevationSet::Terrain);
+	QVERIFY(merged_href != a_path);
+	QVERIFY(merged_href.endsWith(QLatin1String(".tif")));
+	auto const reopened = ElevationModel::open(merged_href);
+	QVERIFY(reopened);
+	QCOMPARE(reopened->at(QPointF(8.5, 5.5)), 2.0);
+	QCOMPARE(ElevationModel::open(a_path)->extent(), QRectF(0.0, 0.0, 11.0, 11.0));
+	QVERIFY(map.map->hasUnsavedChanges());
+	
+	// Failures leave the set as it was.
+	auto const coarse_path = dir.filePath(QStringLiteral("coarse.asc"));
+	QVERIFY(std::make_unique<ElevationModel>(5, 5, QPointF(0.0, 10.0), 2.0, std::vector<float>(25, 3.0f))->save(coarse_path));
+	QVERIFY(!editor.editor->mergeElevationFiles({ coarse_path }, &error));
+	QVERIFY(!editor.editor->elevationDifference(&error));
+	QCOMPARE(set.href(ElevationSet::Terrain), merged_href);
+	QVERIFY(set.href(ElevationSet::Canopy).isEmpty());
+	
+	// Difference.
+	set.setModel(ElevationSet::Terrain, flat(0.0, 1.0), a_path);
+	set.setModel(ElevationSet::Surface, flat(0.0, 5.0), dir.filePath(QStringLiteral("s.asc")));
+	QVERIFY2(editor.editor->elevationDifference(&error), qPrintable(error));
+	auto const canopy = ElevationModel::open(set.href(ElevationSet::Canopy));
+	QVERIFY(canopy);
+	QCOMPARE(canopy->info().minimum, 4.0);
+	QCOMPARE(canopy->info().maximum, 4.0);
+	
+	// Crop.
+	QVERIFY2(editor.editor->cropElevation(QRectF(2.0, 2.0, 3.0, 3.0), &error), qPrintable(error));
+	auto const* cropped = set.model(ElevationSet::Terrain);
+	QCOMPARE(cropped->width(), 3);
+	QCOMPARE(cropped->height(), 3);
+	QCOMPARE(cropped->extent(), QRectF(2.0, 2.0, 3.0, 3.0));
+	
+	// Smooth.
+	auto spike = flat(0.0, 10.0);
+	spike->setValue(5, 5, 26.0f);
+	set.setModel(ElevationSet::Terrain, std::move(spike), a_path);
+	QVERIFY2(editor.editor->smoothElevation(1, &error), qPrintable(error));
+	auto const* smooth = set.model(ElevationSet::Terrain);
+	QCOMPARE(double(smooth->value(5, 5)), 14.0);
+	QCOMPARE(double(smooth->value(4, 5)), 12.0);
+	
+	// Close.
+	editor.editor->closeElevation();
+	QVERIFY(set.isEmpty());
+	QVERIFY(map.map->hasUnsavedChanges());
+}
+
+
 void ToolsTest::demPointCloud()
 {
 	// the design notes, "Reading point clouds and gridding them", Accept (9).

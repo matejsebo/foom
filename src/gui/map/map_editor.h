@@ -63,6 +63,8 @@ class QKeyEvent;
 class QLabel;
 class QMenu;
 class QPointF;  // foom
+class QStringList;  // foom
+class QRectF;  // foom
 class QSignalMapper;
 // IWYU pragma: no_forward_declare QString
 class QToolBar;
@@ -805,6 +807,22 @@ public slots:
 	bool importPointClouds(const QStringList& paths, const GriddingParams& params, const PointCloudProducts& products, QString* error);
 	/** foom: Saves the terrain grid in a chosen format (dem-export). */
 	void elevationExportClicked();
+	/** foom: Asks for grids and merges them after the terrain grid (dem-merge). */
+	void elevationMergeClicked();
+	/** foom: Makes the canopy grid of the surface less the terrain (dem-difference). */
+	void elevationDifferenceClicked();
+	/** foom: Asks for a box and crops the terrain grid (dem-resize). */
+	void elevationResizeClicked();
+	/** foom: Asks for a radius and smooths the terrain grid (dem-smooth). */
+	void elevationSmoothClicked();
+	/** foom: Asks, then removes every elevation grid from the map (dem-close). */
+	void elevationCloseClicked();
+	/** foom: The grid commands without asking; see the design notes, "Grid commands". */
+	bool mergeElevationFiles(const QStringList& paths, QString* error);
+	bool elevationDifference(QString* error);
+	bool cropElevation(const QRectF& box, QString* error);
+	bool smoothElevation(int radius, QString* error);
+	void closeElevation();
 	/** foom: Runs the map check and shows the issues; returns their number. */
 	int runMapCheck();
 	/** foom: Asks for the legibility parameters, then runs the scan. */
@@ -1340,6 +1358,13 @@ private:
 	QAction* dem_slope_act = {};  // foom
 	QAction* dem_features_act = {};  // foom
 	QAction* dem_export_act = {};  // foom
+	/// foom: Saves the grid beside the map and makes it the kind's grid (an ElevationSet::Kind).
+	bool storeElevationGrid(int kind, std::unique_ptr<ElevationModel> grid, QString* error);
+	QAction* dem_merge_act = {};  // foom
+	QAction* dem_difference_act = {};  // foom
+	QAction* dem_resize_act = {};  // foom
+	QAction* dem_smooth_act = {};  // foom
+	QAction* dem_close_act = {};  // foom
 	QAction* check_legibility_act = {};  // foom
 	std::function<std::vector<Issue>()> last_check;  // foom: what Check again repeats
 	QAction* issues_window_act = {};  // foom

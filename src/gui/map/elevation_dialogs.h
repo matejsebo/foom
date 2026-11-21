@@ -41,6 +41,7 @@ class QGroupBox;
 class QLabel;
 class QRadioButton;
 class QSpinBox;
+class QRectF;
 class QWidget;
 
 namespace OpenOrienteering {
@@ -64,6 +65,26 @@ private:
 	QCheckBox* feet_check;
 	QCheckBox* millimetres_check;
 	QCheckBox* shift_check;
+};
+
+
+/**
+ * The dem-resize dialog: the bounds of the box, proposed as the grid's extent.
+ */
+class ElevationResizeDialog : public QDialog
+{
+Q_OBJECT
+public:
+	ElevationResizeDialog(const QRectF& extent, QWidget* parent);
+	~ElevationResizeDialog() override;
+
+	QRectF box() const;
+
+private:
+	QDoubleSpinBox* west_edit;
+	QDoubleSpinBox* south_edit;
+	QDoubleSpinBox* east_edit;
+	QDoubleSpinBox* north_edit;
 };
 
 

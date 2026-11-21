@@ -35,6 +35,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QRectF>
 #include <QSpinBox>
 #include <QVBoxLayout>
 
@@ -190,6 +191,43 @@ std::vector<ContourParams> ContourDialog::sets() const
 		result.push_back(params);
 	}
 	return result;
+}
+
+
+
+
+ElevationResizeDialog::ElevationResizeDialog(const QRectF& extent, QWidget* parent)
+: QDialog(parent)
+{
+	// the design notes, "Grid commands".
+	setWindowTitle(tr("Crop elevation grid"));
+	auto const makeEdit = [](double value) {
+		auto* edit = new QDoubleSpinBox();
+		edit->setDecimals(2);
+		edit->setRange(-100000000.0, 100000000.0);
+		edit->setSuffix(QStringLiteral(" m"));
+		edit->setValue(value);
+		return edit;
+	};
+	west_edit = makeEdit(extent.left());
+	south_edit = makeEdit(extent.top());
+	east_edit = makeEdit(extent.right());
+	north_edit = makeEdit(extent.bottom());
+	auto* layout = new QFormLayout();
+	layout->addRow(tr("West:"), west_edit);
+	layout->addRow(tr("South:"), south_edit);
+	layout->addRow(tr("East:"), east_edit);
+	layout->addRow(tr("North:"), north_edit);
+	auto* main_layout = new QVBoxLayout(this);
+	main_layout->addLayout(layout);
+	main_layout->addWidget(makeButtons(this));
+}
+
+ElevationResizeDialog::~ElevationResizeDialog() = default;
+
+QRectF ElevationResizeDialog::box() const
+{
+	return QRectF(QPointF(west_edit->value(), south_edit->value()), QPointF(east_edit->value(), north_edit->value())).normalized();
 }
 
 

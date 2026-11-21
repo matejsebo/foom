@@ -1179,6 +1179,11 @@ void MapEditorController::createActions()
 	dem_slope_act = newAction("dem-slope", tr("Slope gradient..."), this, SLOT(elevationSlopeClicked()));  // foom
 	dem_features_act = newAction("dem-features", tr("Extract features..."), this, SLOT(elevationFeaturesClicked()));  // foom
 	dem_export_act = newAction("dem-export", tr("Export grid..."), this, SLOT(elevationExportClicked()));  // foom
+	dem_merge_act = newAction("dem-merge", tr("Merge elevation grids..."), this, SLOT(elevationMergeClicked()));  // foom
+	dem_difference_act = newAction("dem-difference", tr("Surface less terrain"), this, SLOT(elevationDifferenceClicked()));  // foom
+	dem_resize_act = newAction("dem-resize", tr("Crop elevation grid..."), this, SLOT(elevationResizeClicked()));  // foom
+	dem_smooth_act = newAction("dem-smooth", tr("Smooth elevation grid..."), this, SLOT(elevationSmoothClicked()));  // foom
+	dem_close_act = newAction("dem-close", tr("Close elevation grids"), this, SLOT(elevationCloseClicked()));  // foom
 	issues_window_act = newCheckAction("issueswindow", tr("Issues window"), this, SLOT(showIssuesWindow(bool)));  // foom
 	issue_model = new IssueModel(this);
 	connect(issue_model, &IssueModel::issueActivated, this, &MapEditorController::issueActivated);
@@ -1786,6 +1791,12 @@ void MapEditorController::createMenuAndToolbars()
 		elevation_menu->addAction(dem_point_cloud_act);  // foom
 	elevation_menu->addAction(dem_info_act);
 	elevation_menu->addAction(dem_export_act);
+	elevation_menu->addAction(dem_close_act);
+	elevation_menu->addSeparator();
+	elevation_menu->addAction(dem_merge_act);
+	elevation_menu->addAction(dem_difference_act);
+	elevation_menu->addAction(dem_resize_act);
+	elevation_menu->addAction(dem_smooth_act);
 	elevation_menu->addSeparator();
 	elevation_menu->addAction(dem_contours_act);
 	elevation_menu->addAction(dem_hillshade_act);
@@ -7907,6 +7918,165 @@ bool MapEditorController::importPointClouds(const QStringList& paths, const Grid
 	if (window)
 		window->showStatusBarMessage(tr("Point cloud gridded: %1").arg(names.join(QLatin1String(", "))), 5000);
 	return true;
+}
+
+// foom: the design notes, "Grid commands".
+bool MapEditorController::storeElevationGrid(int kind, std::unique_ptr<ElevationModel> grid, QString* error)
+{
+	auto const set_kind = ElevationSet::Kind(kind);
+	auto& set = map->elevationSet();
+	auto base = set.href(set_kind);
+	if (base.isEmpty())
+		base = set.href(ElevationSet::Terrain);
+	auto const path = productPath(window ? window->currentPath() : QString{}, base, ElevationSet::kindName(set_kind));
+	if (!grid->save(path))
+	{
+		if (error)
+			*error = ElevationModel::lastError();
+		return false;
+	}
+	set.setModel(set_kind, std::move(grid), path);
+	map->setHasUnsavedChanges(true);
+	return true;
+}
+
+bool MapEditorController::mergeElevationFiles(const QStringList& paths, QString* error)
+{
+	auto const crs = map->getGeoreferencing().getProjectedCRSSpec();
+	std::vector<std::unique_ptr<ElevationModel>> opened;
+	std::vector<const ElevationModel*> grids;
+	if (auto const* terrain = map->elevationSet().model(ElevationSet::Terrain, crs))
+		grids.push_back(terrain);
+	for (auto const& path : paths)
+	{
+		ElevationModel::OpenOptions options;
+		options.target_crs = crs;
+		auto grid = ElevationModel::open(path, options);
+		if (!grid)
+		{
+			if (error)
+				*error = ElevationModel::lastError();
+			return false;
+		}
+		grids.push_back(grid.get());
+		opened.push_back(std::move(grid));
+	}
+	auto merged = ElevationModel::merge(grids);
+	if (!merged)
+	{
+		if (error)
+			*error = ElevationModel::lastError();
+		return false;
+	}
+	return storeElevationGrid(ElevationSet::Terrain, std::move(merged), error);
+}
+
+bool MapEditorController::elevationDifference(QString* error)
+{
+	auto const crs = map->getGeoreferencing().getProjectedCRSSpec();
+	auto const* surface = map->elevationSet().model(ElevationSet::Surface, crs);
+	auto const* terrain = map->elevationSet().model(ElevationSet::Terrain, crs);
+	if (!surface || !terrain)
+	{
+		if (error)
+			*error = tr("The map needs a surface grid and a terrain grid.");
+		return false;
+	}
+	auto heights = ElevationModel::difference(*surface, *terrain);
+	if (!heights)
+	{
+		if (error)
+			*error = ElevationModel::lastError();
+		return false;
+	}
+	return storeElevationGrid(ElevationSet::Canopy, std::move(heights), error);
+}
+
+bool MapEditorController::cropElevation(const QRectF& box, QString* error)
+{
+	auto const* terrain = map->elevationSet().model(ElevationSet::Terrain, map->getGeoreferencing().getProjectedCRSSpec());
+	if (!terrain || !terrain->extent().intersects(box))
+	{
+		if (error)
+			*error = terrain ? tr("The box lies outside the elevation grid.") : tr("The map has no terrain grid.");
+		return false;
+	}
+	return storeElevationGrid(ElevationSet::Terrain, terrain->cropped(box), error);
+}
+
+bool MapEditorController::smoothElevation(int radius, QString* error)
+{
+	auto const* terrain = map->elevationSet().model(ElevationSet::Terrain, map->getGeoreferencing().getProjectedCRSSpec());
+	if (!terrain)
+	{
+		if (error)
+			*error = tr("The map has no terrain grid.");
+		return false;
+	}
+	return storeElevationGrid(ElevationSet::Terrain, terrain->smoothed(radius), error);
+}
+
+void MapEditorController::closeElevation()
+{
+	map->elevationSet().clear();
+	map->setHasUnsavedChanges(true);
+}
+
+void MapEditorController::elevationMergeClicked()
+{
+	QString const filter = tr("Elevation grids") + QLatin1String(" (*.tif *.tiff *.asc *.xyz *.hgt *.ocdDem *.img *.vrt *.dem);;") + tr("All files") + QLatin1String(" (*.*)");
+	auto const start_dir = window->currentPath().isEmpty() ? QString{} : QFileInfo(window->currentPath()).absolutePath();
+	auto const paths = QFileDialog::getOpenFileNames(window, tr("Merge elevation grids"), start_dir, filter);
+	if (paths.isEmpty())
+		return;
+	QString error;
+	if (!mergeElevationFiles(paths, &error))
+		QMessageBox::warning(window, tr("Merge elevation grids"), error);
+	else
+		window->showStatusBarMessage(tr("Elevation grids merged into %1").arg(map->elevationSet().href(ElevationSet::Terrain)), 5000);
+}
+
+void MapEditorController::elevationDifferenceClicked()
+{
+	QString error;
+	if (!elevationDifference(&error))
+		QMessageBox::warning(window, tr("Surface less terrain"), error);
+	else
+		window->showStatusBarMessage(tr("Canopy grid written to %1").arg(map->elevationSet().href(ElevationSet::Canopy)), 5000);
+}
+
+void MapEditorController::elevationResizeClicked()
+{
+	auto const* model = terrainModel(*map, window);
+	if (!model)
+		return;
+	ElevationResizeDialog dialog(model->extent(), window);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	QString error;
+	if (!cropElevation(dialog.box(), &error))
+		QMessageBox::warning(window, tr("Crop elevation grid"), error);
+}
+
+void MapEditorController::elevationSmoothClicked()
+{
+	if (!terrainModel(*map, window))
+		return;
+	bool ok = false;
+	auto const radius = QInputDialog::getInt(window, tr("Smooth elevation grid"), tr("Radius (passes):"), 1, 1, 10, 1, &ok);
+	if (!ok)
+		return;
+	QString error;
+	if (!smoothElevation(radius, &error))
+		QMessageBox::warning(window, tr("Smooth elevation grid"), error);
+}
+
+void MapEditorController::elevationCloseClicked()
+{
+	if (map->elevationSet().isEmpty())
+		return;
+	if (QMessageBox::question(window, tr("Close elevation grids"), tr("Remove every elevation grid from the map? The files stay.")) == QMessageBox::Yes)
+		closeElevation();
 }
 
 // foom: the design notes, "Knolls and small depressions".
