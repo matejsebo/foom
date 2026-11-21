@@ -57,6 +57,7 @@ protected:
 	void exportObjectGroups();  // foom
 	void exportBookmarks();  // foom
 	void exportSavedSelections();  // foom
+	void exportStatusSets();  // foom
 	void exportExtents();  // foom
 	void exportSyncCopies();  // foom
 	void exportForeignData();  // foom
@@ -104,6 +105,7 @@ protected:
 	void importObjectGroups();  // foom
 	void importBookmarks();  // foom
 	void importSavedSelections();  // foom
+	void importStatusSets();  // foom
 	void importExtents();  // foom
 	void importSyncCopies();  // foom
 	void importForeignData();  // foom

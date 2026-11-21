@@ -211,6 +211,10 @@ namespace literal
 	static const QLatin1String saved_selections("saved_selections");  // foom
 	static const QLatin1String saved_selection("selection");  // foom
 	static const QLatin1String saved_uuids("uuids");  // foom
+	static const QLatin1String status_sets("status_sets");  // foom
+	static const QLatin1String status_set("status_set");  // foom
+	static const QLatin1String status_hidden("hidden");  // foom
+	static const QLatin1String status_protected("protected");  // foom
 	static const QLatin1String extents("extents");  // foom
 	static const QLatin1String course_data("course_data");  // foom
 	static const QLatin1String sync("sync");  // foom
@@ -334,6 +338,11 @@ bool XMLFileExporter::exportImplementation()
 		if (XMLFileFormat::foom_revision >= 1 && !map->savedSelections().empty())  // foom
 		{
 			exportSavedSelections();
+			writeLineBreak(xml);
+		}
+		if (XMLFileFormat::foom_revision >= 1 && !map->statusSets().empty())  // foom
+		{
+			exportStatusSets();
 			writeLineBreak(xml);
 		}
 		if (XMLFileFormat::foom_revision >= 1 && !map->extents().empty())  // foom
@@ -606,6 +615,24 @@ void XMLFileExporter::exportSavedSelections()
 }
 
 // foom
+void XMLFileExporter::exportStatusSets()
+{
+	// the design notes, "Status sets".
+	auto const& sets = map->statusSets();
+	XmlElementWriter sets_element(xml, literal::status_sets);
+	sets_element.writeAttribute(literal::count, sets.size());
+	for (auto const& set : sets)
+	{
+		writeLineBreak(xml);
+		XmlElementWriter set_element(xml, literal::status_set);
+		set_element.writeAttribute(literal::name, set.name);
+		set_element.writeAttribute(literal::status_hidden, set.hidden.join(QLatin1Char(' ')));
+		set_element.writeAttribute(literal::status_protected, set.protected_symbols.join(QLatin1Char(' ')));
+	}
+	writeLineBreak(xml);
+}
+
+// foom
 void XMLFileExporter::exportExtents()
 {
 	// the design notes, "Named extents and the paper frame".
@@ -841,6 +868,8 @@ void XMLFileImporter::importElements()
 			importBookmarks();
 		else if (name == literal::saved_selections)  // foom
 			importSavedSelections();
+		else if (name == literal::status_sets)  // foom
+			importStatusSets();
 		else if (name == literal::extents)  // foom
 			importExtents();
 		else if (name == literal::course_data)  // foom
@@ -1294,6 +1323,32 @@ void XMLFileImporter::importSavedSelections()
 		}
 	}
 	map->setSavedSelections(std::move(selections));
+}
+
+// foom
+void XMLFileImporter::importStatusSets()
+{
+	// the design notes, "Status sets".
+	std::vector<StatusSet> sets;
+	XmlElementReader sets_element(xml);
+	while (xml.readNextStartElement())
+	{
+		if (xml.name() == literal::status_set)
+		{
+			XmlElementReader set_element(xml);
+			StatusSet set;
+			set.name = set_element.attribute<QString>(literal::name);
+			set.hidden = set_element.attribute<QString>(literal::status_hidden).split(QLatin1Char(' '), QString::SkipEmptyParts);
+			set.protected_symbols = set_element.attribute<QString>(literal::status_protected).split(QLatin1Char(' '), QString::SkipEmptyParts);
+			sets.push_back(std::move(set));
+		}
+		else
+		{
+			addWarningUnsupportedElement();
+			xml.skipCurrentElement();
+		}
+	}
+	map->setStatusSets(std::move(sets));
 }
 
 // foom

@@ -73,6 +73,7 @@
 #include "core/latlon.h"
 #include "core/bookmarks.h"
 #include "core/saved_selections.h"
+#include "core/status_sets.h"
 #include "core/extents.h"
 #include "core/map.h"
 #include "core/map_color.h"
@@ -2363,6 +2364,54 @@ void FileFormatTest::foomSavedSelectionTest()
 	empty_exporter->setDevice(&empty_buffer);
 	QVERIFY(empty_exporter->doExport());
 	QVERIFY(!QString::fromUtf8(empty_buffer.data()).contains(QLatin1String("<saved_selections")));
+}
+
+
+void FileFormatTest::foomStatusSetTest()
+{
+	// the design notes, "Status sets", Accept (4).
+	Map map;
+	auto* symbol = new PointSymbol();
+	map.addSymbol(symbol, 0);
+	map.addObject(new PointObject(symbol));
+	StatusSet field;
+	field.name = QStringLiteral("field");
+	field.hidden = QStringList{ QStringLiteral("101"), QStringLiteral("102.1") };
+	field.protected_symbols = QStringList{ QStringLiteral("501") };
+	StatusSet print;
+	print.name = QStringLiteral("print");
+	map.setStatusSets({ field, print });
+	
+	XMLFileFormat format;
+	QBuffer buffer;
+	QVERIFY(buffer.open(QIODevice::ReadWrite));
+	auto exporter = format.makeExporter({}, &map, nullptr);
+	exporter->setDevice(&buffer);
+	QVERIFY(exporter->doExport());
+	QVERIFY(QString::fromUtf8(buffer.data()).contains(QLatin1String("<status_sets count=\"2\">")));
+	QVERIFY(buffer.seek(0));
+	Map reloaded;
+	auto importer = format.makeImporter({}, &reloaded, nullptr);
+	importer->setDevice(&buffer);
+	QVERIFY(importer->doImport());
+	QVERIFY(importer->warnings().empty());
+	QVERIFY(reloaded.statusSets() == map.statusSets());
+	
+	QBuffer plain_buffer;
+	QVERIFY(plain_buffer.open(QIODevice::ReadWrite));
+	auto plain_exporter = format.makeExporter({}, &map, nullptr);
+	plain_exporter->setOption(QString::fromLatin1("foom"), false);
+	plain_exporter->setDevice(&plain_buffer);
+	QVERIFY(plain_exporter->doExport());
+	QVERIFY(!QString::fromUtf8(plain_buffer.data()).contains(QLatin1String("<status_sets")));
+	
+	map.setStatusSets({});
+	QBuffer empty_buffer;
+	QVERIFY(empty_buffer.open(QIODevice::ReadWrite));
+	auto empty_exporter = format.makeExporter({}, &map, nullptr);
+	empty_exporter->setDevice(&empty_buffer);
+	QVERIFY(empty_exporter->doExport());
+	QVERIFY(!QString::fromUtf8(empty_buffer.data()).contains(QLatin1String("<status_sets")));
 }
 
 namespace {

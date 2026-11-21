@@ -47,6 +47,7 @@
 
 #include "core/bookmarks.h"  // foom
 #include "core/saved_selections.h"  // foom
+#include "core/status_sets.h"  // foom
 #include "core/extents.h"  // foom
 #include "core/sync_record.h"  // foom
 #include "course/course_data.h"  // foom
@@ -990,6 +991,12 @@ public:
 	/** foom: Replaces the saved selections. */
 	void setSavedSelections(std::vector<SavedSelection> selections) { map_saved_selections = std::move(selections); }
 	
+	/** foom: Returns the status sets. See the design notes, "Status sets". */
+	const std::vector<StatusSet>& statusSets() const { return map_status_sets; }
+	
+	/** foom: Replaces the status sets. */
+	void setStatusSets(std::vector<StatusSet> sets) { map_status_sets = std::move(sets); }
+	
 	/** foom: Returns the named extents. See the design notes. */
 	const std::vector<Extent>& extents() const { return map_extents; }
 	
@@ -1783,6 +1790,7 @@ private:
 	QHash<int, QString> object_group_names;  ///< foom: see the design notes, "Groups"
 	std::vector<Bookmark> map_bookmarks;  ///< foom: view state, see the design notes
 	std::vector<SavedSelection> map_saved_selections;  ///< foom: see the design notes, "Saved selections"
+	std::vector<StatusSet> map_status_sets;  ///< foom: see the design notes, "Status sets"
 	ForeignData map_foreign_data;  ///< foom: see the design notes, "OCD round trip"
 	std::vector<Extent> map_extents;  ///< foom: see the design notes
 	CourseData map_course_data;  ///< foom: see the design notes

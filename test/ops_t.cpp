@@ -42,6 +42,7 @@
 #include "core/map_color.h"
 #include "core/object_information.h"
 #include "core/selection_queries.h"
+#include "core/status_sets.h"
 #include "core/symbol_tools.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
@@ -144,6 +145,7 @@ private slots:
 	void interpolateTest();
 	void objectInformationTest();
 	void symbolToolsTest();
+	void statusSetsTest();
 	void buildingsTest();
 	void smoothTest();
 	void rectangleBoxTest();
@@ -1661,6 +1663,44 @@ void OpsTest::symbolToolsTest()
 	for (int i = 0; i < map.getNumSymbols(); ++i)
 		numbers << map.getSymbol(i)->getNumberAsString();
 	QCOMPARE(numbers, (QStringList{ QStringLiteral("200"), QStringLiteral("210"), QStringLiteral("220"), QStringLiteral("230"), QStringLiteral("240"), QStringLiteral("250") }));
+}
+
+
+void OpsTest::statusSetsTest()
+{
+	// the design notes, "Status sets", Accept (1) and (2).
+	Map map;
+	auto const numbered = [&map](Symbol* symbol, int number) {
+		symbol->setNumberComponent(0, number);
+		symbol->setNumberComponent(1, -1);
+		map.addSymbol(symbol, map.getNumSymbols());
+		return symbol;
+	};
+	auto* contour = numbered(new LineSymbol(), 101);
+	auto* field = numbered(new AreaSymbol(), 401);
+	auto* boulder = numbered(new PointSymbol(), 501);
+	contour->setHidden(true);
+	boulder->setProtected(true);
+	auto const set = currentStatusSet(map, QStringLiteral("field"));
+	QCOMPARE(set.hidden, QStringList{ QStringLiteral("101") });
+	QCOMPARE(set.protected_symbols, QStringList{ QStringLiteral("501") });
+	
+	contour->setHidden(false);
+	field->setHidden(false);
+	auto* meadow = new PathObject(field, MapCoordVector{ MapCoord(0.0, 0.0), MapCoord(10.0, 0.0), MapCoord(10.0, 10.0) });
+	map.addObject(meadow);
+	map.addObjectToSelection(meadow, false);
+	StatusSet hide_field;
+	hide_field.hidden = QStringList{ QStringLiteral("401") };
+	hide_field.protected_symbols = QStringList{ QStringLiteral("501") };
+	QCOMPARE(applyStatusSet(map, hide_field), 1);
+	QVERIFY(field->isHidden());
+	QVERIFY(!map.isObjectSelected(meadow));
+	
+	QCOMPARE(applyStatusSet(map, set), 2);
+	QVERIFY(contour->isHidden());
+	QVERIFY(!field->isHidden());
+	QVERIFY(boulder->isProtected());
 }
 
 void OpsTest::buildingsTest()

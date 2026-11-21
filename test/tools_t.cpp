@@ -1625,6 +1625,27 @@ void ToolsTest::symbolTools()
 }
 
 
+void ToolsTest::statusSetCommands()
+{
+	// the design notes, "Status sets", Accept (3).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	for (auto const* id : { "symbols-status-save", "symbols-status-apply", "symbols-status-delete" })
+		QVERIFY2(editor.editor->getAction(id), id);
+	map.line_symbol->setNumberComponent(0, 101);
+	map.line_symbol->setHidden(true);
+	editor.editor->saveStatusSet(QStringLiteral("field"));
+	QCOMPARE(int(map.map->statusSets().size()), 1);
+	editor.editor->saveStatusSet(QStringLiteral("field"));
+	QCOMPARE(int(map.map->statusSets().size()), 1);
+	map.line_symbol->setHidden(false);
+	QCOMPARE(editor.editor->applyStatusSet(QStringLiteral("field")), 1);
+	QVERIFY(map.line_symbol->isHidden());
+	editor.editor->deleteStatusSet(QStringLiteral("field"));
+	QVERIFY(map.map->statusSets().empty());
+}
+
+
 void ToolsTest::demPointCloud()
 {
 	// the design notes, "Reading point clouds and gridding them", Accept (9).

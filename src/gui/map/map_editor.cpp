@@ -198,6 +198,7 @@
 #include "gui/map/selection_dialogs.h"  // foom
 #include "core/selection_queries.h"  // foom
 #include "core/object_information.h"  // foom
+#include "core/status_sets.h"  // foom
 #include "core/symbol_tools.h"  // foom
 #include "gui/widgets/symbol_tools_dialogs.h"  // foom
 #include "gui/map/rectangle_box_dialog.h"
@@ -1319,6 +1320,9 @@ void MapEditorController::createActions()
 	to_polyline_act = newAction("to-polyline", tr("To polyline..."), this, SLOT(toPolylineClicked()));  // foom
 	mirror_act = newAction("mirror", tr("Mirror..."), this, SLOT(mirrorClicked()));  // foom
 	interpolate_act = newAction("interpolate", tr("Interpolate..."), this, SLOT(interpolateClicked()));  // foom
+	status_save_act = newAction("symbols-status-save", tr("Save status set..."), this, SLOT(saveStatusSetClicked()));  // foom
+	status_apply_act = newAction("symbols-status-apply", tr("Apply status set..."), this, SLOT(applyStatusSetClicked()));  // foom
+	status_delete_act = newAction("symbols-status-delete", tr("Delete status set..."), this, SLOT(deleteStatusSetClicked()));  // foom
 	replace_font_act = newAction("symbols-replace-font", tr("Replace font..."), this, SLOT(replaceFontClicked()));  // foom
 	replace_color_act = newAction("symbols-replace-color", tr("Replace colour..."), this, SLOT(replaceColorClicked()));  // foom
 	renumber_symbols_act = newAction("symbols-renumber", tr("Renumber symbols..."), this, SLOT(renumberSymbolsClicked()));  // foom
@@ -1814,6 +1818,10 @@ void MapEditorController::createMenuAndToolbars()
 	symbols_menu->addAction(replace_font_act);  // foom
 	symbols_menu->addAction(replace_color_act);  // foom
 	symbols_menu->addAction(renumber_symbols_act);  // foom
+	auto* status_menu = symbols_menu->addMenu(tr("Status sets"));  // foom: the design notes, "Status sets"
+	status_menu->addAction(status_save_act);
+	status_menu->addAction(status_apply_act);
+	status_menu->addAction(status_delete_act);
 	/*symbols_menu->addAction(load_colors_from_act);*/
 	symbols_menu->addSeparator();
 	symbols_menu->addAction(symbol_report_feature->showDialogAction());
@@ -6121,6 +6129,85 @@ void MapEditorController::mirror(double axis_angle, bool duplicate)
 	params.axis_angle = axis_angle;
 	params.duplicate = duplicate;
 	applyOpResult(ops::mirror(*map, in, params));
+}
+
+// foom: the design notes, "Status sets".
+void MapEditorController::saveStatusSet(const QString& name)
+{
+	auto sets = map->statusSets();
+	auto set = currentStatusSet(*map, name);
+	auto existing = std::find_if(sets.begin(), sets.end(), [&name](const StatusSet& s) { return s.name == name; });
+	if (existing != sets.end())
+		*existing = std::move(set);
+	else
+		sets.push_back(std::move(set));
+	map->setStatusSets(std::move(sets));
+	map->setHasUnsavedChanges(true);
+}
+
+int MapEditorController::applyStatusSet(const QString& name)
+{
+	auto const& sets = map->statusSets();
+	auto const found = std::find_if(sets.begin(), sets.end(), [&name](const StatusSet& s) { return s.name == name; });
+	if (found == sets.end())
+		return 0;
+	auto const changed = OpenOrienteering::applyStatusSet(*map, *found);
+	if (window)
+		window->showStatusBarMessage(tr("%1 symbol(s) changed").arg(changed), 5000);
+	return changed;
+}
+
+void MapEditorController::deleteStatusSet(const QString& name)
+{
+	auto sets = map->statusSets();
+	auto const before = sets.size();
+	sets.erase(std::remove_if(sets.begin(), sets.end(), [&name](const StatusSet& s) { return s.name == name; }), sets.end());
+	if (sets.size() == before)
+		return;
+	map->setStatusSets(std::move(sets));
+	map->setHasUnsavedChanges(true);
+}
+
+namespace {
+
+QString chooseStatusSet(QWidget* parent, const Map& map, const QString& title)
+{
+	QStringList names;
+	for (auto const& set : map.statusSets())
+		names.push_back(set.name);
+	if (names.isEmpty())
+	{
+		QMessageBox::information(parent, title, MapEditorController::tr("The map has no status set."));
+		return {};
+	}
+	bool ok = false;
+	auto const name = QInputDialog::getItem(parent, title, MapEditorController::tr("Status set:"), names, 0, false, &ok);
+	return ok ? name : QString{};
+}
+
+}  // namespace
+
+void MapEditorController::saveStatusSetClicked()
+{
+	bool ok = false;
+	auto const name = QInputDialog::getText(window, tr("Save status set"), tr("Name:"), QLineEdit::Normal,
+	                                        tr("Status set %1").arg(map->statusSets().size() + 1), &ok);
+	if (ok && !name.trimmed().isEmpty())
+		saveStatusSet(name.trimmed());
+}
+
+void MapEditorController::applyStatusSetClicked()
+{
+	auto const name = chooseStatusSet(window, *map, tr("Apply status set"));
+	if (!name.isEmpty())
+		applyStatusSet(name);
+}
+
+void MapEditorController::deleteStatusSetClicked()
+{
+	auto const name = chooseStatusSet(window, *map, tr("Delete status set"));
+	if (!name.isEmpty())
+		deleteStatusSet(name);
 }
 
 // foom: the design notes, "Selecting symbols, replacing fonts and colours, renumbering".

@@ -124,6 +124,9 @@ private slots:
 	/** foom: Tests selecting symbols and the symbol replacement commands. */
 	void symbolTools();
 	
+	/** foom: Tests the status set commands. */
+	void statusSetCommands();
+	
 	/** foom: Tests the point cloud import command. */
 	void demPointCloud();
 	
