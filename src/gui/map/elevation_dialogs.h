@@ -30,12 +30,14 @@
 #include "elevation/elevation_model.h"
 #include "elevation/elevation_set.h"
 #include "elevation/landforms.h"
+#include "elevation/point_cloud.h"
 #include "elevation/raster_products.h"
 
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
 class QGroupBox;
+class QLabel;
 class QRadioButton;
 class QWidget;
 
@@ -113,6 +115,29 @@ private:
 	QDoubleSpinBox* height_edit;
 	QCheckBox* depressions_check;
 	QDoubleSpinBox* depth_edit;
+};
+
+
+/**
+ * The dem-point-cloud dialog: the files, their analysis, the cell size and the products.
+ */
+class PointCloudDialog : public QDialog
+{
+Q_OBJECT
+public:
+	PointCloudDialog(const QStringList& paths, QWidget* parent);
+	~PointCloudDialog() override;
+	
+	GriddingParams params() const;
+	
+private:
+	void analyse();
+	
+	QStringList paths;
+	QLabel* report_label;
+	QDoubleSpinBox* cell_edit;
+	QCheckBox* dtm_check;
+	QCheckBox* dsm_check;
 };
 
 

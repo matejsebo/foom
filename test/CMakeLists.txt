@@ -254,6 +254,9 @@ if(TARGET mapper-elevation)
 	# foom: larger fixtures are kept outside the repository; the tests which need them skip without them
 	set(FOOM_FIXTURES_DIR "" CACHE PATH "A folder with further test fixtures")
 	target_compile_definitions(elevation_t PRIVATE "FOOM_FIXTURES_DIR=\"${FOOM_FIXTURES_DIR}\"")
+	add_system_test(point_cloud_t)  # foom: the design notes, Reading point clouds and gridding them
+	target_link_libraries(point_cloud_t PRIVATE mapper-elevation)
+	target_include_directories(point_cloud_t SYSTEM PRIVATE ${GDAL_INCLUDE_DIRS})
 endif()
 add_system_test(map_part_role_t)  # foom: the design notes, Map part roles
 add_system_test(private_symbol_t)  # foom: the design notes, Private symbols

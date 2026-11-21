@@ -88,6 +88,7 @@ class ExtentDialog;  // foom
 class IssueModel;  // foom
 struct LegibilityParams;  // foom
 struct LandformParams;  // foom
+struct GriddingParams;  // foom
 class FindReplaceTextDialog;  // foom
 class MoveParallelDialog;  // foom
 class NumericEntryBar;  // foom
@@ -757,6 +758,10 @@ public slots:
 	void elevationFeaturesClicked();
 	/** foom: Extracts knolls and small depressions of the terrain model as one undo step; returns their number. */
 	int extractLandforms(const LandformParams& params);
+	/** foom: Asks for point clouds and grids them (dem-point-cloud). */
+	void elevationPointCloudClicked();
+	/** foom: Grids the point clouds into the map's terrain and surface models, saved as GeoTIFF. */
+	bool importPointClouds(const QStringList& paths, const GriddingParams& params, QString* error);
 	/** foom: Saves the terrain grid in a chosen format (dem-export). */
 	void elevationExportClicked();
 	/** foom: Runs the map check and shows the issues; returns their number. */
@@ -1278,6 +1283,7 @@ private:
 	QAction* make_rectangular_act = {};  // foom
 	QAction* generalize_buildings_act = {};  // foom
 	QAction* dem_open_act = {};  // foom
+	QAction* dem_point_cloud_act = {};  // foom
 	QAction* dem_info_act = {};  // foom
 	QAction* dem_contours_act = {};  // foom
 	QAction* dem_hillshade_act = {};  // foom

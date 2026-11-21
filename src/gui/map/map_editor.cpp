@@ -122,6 +122,7 @@
 #include "elevation/elevation_model.h"  // foom
 #include "elevation/elevation_set.h"  // foom
 #include "elevation/landforms.h"  // foom
+#include "elevation/point_cloud.h"  // foom
 #include "elevation/raster_products.h"  // foom
 #include "core/ops/align.h"
 #include "core/ops/apply_op.h"
@@ -1154,6 +1155,8 @@ void MapEditorController::createActions()
 	make_rectangular_act = newAction("make-rectangular", tr("Make rectangular..."), this, SLOT(makeRectangularClicked()));  // foom
 	generalize_buildings_act = newAction("generalize-buildings", tr("Generalize buildings..."), this, SLOT(generalizeBuildingsClicked()));  // foom
 	dem_open_act = newAction("dem-open", tr("Import elevation data..."), this, SLOT(elevationOpenClicked()));  // foom
+	if (PointCloud::supported())
+		dem_point_cloud_act = newAction("dem-point-cloud", tr("Import point cloud..."), this, SLOT(elevationPointCloudClicked()));  // foom
 	dem_info_act = newAction("dem-info", tr("Elevation information..."), this, SLOT(elevationInfoClicked()));  // foom
 	dem_contours_act = newAction("dem-contours", tr("Contours..."), this, SLOT(elevationContoursClicked()));  // foom
 	dem_hillshade_act = newAction("dem-hillshade", tr("Hill shading..."), this, SLOT(elevationHillShadeClicked()));  // foom
@@ -1743,6 +1746,8 @@ void MapEditorController::createMenuAndToolbars()
 	
 	QMenu* elevation_menu = window->menuBar()->addMenu(tr("&Elevation"));  // foom: the design notes, "Menu placement"
 	elevation_menu->addAction(dem_open_act);
+	if (dem_point_cloud_act)
+		elevation_menu->addAction(dem_point_cloud_act);  // foom
 	elevation_menu->addAction(dem_info_act);
 	elevation_menu->addAction(dem_export_act);
 	elevation_menu->addSeparator();
@@ -7602,6 +7607,72 @@ void MapEditorController::elevationFeaturesClicked()
 	auto const count = extractLandforms(dialog.params());
 	if (count == 0)
 		QMessageBox::information(window, tr("Extract features"), tr("No knoll and no small depression was found."));
+}
+
+void MapEditorController::elevationPointCloudClicked()
+{
+	QString const filter = tr("Point clouds") + QLatin1String(" (*.las *.laz);;") + tr("All files") + QLatin1String(" (*.*)");
+	auto const start_dir = window->currentPath().isEmpty() ? QString{} : QFileInfo(window->currentPath()).absolutePath();
+	auto const paths = QFileDialog::getOpenFileNames(window, tr("Import point cloud"), start_dir, filter);
+	if (paths.isEmpty())
+		return;
+	PointCloudDialog dialog(paths, window);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	QString error;
+	QApplication::setOverrideCursor(Qt::WaitCursor);
+	auto const ok = importPointClouds(paths, dialog.params(), &error);
+	QApplication::restoreOverrideCursor();
+	if (!ok)
+		QMessageBox::warning(window, tr("Import point cloud"), error);
+}
+
+// foom: the design notes, "Reading point clouds and gridding them".
+bool MapEditorController::importPointClouds(const QStringList& paths, const GriddingParams& params, QString* error)
+{
+	if (paths.isEmpty())
+		return false;
+	auto result = PointCloud::grid(paths, params);
+	if (!result.error.isEmpty())
+	{
+		*error = result.error;
+		return false;
+	}
+	auto const map_path = window ? window->currentPath() : QString{};
+	auto const target_crs = map->getGeoreferencing().getProjectedCRSSpec();
+	QStringList names;
+	auto const store = [&](std::unique_ptr<ElevationModel> grid, ElevationSet::Kind kind, const QString& suffix) {
+		if (!grid)
+			return true;
+		auto const href = productPath(map_path, paths.front(), suffix);
+		if (!grid->save(href))
+		{
+			*error = ElevationModel::lastError();
+			return false;
+		}
+		if (!grid->crsSpec().isEmpty() && !target_crs.isEmpty() && !ElevationModel::sameCrs(grid->crsSpec(), target_crs))
+		{
+			// Warped into the map's system, as an imported grid is.
+			ElevationModel::OpenOptions options;
+			options.target_crs = target_crs;
+			grid = ElevationModel::open(href, options);
+			if (!grid)
+			{
+				*error = ElevationModel::lastError();
+				return false;
+			}
+		}
+		map->elevationSet().setModel(kind, std::move(grid), href);
+		names.push_back(QFileInfo(href).fileName());
+		return true;
+	};
+	if (!store(std::move(result.dtm), ElevationSet::Terrain, QStringLiteral("DTM"))
+	    || !store(std::move(result.dsm), ElevationSet::Surface, QStringLiteral("DSM")))
+		return false;
+	map->setHasUnsavedChanges(true);
+	if (window)
+		window->showStatusBarMessage(tr("Point cloud gridded: %1").arg(names.join(QLatin1String(", "))), 5000);
+	return true;
 }
 
 // foom: the design notes, "Knolls and small depressions".

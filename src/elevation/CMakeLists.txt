@@ -18,7 +18,7 @@
 
 
 # The elevation module, see the design notes.
-# Grid processing on GDAL; the point-cloud layer is not built yet.
+# Grid processing on GDAL; point clouds on LASzip when it is found.
 
 find_package(GDAL MODULE REQUIRED)
 find_package(Qt5Core REQUIRED)
@@ -30,6 +30,7 @@ set(MAPPER_ELEVATION_SOURCES
   elevation_model.cpp
   elevation_set.cpp
   landforms.cpp
+  point_cloud.cpp
   raster_products.cpp
 )
 
@@ -49,3 +50,15 @@ target_include_directories(mapper-elevation PRIVATE "${PROJECT_SOURCE_DIR}/src")
 target_link_libraries(mapper-elevation ${GDAL_LIBRARIES} Qt5::Core Qt5::Gui mapper-gdal Mapper_Common)
 
 set_target_properties(mapper-elevation PROPERTIES PREFIX "")
+
+# LASzip's own library: its laszip_api3 is a loader which looks for LASzip64.dll.
+find_path(LASZIP_INCLUDE_DIR laszip/laszip_api.h)
+find_library(LASZIP_LIBRARY NAMES laszip3 laszip)
+if(LASZIP_INCLUDE_DIR AND LASZIP_LIBRARY)
+  message(STATUS "Point clouds: ${LASZIP_LIBRARY}")
+  target_compile_definitions(mapper-elevation PRIVATE FOOM_WITH_LASZIP LASZIP_DYN_LINK)
+  target_include_directories(mapper-elevation SYSTEM PRIVATE "${LASZIP_INCLUDE_DIR}")
+  target_link_libraries(mapper-elevation "${LASZIP_LIBRARY}")
+else()
+  message(STATUS "Point clouds: LASzip not found, not supported")
+endif()

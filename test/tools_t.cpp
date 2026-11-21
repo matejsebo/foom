@@ -28,6 +28,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QEvent>
+#include <QFileInfo>
 #include <QMouseEvent>
 #include <QPoint>
 #include <QPointF>
@@ -52,6 +53,7 @@
 #include "elevation/elevation_model.h"
 #include "elevation/elevation_set.h"
 #include "elevation/landforms.h"
+#include "elevation/point_cloud.h"
 #include "gui/map/extent_dialog.h"
 #include "check/issue.h"
 #include "check/legibility.h"
@@ -1227,6 +1229,51 @@ void ToolsTest::demFeatures()
 	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 1);
 	QVERIFY(map.map->undoManager().undo());
 	QCOMPARE(map.map->getNumObjects(), objects);
+}
+
+
+void ToolsTest::demPointCloud()
+{
+	// the design notes, "Reading point clouds and gridding them", Accept (9).
+	if (!PointCloud::supported())
+		QSKIP("Built without LASzip");
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("dem-point-cloud"));
+	// Ground on a plane rising 0.1 m per metre eastwards, four points per square metre.
+	std::vector<CloudPoint> points;
+	for (int i = 0; i < 40; ++i)
+	{
+		for (int j = 0; j < 40; ++j)
+		{
+			CloudPoint p;
+			p.x = 1000.25 + 0.5 * i;
+			p.y = 2000.25 + 0.5 * j;
+			p.z = 300.0 + 0.1 * (p.x - 1000.0);
+			p.classification = 2;
+			points.push_back(p);
+		}
+	}
+	QTemporaryDir dir;
+	auto const cloud = dir.filePath(QStringLiteral("plane.laz"));
+	QString error;
+	QVERIFY2(PointCloud::write(cloud, points, {}, 0, &error), qPrintable(error));
+	QVERIFY2(editor.editor->importPointClouds({ cloud }, GriddingParams(), &error), qPrintable(error));
+	auto& set = map.map->elevationSet();
+	QCOMPARE(QFileInfo(set.href(ElevationSet::Terrain)).fileName(), QStringLiteral("plane_DTM.tif"));
+	QCOMPARE(QFileInfo(set.href(ElevationSet::Surface)).fileName(), QStringLiteral("plane_DSM.tif"));
+	QVERIFY(QFileInfo::exists(dir.filePath(QStringLiteral("plane_DTM.tif"))));
+	QVERIFY(QFileInfo::exists(dir.filePath(QStringLiteral("plane_DSM.tif"))));
+	QVERIFY(map.map->hasUnsavedChanges());
+	auto const* terrain = set.model(ElevationSet::Terrain);
+	QVERIFY(terrain);
+	QVERIFY(set.model(ElevationSet::Surface));
+	QCOMPARE(terrain->width(), 20);
+	auto const c = terrain->cellCenter(5, 7);
+	QVERIFY(std::abs(terrain->value(5, 7) - (300.0 + 0.1 * (c.x() - 1000.0))) < 0.05);
+	
+	QVERIFY(!editor.editor->importPointClouds({ dir.filePath(QStringLiteral("absent.laz")) }, GriddingParams(), &error));
+	QVERIFY(!error.isEmpty());
 }
 
 

@@ -23,13 +23,16 @@
 #include <cmath>
 
 #include <QCheckBox>
+#include <QApplication>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QPushButton>
 #include <QRadioButton>
 #include <QVBoxLayout>
 
@@ -231,6 +234,87 @@ LandformParams LandformDialog::params() const
 	params.min_height = height_edit->value();
 	params.depressions = depressions_check->isChecked();
 	params.min_depth = depth_edit->value();
+	return params;
+}
+
+PointCloudDialog::PointCloudDialog(const QStringList& paths, QWidget* parent)
+: QDialog(parent)
+, paths(paths)
+{
+	setWindowTitle(tr("Import point cloud"));
+	QStringList names;
+	for (auto const& path : paths)
+		names.push_back(QFileInfo(path).fileName());
+	auto* files_label = new QLabel(names.join(QLatin1String(", ")));
+	files_label->setWordWrap(true);
+	auto* analyse_button = new QPushButton(tr("Analyse"));
+	report_label = new QLabel();
+	report_label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+	GriddingParams const defaults;
+	cell_edit = new QDoubleSpinBox();
+	cell_edit->setDecimals(2);
+	cell_edit->setRange(0.1, 100.0);
+	cell_edit->setSingleStep(0.5);
+	cell_edit->setSuffix(QStringLiteral(" m"));
+	cell_edit->setValue(defaults.cell);
+	dtm_check = new QCheckBox(tr("Terrain model (DTM): ground and water, last returns"));
+	dtm_check->setChecked(defaults.dtm);
+	dsm_check = new QCheckBox(tr("Surface model (DSM): ground, vegetation, buildings and water, first returns"));
+	dsm_check->setChecked(defaults.dsm);
+	connect(analyse_button, &QPushButton::clicked, this, &PointCloudDialog::analyse);
+	
+	auto* layout = new QFormLayout();
+	layout->addRow(tr("Files:"), files_label);
+	layout->addRow(analyse_button, report_label);
+	layout->addRow(tr("Cell size:"), cell_edit);
+	layout->addRow(dtm_check);
+	layout->addRow(dsm_check);
+	auto* main_layout = new QVBoxLayout(this);
+	main_layout->addLayout(layout);
+	auto* buttons = makeButtons(this);
+	main_layout->addWidget(buttons);
+	auto const update = [this, buttons]() {
+		buttons->button(QDialogButtonBox::Ok)->setEnabled(dtm_check->isChecked() || dsm_check->isChecked());
+	};
+	connect(dtm_check, &QCheckBox::toggled, this, update);
+	connect(dsm_check, &QCheckBox::toggled, this, update);
+}
+
+PointCloudDialog::~PointCloudDialog() = default;
+
+void PointCloudDialog::analyse()
+{
+	QApplication::setOverrideCursor(Qt::WaitCursor);
+	auto const info = PointCloud::analyse(paths);
+	QApplication::restoreOverrideCursor();
+	if (!info.error.isEmpty())
+	{
+		report_label->setText(info.error);
+		return;
+	}
+	QStringList classes;
+	for (int c = 0; c < int(info.per_class.size()); ++c)
+	{
+		if (info.per_class[std::size_t(c)] > 0)
+			classes.push_back(QStringLiteral("%1: %2").arg(c).arg(info.per_class[std::size_t(c)]));
+	}
+	auto const spacing = info.density > 0 ? 1.0 / std::sqrt(info.density) : 0.0;
+	report_label->setText(tr("%1 points\nEasting %2 to %3, northing %4 to %5\n%6 points per square metre (spacing %7 m)\nHeight %8 to %9 m\nPoints per class: %10\nSystem: %11")
+	                      .arg(info.count)
+	                      .arg(info.extent.left(), 0, 'f', 2).arg(info.extent.right(), 0, 'f', 2)
+	                      .arg(info.extent.top(), 0, 'f', 2).arg(info.extent.bottom(), 0, 'f', 2)
+	                      .arg(info.density, 0, 'f', 2).arg(spacing, 0, 'f', 2)
+	                      .arg(info.z_min, 0, 'f', 2).arg(info.z_max, 0, 'f', 2)
+	                      .arg(classes.join(QLatin1String(", ")),
+	                           info.crs_spec.isEmpty() ? tr("none, taken as the map's") : info.crs_spec.left(60)));
+}
+
+GriddingParams PointCloudDialog::params() const
+{
+	GriddingParams params;
+	params.cell = cell_edit->value();
+	params.dtm = dtm_check->isChecked();
+	params.dsm = dsm_check->isChecked();
 	return params;
 }
 
