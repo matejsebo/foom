@@ -1179,6 +1179,7 @@ void MapEditorController::createActions()
 	dem_hillshade_act = newAction("dem-hillshade", tr("Hill shading..."), this, SLOT(elevationHillShadeClicked()));  // foom
 	dem_slope_act = newAction("dem-slope", tr("Slope gradient..."), this, SLOT(elevationSlopeClicked()));  // foom
 	dem_vegetation_height_act = newAction("dem-vegetation-height", tr("Vegetation height..."), this, SLOT(elevationVegetationHeightClicked()));  // foom
+	dem_merge_contours_act = newAction("dem-merge-contours", tr("Merge contour lines..."), this, SLOT(elevationMergeContoursClicked()));  // foom
 	dem_profile_act = newAction("dem-profile", tr("Profile..."), this, SLOT(elevationProfileClicked()));  // foom
 	dem_hypsometric_act = newAction("dem-hypsometric", tr("Hypsometric map..."), this, SLOT(elevationHypsometricClicked()));  // foom
 	dem_features_act = newAction("dem-features", tr("Extract features..."), this, SLOT(elevationFeaturesClicked()));  // foom
@@ -1803,6 +1804,7 @@ void MapEditorController::createMenuAndToolbars()
 	elevation_menu->addAction(dem_smooth_act);
 	elevation_menu->addSeparator();
 	elevation_menu->addAction(dem_contours_act);
+	elevation_menu->addAction(dem_merge_contours_act);
 	elevation_menu->addAction(dem_hillshade_act);
 	elevation_menu->addAction(dem_slope_act);
 	elevation_menu->addAction(dem_hypsometric_act);
@@ -8209,6 +8211,44 @@ void MapEditorController::elevationVegetationHeightClicked()
 		showTemplateWindow(true);
 	}
 	window->showStatusBarMessage(tr("Vegetation height written to %1").arg(path), 5000);
+}
+
+// foom: the design notes, "Merging contour lines".
+int MapEditorController::mergeContourLines(double tolerance)
+{
+	std::vector<const Object*> in;
+	if (symbol_widget)
+	{
+		auto const* part = map->getCurrentPart();
+		for (int i = 0; i < part->getNumObjects(); ++i)
+		{
+			auto const* object = part->getObject(i);
+			if (object->getSymbol() && symbol_widget->isSymbolSelected(object->getSymbol()))
+				in.push_back(object);
+		}
+	}
+	ops::JoinParams params;
+	params.tolerance = tolerance;
+	auto result = ops::mergeContourLines(*map, in, params);
+	auto const joins = int(result.consumed.size()) - int(result.out.size());
+	if (!result.error.isEmpty() || result.out.empty())
+	{
+		if (window)
+			window->showStatusBarMessage(result.error.isEmpty() ? tr("No contour lines to merge.") : result.error, 5000);
+		return 0;
+	}
+	applyOpResult(std::move(result));
+	if (window)
+		window->showStatusBarMessage(tr("%1 join(s) of contour lines").arg(joins), 5000);
+	return joins;
+}
+
+void MapEditorController::elevationMergeContoursClicked()
+{
+	bool ok = false;
+	auto const tolerance = QInputDialog::getDouble(window, tr("Merge contour lines"), tr("Join ends closer than:"), ops::JoinParams().tolerance, 0.0, 100.0, 2, &ok);
+	if (ok)
+		mergeContourLines(tolerance);
 }
 
 // foom: the design notes, "Profile".

@@ -106,6 +106,9 @@ private slots:
 	/** foom: Tests the profile command. */
 	void demProfile();
 	
+	/** foom: Tests the merging of contour lines. */
+	void demMergeContours();
+	
 	/** foom: Tests the point cloud import command. */
 	void demPointCloud();
 	

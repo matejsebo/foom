@@ -1470,6 +1470,37 @@ void ToolsTest::demProfile()
 }
 
 
+void ToolsTest::demMergeContours()
+{
+	// the design notes, "Merging contour lines", Accept (3).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("dem-merge-contours"));
+	auto* contour = new LineSymbol();
+	contour->setLineWidth(0.14);
+	map.map->addSymbol(contour, map.map->getNumSymbols());
+	auto const line = [&map](const Symbol* s, const MapCoord& a, const MapCoord& b) {
+		auto* object = new PathObject(s, { a, b });
+		object->setTag(QStringLiteral("ele"), QStringLiteral("410"));
+		map.map->addObject(object);
+		return object;
+	};
+	line(contour, MapCoord(50.0, 50.0), MapCoord(60.0, 50.0));
+	line(contour, MapCoord(60.1, 50.0), MapCoord(70.0, 50.0));
+	line(map.line_symbol, MapCoord(70.0, 50.0), MapCoord(80.0, 50.0));
+	auto* widget = editor.editor->getSymbolWidget();
+	QVERIFY(widget);
+	widget->selectSingleSymbol(contour);
+	auto const objects = map.map->getNumObjects();
+	auto const steps = map.map->undoManager().undoStepCount();
+	QCOMPARE(editor.editor->mergeContourLines(0.25), 1);
+	QCOMPARE(map.map->getNumObjects(), objects - 1);
+	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 1);
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(map.map->getNumObjects(), objects);
+}
+
+
 void ToolsTest::demPointCloud()
 {
 	// the design notes, "Reading point clouds and gridding them", Accept (9).

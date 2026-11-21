@@ -264,6 +264,36 @@ OpResult joinLines(const Map& /*map*/, const std::vector<const Object*>& in, con
 	return result;
 }
 
+
+OpResult mergeContourLines(const Map& map, const std::vector<const Object*>& in, const JoinParams& params)
+{
+	// the design notes, "Merging contour lines".
+	std::map<QString, std::vector<const Object*>> groups;
+	for (auto const* object : in)
+	{
+		if (isLinePath(object))
+			groups[object->getTag(QStringLiteral("ele"))].push_back(object);
+	}
+	OpResult result;
+	for (auto& group : groups)
+	{
+		if (group.second.size() < 2)
+			continue;
+		auto joined = joinLines(map, group.second, params);
+		if (!joined.error.isEmpty())
+		{
+			result.error = joined.error;
+			result.out.clear();
+			result.consumed.clear();
+			return result;
+		}
+		for (auto& object : joined.out)
+			result.out.push_back(std::move(object));
+		result.consumed.insert(result.consumed.end(), joined.consumed.begin(), joined.consumed.end());
+	}
+	return result;
+}
+
 OpResult closeAreas(const Map& /*map*/, const std::vector<const Object*>& in, const OpParams& /*params*/)
 {
 	OpResult result;

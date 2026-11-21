@@ -52,6 +52,14 @@ struct JoinParams : public OpParams
 OpResult joinLines(const Map& map, const std::vector<const Object*>& in, const JoinParams& params);
 
 /**
+ * Joins the lines as joinLines() does within groups of one height (the "ele" tag),
+ * so that contour lines of different heights never join ("dem-merge-contours").
+ *
+ * See the design notes, "Merging contour lines".
+ */
+OpResult mergeContourLines(const Map& map, const std::vector<const Object*>& in, const JoinParams& params);
+
+/**
  * Closes the open parts of area objects ("close-areas").
  */
 OpResult closeAreas(const Map& map, const std::vector<const Object*>& in, const OpParams& params);

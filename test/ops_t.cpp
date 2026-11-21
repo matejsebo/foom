@@ -134,6 +134,7 @@ private slots:
 	void groupTest();
 	void replaceTextTest();
 	void topologyTest();
+	void mergeContoursTest();
 	void buildingsTest();
 	void smoothTest();
 	void rectangleBoxTest();
@@ -1203,6 +1204,42 @@ void OpsTest::topologyTest()
 	params.include_touching = false;
 	auto untouched = ops::intersections(map, { x1, t }, params);
 	QVERIFY(untouched.error.isEmpty() && untouched.out.empty());
+}
+
+
+void OpsTest::mergeContoursTest()
+{
+	// the design notes, "Merging contour lines", Accept (1) and (2).
+	Map map;
+	auto* contour = new LineSymbol();
+	map.addSymbol(contour, 0);
+	auto* other = new LineSymbol();
+	map.addSymbol(other, 1);
+	auto const line = [&map](const Symbol* s, const MapCoord& a, const MapCoord& b, const char* ele) {
+		auto* object = new PathObject(s, { a, b });
+		if (ele)
+			object->setTag(QStringLiteral("ele"), QString::fromLatin1(ele));
+		map.addObject(object);
+		return object;
+	};
+	auto* a = line(contour, MapCoord(0.0, 0.0), MapCoord(10.0, 0.0), "410");
+	auto* b = line(contour, MapCoord(10.1, 0.0), MapCoord(20.0, 0.0), "410");
+	auto* c = line(contour, MapCoord(20.0, 0.0), MapCoord(30.0, 5.0), "415");
+	auto* d = line(contour, MapCoord(0.0, 20.0), MapCoord(10.0, 20.0), nullptr);
+	auto* e = line(contour, MapCoord(10.0, 20.0), MapCoord(20.0, 20.0), nullptr);
+	auto* f = line(other, MapCoord(30.1, 5.0), MapCoord(40.0, 5.0), "415");
+	ops::JoinParams params;
+	auto const merged = ops::mergeContourLines(map, { a, b, c, d, e, f }, params);
+	QVERIFY2(merged.error.isEmpty(), qPrintable(merged.error));
+	QCOMPARE(merged.out.size(), std::size_t(2));
+	QCOMPARE(merged.consumed.size(), std::size_t(4));
+	for (auto const* consumed : { a, b, d, e })
+		QVERIFY(std::find(merged.consumed.begin(), merged.consumed.end(), consumed) != merged.consumed.end());
+	for (auto const& out : merged.out)
+		QCOMPARE(int(out->asPath()->getRawCoordinateVector().size()), 3);
+	params.tolerance = 0.05;
+	auto const strict = ops::mergeContourLines(map, { a, b, c }, params);
+	QVERIFY(strict.error.isEmpty() && strict.out.empty() && strict.consumed.empty());
 }
 
 void OpsTest::buildingsTest()

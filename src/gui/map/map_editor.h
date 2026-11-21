@@ -767,6 +767,10 @@ public slots:
 	void elevationHypsometricClicked();
 	/** foom: Shows the profile of the selected line (dem-profile). */
 	void elevationProfileClicked();
+	/** foom: Asks for the tolerance and merges the contour lines of the selected symbols (dem-merge-contours). */
+	void elevationMergeContoursClicked();
+	/** foom: Joins the pieces of contour lines of the selected symbols by height, as one undo step; returns the joins. */
+	int mergeContourLines(double tolerance);
 	/** foom: The profile of the terrain grid along the one selected line or area; no sample and a message otherwise. */
 	Profile elevationProfileOfSelection(QString* error);
 	/** foom: Writes and attaches the vegetation height raster of the map's grids (dem-vegetation-height). */
@@ -1372,6 +1376,7 @@ private:
 	QAction* dem_slope_act = {};  // foom
 	QAction* dem_hypsometric_act = {};  // foom
 	QAction* dem_profile_act = {};  // foom
+	QAction* dem_merge_contours_act = {};  // foom
 	QAction* dem_vegetation_height_act = {};  // foom
 	QAction* dem_features_act = {};  // foom
 	QAction* dem_export_act = {};  // foom
