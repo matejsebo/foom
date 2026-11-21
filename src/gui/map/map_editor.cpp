@@ -44,6 +44,7 @@
 #include <QComboBox>
 #include <QDate>
 #include <QCheckBox>
+#include <QClipboard>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFile>  // foom
@@ -78,6 +79,7 @@
 // IWYU pragma: no_include <QMetaObject>
 #include <QMimeData>
 #include <QPainter>
+#include <QPlainTextEdit>  // foom
 #include <QColor>
 #include <QPen>
 #include <QPolygonF>
@@ -195,6 +197,7 @@
 #include "gui/map/elevation_dialogs.h"  // foom
 #include "gui/map/selection_dialogs.h"  // foom
 #include "core/selection_queries.h"  // foom
+#include "core/object_information.h"  // foom
 #include "gui/map/rectangle_box_dialog.h"
 #include "gui/map/topology_dialogs.h"
 #include "gui/widgets/issues_widget.h"
@@ -1314,6 +1317,7 @@ void MapEditorController::createActions()
 	to_polyline_act = newAction("to-polyline", tr("To polyline..."), this, SLOT(toPolylineClicked()));  // foom
 	mirror_act = newAction("mirror", tr("Mirror..."), this, SLOT(mirrorClicked()));  // foom
 	interpolate_act = newAction("interpolate", tr("Interpolate..."), this, SLOT(interpolateClicked()));  // foom
+	object_info_act = newAction("object-info", tr("Object information..."), this, SLOT(objectInformationClicked()));  // foom
 	move_by_act = newAction("move-by", tr("Move by..."), this, SLOT(moveByClicked()));  // foom
 	rotate_by_act = newAction("rotate-by", tr("Rotate by..."), this, SLOT(rotateByClicked()));  // foom
 	stretch_act = newAction("stretch", tr("Stretch..."), this, SLOT(stretchClicked()));  // foom
@@ -1708,6 +1712,7 @@ void MapEditorController::createMenuAndToolbars()
 	tools_menu->addAction(to_polyline_act);  // foom
 	tools_menu->addAction(mirror_act);  // foom
 	tools_menu->addAction(interpolate_act);  // foom
+	tools_menu->addAction(object_info_act);  // foom
 	tools_menu->addAction(move_by_act);  // foom
 	tools_menu->addAction(rotate_by_act);  // foom
 	tools_menu->addAction(stretch_act);  // foom
@@ -3356,6 +3361,7 @@ void MapEditorController::updateObjectDependentActions()
 	to_polyline_act->setEnabled(have_area || have_line);  // foom
 	to_polyline_act->setStatusTip(tr("Replace the curves of path objects by straight segments.") + (to_polyline_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a path object to activate this tool."))));
 	mirror_act->setEnabled(have_selection);  // foom
+	object_info_act->setEnabled(map->getNumSelectedObjects() == 1);  // foom
 	interpolate_act->setEnabled(map->getNumSelectedObjects() == 2 && std::all_of(map->selectedObjects().begin(), map->selectedObjects().end(), [](const Object* o) { return o->getType() == Object::Path; }));  // foom
 	mirror_act->setStatusTip(tr("Mirror the selected objects about an axis through their center.") + (mirror_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select at least one object to activate this tool."))));
 	for (auto* action : { move_by_act, rotate_by_act, stretch_act })  // foom
@@ -6107,6 +6113,27 @@ void MapEditorController::mirror(double axis_angle, bool duplicate)
 	params.axis_angle = axis_angle;
 	params.duplicate = duplicate;
 	applyOpResult(ops::mirror(*map, in, params));
+}
+
+// foom: the design notes, "Object information".
+void MapEditorController::objectInformationClicked()
+{
+	if (map->getNumSelectedObjects() != 1)
+		return;
+	auto const text = objectInformationText(objectInformation(*map, *map->getFirstSelectedObject()));
+	QDialog dialog(window);
+	dialog.setWindowTitle(tr("Object information"));
+	auto* view = new QPlainTextEdit(text);
+	view->setReadOnly(true);
+	view->setMinimumSize(420, 320);
+	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close);
+	auto* copy = buttons->addButton(tr("Copy"), QDialogButtonBox::ActionRole);
+	connect(copy, &QPushButton::clicked, &dialog, [text]() { QApplication::clipboard()->setText(text); });
+	connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	auto* layout = new QVBoxLayout(&dialog);
+	layout->addWidget(view);
+	layout->addWidget(buttons);
+	dialog.exec();
 }
 
 // foom

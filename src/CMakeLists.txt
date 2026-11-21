@@ -184,6 +184,7 @@ set(Mapper_Common_SRCS
   core/extent_printing.cpp
   core/extents.cpp
   core/lasso_query.cpp
+  core/object_information.cpp
   core/selection_queries.cpp
   core/object_groups.cpp
   core/ops/transform.cpp

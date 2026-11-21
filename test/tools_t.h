@@ -118,6 +118,9 @@ private slots:
 	/** foom: Tests the interpolate command. */
 	void interpolateCommand();
 	
+	/** foom: Tests the object information command. */
+	void objectInformationCommand();
+	
 	/** foom: Tests the point cloud import command. */
 	void demPointCloud();
 	

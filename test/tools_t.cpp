@@ -1590,6 +1590,20 @@ void ToolsTest::interpolateCommand()
 }
 
 
+void ToolsTest::objectInformationCommand()
+{
+	// the design notes, "Object information", Accept (6).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* action = editor.editor->getAction("object-info");
+	QVERIFY(action);
+	map.map->clearObjectSelection(true);
+	QVERIFY(!action->isEnabled());
+	map.map->addObjectToSelection(map.line_object, true);
+	QVERIFY(action->isEnabled());
+}
+
+
 void ToolsTest::demPointCloud()
 {
 	// the design notes, "Reading point clouds and gridding them", Accept (9).

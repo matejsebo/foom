@@ -39,6 +39,8 @@
 
 #include "global.h"
 #include "core/map.h"
+#include "core/map_color.h"
+#include "core/object_information.h"
 #include "core/selection_queries.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
@@ -139,6 +141,7 @@ private slots:
 	void mergeContoursTest();
 	void selectionQueriesTest();
 	void interpolateTest();
+	void objectInformationTest();
 	void buildingsTest();
 	void smoothTest();
 	void rectangleBoxTest();
@@ -1492,6 +1495,100 @@ void OpsTest::interpolateTest()
 	QVERIFY(!ops::interpolate(map, { a, outer }, params).error.isEmpty());
 	params.symbol = other;
 	QCOMPARE(ops::interpolate(map, { a, b }, params).out.front()->getSymbol(), static_cast<const Symbol*>(other));
+}
+
+
+void OpsTest::objectInformationTest()
+{
+	// the design notes, "Object information", Accept (1) to (5).
+	Map map;
+	map.setScaleDenominator(10000);
+	auto* brown = new MapColor(QStringLiteral("Brown"), 0);
+	map.addColor(brown, 0);
+	auto* blue = new MapColor(QStringLiteral("Blue"), 1);
+	map.addColor(blue, 1);
+	auto* contour = new LineSymbol();
+	contour->setNumberComponent(0, 101);
+	contour->setNumberComponent(1, 1);
+	contour->setName(QStringLiteral("Contour"));
+	contour->setColor(brown);
+	contour->setLineWidth(0.14);
+	map.addSymbol(contour, 0);
+	auto* area = new AreaSymbol();
+	area->setColor(blue);
+	map.addSymbol(area, 1);
+	map.getPart(0)->setName(QStringLiteral("Map"));
+	
+	auto* line = new PathObject(contour, MapCoordVector{ MapCoord(0.0, 0.0), MapCoord(10.0, 0.0), MapCoord(10.0, 5.0) });
+	line->setIdentity(QUuid::createUuid(), 1000, 2000);
+	line->setTag(QStringLiteral("ele"), QStringLiteral("410"));
+	map.addObject(line);
+	map.setObjectGroupName(3, QStringLiteral("Hill"));
+	line->setGroup(3);
+	auto info = objectInformation(map, *line);
+	QCOMPARE(info.uuid, line->uuid().toString(QUuid::WithoutBraces));
+	QCOMPARE(info.kind, QStringLiteral("Line"));
+	QCOMPARE(info.symbol, QStringLiteral("101.1 Contour"));
+	QCOMPARE(info.part, QStringLiteral("Map"));
+	QCOMPARE(info.index, 1);
+	QCOMPARE(info.group, QStringLiteral("Hill"));
+	QCOMPARE(info.created, QStringLiteral("1970-01-01T00:16:40Z"));
+	QCOMPARE(int(info.vertices.size()), 3);
+	QVERIFY(std::abs(info.length_mm - 15.0) < 1e-6);
+	QVERIFY(std::abs(info.length_m - 150.0) < 1e-6);
+	QVERIFY(std::isnan(info.area_mm2));
+	QCOMPARE(info.colours, QStringList{ QStringLiteral("Brown") });
+	QCOMPARE(info.tags, QStringList{ QStringLiteral("ele=410") });
+	
+	auto* square = new PathObject(area, MapCoordVector{ MapCoord(20.0, 0.0), MapCoord(30.0, 0.0), MapCoord(30.0, 10.0), MapCoord(20.0, 10.0) });
+	square->closeAllParts();
+	square->addCoordinate(MapCoord(24.0, 4.0), true);
+	square->addCoordinate(MapCoord(26.0, 4.0));
+	square->addCoordinate(MapCoord(26.0, 6.0));
+	square->addCoordinate(MapCoord(24.0, 6.0));
+	square->closeAllParts();
+	map.addObject(square);
+	info = objectInformation(map, *square);
+	QCOMPARE(info.kind, QStringLiteral("Area"));
+	QVERIFY2(std::abs(info.area_mm2 - 96.0) < 1e-6, qPrintable(QString::number(info.area_mm2)));
+	QVERIFY(std::abs(info.area_m2 - 9600.0) < 1e-3);
+	auto const has_flag = [&info](const char* flag) {
+		return std::any_of(info.vertices.begin(), info.vertices.end(), [flag](const ObjectInformation::Vertex& v) { return v.flags.contains(QLatin1String(flag)); });
+	};
+	QVERIFY(has_flag("close") && has_flag("hole"));
+	
+	MapCoord curve(40.0, 0.0);
+	curve.setCurveStart(true);
+	MapCoord dash(55.0, 0.0);
+	dash.setDashPoint(true);
+	auto* curved = new PathObject(contour, MapCoordVector{ curve, MapCoord(45.0, 5.0), MapCoord(50.0, 5.0), dash, MapCoord(60.0, 0.0) });
+	map.addObject(curved);
+	info = objectInformation(map, *curved);
+	QVERIFY(has_flag("curve start") && has_flag("dash"));
+	
+	auto* text_symbol = new TextSymbol();
+	map.addSymbol(text_symbol, 2);
+	auto* text = new TextObject(text_symbol);
+	text->setText(QStringLiteral("Bach"));
+	map.addObject(text);
+	info = objectInformation(map, *text);
+	QCOMPARE(info.kind, QStringLiteral("Text"));
+	QCOMPARE(info.text, QStringLiteral("Bach"));
+	auto* point_symbol = new PointSymbol();
+	point_symbol->setRotatable(true);
+	map.addSymbol(point_symbol, 3);
+	auto* point = new PointObject(point_symbol);
+	point->setRotation(0.5);
+	map.addObject(point);
+	info = objectInformation(map, *point);
+	QCOMPARE(info.kind, QStringLiteral("Point"));
+	QVERIFY(std::abs(info.rotation_deg - 28.6) < 0.1);
+	
+	auto const report = objectInformationText(objectInformation(map, *line));
+	QVERIFY(report.contains(line->uuid().toString(QUuid::WithoutBraces)));
+	QVERIFY(report.contains(QLatin1String("ele=410")));
+	QVERIFY(report.contains(QLatin1String("10.000")));
+	QCOMPARE(report.count(QLatin1String("\n  ")), 3);
 }
 
 void OpsTest::buildingsTest()
