@@ -30,6 +30,7 @@
 #include <QRect>
 #include <QScopedPointer>
 #include <QSize>
+#include <QStringList>  // foom
 #include <QWidget>
 
 class QAction;
@@ -126,6 +127,8 @@ public:
 	
 	/** foom: Shows only the favourite symbols, or all. */
 	void setFavouritesOnly(bool enabled);
+	/** foom: Shows only the symbols with these numbers, or lifts that filter. */
+	void setGroupFilter(bool active, const QStringList& numbers);
 	/** foom: Whether only the favourites are shown. */
 	bool favouritesOnly() const { return favourites_only; }
 	/** foom: The symbols in the grid, in grid order. */
@@ -380,6 +383,8 @@ private:
 	QAction* favourites_only_action = nullptr;  // foom: the design notes, "Favourites"
 	bool favourites_only = false;  // foom
 	std::vector<int> shown_symbols;  // foom: the symbols in the grid, by index, in grid order
+	bool group_filter = false;  // foom: the design notes, "Symbol tree"
+	QStringList group_numbers;  // foom
 	
 	SymbolToolTip* tooltip;
 	

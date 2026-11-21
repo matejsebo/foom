@@ -74,6 +74,7 @@
 #include "core/bookmarks.h"
 #include "core/saved_selections.h"
 #include "core/status_sets.h"
+#include "core/symbol_tree.h"
 #include "core/extents.h"
 #include "core/map.h"
 #include "core/map_color.h"
@@ -2454,6 +2455,56 @@ void FileFormatTest::foomFavouritesTest()
 	empty_exporter->setDevice(&empty_buffer);
 	QVERIFY(empty_exporter->doExport());
 	QVERIFY(!QString::fromUtf8(empty_buffer.data()).contains(QLatin1String("<favorites")));
+}
+
+
+void FileFormatTest::foomSymbolTreeTest()
+{
+	// the design notes, "Symbol tree", Accept (2).
+	Map map;
+	auto* symbol = new PointSymbol();
+	map.addSymbol(symbol, 0);
+	map.addObject(new PointObject(symbol));
+	SymbolGroup contours;
+	contours.name = QStringLiteral("Contours & form lines");
+	contours.numbers = QStringList{ QStringLiteral("101"), QStringLiteral("103") };
+	SymbolGroup index;
+	index.name = QStringLiteral("Index");
+	index.parent = 0;
+	index.expanded = false;
+	index.numbers = QStringList{ QStringLiteral("102") };
+	map.setSymbolTree({ contours, index });
+	
+	XMLFileFormat format;
+	QBuffer buffer;
+	QVERIFY(buffer.open(QIODevice::ReadWrite));
+	auto exporter = format.makeExporter({}, &map, nullptr);
+	exporter->setDevice(&buffer);
+	QVERIFY(exporter->doExport());
+	QVERIFY(QString::fromUtf8(buffer.data()).contains(QLatin1String("<symbol_tree count=\"2\">")));
+	QVERIFY(buffer.seek(0));
+	Map reloaded;
+	auto importer = format.makeImporter({}, &reloaded, nullptr);
+	importer->setDevice(&buffer);
+	QVERIFY(importer->doImport());
+	QVERIFY(importer->warnings().empty());
+	QVERIFY(reloaded.symbolTree() == map.symbolTree());
+	
+	QBuffer plain_buffer;
+	QVERIFY(plain_buffer.open(QIODevice::ReadWrite));
+	auto plain_exporter = format.makeExporter({}, &map, nullptr);
+	plain_exporter->setOption(QString::fromLatin1("foom"), false);
+	plain_exporter->setDevice(&plain_buffer);
+	QVERIFY(plain_exporter->doExport());
+	QVERIFY(!QString::fromUtf8(plain_buffer.data()).contains(QLatin1String("<symbol_tree")));
+	
+	map.setSymbolTree({});
+	QBuffer empty_buffer;
+	QVERIFY(empty_buffer.open(QIODevice::ReadWrite));
+	auto empty_exporter = format.makeExporter({}, &map, nullptr);
+	empty_exporter->setDevice(&empty_buffer);
+	QVERIFY(empty_exporter->doExport());
+	QVERIFY(!QString::fromUtf8(empty_buffer.data()).contains(QLatin1String("<symbol_tree")));
 }
 
 namespace {

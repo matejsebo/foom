@@ -261,7 +261,8 @@ void SymbolRenderWidget::adjustLayout()
 	shown_symbols.clear();
 	for (int i = 0; i < map->getNumPublicSymbols(); ++i)
 	{
-		if (!favourites_only || isFavourite(*map, map->getSymbol(i)))
+		if ((!favourites_only || isFavourite(*map, map->getSymbol(i)))
+		    && (!group_filter || group_numbers.contains(map->getSymbol(i)->getNumberAsString())))
 			shown_symbols.push_back(i);
 	}
 	num_rows = qMax(1, (int(shown_symbols.size()) + icons_per_row -1) / icons_per_row);  // foom
@@ -548,14 +549,14 @@ void SymbolRenderWidget::mouseMoveEvent(QMouseEvent* event)
 			
 			if ((event->pos() - last_click_pos).manhattanLength() < Settings::getInstance().getStartDragDistancePx())
 				return;
-			dragging = sort_manual_action->isChecked() && !favourites_only;  // foom
+			dragging = sort_manual_action->isChecked() && !favourites_only && !group_filter;  // foom
 		}
 	}
 	else
 	{
 		if (event->buttons() & Qt::LeftButton
 		    && current_symbol_index >= 0
-		    && sort_manual_action->isChecked() && !favourites_only)  // foom
+		    && sort_manual_action->isChecked() && !favourites_only && !group_filter)  // foom
 		{
 			if ((event->pos() - last_click_pos).manhattanLength() < Settings::getInstance().getStartDragDistancePx())
 				return;
@@ -1031,6 +1032,14 @@ void SymbolRenderWidget::setFavouritesOnly(bool enabled)
 	favourites_only = enabled;
 	if (favourites_only_action && favourites_only_action->isChecked() != enabled)
 		favourites_only_action->setChecked(enabled);
+	updateAll();
+}
+
+// foom: the design notes, "Symbol tree".
+void SymbolRenderWidget::setGroupFilter(bool active, const QStringList& numbers)
+{
+	group_filter = active;
+	group_numbers = numbers;
 	updateAll();
 }
 

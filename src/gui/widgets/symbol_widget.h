@@ -25,6 +25,7 @@
 #include <vector>
 
 #include <QObject>
+#include <QStringList>  // foom
 #include <QScrollArea>
 
 class QContextMenuEvent;
@@ -97,6 +98,8 @@ public:
 	
 	/** foom: Shows only the favourite symbols, or all; see the design notes, "Favourites". */
 	void setFavouritesOnly(bool enabled);
+	/** foom: Shows only the symbols with these numbers, or lifts that filter; see "Symbol tree". */
+	void setGroupFilter(bool active, const QStringList& numbers);
 	bool favouritesOnly() const;
 	std::vector<const Symbol*> shownSymbols() const;
 	

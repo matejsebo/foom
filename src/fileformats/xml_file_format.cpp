@@ -217,6 +217,10 @@ namespace literal
 	static const QLatin1String status_protected("protected");  // foom
 	static const QLatin1String favorites("favorites");  // foom
 	static const QLatin1String favorite_numbers("numbers");  // foom
+	static const QLatin1String symbol_tree("symbol_tree");  // foom
+	static const QLatin1String tree_group("group");  // foom
+	static const QLatin1String tree_parent("parent");  // foom
+	static const QLatin1String tree_collapsed("collapsed");  // foom
 	static const QLatin1String extents("extents");  // foom
 	static const QLatin1String course_data("course_data");  // foom
 	static const QLatin1String sync("sync");  // foom
@@ -354,6 +358,11 @@ bool XMLFileExporter::exportImplementation()
 		}
 		if (XMLFileFormat::foom_revision >= 1 && !map->favouriteSymbols().isEmpty())  // foom
 			writeLineBreak(xml);
+		if (XMLFileFormat::foom_revision >= 1 && !map->symbolTree().empty())  // foom
+		{
+			exportSymbolTree();
+			writeLineBreak(xml);
+		}
 		if (XMLFileFormat::foom_revision >= 1 && !map->extents().empty())  // foom
 		{
 			exportExtents();
@@ -642,6 +651,25 @@ void XMLFileExporter::exportStatusSets()
 }
 
 // foom
+void XMLFileExporter::exportSymbolTree()
+{
+	// the design notes, "Symbol tree".
+	auto const& groups = map->symbolTree();
+	XmlElementWriter tree_element(xml, literal::symbol_tree);
+	tree_element.writeAttribute(literal::count, groups.size());
+	for (auto const& group : groups)
+	{
+		writeLineBreak(xml);
+		XmlElementWriter group_element(xml, literal::tree_group);
+		group_element.writeAttribute(literal::name, group.name);
+		group_element.writeAttribute(literal::tree_parent, group.parent);
+		group_element.writeAttribute(literal::tree_collapsed, !group.expanded);
+		group_element.writeAttribute(literal::favorite_numbers, group.numbers.join(QLatin1Char(' ')));
+	}
+	writeLineBreak(xml);
+}
+
+// foom
 void XMLFileExporter::exportExtents()
 {
 	// the design notes, "Named extents and the paper frame".
@@ -879,6 +907,8 @@ void XMLFileImporter::importElements()
 			importSavedSelections();
 		else if (name == literal::status_sets)  // foom
 			importStatusSets();
+		else if (name == literal::symbol_tree)  // foom
+			importSymbolTree();
 		else if (name == literal::favorites)  // foom: the design notes, "Favourites"
 		{
 			XmlElementReader favorites_element(xml);
@@ -1363,6 +1393,38 @@ void XMLFileImporter::importStatusSets()
 		}
 	}
 	map->setStatusSets(std::move(sets));
+}
+
+// foom
+void XMLFileImporter::importSymbolTree()
+{
+	// the design notes, "Symbol tree".
+	std::vector<SymbolGroup> groups;
+	XmlElementReader tree_element(xml);
+	while (xml.readNextStartElement())
+	{
+		if (xml.name() == literal::tree_group)
+		{
+			XmlElementReader group_element(xml);
+			SymbolGroup group;
+			group.name = group_element.attribute<QString>(literal::name);
+			group.parent = group_element.hasAttribute(literal::tree_parent) ? group_element.attribute<int>(literal::tree_parent) : -1;
+			group.expanded = !group_element.attribute<bool>(literal::tree_collapsed);
+			group.numbers = group_element.attribute<QString>(literal::favorite_numbers).split(QLatin1Char(' '), QString::SkipEmptyParts);
+			groups.push_back(std::move(group));
+		}
+		else
+		{
+			addWarningUnsupportedElement();
+			xml.skipCurrentElement();
+		}
+	}
+	for (auto& group : groups)
+	{
+		if (group.parent >= int(groups.size()))
+			group.parent = -1;
+	}
+	map->setSymbolTree(std::move(groups));
 }
 
 // foom

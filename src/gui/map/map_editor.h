@@ -693,6 +693,8 @@ public slots:
 	int applyStatusSet(const QString& name);
 	void deleteStatusSet(const QString& name);
 	void saveStatusSetClicked();
+	/** foom: Shows or hides the symbol groups dock (symbols-groups). */
+	void showSymbolGroups(bool show);
 	/** foom: Compares the symbols and colours with another map file (symbols-compare). */
 	void compareSymbolsClicked();
 	/** foom: The symbol descriptions file; see the design notes, "Descriptions file". */
@@ -1380,6 +1382,7 @@ private:
 	QAction* compare_symbols_act = {};  // foom
 	QAction* export_descriptions_act = {};  // foom
 	QAction* import_descriptions_act = {};  // foom
+	QAction* symbol_groups_act = {};  // foom
 	QAction* status_save_act = {};  // foom
 	QAction* status_apply_act = {};  // foom
 	QAction* status_delete_act = {};  // foom
@@ -1463,6 +1466,7 @@ private:
 	QAction* issues_window_act = {};  // foom
 	IssueModel* issue_model = nullptr;  // foom
 	QPointer<EditorDockWidget> issues_dock_widget;  // foom
+	QPointer<EditorDockWidget> symbol_groups_dock_widget;  // foom
 	QAction* extent_delete_act = {};  // foom
 	QAction* extent_import_act = {};  // foom
 	QMenu* active_extent_menu = nullptr;  // foom

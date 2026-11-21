@@ -43,6 +43,7 @@
 #include <QVariant>
 #include <QString>
 #include <QTemporaryDir>
+#include <QTreeWidget>
 
 #include "core/map.h"
 #include "core/map_color.h"
@@ -51,6 +52,7 @@
 #include "core/map_printer.h"
 #include "core/map_transform.h"
 #include "core/symbol_tools.h"
+#include "core/symbol_tree.h"
 #include "core/objects/object.h"
 #include "core/objects/object_query.h"
 #include "core/ops/align.h"
@@ -77,6 +79,7 @@
 #include "gui/map/view_history.h"
 #include "gui/widgets/shortcut_settings.h"
 #include "gui/map/numeric_entry_bar.h"
+#include "gui/widgets/symbol_groups_widget.h"
 #include "gui/widgets/symbol_widget.h"
 #include "tools/affine_transform_tool.h"
 #include "tools/local_warp_tool.h"
@@ -1705,6 +1708,40 @@ void ToolsTest::favouritesFilter()
 	QVERIFY(widget->favouritesOnly());
 	QVERIFY(widget->shownSymbols() == (std::vector<const Symbol*>{ map.line_symbol, third }));
 	widget->setFavouritesOnly(false);
+	QCOMPARE(int(widget->shownSymbols().size()), map.map->getNumPublicSymbols());
+}
+
+
+void ToolsTest::symbolGroupsDock()
+{
+	// the design notes, "Symbol tree", Accept (3).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("symbols-groups"));
+	map.line_symbol->setNumberComponent(0, 101);
+	auto* index = new LineSymbol();
+	index->setNumberComponent(0, 102);
+	map.map->addSymbol(index, map.map->getNumSymbols());
+	auto* other = new LineSymbol();
+	other->setNumberComponent(0, 501);
+	map.map->addSymbol(other, map.map->getNumSymbols());
+	auto* widget = editor.editor->getSymbolWidget();
+	widget->setGroupFilter(true, QStringList{ QStringLiteral("101") });
+	QVERIFY(widget->shownSymbols() == std::vector<const Symbol*>{ map.line_symbol });
+	widget->setGroupFilter(false, {});
+	QCOMPARE(int(widget->shownSymbols().size()), map.map->getNumPublicSymbols());
+	
+	addSymbolGroup(*map.map, QStringLiteral("Contours"));
+	addSymbolGroup(*map.map, QStringLiteral("Index"), 0);
+	addToSymbolGroup(*map.map, 0, { map.line_symbol });
+	addToSymbolGroup(*map.map, 1, { index });
+	SymbolGroupsWidget groups(*map.map, widget);
+	QCOMPARE(groups.tree()->topLevelItemCount(), 1);
+	QCOMPARE(groups.tree()->topLevelItem(0)->childCount(), 1);
+	QCOMPARE(groups.tree()->topLevelItem(0)->child(0)->childCount(), 1);
+	groups.selectGroup(0);
+	QVERIFY(widget->shownSymbols() == (std::vector<const Symbol*>{ map.line_symbol, index }));
+	groups.selectGroup(-1);
 	QCOMPARE(int(widget->shownSymbols().size()), map.map->getNumPublicSymbols());
 }
 

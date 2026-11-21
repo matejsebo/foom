@@ -203,6 +203,7 @@
 #include "core/symbol_compare.h"  // foom
 #include "core/symbol_descriptions.h"  // foom
 #include "core/symbol_tools.h"  // foom
+#include "gui/widgets/symbol_groups_widget.h"  // foom
 #include "gui/widgets/symbol_tools_dialogs.h"  // foom
 #include "gui/map/rectangle_box_dialog.h"
 #include "gui/map/topology_dialogs.h"
@@ -436,6 +437,7 @@ MapEditorController::~MapEditorController()
 	delete measure_dock_widget;
 	delete rangefinder_container.data();  // foom
 	delete course_dock_widget.data();  // foom
+	delete symbol_groups_dock_widget.data();  // foom
 	if (color_dock_widget)
 		delete color_dock_widget;
 	delete symbol_dock_widget;
@@ -1327,6 +1329,7 @@ void MapEditorController::createActions()
 	export_descriptions_act = newAction("symbols-descriptions-export", tr("Export symbol descriptions..."), this, SLOT(exportSymbolDescriptionsClicked()));  // foom
 	import_descriptions_act = newAction("symbols-descriptions-import", tr("Import symbol descriptions..."), this, SLOT(importSymbolDescriptionsClicked()));  // foom
 	compare_symbols_act = newAction("symbols-compare", tr("Compare with file..."), this, SLOT(compareSymbolsClicked()));  // foom
+	symbol_groups_act = newCheckAction("symbols-groups", tr("Symbol groups"), this, SLOT(showSymbolGroups(bool)));  // foom
 	status_save_act = newAction("symbols-status-save", tr("Save status set..."), this, SLOT(saveStatusSetClicked()));  // foom
 	status_apply_act = newAction("symbols-status-apply", tr("Apply status set..."), this, SLOT(applyStatusSetClicked()));  // foom
 	status_delete_act = newAction("symbols-status-delete", tr("Delete status set..."), this, SLOT(deleteStatusSetClicked()));  // foom
@@ -1818,6 +1821,7 @@ void MapEditorController::createMenuAndToolbars()
 	symbols_menu->setWhatsThis(Util::makeWhatThis("symbols_menu.html"));
 	symbols_menu->addAction(symbol_window_act);
 	symbols_menu->addAction(color_window_act);
+	symbols_menu->addAction(symbol_groups_act);  // foom
 	symbols_menu->addSeparator();
 	symbols_menu->addAction(symbol_set_id_act);
 	symbols_menu->addAction(scale_all_symbols_act);
@@ -6233,6 +6237,21 @@ void MapEditorController::compareSymbolsClicked()
 	layout->addWidget(view);
 	layout->addWidget(buttons);
 	dialog.exec();
+}
+
+// foom: the design notes, "Symbol tree".
+void MapEditorController::showSymbolGroups(bool show)
+{
+	if (!symbol_groups_dock_widget)
+	{
+		symbol_groups_dock_widget = new EditorDockWidget(tr("Symbol groups"), symbol_groups_act, this, window);
+		symbol_groups_dock_widget->setWidget(new SymbolGroupsWidget(*map, symbol_widget, symbol_groups_dock_widget));
+		symbol_groups_dock_widget->setObjectName(QString::fromLatin1("Symbol groups dock widget"));
+		if (!window->restoreDockWidget(symbol_groups_dock_widget))
+			window->addDockWidget(Qt::RightDockWidgetArea, symbol_groups_dock_widget, Qt::Vertical);
+	}
+	symbol_groups_act->setChecked(show);
+	symbol_groups_dock_widget->setVisible(show);
 }
 
 // foom: the design notes, "Status sets".

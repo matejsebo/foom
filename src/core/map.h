@@ -49,6 +49,7 @@
 #include "core/bookmarks.h"  // foom
 #include "core/saved_selections.h"  // foom
 #include "core/status_sets.h"  // foom
+#include "core/symbol_tree.h"  // foom
 #include "core/extents.h"  // foom
 #include "core/sync_record.h"  // foom
 #include "course/course_data.h"  // foom
@@ -1004,6 +1005,12 @@ public:
 	/** foom: Replaces the favourite symbols' numbers. */
 	void setFavouriteSymbols(const QStringList& numbers) { map_favourite_symbols = numbers; }
 	
+	/** foom: Returns the symbol tree's groups. See the design notes, "Symbol tree". */
+	const std::vector<SymbolGroup>& symbolTree() const { return map_symbol_tree; }
+	
+	/** foom: Replaces the symbol tree's groups. */
+	void setSymbolTree(std::vector<SymbolGroup> groups) { map_symbol_tree = std::move(groups); }
+	
 	/** foom: Returns the named extents. See the design notes. */
 	const std::vector<Extent>& extents() const { return map_extents; }
 	
@@ -1799,6 +1806,7 @@ private:
 	std::vector<SavedSelection> map_saved_selections;  ///< foom: see the design notes, "Saved selections"
 	std::vector<StatusSet> map_status_sets;  ///< foom: see the design notes, "Status sets"
 	QStringList map_favourite_symbols;  ///< foom: see the design notes, "Favourites"
+	std::vector<SymbolGroup> map_symbol_tree;  ///< foom: see the design notes, "Symbol tree"
 	ForeignData map_foreign_data;  ///< foom: see the design notes, "OCD round trip"
 	std::vector<Extent> map_extents;  ///< foom: see the design notes
 	CourseData map_course_data;  ///< foom: see the design notes

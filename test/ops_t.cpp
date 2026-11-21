@@ -46,6 +46,7 @@
 #include "core/symbol_compare.h"
 #include "core/symbol_descriptions.h"
 #include "core/symbol_tools.h"
+#include "core/symbol_tree.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
 #include "core/objects/text_object.h"
@@ -153,6 +154,7 @@ private slots:
 	void convertToPointsTest();
 	void symbolDescriptionsTest();
 	void favouritesTest();
+	void symbolTreeTest();
 	void buildingsTest();
 	void smoothTest();
 	void rectangleBoxTest();
@@ -1918,6 +1920,37 @@ void OpsTest::favouritesTest()
 	QCOMPARE(map.favouriteSymbols(), QStringList{ QStringLiteral("101") });
 	QVERIFY(isFavourite(map, contour));
 	QVERIFY(!isFavourite(map, field));
+}
+
+
+void OpsTest::symbolTreeTest()
+{
+	// the design notes, "Symbol tree", Accept (1).
+	Map map;
+	auto* contour = new LineSymbol();
+	contour->setNumberComponent(0, 101);
+	map.addSymbol(contour, 0);
+	auto* index = new LineSymbol();
+	index->setNumberComponent(0, 102);
+	map.addSymbol(index, 1);
+	QCOMPARE(addSymbolGroup(map, QStringLiteral("Contours")), 0);
+	QCOMPARE(addSymbolGroup(map, QStringLiteral("Index"), 0), 1);
+	QCOMPARE(addSymbolGroup(map, QStringLiteral("Print")), 2);
+	addToSymbolGroup(map, 0, { contour });
+	addToSymbolGroup(map, 1, { index });
+	addToSymbolGroup(map, 2, { index });
+	QCOMPARE(symbolGroupNumbers(map, 0), (QStringList{ QStringLiteral("101"), QStringLiteral("102") }));
+	QCOMPARE(symbolGroupNumbers(map, 0, false), QStringList{ QStringLiteral("101") });
+	QCOMPARE(symbolGroupNumbers(map, 1), QStringList{ QStringLiteral("102") });
+	removeFromSymbolGroup(map, 1, { index });
+	QVERIFY(symbolGroupNumbers(map, 1).isEmpty());
+	QCOMPARE(symbolGroupNumbers(map, 2), QStringList{ QStringLiteral("102") });
+	renameSymbolGroup(map, 2, QStringLiteral("Printing"));
+	QCOMPARE(map.symbolTree()[2].name, QStringLiteral("Printing"));
+	removeSymbolGroup(map, 0);
+	QCOMPARE(int(map.symbolTree().size()), 1);
+	QCOMPARE(map.symbolTree()[0].name, QStringLiteral("Printing"));
+	QCOMPARE(map.symbolTree()[0].parent, -1);
 }
 
 void OpsTest::buildingsTest()

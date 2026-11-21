@@ -95,6 +95,12 @@ void SymbolWidget::setFavouritesOnly(bool enabled)
 }
 
 // foom
+void SymbolWidget::setGroupFilter(bool active, const QStringList& numbers)
+{
+	render_widget->setGroupFilter(active, numbers);
+}
+
+// foom
 bool SymbolWidget::favouritesOnly() const
 {
 	return render_widget->favouritesOnly();

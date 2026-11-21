@@ -189,6 +189,7 @@ set(Mapper_Common_SRCS
   core/symbol_compare.cpp
   core/symbol_descriptions.cpp
   core/symbol_tools.cpp
+  core/symbol_tree.cpp
   core/object_information.cpp
   core/selection_queries.cpp
   core/object_groups.cpp
@@ -317,6 +318,7 @@ set(Mapper_Common_SRCS
   gui/widgets/symbol_dropdown.cpp
   gui/widgets/symbol_render_widget.cpp
   gui/widgets/symbol_tooltip.cpp
+  gui/widgets/symbol_groups_widget.cpp
   gui/widgets/symbol_tools_dialogs.cpp
   gui/widgets/symbol_widget.cpp
   gui/widgets/tag_select_widget.cpp
