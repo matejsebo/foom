@@ -134,6 +134,9 @@ public:
 	 */
 	TextObject* object() const;
 	
+	/** foom: Returns the position of the text cursor in the text. */
+	int cursorPosition() const { return cursor_position; }
+	
 
 private slots:	
 	/**

@@ -168,7 +168,7 @@ void TextSymbol::createRenderables(
 	{
 		createBaselineRenderables(text_object, coords, output);
 	}
-	else if (follows_path)  // foom
+	else if (follows_path && text_object->getRawCoordinateVector().size() > 1)  // foom: a single anchor draws as ordinary text
 	{
 		createPathTextRenderables(text_object, output);
 	}

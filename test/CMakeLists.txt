@@ -222,6 +222,7 @@ add_system_test(symbol_t)
 target_link_libraries(symbol_t PRIVATE MapperTestUtils)
 add_system_test(path_text_t)
 target_link_libraries(path_text_t PRIVATE MapperTestUtils)
+add_system_test(line_text_t)  # foom: the design notes, Text on a path: editor, tool, lengthen
 if (Mapper_USE_GDAL)
 	add_system_test(tile_template_t)  # foom: tile service templates, needs the GDAL WMS driver
 	target_include_directories(tile_template_t SYSTEM PRIVATE ${GDAL_INCLUDE_DIRS})

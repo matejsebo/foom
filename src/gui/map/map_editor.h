@@ -47,6 +47,7 @@
 #include "core/ops/replace_text.h"  // foom
 #include "gui/map/view_history.h"  // foom
 #include "core/ops/buildings.h"  // foom
+#include "core/ops/line_text.h"  // foom
 #include "core/ops/rectangle_box.h"  // foom
 #include "core/ops/sized_shape.h"  // foom
 #include "core/ops/smooth.h"  // foom
@@ -809,6 +810,10 @@ public slots:
 	void intersections(const ops::IntersectionParams& params);
 	/** foom: Drops repeated vertices from the selected paths. */
 	void removeDuplicateVertices();
+	/** foom: Asks how far, then lengthens the paths of the selected line text objects. */
+	void lengthenLineTextClicked();
+	/** foom: Lengthens the paths of the selected line text objects (lengthen-line-text). */
+	void lengthenLineText(const OpenOrienteering::ops::LengthenLineTextParams& params);
 	/** foom: Asks for the parameters, then smooths the selected paths. */
 	void smoothClicked();
 	/** foom: Simplifies and curve-fits the selected paths. */
@@ -1475,6 +1480,8 @@ private:
 	QAction* fix_overshoots_act = {};  // foom
 	QAction* intersections_act = {};  // foom
 	QAction* remove_duplicate_vertices_act = {};  // foom
+	QAction* lengthen_line_text_act = {};  // foom
+	ops::LengthenLineTextParams lengthen_line_text_params;  // foom: kept for the session
 	QAction* topo_smooth_act = {};  // foom
 	QAction* make_rectangular_act = {};  // foom
 	QAction* generalize_buildings_act = {};  // foom

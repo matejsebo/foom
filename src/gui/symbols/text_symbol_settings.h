@@ -29,6 +29,7 @@
 #include "gui/symbols/symbol_properties_widget.h"
 
 class QCheckBox;
+class QComboBox;
 class QDoubleSpinBox;
 class QFont;
 class QFontComboBox;
@@ -84,6 +85,8 @@ protected slots:
 	void fontWeightChanged(int value);
 	void frameSymbolChanged();
 	void indentChanged();
+	void followsPathClicked(bool checked);
+	void pathAlignmentChanged();
 	
 	void ocadCompatibilityButtonClicked(bool checked);
 	void lineBelowCheckClicked(bool checked);
@@ -117,6 +120,8 @@ private:
 	QDoubleSpinBox* word_spacing_edit;  // foom
 	QSpinBox*       font_weight_edit;   // foom
 	SymbolDropDown* frame_symbol_edit;  // foom
+	QCheckBox*      follows_path_check;    // foom
+	QComboBox*      path_alignment_combo;  // foom
 	QLineEdit*      icon_text_edit;
 	QCheckBox*      framing_check;
 	QCheckBox*      ocad_compat_check;

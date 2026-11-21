@@ -587,8 +587,16 @@ QImage Symbol::createIcon(const Map& map, int side_length, bool antialiasing, qr
 	else if (type == Text)
 	{
 		max_icon_mm_half *= 0.95; // white border
-		auto text = new TextObject(this);
-		text->setText(static_cast<const TextSymbol*>(this)->getIconText());
+		auto const* text_symbol = static_cast<const TextSymbol*>(this);
+		if (text_symbol->followsPath())  // foom: centred on a straight path, see the design notes
+		{
+			symbol_copy = duplicate(*this);
+			static_cast<TextSymbol*>(symbol_copy.get())->setPathAlignment((text_symbol->getPathAlignment() & 0x0c) | 1);
+		}
+		auto text = new TextObject(symbol_copy ? symbol_copy.get() : this);
+		text->setText(text_symbol->getIconText());
+		if (symbol_copy)
+			text->setAnchorPath({ MapCoord(-500.0, 0.0), MapCoord(500.0, 0.0) });
 		object = text;
 	}
 	else if (type == Area || (type == Combined && contained_types & Area))

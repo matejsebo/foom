@@ -418,6 +418,13 @@ void SymbolSettingDialog::createPreviewMap()
 		object->setText(string);
 		object->setHorizontalAlignment(TextObject::AlignHCenter);
 		object->setVerticalAlignment(TextObject::AlignVCenter);
+		if (text_symbol->followsPath())  // foom: one line along an arc
+		{
+			auto start = MapCoord(-40.0, 10.0);
+			start.setCurveStart(true);
+			object->setText(tr("The quick brown fox takes the routechoice"));
+			object->setAnchorPath({ start, MapCoord(-15.0, -10.0), MapCoord(15.0, -10.0), MapCoord(40.0, 10.0) });
+		}
 		preview_map->addObject(object);
 		
 		preview_objects.push_back(object);
@@ -469,6 +476,13 @@ void SymbolSettingDialog::reset()
 	createPreviewMap();
 	properties_widget->reset(&*symbol);
 	setSymbolModified(false);
+}
+
+// foom
+void SymbolSettingDialog::recreatePreview()
+{
+	createPreviewMap();
+	updatePreview();
 }
 
 void SymbolSettingDialog::setSymbolModified(bool modified)

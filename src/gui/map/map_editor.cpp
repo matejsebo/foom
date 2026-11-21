@@ -207,6 +207,7 @@
 #include "gui/widgets/symbol_groups_widget.h"  // foom
 #include "gui/widgets/symbol_tools_dialogs.h"  // foom
 #include "gui/map/rectangle_box_dialog.h"
+#include "gui/map/lengthen_line_text_dialog.h"  // foom
 #include "gui/map/topology_dialogs.h"
 #include "gui/map/to_curve_dialog.h"  // foom
 #include "gui/widgets/issues_widget.h"
@@ -274,6 +275,8 @@
 #include "gui/map/sized_shape_dialog.h"  // foom
 #include "core/ops/frame.h"  // foom
 #include "tools/draw_text_tool.h"
+#include "tools/draw_line_text_tool.h"  // foom
+#include "core/symbols/text_symbol.h"  // foom
 #include "tools/edit_point_tool.h"
 #include "tools/edit_line_tool.h"
 #include "tools/fill_tool.h"
@@ -554,6 +557,8 @@ MapEditorTool* MapEditorController::getDefaultDrawToolForSymbol(const Symbol* sy
 		return new DrawPointTool(this, draw_point_act);
 	else if (symbol->getType() == Symbol::Line || symbol->getType() == Symbol::Area || symbol->getType() == Symbol::Combined)
 		return new DrawPathTool(this, draw_path_act, false, true);
+	else if (symbol->getType() == Symbol::Text && symbol->asText()->followsPath())  // foom
+		return new DrawLineTextTool(this, draw_text_act);
 	else if (symbol->getType() == Symbol::Text)
 		return new DrawTextTool(this, draw_text_act);
 	else
@@ -1193,6 +1198,7 @@ void MapEditorController::createActions()
 	fix_overshoots_act = newAction("fix-overshoots", tr("Remove overshoots and undershoots..."), this, SLOT(fixOvershootsClicked()));  // foom
 	intersections_act = newAction("intersections", tr("Intersections..."), this, SLOT(intersectionsClicked()));  // foom
 	remove_duplicate_vertices_act = newAction("remove-duplicate-vertices", tr("Remove duplicate vertices"), this, SLOT(removeDuplicateVertices()));  // foom
+	lengthen_line_text_act = newAction("lengthen-line-text", tr("Lengthen line text..."), this, SLOT(lengthenLineTextClicked()));  // foom
 	topo_smooth_act = newAction("topo-smooth", tr("Smooth..."), this, SLOT(smoothClicked()));  // foom
 	make_rectangular_act = newAction("make-rectangular", tr("Make rectangular..."), this, SLOT(makeRectangularClicked()));  // foom
 	generalize_buildings_act = newAction("generalize-buildings", tr("Generalize buildings..."), this, SLOT(generalizeBuildingsClicked()));  // foom
@@ -1854,6 +1860,7 @@ void MapEditorController::createMenuAndToolbars()
 	topology_menu->addAction(fix_overshoots_act);
 	topology_menu->addAction(intersections_act);
 	topology_menu->addAction(remove_duplicate_vertices_act);
+	topology_menu->addAction(lengthen_line_text_act);  // foom
 	map_menu->addAction(check_legibility_act);  // foom
 	map_menu->addAction(check_map_act);  // foom
 	map_menu->addSeparator();  // foom: named extents
@@ -3555,6 +3562,8 @@ void MapEditorController::updateObjectDependentActions()
 		action->setStatusTip(action->isEnabled() ? QString{} : tr("Select at least two path objects to activate this tool."));
 	}
 	remove_duplicate_vertices_act->setEnabled(have_line || have_area);  // foom
+	lengthen_line_text_act->setEnabled(have_selection && std::any_of(map->selectedObjects().begin(), map->selectedObjects().end(), [](const Object* o) { return o->getType() == Object::Text && o->asText()->followsPath(); }));  // foom
+	lengthen_line_text_act->setStatusTip(lengthen_line_text_act->isEnabled() ? QString{} : tr("Select a line text object to activate this tool."));
 	for (auto* action : { make_rectangular_act, generalize_buildings_act })  // foom
 	{
 		action->setEnabled(have_line || have_area);
@@ -3814,7 +3823,10 @@ void MapEditorController::drawFillClicked()
 
 void MapEditorController::drawTextClicked()
 {
-	setTool(new DrawTextTool(this, draw_text_act));
+	if (activeSymbol() && activeSymbol()->getType() == Symbol::Text && activeSymbol()->asText()->followsPath())  // foom
+		setTool(new DrawLineTextTool(this, draw_text_act));
+	else
+		setTool(new DrawTextTool(this, draw_text_act));
 }
 
 void MapEditorController::deleteClicked()
@@ -4572,6 +4584,25 @@ void MapEditorController::fixOvershoots(const ops::OvershootParams& params)
 	auto const& selection = map->selectedObjects();
 	std::vector<const Object*> in(begin(selection), end(selection));
 	applyOpResult(ops::fixOvershoots(*map, in, params));
+}
+
+// foom: the design notes, "Lengthen line text"
+void MapEditorController::lengthenLineTextClicked()
+{
+	LengthenLineTextDialog dialog(lengthen_line_text_params, window);
+	if (dialog.exec() == QDialog::Accepted)
+	{
+		lengthen_line_text_params = dialog.params();
+		lengthenLineText(lengthen_line_text_params);
+	}
+}
+
+// foom
+void MapEditorController::lengthenLineText(const ops::LengthenLineTextParams& params)
+{
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	applyOpResult(ops::lengthenLineText(*map, in, params));
 }
 
 // foom
