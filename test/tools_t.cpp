@@ -1569,6 +1569,27 @@ void ToolsTest::savedSelections()
 }
 
 
+void ToolsTest::interpolateCommand()
+{
+	// the design notes, "Interpolate", Accept (6).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("interpolate"));
+	auto* a = new PathObject(map.line_symbol, MapCoordVector{ MapCoord(50.0, 50.0), MapCoord(90.0, 50.0) });
+	map.map->addObject(a);
+	auto* b = new PathObject(map.line_symbol, MapCoordVector{ MapCoord(50.0, 60.0), MapCoord(90.0, 60.0) });
+	map.map->addObject(b);
+	map.map->clearObjectSelection(false);
+	map.map->addObjectToSelection(a, false);
+	map.map->addObjectToSelection(b, true);
+	auto const objects = map.map->getNumObjects();
+	auto const steps = map.map->undoManager().undoStepCount();
+	editor.editor->interpolate(1, false);
+	QCOMPARE(map.map->getNumObjects(), objects + 1);
+	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 1);
+}
+
+
 void ToolsTest::demPointCloud()
 {
 	// the design notes, "Reading point clouds and gridding them", Accept (9).

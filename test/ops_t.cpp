@@ -49,6 +49,7 @@
 #include "core/ops/flatten.h"
 #include "core/ops/group.h"
 #include "core/ops/bounds.h"
+#include "core/ops/interpolate.h"
 #include "core/ops/mirror.h"
 #include "core/ops/offset.h"
 #include "core/ops/transform.h"
@@ -137,6 +138,7 @@ private slots:
 	void topologyTest();
 	void mergeContoursTest();
 	void selectionQueriesTest();
+	void interpolateTest();
 	void buildingsTest();
 	void smoothTest();
 	void rectangleBoxTest();
@@ -1402,6 +1404,94 @@ void OpsTest::selectionQueriesTest()
 	found = query(PropertyQuery::Length, PropertyQuery::Greater, 0.0, { m_line2 });
 	QCOMPARE(int(found.size()), 1);
 	QVERIFY(contains(found, long_line));
+}
+
+
+void OpsTest::interpolateTest()
+{
+	// the design notes, "Interpolate", Accept (1) to (5).
+	Map map;
+	auto* symbol = new LineSymbol();
+	map.addSymbol(symbol, 0);
+	auto* other = new LineSymbol();
+	map.addSymbol(other, 1);
+	auto* area = new AreaSymbol();
+	map.addSymbol(area, 2);
+	auto const path = [&map](const Symbol* s, MapCoordVector coords, bool closed = false) {
+		auto* object = new PathObject(s, coords);
+		if (closed)
+			object->closeAllParts();
+		map.addObject(object);
+		return object;
+	};
+	auto const coords = [](const Object* object) { return object->getRawCoordinateVector(); };
+	auto const near = [](const MapCoord& c, double x, double y, double tolerance) {
+		return std::abs(c.x() - x) <= tolerance && std::abs(c.y() - y) <= tolerance;
+	};
+	
+	auto* a = path(symbol, { MapCoord(0.0, 0.0), MapCoord(100.0, 0.0) });
+	auto* b = path(symbol, { MapCoord(0.0, 10.0), MapCoord(100.0, 10.0) });
+	ops::InterpolateParams params;
+	auto result = ops::interpolate(map, { a, b }, params);
+	QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+	QCOMPARE(result.out.size(), std::size_t(1));
+	QVERIFY(result.consumed.empty());
+	QCOMPARE(result.out.front()->getSymbol(), static_cast<const Symbol*>(symbol));
+	auto c = coords(result.out.front().get());
+	QCOMPARE(int(c.size()), 2);
+	QVERIFY(near(c.front(), 0.0, 5.0, 0.01) && near(c.back(), 100.0, 5.0, 0.01));
+	auto* reversed = path(symbol, { MapCoord(100.0, 10.0), MapCoord(0.0, 10.0) });
+	c = coords(ops::interpolate(map, { a, reversed }, params).out.front().get());
+	QVERIFY(near(c.front(), 0.0, 5.0, 0.01) && near(c.back(), 100.0, 5.0, 0.01));
+	
+	params.count = 3;
+	result = ops::interpolate(map, { a, b }, params);
+	QCOMPARE(result.out.size(), std::size_t(3));
+	double const expected[] = { 2.5, 5.0, 7.5 };
+	for (int k = 0; k < 3; ++k)
+	{
+		c = coords(result.out[std::size_t(k)].get());
+		QVERIFY(near(c.front(), 0.0, expected[k], 0.01) && near(c.back(), 100.0, expected[k], 0.01));
+	}
+	
+	params.count = 1;
+	auto* bent = path(symbol, { MapCoord(0.0, 0.0), MapCoord(50.0, 0.0), MapCoord(100.0, 0.0) });
+	auto* far = path(symbol, { MapCoord(0.0, 20.0), MapCoord(100.0, 20.0) });
+	c = coords(ops::interpolate(map, { bent, far }, params).out.front().get());
+	QVERIFY(near(c.front(), 0.0, 10.0, 0.01) && near(c.back(), 100.0, 10.0, 0.01));
+	
+	auto* outer = path(area, { MapCoord(0.0, 0.0), MapCoord(100.0, 0.0), MapCoord(100.0, 100.0), MapCoord(0.0, 100.0) }, true);
+	MapCoordVector const inner_variants[] = {
+	    { MapCoord(25.0, 25.0), MapCoord(75.0, 25.0), MapCoord(75.0, 75.0), MapCoord(25.0, 75.0) },
+	    { MapCoord(75.0, 75.0), MapCoord(25.0, 75.0), MapCoord(25.0, 25.0), MapCoord(75.0, 25.0) },
+	    { MapCoord(25.0, 25.0), MapCoord(25.0, 75.0), MapCoord(75.0, 75.0), MapCoord(75.0, 25.0) } };
+	for (auto const& variant : inner_variants)
+	{
+		auto* inner = path(area, variant, true);
+		auto const ring = ops::interpolate(map, { outer, inner }, params);
+		QVERIFY2(ring.error.isEmpty(), qPrintable(ring.error));
+		QCOMPARE(ring.out.size(), std::size_t(1));
+		auto const* out = ring.out.front()->asPath();
+		QVERIFY(out->parts().front().isClosed());
+		for (auto const& coord : out->getRawCoordinateVector())
+		{
+			auto const on_edge = std::abs(coord.x() - 12.5) <= 0.5 || std::abs(coord.x() - 87.5) <= 0.5
+			                     || std::abs(coord.y() - 12.5) <= 0.5 || std::abs(coord.y() - 87.5) <= 0.5;
+			QVERIFY2(on_edge && coord.x() > 12.0 && coord.x() < 88.0 && coord.y() > 12.0 && coord.y() < 88.0,
+			         qPrintable(QStringLiteral("%1 %2").arg(coord.x()).arg(coord.y())));
+		}
+	}
+	
+	auto* point_symbol = new PointSymbol();
+	map.addSymbol(point_symbol, 3);
+	auto* point = new PointObject(point_symbol);
+	map.addObject(point);
+	QVERIFY(!ops::interpolate(map, { a }, params).error.isEmpty());
+	QVERIFY(!ops::interpolate(map, { a, b, far }, params).error.isEmpty());
+	QVERIFY(!ops::interpolate(map, { a, point }, params).error.isEmpty());
+	QVERIFY(!ops::interpolate(map, { a, outer }, params).error.isEmpty());
+	params.symbol = other;
+	QCOMPARE(ops::interpolate(map, { a, b }, params).out.front()->getSymbol(), static_cast<const Symbol*>(other));
 }
 
 void OpsTest::buildingsTest()

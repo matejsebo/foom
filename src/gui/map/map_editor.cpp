@@ -56,6 +56,7 @@
 #include <QFlags>
 #include <QFont>
 #include <QFontMetrics>
+#include <QFormLayout>  // foom
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QIcon>
@@ -139,6 +140,7 @@
 #include "core/ops/group.h"
 #include "core/object_groups.h"
 #include "core/ops/flatten.h"
+#include "core/ops/interpolate.h"  // foom
 #include "core/ops/mirror.h"
 #include "core/ops/transform.h"
 #include "core/symbols/line_symbol.h"  // foom
@@ -1311,6 +1313,7 @@ void MapEditorController::createActions()
 	simplify_path_act = newAction("simplify", tr("Simplify path"), this, SLOT(simplifyPathClicked()), "tool-simplify-path.png", QString{}, "toolbars.html#simplify_path");
 	to_polyline_act = newAction("to-polyline", tr("To polyline..."), this, SLOT(toPolylineClicked()));  // foom
 	mirror_act = newAction("mirror", tr("Mirror..."), this, SLOT(mirrorClicked()));  // foom
+	interpolate_act = newAction("interpolate", tr("Interpolate..."), this, SLOT(interpolateClicked()));  // foom
 	move_by_act = newAction("move-by", tr("Move by..."), this, SLOT(moveByClicked()));  // foom
 	rotate_by_act = newAction("rotate-by", tr("Rotate by..."), this, SLOT(rotateByClicked()));  // foom
 	stretch_act = newAction("stretch", tr("Stretch..."), this, SLOT(stretchClicked()));  // foom
@@ -1704,6 +1707,7 @@ void MapEditorController::createMenuAndToolbars()
 	tools_menu->addAction(simplify_path_act);
 	tools_menu->addAction(to_polyline_act);  // foom
 	tools_menu->addAction(mirror_act);  // foom
+	tools_menu->addAction(interpolate_act);  // foom
 	tools_menu->addAction(move_by_act);  // foom
 	tools_menu->addAction(rotate_by_act);  // foom
 	tools_menu->addAction(stretch_act);  // foom
@@ -3352,6 +3356,7 @@ void MapEditorController::updateObjectDependentActions()
 	to_polyline_act->setEnabled(have_area || have_line);  // foom
 	to_polyline_act->setStatusTip(tr("Replace the curves of path objects by straight segments.") + (to_polyline_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a path object to activate this tool."))));
 	mirror_act->setEnabled(have_selection);  // foom
+	interpolate_act->setEnabled(map->getNumSelectedObjects() == 2 && std::all_of(map->selectedObjects().begin(), map->selectedObjects().end(), [](const Object* o) { return o->getType() == Object::Path; }));  // foom
 	mirror_act->setStatusTip(tr("Mirror the selected objects about an axis through their center.") + (mirror_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select at least one object to activate this tool."))));
 	for (auto* action : { move_by_act, rotate_by_act, stretch_act })  // foom
 	{
@@ -6102,6 +6107,43 @@ void MapEditorController::mirror(double axis_angle, bool duplicate)
 	params.axis_angle = axis_angle;
 	params.duplicate = duplicate;
 	applyOpResult(ops::mirror(*map, in, params));
+}
+
+// foom
+void MapEditorController::interpolateClicked()
+{
+	QDialog dialog(window);
+	dialog.setWindowTitle(tr("Interpolate"));
+	auto* count_edit = new QSpinBox();
+	count_edit->setRange(1, 20);
+	count_edit->setValue(1);
+	auto* symbol_check = new QCheckBox(tr("Use the symbol selected in the symbol pane"));
+	auto const* selected = symbol_widget ? symbol_widget->getSingleSelectedSymbol() : nullptr;
+	symbol_check->setEnabled(selected && (selected->getType() == Symbol::Line || selected->getType() == Symbol::Area || selected->getType() == Symbol::Combined));
+	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+	connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+	connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	auto* form = new QFormLayout();
+	form->addRow(tr("Number of new objects:"), count_edit);
+	form->addRow(symbol_check);
+	auto* layout = new QVBoxLayout(&dialog);
+	layout->addLayout(form);
+	layout->addWidget(buttons);
+	if (dialog.exec() == QDialog::Accepted)
+		interpolate(count_edit->value(), symbol_check->isEnabled() && symbol_check->isChecked());
+}
+
+// foom
+void MapEditorController::interpolate(int count, bool use_selected_symbol)
+{
+	// the design notes, "Interpolate".
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	ops::InterpolateParams params;
+	params.count = count;
+	if (use_selected_symbol && symbol_widget)
+		params.symbol = symbol_widget->getSingleSelectedSymbol();
+	applyOpResult(ops::interpolate(*map, in, params));
 }
 
 // foom

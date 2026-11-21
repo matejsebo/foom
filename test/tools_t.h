@@ -115,6 +115,9 @@ private slots:
 	/** foom: Tests saved selections. */
 	void savedSelections();
 	
+	/** foom: Tests the interpolate command. */
+	void interpolateCommand();
+	
 	/** foom: Tests the point cloud import command. */
 	void demPointCloud();
 	
