@@ -184,6 +184,7 @@ set(Mapper_Common_SRCS
   core/extent_printing.cpp
   core/extents.cpp
   core/lasso_query.cpp
+  core/symbol_tools.cpp
   core/object_information.cpp
   core/selection_queries.cpp
   core/object_groups.cpp
@@ -312,6 +313,7 @@ set(Mapper_Common_SRCS
   gui/widgets/symbol_dropdown.cpp
   gui/widgets/symbol_render_widget.cpp
   gui/widgets/symbol_tooltip.cpp
+  gui/widgets/symbol_tools_dialogs.cpp
   gui/widgets/symbol_widget.cpp
   gui/widgets/tag_select_widget.cpp
   gui/widgets/tags_widget.cpp

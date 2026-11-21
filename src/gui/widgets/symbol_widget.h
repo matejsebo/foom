@@ -22,6 +22,8 @@
 #ifndef OPENORIENTEERING_SYMBOL_WIDGET_H
 #define OPENORIENTEERING_SYMBOL_WIDGET_H
 
+#include <vector>
+
 #include <QObject>
 #include <QScrollArea>
 
@@ -89,6 +91,9 @@ public:
 	 * @brief Selects the symbol exclusively, deselecting all other symbols.
 	 */
 	void selectSingleSymbol(const Symbol* symbol);
+	
+	/** foom: Selects exactly these symbols. */
+	void selectSymbols(const std::vector<const Symbol*>& symbols);
 	
 signals:
 	/**

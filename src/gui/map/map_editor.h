@@ -680,6 +680,10 @@ public slots:
 	void interpolateClicked();
 	/** foom: Shows the details of the one selected object (object-info). */
 	void objectInformationClicked();
+	/** foom: Symbols menu: replace a font, replace a colour, renumber symbols. */
+	void replaceFontClicked();
+	void replaceColorClicked();
+	void renumberSymbolsClicked();
 	/** foom: Adds count paths between the two selected paths as one undo step; see the design notes. */
 	void interpolate(int count, bool use_selected_symbol);
 	/** foom: Mirrors the selected objects about an axis at the given angle (degrees) through their centre. */
@@ -1353,6 +1357,11 @@ private:
 	QAction* mirror_act = {};  // foom
 	QAction* interpolate_act = {};  // foom
 	QAction* object_info_act = {};  // foom
+	QAction* replace_font_act = {};  // foom
+	QAction* replace_color_act = {};  // foom
+	QAction* renumber_symbols_act = {};  // foom
+	/// foom: The symbols selected in the symbol pane.
+	std::vector<const Symbol*> selectedSymbolsScope() const;
 	double mirror_axis_angle = 90.0;  // foom: degrees, kept for the session
 	bool mirror_duplicate = false;  // foom: kept for the session
 	QAction* move_by_act = {};  // foom

@@ -45,6 +45,7 @@
 #include "core/symbols/symbol_icon_decorator.h"
 #include "core/symbols/text_symbol.h"
 #include "gui/symbols/symbol_setting_dialog.h"
+#include "gui/widgets/symbol_tools_dialogs.h"  // foom
 #include "gui/widgets/symbol_tooltip.h"
 #include "util/backports.h"  // IWYU pragma: keep
 #include "util/overriding_shortcut.h"
@@ -142,6 +143,7 @@ SymbolRenderWidget::SymbolRenderWidget(Map* map, bool mobile_mode, QWidget* pare
 	QMenu* select_menu = new QMenu(tr("Select symbols"), context_menu);
 	select_menu->addAction(tr("Select all"), this, SLOT(selectAll()));
 	select_menu->addAction(tr("Select unused"), this, SLOT(selectUnused()));
+	select_menu->addAction(tr("Select by property..."), this, SLOT(selectByProperty()));  // foom
 	select_menu->addSeparator();
 	select_menu->addAction(tr("Invert selection"), this, SLOT(invertSelection()));
 	context_menu->addMenu(select_menu);
@@ -1002,6 +1004,32 @@ void SymbolRenderWidget::selectAll()
 		selected_symbols.insert(i);
 	emitGuarded_selectedSymbolsChanged();
 	update();
+}
+
+// foom: the design notes, "Selecting symbols, replacing fonts and colours, renumbering".
+void SymbolRenderWidget::selectSymbols(const std::vector<const Symbol*>& symbols)
+{
+	updateSelectedIcons();
+	selected_symbols.clear();
+	for (auto const* symbol : symbols)
+	{
+		auto const index = map->findSymbolIndex(symbol);
+		if (index >= 0 && !symbol->isPrivate())
+		{
+			selected_symbols.insert(index);
+			updateSingleIcon(index);
+		}
+	}
+	current_symbol_index = selected_symbols.size() == 1 ? *selected_symbols.begin() : -1;
+	emitGuarded_selectedSymbolsChanged();
+}
+
+// foom
+void SymbolRenderWidget::selectByProperty()
+{
+	SelectSymbolsDialog dialog(*map, this);
+	if (dialog.exec() == QDialog::Accepted)
+		selectSymbols(dialog.symbols());
 }
 
 void SymbolRenderWidget::selectUnused()

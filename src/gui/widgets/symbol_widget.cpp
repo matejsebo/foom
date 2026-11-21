@@ -82,6 +82,12 @@ void SymbolWidget::selectSingleSymbol(const Symbol* symbol)
     render_widget->selectSingleSymbol(symbol);
 }
 
+// foom
+void SymbolWidget::selectSymbols(const std::vector<const Symbol*>& symbols)
+{
+	render_widget->selectSymbols(symbols);
+}
+
 void SymbolWidget::contextMenuEvent(QContextMenuEvent* event)
 {
 	render_widget->showContextMenu(event->globalPos());

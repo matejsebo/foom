@@ -1604,6 +1604,27 @@ void ToolsTest::objectInformationCommand()
 }
 
 
+void ToolsTest::symbolTools()
+{
+	// the design notes, "Selecting symbols, replacing fonts and colours, renumbering", Accept (5).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	for (auto const* id : { "symbols-replace-font", "symbols-replace-color", "symbols-renumber" })
+		QVERIFY2(editor.editor->getAction(id), id);
+	auto* second = new LineSymbol();
+	map.map->addSymbol(second, map.map->getNumSymbols());
+	auto* third = new LineSymbol();
+	map.map->addSymbol(third, map.map->getNumSymbols());
+	auto* widget = editor.editor->getSymbolWidget();
+	QVERIFY(widget);
+	widget->selectSymbols({ map.line_symbol, third });
+	QCOMPARE(widget->selectedSymbolsCount(), 2);
+	QVERIFY(widget->isSymbolSelected(map.line_symbol));
+	QVERIFY(widget->isSymbolSelected(third));
+	QVERIFY(!widget->isSymbolSelected(second));
+}
+
+
 void ToolsTest::demPointCloud()
 {
 	// the design notes, "Reading point clouds and gridding them", Accept (9).

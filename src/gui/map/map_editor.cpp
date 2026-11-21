@@ -198,6 +198,8 @@
 #include "gui/map/selection_dialogs.h"  // foom
 #include "core/selection_queries.h"  // foom
 #include "core/object_information.h"  // foom
+#include "core/symbol_tools.h"  // foom
+#include "gui/widgets/symbol_tools_dialogs.h"  // foom
 #include "gui/map/rectangle_box_dialog.h"
 #include "gui/map/topology_dialogs.h"
 #include "gui/widgets/issues_widget.h"
@@ -1317,6 +1319,9 @@ void MapEditorController::createActions()
 	to_polyline_act = newAction("to-polyline", tr("To polyline..."), this, SLOT(toPolylineClicked()));  // foom
 	mirror_act = newAction("mirror", tr("Mirror..."), this, SLOT(mirrorClicked()));  // foom
 	interpolate_act = newAction("interpolate", tr("Interpolate..."), this, SLOT(interpolateClicked()));  // foom
+	replace_font_act = newAction("symbols-replace-font", tr("Replace font..."), this, SLOT(replaceFontClicked()));  // foom
+	replace_color_act = newAction("symbols-replace-color", tr("Replace colour..."), this, SLOT(replaceColorClicked()));  // foom
+	renumber_symbols_act = newAction("symbols-renumber", tr("Renumber symbols..."), this, SLOT(renumberSymbolsClicked()));  // foom
 	object_info_act = newAction("object-info", tr("Object information..."), this, SLOT(objectInformationClicked()));  // foom
 	move_by_act = newAction("move-by", tr("Move by..."), this, SLOT(moveByClicked()));  // foom
 	rotate_by_act = newAction("rotate-by", tr("Rotate by..."), this, SLOT(rotateByClicked()));  // foom
@@ -1806,6 +1811,9 @@ void MapEditorController::createMenuAndToolbars()
 	symbols_menu->addAction(scale_all_symbols_act);
 	symbols_menu->addAction(load_symbols_from_act);
 	symbols_menu->addAction(load_crt_act);
+	symbols_menu->addAction(replace_font_act);  // foom
+	symbols_menu->addAction(replace_color_act);  // foom
+	symbols_menu->addAction(renumber_symbols_act);  // foom
 	/*symbols_menu->addAction(load_colors_from_act);*/
 	symbols_menu->addSeparator();
 	symbols_menu->addAction(symbol_report_feature->showDialogAction());
@@ -6113,6 +6121,57 @@ void MapEditorController::mirror(double axis_angle, bool duplicate)
 	params.axis_angle = axis_angle;
 	params.duplicate = duplicate;
 	applyOpResult(ops::mirror(*map, in, params));
+}
+
+// foom: the design notes, "Selecting symbols, replacing fonts and colours, renumbering".
+std::vector<const Symbol*> MapEditorController::selectedSymbolsScope() const
+{
+	std::vector<const Symbol*> scope;
+	if (symbol_widget)
+	{
+		for (int i = 0; i < map->getNumSymbols(); ++i)
+		{
+			if (symbol_widget->isSymbolSelected(map->getSymbol(i)))
+				scope.push_back(map->getSymbol(i));
+		}
+	}
+	return scope;
+}
+
+void MapEditorController::replaceFontClicked()
+{
+	SymbolReplaceDialog dialog(SymbolReplaceDialog::Font, *map, window);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	auto const scope = dialog.onlySelected() ? selectedSymbolsScope() : std::vector<const Symbol*>{};
+	if (dialog.onlySelected() && scope.empty())
+		return;
+	auto const count = replaceFont(*map, dialog.fromFont(), dialog.toFont(), scope);
+	window->showStatusBarMessage(tr("%1 symbol(s) changed").arg(count), 5000);
+}
+
+void MapEditorController::replaceColorClicked()
+{
+	SymbolReplaceDialog dialog(SymbolReplaceDialog::Color, *map, window);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	auto const scope = dialog.onlySelected() ? selectedSymbolsScope() : std::vector<const Symbol*>{};
+	if (dialog.onlySelected() && scope.empty())
+		return;
+	auto const count = replaceColor(*map, dialog.fromColor(), dialog.toColor(), scope);
+	window->showStatusBarMessage(tr("%1 symbol(s) changed").arg(count), 5000);
+}
+
+void MapEditorController::renumberSymbolsClicked()
+{
+	SymbolReplaceDialog dialog(SymbolReplaceDialog::Renumber, *map, window);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	auto const scope = dialog.onlySelected() ? selectedSymbolsScope() : std::vector<const Symbol*>{};
+	if (dialog.onlySelected() && scope.empty())
+		return;
+	auto const count = renumberSymbols(*map, dialog.start(), dialog.step(), scope);
+	window->showStatusBarMessage(tr("%1 symbol(s) renumbered").arg(count), 5000);
 }
 
 // foom: the design notes, "Object information".

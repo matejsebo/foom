@@ -42,6 +42,7 @@
 #include "core/map_color.h"
 #include "core/object_information.h"
 #include "core/selection_queries.h"
+#include "core/symbol_tools.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
 #include "core/objects/text_object.h"
@@ -142,6 +143,7 @@ private slots:
 	void selectionQueriesTest();
 	void interpolateTest();
 	void objectInformationTest();
+	void symbolToolsTest();
 	void buildingsTest();
 	void smoothTest();
 	void rectangleBoxTest();
@@ -1589,6 +1591,76 @@ void OpsTest::objectInformationTest()
 	QVERIFY(report.contains(QLatin1String("ele=410")));
 	QVERIFY(report.contains(QLatin1String("10.000")));
 	QCOMPARE(report.count(QLatin1String("\n  ")), 3);
+}
+
+
+void OpsTest::symbolToolsTest()
+{
+	// the design notes, "Selecting symbols, replacing fonts and colours, renumbering", Accept (1) to (4).
+	Map map;
+	auto* brown = new MapColor(QStringLiteral("Brown"), 0);
+	map.addColor(brown, 0);
+	auto* yellow = new MapColor(QStringLiteral("Yellow"), 1);
+	map.addColor(yellow, 1);
+	auto* black = new MapColor(QStringLiteral("Black"), 2);
+	map.addColor(black, 2);
+	auto const numbered = [](Symbol* symbol, int number) { symbol->setNumberComponent(0, number); symbol->setNumberComponent(1, -1); return symbol; };
+	auto* contour = new LineSymbol();
+	contour->setColor(brown);
+	contour->setLineWidth(0.14);
+	map.addSymbol(numbered(contour, 101), 0);
+	auto* field = new AreaSymbol();
+	field->setColor(yellow);
+	map.addSymbol(numbered(field, 401), 1);
+	auto* arial = new TextSymbol();
+	arial->setFontFamily(QStringLiteral("Arial"));
+	map.addSymbol(numbered(arial, 900), 2);
+	auto* verdana = new TextSymbol();
+	verdana->setFontFamily(QStringLiteral("Verdana"));
+	map.addSymbol(numbered(verdana, 901), 3);
+	auto* boulder = new PointSymbol();
+	boulder->setInnerRadius(200);
+	boulder->setInnerColor(black);
+	boulder->setHidden(true);
+	map.addSymbol(numbered(boulder, 501), 4);
+	auto* index = new LineSymbol();
+	index->setColor(brown);
+	index->setLineWidth(0.25);
+	index->setProtected(true);
+	map.addSymbol(numbered(index, 102), 5);
+	using List = std::vector<const Symbol*>;
+	
+	QVERIFY(symbolsUsingColor(map, brown) == (List{ contour, index }));
+	QVERIFY(symbolsUsingFont(map, QStringLiteral("Arial")) == (List{ arial }));
+	QVERIFY(symbolsOfType(map, Symbol::Text) == (List{ arial, verdana }));
+	QVERIFY(symbolsWithStatus(map, SymbolStatus::Hidden) == (List{ boulder }));
+	QVERIFY(symbolsWithStatus(map, SymbolStatus::Protected) == (List{ index }));
+	QVERIFY(symbolsWithStatus(map, SymbolStatus::Normal) == (List{ contour, field, arial, verdana }));
+	QVERIFY(symbolsMatchingNumber(map, QStringLiteral("10*")) == (List{ contour, index }));
+	QVERIFY(symbolsMatchingNumber(map, QStringLiteral("9??")) == (List{ arial, verdana }));
+	QCOMPARE(fontFamilies(map), (QStringList{ QStringLiteral("Arial"), QStringLiteral("Verdana") }));
+	
+	QCOMPARE(replaceFont(map, QStringLiteral("Arial"), QStringLiteral("Verdana")), 1);
+	QVERIFY(symbolsUsingFont(map, QStringLiteral("Arial")).empty());
+	QCOMPARE(replaceFont(map, QStringLiteral("Verdana"), QStringLiteral("Arial"), { verdana }), 1);
+	QCOMPARE(arial->getFontFamily(), QStringLiteral("Verdana"));
+	QCOMPARE(verdana->getFontFamily(), QStringLiteral("Arial"));
+	
+	QCOMPARE(replaceColor(map, brown, black, { contour }), 1);
+	QVERIFY(contour->containsColor(black) && !contour->containsColor(brown));
+	QVERIFY(index->containsColor(brown));
+	QCOMPARE(replaceColor(map, brown, black), 1);
+	QVERIFY(symbolsUsingColor(map, brown).empty());
+	
+	QCOMPARE(renumberSymbols(map, 200, 10, { arial, verdana }), 2);
+	QCOMPARE(arial->getNumberAsString(), QStringLiteral("200"));
+	QCOMPARE(verdana->getNumberAsString(), QStringLiteral("210"));
+	QCOMPARE(contour->getNumberAsString(), QStringLiteral("101"));
+	QCOMPARE(renumberSymbols(map, 200, 10), 6);
+	QStringList numbers;
+	for (int i = 0; i < map.getNumSymbols(); ++i)
+		numbers << map.getSymbol(i)->getNumberAsString();
+	QCOMPARE(numbers, (QStringList{ QStringLiteral("200"), QStringLiteral("210"), QStringLiteral("220"), QStringLiteral("230"), QStringLiteral("240"), QStringLiteral("250") }));
 }
 
 void OpsTest::buildingsTest()

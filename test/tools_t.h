@@ -121,6 +121,9 @@ private slots:
 	/** foom: Tests the object information command. */
 	void objectInformationCommand();
 	
+	/** foom: Tests selecting symbols and the symbol replacement commands. */
+	void symbolTools();
+	
 	/** foom: Tests the point cloud import command. */
 	void demPointCloud();
 	

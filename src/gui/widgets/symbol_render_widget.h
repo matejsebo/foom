@@ -23,6 +23,7 @@
 #define OPENORIENTEERING_SYMBOL_RENDER_WIDGET_H
 
 #include <set>
+#include <vector>
 
 #include <QObject>
 #include <QPoint>
@@ -120,6 +121,9 @@ public:
 	 */
 	void selectSingleSymbol(int i);
 	
+	/** foom: Selects exactly these symbols (private ones excepted). */
+	void selectSymbols(const std::vector<const Symbol*>& symbols);
+	
 	/**
 	 * @brief Returns the recommended size for the widget.
 	 * 
@@ -211,6 +215,7 @@ protected slots:
 	void deselectObjects();
 	void selectAll();
 	void selectUnused();
+	void selectByProperty();  // foom
 	void invertSelection();
 	void sortByNumber();
 	void sortByColor();
