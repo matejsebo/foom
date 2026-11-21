@@ -44,6 +44,9 @@ namespace {
 /// The units of a named extent in an OCD file, per mm.
 constexpr double extent_units = 25600.0;
 
+/// The name of the entry of all controls in the courses or the classes of a canvas.
+const QLatin1String all_controls("All controls");
+
 QString boolText(bool value)
 {
 	return value ? QStringLiteral("true") : QStringLiteral("false");
@@ -105,11 +108,13 @@ CourseCanvas readOcdCanvas(QXmlStreamReader& xml)
 		{
 			readNames(xml, QLatin1String("Symbol"), nullptr, &canvas.hidden_symbols);
 		}
-		else if (name == QLatin1String("Courses"))
+		else if (name == QLatin1String("Courses") || name == QLatin1String("Classes"))
 		{
+			// By courses or by classes; a class has no part.
+			auto const child = QLatin1String(name == QLatin1String("Courses") ? "Course" : "Class");
 			while (xml.readNextStartElement())
 			{
-				if (xml.name() != QLatin1String("Course"))
+				if (xml.name() != child)
 				{
 					xml.skipCurrentElement();
 					continue;
@@ -123,6 +128,8 @@ CourseCanvas readOcdCanvas(QXmlStreamReader& xml)
 					course.flip = attributes.value(QLatin1String("courseType")) == QLatin1String("MapFlip");
 				}
 				course.course = xml.readElementText();
+				if (course.course == all_controls)
+					course.course.clear();
 				canvas.courses.push_back(course);
 			}
 		}
@@ -393,18 +400,19 @@ QString canvasesToOcdXml(const CourseCanvases& canvases)
 		text += QLatin1String("</BackgroundMaps>\r\n<Symbols>\r\n");
 		for (auto const& number : canvases.used_symbols)
 			append(text, "Symbol", number, QLatin1String(" visible=\"") + boolText(!canvas.hidden_symbols.contains(number)) + QLatin1Char('"'));
-		text += QLatin1String("</Symbols>\r\n<Courses>\r\n");
+		text += QLatin1String(canvases.by_classes ? "</Symbols>\r\n<Classes>\r\n" : "</Symbols>\r\n<Courses>\r\n");
 		for (auto const& course : canvas.courses)
 		{
 			QString attributes;
-			if (course.part >= 0)
+			if (course.part >= 0 && !canvases.by_classes)
 			{
 				attributes = QLatin1String(" courseType=\"") + QLatin1String(course.flip ? "MapFlip" : "MapExchange")
 				             + QLatin1String("\" mapNumber=\"") + QString::number(course.part + 1) + QLatin1Char('"');
 			}
-			append(text, "Course", course.course, attributes);
+			auto const entry = course.course.isEmpty() ? QString(all_controls) : course.course;
+			append(text, canvases.by_classes ? "Class" : "Course", entry, attributes);
 		}
-		text += QLatin1String("</Courses>\r\n</Canvas>\r\n");
+		text += QLatin1String(canvases.by_classes ? "</Classes>\r\n</Canvas>\r\n" : "</Courses>\r\n</Canvas>\r\n");
 	}
 	text += QLatin1String("</CsCanvas>\r\n</OcadScript>\r\n");
 	return text;

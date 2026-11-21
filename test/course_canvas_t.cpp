@@ -234,6 +234,38 @@ void CourseCanvasTest::ocdXmlTest()
 	QVERIFY(!canvasesFromOcdXml("<OcadScript><File.Open/></OcadScript>", none));
 	QVERIFY(none.isEmpty());
 	
+	// A canvas by classes with all controls.
+	auto const by_classes = QStringLiteral(
+	    "<?xml version=\"1.0\"?>\r\n<OcadScript>\r\n<CsCanvas>\r\n<Activate>true</Activate>\r\n<IsCourses>false</IsCourses>\r\n"
+	    "<UsedSymbols>\r\n</UsedSymbols>\r\n<UsedBackgroundMaps>\r\n</UsedBackgroundMaps>\r\n"
+	    "<Canvas>\r\n<Name>Canvas 1</Name>\r\n<ExportRectangleName pageStatus=\"psSingle\"></ExportRectangleName>\r\n"
+	    "<ExportScale>10000</ExportScale>\r\n<CdSymbolsSize>6.0</CdSymbolsSize>\r\n<CdMaxLength>25</CdMaxLength>\r\n"
+	    "<Classes>\r\n<Class>All controls</Class>\r\n<Class>M12</Class>\r\n</Classes>\r\n</Canvas>\r\n</CsCanvas>\r\n</OcadScript>\r\n");
+	CourseCanvases classes;
+	QVERIFY(canvasesFromOcdXml(by_classes.toUtf8(), classes));
+	QVERIFY(classes.by_classes);
+	QCOMPARE(int(classes.canvases.size()), 1);
+	QCOMPARE(int(classes.canvases[0].courses.size()), 2);
+	QVERIFY(classes.canvases[0].courses[0].course.isEmpty());
+	QCOMPARE(classes.canvases[0].courses[1].course, QStringLiteral("M12"));
+	QCOMPARE(classes.canvases[0].courses[1].part, -1);
+	auto const classes_written = canvasesToOcdXml(classes);
+	QVERIFY(classes_written.contains(QLatin1String("<Classes>\r\n<Class>All controls</Class>\r\n<Class>M12</Class>\r\n</Classes>\r\n")));
+	QVERIFY(!classes_written.contains(QLatin1String("<Courses>")));
+	CourseCanvases classes_again;
+	QVERIFY(canvasesFromOcdXml(classes_written.toUtf8(), classes_again));
+	QVERIFY(classes_again == classes);
+	
+	// All controls by courses.
+	auto with_all = canvases;
+	with_all.canvases[0].courses.insert(with_all.canvases[0].courses.begin(), CanvasCourse{});
+	auto const all_written = canvasesToOcdXml(with_all);
+	QVERIFY(all_written.contains(QLatin1String("<Courses>\r\n<Course>All controls</Course>\r\n")));
+	CourseCanvases all_again;
+	QVERIFY(canvasesFromOcdXml(all_written.toUtf8(), all_again));
+	QVERIFY(all_again.canvases[0].courses[0].course.isEmpty());
+	QVERIFY(all_again == with_all);
+	
 	QCOMPARE(canvasSymbolNumber(704, -1), QStringLiteral("704.000"));
 	QCOMPARE(canvasSymbolNumber(722, 1), QStringLiteral("722.001"));
 }
