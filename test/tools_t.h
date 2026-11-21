@@ -97,6 +97,9 @@ private slots:
 	/** foom: Tests the affine transformation tool. */
 	void mapAffineTool();
 	
+	/** foom: Tests the rubbersheeting tool. */
+	void mapRubbersheetTool();
+	
 	/** foom: Tests the map check command and the Issues window. */
 	void mapCheck();
 	

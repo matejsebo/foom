@@ -27,7 +27,10 @@
 #include <QObject>
 #include <QPointF>
 #include <QRectF>
+#include <QFile>
 #include <QString>
+#include <QStringList>
+#include <QTemporaryDir>
 #include <QTransform>
 #include <QtMath>
 
@@ -446,6 +449,157 @@ private slots:
 		TestMap plain;
 		QVERIFY(transformMap(plain.map, fit.transform, MapTransformOptions()));
 		QCOMPARE(plain.rotated->getRotation(), 0.5);
+	}
+	
+	
+	void rubbersheetFieldTest()
+	{
+		// the design notes, "Rubbersheeting", Accept (1).
+		RubbersheetParams params;
+		params.perimeter = { MapCoordF(-1000, -1000), MapCoordF(1000, -1000), MapCoordF(1000, 1000), MapCoordF(-1000, 1000) };
+		params.pairs = { { MapCoordF(3.0, 4.0), MapCoordF(5.0, 1.0) } };
+		for (auto const& p : { MapCoordF(0, 0), MapCoordF(3, 4), MapCoordF(-200, 500) })
+			QVERIFY(near(rubbersheetDisplacement(params, p), MapCoordF(2.0, -3.0), 1e-9));
+		
+		params.pairs = { { MapCoordF(0, 0), MapCoordF(0, 0) }, { MapCoordF(100, 0), MapCoordF(110, 0) } };
+		QVERIFY(near(rubbersheetDisplacement(params, MapCoordF(0, 0)), MapCoordF(0, 0), 1e-9));
+		QVERIFY(near(rubbersheetDisplacement(params, MapCoordF(100, 0)), MapCoordF(10, 0), 1e-9));
+		QVERIFY(near(rubbersheetDisplacement(params, MapCoordF(50, 0)), MapCoordF(10.0 * 2500 / (2500 + 3000), 0), 1e-9));
+	}
+	
+	
+	void rubbersheetPerimeterTest()
+	{
+		// Accept (2).
+		RubbersheetParams params;
+		params.perimeter = { MapCoordF(-10, -10), MapCoordF(10, -10), MapCoordF(10, 10), MapCoordF(-10, 10) };
+		params.pairs = { { MapCoordF(0, 0), MapCoordF(2, 0) } };
+		
+		TestMap t;
+		auto* crossing = new PathObject(t.line, MapCoordVector{ MapCoord(0.0, 0.0), MapCoord(20.0, 0.0) });
+		t.map.addObject(crossing);
+		QVERIFY(rubbersheetMap(t.map, params));
+		QVERIFY(near(MapCoordF(crossing->getRawCoordinateVector()[0]), MapCoordF(2, 0)));
+		QVERIFY(near(MapCoordF(crossing->getRawCoordinateVector()[1]), MapCoordF(20, 0)));
+		
+		params.decrease_near_perimeter = true;
+		auto const w = 1 / (5 * std::sqrt(29.0));
+		QVERIFY(near(rubbersheetDisplacement(params, MapCoordF(0, 5)), MapCoordF(2 * w / (w + 4.0 / 25), 0), 1e-9));
+		QVERIFY(near(rubbersheetDisplacement(params, MapCoordF(10, 0)), MapCoordF(0, 0), 1e-9));
+		QVERIFY(near(rubbersheetDisplacement(params, MapCoordF(0, 0)), MapCoordF(2, 0), 1e-9));
+	}
+	
+	
+	void rubbersheetObjectsTest()
+	{
+		// Accept (3).
+		TestMap t;
+		auto* protected_symbol = new LineSymbol();
+		protected_symbol->setLineWidth(0.2);
+		protected_symbol->setProtected(true);
+		t.map.addSymbol(protected_symbol, t.map.getNumSymbols());
+		auto* guarded = new PathObject(protected_symbol, MapCoordVector{ MapCoord(1.0, 1.0), MapCoord(2.0, 2.0) });
+		t.map.addObject(guarded);
+		
+		RubbersheetParams params;
+		params.perimeter = { MapCoordF(-500, -500), MapCoordF(500, -500), MapCoordF(500, 500), MapCoordF(-500, 500) };
+		params.pairs = { { MapCoordF(0, 0), MapCoordF(4, 0) }, { MapCoordF(60, 60), MapCoordF(60, 60) }, { MapCoordF(-60, 30), MapCoordF(-60, 33) } };
+		auto const path_before = t.path->getRawCoordinateVector();
+		auto const point_before = MapCoordF(t.rotated->getCoordF());
+		auto const anchor_before = MapCoordF(t.label->getAnchorCoordF());
+		auto const box = t.label->getBoxSize();
+		auto const guarded_before = guarded->getRawCoordinateVector();
+		auto const layout_before = t.layout_path->getRawCoordinateVector();
+		QVERIFY(rubbersheetMap(t.map, params));
+		for (std::size_t i = 0; i < path_before.size(); ++i)
+		{
+			auto const p = MapCoordF(path_before[i]);
+			QVERIFY(near(MapCoordF(t.path->getRawCoordinateVector()[i]), p + rubbersheetDisplacement(params, p)));
+		}
+		QVERIFY(near(MapCoordF(t.rotated->getCoordF()), point_before + rubbersheetDisplacement(params, point_before)));
+		QVERIFY(near(MapCoordF(t.label->getAnchorCoordF()), anchor_before + rubbersheetDisplacement(params, anchor_before)));
+		QCOMPARE(t.label->getBoxSize(), box);
+		QVERIFY(guarded->getRawCoordinateVector() == guarded_before);
+		QVERIFY(t.layout_path->getRawCoordinateVector() == layout_before);
+		
+		TestMap all;
+		auto* symbol = new LineSymbol();
+		symbol->setProtected(true);
+		all.map.addSymbol(symbol, all.map.getNumSymbols());
+		auto* other = new PathObject(symbol, MapCoordVector{ MapCoord(1.0, 1.0), MapCoord(2.0, 2.0) });
+		all.map.addObject(other);
+		params.include_protected = true;
+		params.include_layout = true;
+		auto const layout_all = all.layout_path->getRawCoordinateVector();
+		QVERIFY(rubbersheetMap(all.map, params));
+		QVERIFY(other->getRawCoordinateVector() != guarded_before);
+		QVERIFY(all.layout_path->getRawCoordinateVector() != layout_all);
+	}
+	
+	
+	void rubbersheetFilesTest()
+	{
+		// Accept (4).
+		TestMap t;
+		QTemporaryDir dir;
+		std::vector<PointPair> pairs = { { MapCoordF(12.5, -3.25), MapCoordF(14.0, -2.0) }, { MapCoordF(-40.0, 22.0), MapCoordF(-40.0, 22.0) } };
+		std::vector<MapCoordF> perimeter = { MapCoordF(-50, -50), MapCoordF(50, -50), MapCoordF(50, 50), MapCoordF(-50, 50) };
+		auto const points_path = dir.filePath(QStringLiteral("points.txt"));
+		auto const perimeter_path = dir.filePath(QStringLiteral("perimeter.txt"));
+		QString error;
+		QVERIFY2(writeRubbersheetPoints(points_path, t.map, pairs, &error), qPrintable(error));
+		QVERIFY2(writeRubbersheetPerimeter(perimeter_path, t.map, perimeter, &error), qPrintable(error));
+		// 0.005 m is 0.00125 mm at 1:4000.
+		auto const read_pairs = readRubbersheetPoints(points_path, t.map, &error);
+		QCOMPARE(read_pairs.size(), pairs.size());
+		for (std::size_t i = 0; i < pairs.size(); ++i)
+		{
+			QVERIFY(near(read_pairs[i].map, pairs[i].map, 0.00125));
+			QVERIFY(near(read_pairs[i].reference, pairs[i].reference, 0.00125));
+		}
+		auto const read_perimeter = readRubbersheetPerimeter(perimeter_path, t.map, &error);
+		QCOMPARE(read_perimeter.size(), perimeter.size());
+		for (std::size_t i = 0; i < perimeter.size(); ++i)
+			QVERIFY(near(read_perimeter[i], perimeter[i], 0.00125));
+		
+		QFile file(points_path);
+		QVERIFY(file.open(QIODevice::ReadOnly));
+		auto const lines = QString::fromUtf8(file.readAll()).split(QStringLiteral("\r\n"));
+		file.close();
+		QVERIFY(lines.size() >= 5);
+		QCOMPARE(lines[1], QStringLiteral("m"));
+		QCOMPARE(lines[2], QStringLiteral("2"));
+		QCOMPARE(lines[3].split(QLatin1Char(';')).size(), 6);
+		
+		// A pair which is not used.
+		auto text = lines;
+		auto fields = text[4].split(QLatin1Char(';'));
+		fields[4] = QStringLiteral("0");
+		text[4] = fields.join(QLatin1Char(';'));
+		QVERIFY(file.open(QIODevice::WriteOnly));
+		file.write(text.join(QStringLiteral("\r\n")).toUtf8());
+		file.close();
+		QCOMPARE(readRubbersheetPoints(points_path, t.map, &error).size(), std::size_t(1));
+	}
+	
+	
+	void rubbersheetUndoTest()
+	{
+		// Accept (5).
+		TestMap t;
+		auto const before = t.snapshot();
+		RubbersheetParams params;
+		params.perimeter = { MapCoordF(-500, -500), MapCoordF(500, -500), MapCoordF(500, 500), MapCoordF(-500, 500) };
+		params.pairs = { { MapCoordF(0, 0), MapCoordF(4, 0) }, { MapCoordF(60, 60), MapCoordF(60, 60) } };
+		QVERIFY(rubbersheetMap(t.map, params));
+		QCOMPARE(t.map.undoManager().undoStepCount(), 1);
+		QVERIFY(!near(t.snapshot().route.front(), before.route.front(), 0.001));
+		QVERIFY(t.map.undoManager().undo());
+		auto const undone = t.snapshot();
+		for (std::size_t i = 0; i < before.coords.size(); ++i)
+			QVERIFY(near(undone.coords[i], before.coords[i], 0.0));
+		for (std::size_t i = 0; i < before.route.size(); ++i)
+			QVERIFY(near(undone.route[i], before.route[i], 0.0));
 	}
 };
 

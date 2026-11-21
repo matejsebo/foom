@@ -91,6 +91,7 @@ struct LandformParams;  // foom
 struct GriddingParams;  // foom
 struct PointCloudProducts;  // foom
 struct PointPair;  // foom
+struct RubbersheetParams;  // foom
 class FindReplaceTextDialog;  // foom
 class MoveParallelDialog;  // foom
 class NumericEntryBar;  // foom
@@ -770,6 +771,10 @@ public slots:
 	void mapMirrorClicked();
 	/** foom: Starts the affine tool (map-affine). */
 	void mapAffineClicked();
+	/** foom: Starts the rubbersheet tool (map-rubbersheet). */
+	void mapRubbersheetClicked();
+	/** foom: Rubbersheets the map; see the design notes. */
+	bool rubbersheetMapWith(const RubbersheetParams& params);
 	/** foom: Transforms the map by the fit to the point pairs, turning orientations; see the design notes. */
 	bool affineTransformMap(const std::vector<PointPair>& pairs);
 	/** foom: Moves the map in the world; see the design notes. */
@@ -1303,6 +1308,7 @@ private:
 	QAction* map_stretch_act = {};  // foom
 	QAction* map_mirror_act = {};  // foom
 	QAction* map_affine_act = {};  // foom
+	QAction* map_rubbersheet_act = {};  // foom
 	QAction* dem_point_cloud_act = {};  // foom
 	QAction* dem_info_act = {};  // foom
 	QAction* dem_contours_act = {};  // foom

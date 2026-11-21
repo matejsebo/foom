@@ -22,6 +22,7 @@
 
 #include <vector>
 
+#include <QString>
 #include <QTransform>
 
 #include "core/map_coord.h"
@@ -92,6 +93,43 @@ QTransform mapStretchTransform(double factor_x, double factor_y, bool mirror_hor
  * See the design notes, "Affine by point pairs".
  */
 PairFit fitPointPairs(const std::vector<PointPair>& pairs);
+
+
+/**
+ * The settings of rubbersheeting; the options are off by default.
+ */
+struct RubbersheetParams
+{
+	std::vector<PointPair> pairs;
+	std::vector<MapCoordF> perimeter;      ///< A closed polygon in map coordinates.
+	bool decrease_near_perimeter = false;  ///< Adds a zero displacement weighted 4 / e^2, e the distance to the perimeter.
+	bool include_protected = false;        ///< Transform objects of protected symbols.
+	bool include_layout = false;           ///< Transform the objects of layout parts.
+};
+
+/**
+ * The displacement at a point: the mean of the pairs' displacements weighted
+ * 1 / (|p - old| |p - new|).
+ *
+ * See the design notes, "Rubbersheeting".
+ */
+MapCoordF rubbersheetDisplacement(const RubbersheetParams& params, const MapCoordF& point);
+
+/**
+ * Moves every coordinate inside the perimeter by the displacement at it, texts as a whole
+ * by the displacement at their anchors, as one undo step. Returns false without pairs or perimeter.
+ */
+bool rubbersheetMap(Map& map, const RubbersheetParams& params);
+
+/// A points file: system name, "m", count, then x-old;y-old;x-new;y-new;used;distance in projected metres.
+bool writeRubbersheetPoints(const QString& path, const Map& map, const std::vector<PointPair>& pairs, QString* error);
+/// The pairs of a points file which are used, in map coordinates.
+std::vector<PointPair> readRubbersheetPoints(const QString& path, const Map& map, QString* error);
+
+/// A perimeter file: system name, "m", the number of polygons (1), then x;y per vertex.
+bool writeRubbersheetPerimeter(const QString& path, const Map& map, const std::vector<MapCoordF>& perimeter, QString* error);
+/// The first polygon of a perimeter file, in map coordinates.
+std::vector<MapCoordF> readRubbersheetPerimeter(const QString& path, const Map& map, QString* error);
 
 
 }  // namespace OpenOrienteering

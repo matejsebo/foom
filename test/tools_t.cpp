@@ -72,6 +72,7 @@
 #include "gui/map/numeric_entry_bar.h"
 #include "gui/widgets/symbol_widget.h"
 #include "tools/affine_transform_tool.h"
+#include "tools/rubbersheet_tool.h"
 #include "tools/draw_path_tool.h"
 #include "tools/lasso_tool.h"
 #include "tools/sketch_tools.h"
@@ -99,6 +100,7 @@
 #include "tools/edit_point_tool.h"
 #include "tools/edit_tool.h"
 #include "undo/undo_manager.h"
+#include "util/util.h"
 
 using namespace OpenOrienteering;
 
@@ -1353,6 +1355,64 @@ void ToolsTest::mapAffineTool()
 	QVERIFY(std::abs(moved.x() - expected.x()) < 0.001 && std::abs(moved.y() - expected.y()) < 0.001);
 	QVERIFY(std::abs(moved.x() - original.x() - 10.0) < 0.5 && std::abs(moved.y() - original.y()) < 0.5);
 	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 1);
+}
+
+
+void ToolsTest::mapRubbersheetTool()
+{
+	// the design notes, "Rubbersheeting", Accept (6).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* action = editor.editor->getAction("map-rubbersheet");
+	QVERIFY(action);
+	auto* widget = editor.map_widget;
+	auto const click = [&](double x, double y) { editor.simulateClick(widget->mapToViewport(MapCoord(x, y))); };
+	
+	// Without a selection: the objects' bounding box grown by 1 mm.
+	map.map->clearObjectSelection(false);
+	action->trigger();
+	auto* tool = dynamic_cast<RubbersheetTool*>(editor.editor->getTool());
+	QVERIFY(tool);
+	QRectF bounds;
+	map.map->applyOnAllObjects([&bounds](const Object* object) {
+		for (auto const& c : object->getRawCoordinateVector())
+			rectIncludeSafe(bounds, QPointF(MapCoordF(c)));
+	});
+	auto const outline = tool->params().perimeter;
+	QCOMPARE(int(outline.size()), 4);
+	QRectF perimeter_box;
+	for (auto const& c : outline)
+		rectIncludeSafe(perimeter_box, QPointF(c));
+	QVERIFY(std::abs(perimeter_box.left() - bounds.left() + 1.0) < 0.001);
+	QVERIFY(std::abs(perimeter_box.bottom() - bounds.bottom() - 1.0) < 0.001);
+	QTest::keyClick(widget, Qt::Key_Escape);
+	QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+	
+	// A selected square is the perimeter.
+	auto* square = new PathObject(map.line_symbol, MapCoordVector{ MapCoord(-30.0, -30.0), MapCoord(30.0, -30.0), MapCoord(30.0, 30.0), MapCoord(-30.0, 30.0) });
+	square->closeAllParts();
+	map.map->addObject(square);
+	auto* probe = new PathObject(map.line_symbol, MapCoordVector{ MapCoord(0.0, 0.0), MapCoord(60.0, 0.0) });
+	map.map->addObject(probe);
+	map.map->clearObjectSelection(false);
+	map.map->addObjectToSelection(square, true);
+	action->trigger();
+	tool = dynamic_cast<RubbersheetTool*>(editor.editor->getTool());
+	QVERIFY(tool);
+	click(0.0, 0.0);
+	click(5.0, 0.0);
+	auto const params = tool->params();
+	QCOMPARE(int(params.pairs.size()), 1);
+	QVERIFY(params.perimeter.size() >= 4);
+	auto const steps = map.map->undoManager().undoStepCount();
+	QVERIFY(editor.editor->rubbersheetMapWith(params));
+	auto const inside = MapCoordF(probe->getRawCoordinateVector()[0]);
+	auto const shift = params.pairs.front().reference - params.pairs.front().map;
+	QVERIFY(std::abs(inside.x() - shift.x()) < 0.001 && std::abs(inside.y() - shift.y()) < 0.001);
+	QVERIFY(std::abs(inside.x() - 5.0) < 0.5);
+	QCOMPARE(MapCoordF(probe->getRawCoordinateVector()[1]), MapCoordF(60.0, 0.0));
+	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 1);
+	QTest::keyClick(widget, Qt::Key_Escape);
 }
 
 
