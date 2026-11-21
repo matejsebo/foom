@@ -146,6 +146,17 @@ public:
 	void requestDeclination(bool no_confirm = false);
 	
 	/**
+	 * foom: Sets the CRS from a .prj file, as if chosen in the selector.
+	 * 
+	 * Returns false and leaves the CRS when the file is refused.
+	 * See the design notes, "Projection file".
+	 */
+	bool loadPrjFile(const QString& path, QString* error = nullptr);
+	
+	/** foom: Asks for a .prj file, then loads it. */
+	void loadPrjClicked();
+	
+	/**
 	 * Sets the map coordinates of the reference point
 	 */
 	void setMapRefPoint(const MapCoord& coords);

@@ -35,6 +35,7 @@
 #include <QDoubleSpinBox>
 #include <QFlags>
 #include <QFormLayout>
+#include <QFileDialog>  // foom
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLatin1Char>
@@ -72,6 +73,7 @@
 #include "core/georeferencing.h"
 #include "core/latlon.h"
 #include "core/map.h"
+#include "core/prj_file.h"  // foom
 #include "gui/main_window.h"
 #include "gui/map/map_editor.h"
 #include "gui/map/rotate_map_dialog.h"
@@ -245,6 +247,8 @@ GeoreferencingDialog::GeoreferencingDialog(
 	edit_layout->addRow(tr("&Coordinate reference system:"), crs_selector);
 	crs_selector->setDialogLayout(edit_layout);
 	edit_layout->addRow(status_label, status_field);
+	auto* prj_button = new QPushButton(tr("Load from .prj file..."));  // foom
+	edit_layout->addRow(QString{}, prj_button);  // foom
 	edit_layout->addItem(Util::SpacerItem::create(this));
 	
 	edit_layout->addRow(reference_point_label);
@@ -279,6 +283,7 @@ GeoreferencingDialog::GeoreferencingDialog(
 	setLayout(layout);
 	
 	connect(crs_selector, &CRSSelector::crsChanged, this, &GeoreferencingDialog::crsEdited);
+	connect(prj_button, &QPushButton::clicked, this, &GeoreferencingDialog::loadPrjClicked);  // foom
 	
 	connect(show_scale_check, &QAbstractButton::clicked, this, &GeoreferencingDialog::showScaleChanged);
 	connect(scale_factor_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &GeoreferencingDialog::auxiliaryFactorEdited);
@@ -683,6 +688,40 @@ void GeoreferencingDialog::crsEdited()
 	// Apply all changes at once
 	*georef = georef_copy;
 	reset_button->setEnabled(true);
+}
+
+// foom: the design notes, "Projection file"
+bool GeoreferencingDialog::loadPrjFile(const QString& path, QString* error)
+{
+	auto const crs = readPrjFile(path);
+	if (!crs.error.isEmpty())
+	{
+		if (error)
+			*error = crs.error;
+		return false;
+	}
+	CRSTemplateRegistry registry;
+	auto const* crs_template = registry.find(crs.epsg.isEmpty() ? QStringLiteral("PROJ.4") : QStringLiteral("EPSG"));
+	if (!crs_template)
+	{
+		if (error)
+			*error = tr("The coordinate reference system cannot be set.");
+		return false;
+	}
+	crs_selector->setCurrentCRS(crs_template, { crs.epsg.isEmpty() ? crs.proj : crs.epsg });
+	crsEdited();
+	return true;
+}
+
+// foom
+void GeoreferencingDialog::loadPrjClicked()
+{
+	auto const path = QFileDialog::getOpenFileName(this, tr("Load from .prj file"), QString(), tr("Projection files (*.prj);;All files (*.*)"));
+	if (path.isEmpty())
+		return;
+	QString error;
+	if (!loadPrjFile(path, &error))
+		QMessageBox::warning(this, tr("Error"), error);
 }
 
 void GeoreferencingDialog::showScaleChanged(bool checked)

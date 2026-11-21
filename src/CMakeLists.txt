@@ -94,6 +94,7 @@ set(Mapper_Common_SRCS
   core/crs_template.cpp
   core/crs_template_implementation.cpp
   core/georeferencing.cpp
+  core/prj_file.cpp
   core/latlon.cpp
   core/map.cpp
   core/map_color.cpp
