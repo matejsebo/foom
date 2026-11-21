@@ -177,15 +177,21 @@ CourseRoutes routesOf(const Map& map, const CourseData& data, const QString& cou
 			leg.to = item.code;
 			leg.marked = true;
 			std::vector<MapCoordF> path;
+			// The points of the object, the handles of its curves among them, by parts: the route is timed along them.
+			std::vector<std::vector<MapCoordF>> polygons;
 			auto const* course_object = data.findObject(item.code);
 			auto const* object = course_object ? map.findObject(course_object->object) : nullptr;
 			if (object && object->getType() == Object::Path)
 			{
 				object->update();
+				auto const& coords = object->getRawCoordinateVector();
 				for (auto const& path_part : object->asPath()->parts())
 				{
 					for (auto const& coord : path_part.path_coords)
 						path.push_back(coord.pos);
+					polygons.emplace_back();
+					for (auto i = path_part.first_index; i <= path_part.last_index && i < coords.size(); ++i)
+						polygons.back().push_back(MapCoordF(coords[i]));
 				}
 			}
 			for (std::size_t p = 1; p < path.size(); ++p)
@@ -199,8 +205,12 @@ CourseRoutes routesOf(const Map& map, const CourseData& data, const QString& cou
 			{
 				leg.route.found = path.size() >= 2;
 				leg.route.length_m = leg.straight_m;
-				for (std::size_t p = 1; p < path.size(); ++p)
-					leg.route.time_s += search->straightTime(path[p - 1], path[p]);
+				// the design notes, "Route analysis: the time along a marked route".
+				for (auto const& polygon : polygons)
+				{
+					for (std::size_t p = 1; p < polygon.size(); ++p)
+						leg.route.time_s += search->straightTime(polygon[p - 1], polygon[p]);
+				}
 				leg.route.points = path;
 				if (store && leg.route.found)
 					store->put(storedOf(leg, path.front(), path.back()));

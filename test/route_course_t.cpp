@@ -181,6 +181,7 @@ private slots:
 	void textTest();
 	void partsTest();
 	void markedRouteTest();
+	void curvedMarkedRouteTest();
 };
 
 
@@ -287,6 +288,39 @@ void RouteCourseTest::markedRouteTest()
 	QVERIFY(std::abs(routes.legs[4].straight_m - 10.0) < 0.01);
 	QVERIFY(std::abs(routes.course_length_m - 160.0) < 0.01);
 	QVERIFY(courseRoutesText(routes).contains(QLatin1String("\nM1: \t20 m \t")));
+}
+
+
+/// Accept (1) of "the time along a marked route"
+void RouteCourseTest::curvedMarkedRouteTest()
+{
+	RouteMap m;
+	PathObject* route = nullptr;
+	for (int i = 0; i < m.map.getPart(0)->getNumObjects(); ++i)
+	{
+		auto* object = m.map.getPart(0)->getObject(i);
+		if (object->getType() == Object::Path && object->getSymbol()->courseRole() == Symbol::CourseMarkedRoute)
+			route = object->asPath();
+	}
+	QVERIFY(route);
+	route->clearCoordinates();
+	auto begin = MapCoord(15.0, 5.0);
+	begin.setCurveStart(true);
+	route->addCoordinate(begin);
+	route->addCoordinate(MapCoord(15.0, 7.0));
+	route->addCoordinate(MapCoord(17.0, 7.0));
+	route->addCoordinate(MapCoord(17.0, 5.0));
+	route->update();
+	auto const curve_m = route->getPaperLength() * 10.0;
+	QVERIFY(curve_m > 25.0 && curve_m < 50.0);
+	
+	auto const terrain = buildRouteTerrain(m.map, RouteSettings{}, m.area());
+	RouteSearch search(terrain, RouteSettings{}, 10000);
+	auto const routes = analyseCourseRoutes(m.map, m.map.courseData(), QStringLiteral("M"), -1, search);
+	auto const& marked = routes.legs[3];
+	QVERIFY(marked.marked);
+	QVERIFY2(std::abs(marked.route.length_m - curve_m) < 0.1, qPrintable(QString::number(marked.route.length_m)));
+	QVERIFY2(std::abs(marked.route.time_s - 60.0 * 0.2 / 0.83) < 0.3, qPrintable(QString::number(marked.route.time_s)));
 }
 
 
