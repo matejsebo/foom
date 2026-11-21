@@ -100,6 +100,9 @@ private slots:
 	/** foom: Tests the hypsometric map command. */
 	void demHypsometric();
 	
+	/** foom: Tests the vegetation height command. */
+	void demVegetationHeight();
+	
 	/** foom: Tests the point cloud import command. */
 	void demPointCloud();
 	

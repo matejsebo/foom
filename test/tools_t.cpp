@@ -31,6 +31,7 @@
 #include <QApplication>
 #include <QEvent>
 #include <QFileInfo>
+#include <QImage>
 #include <QMouseEvent>
 #include <QPoint>
 #include <QPointF>
@@ -1393,6 +1394,46 @@ void ToolsTest::demHypsometric()
 	QCOMPARE(path, dir.filePath(QStringLiteral("hills_hypsometric.tif")));
 	QVERIFY(QFileInfo(path).size() > 0);
 	QCOMPARE(map.map->getNumTemplates(), templates + 1);
+}
+
+
+void ToolsTest::demVegetationHeight()
+{
+	// the design notes, "Vegetation height from the map's grids", Accept.
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("dem-vegetation-height"));
+	auto const flat = [](double value) {
+		return std::make_unique<ElevationModel>(10, 10, QPointF(0.0, 10.0), 1.0, std::vector<float>(100, float(value)));
+	};
+	auto& set = map.map->elevationSet();
+	set.setModel(ElevationSet::Terrain, flat(1.0), dir.filePath(QStringLiteral("dtm.asc")));
+	auto const templates = map.map->getNumTemplates();
+	QString error;
+	QVERIFY(editor.editor->writeVegetationHeightMap(true, &error).isEmpty());
+	QVERIFY(!error.isEmpty());
+	QCOMPARE(map.map->getNumTemplates(), templates);
+	
+	set.setModel(ElevationSet::Surface, flat(5.0), dir.filePath(QStringLiteral("dsm.asc")));
+	error.clear();
+	auto const path = editor.editor->writeVegetationHeightMap(true, &error);
+	QVERIFY2(!path.isEmpty(), qPrintable(error));
+	QCOMPARE(path, dir.filePath(QStringLiteral("dtm_vegetation_height.tif")));
+	QCOMPARE(map.map->getNumTemplates(), templates + 1);
+	// The first band is red: that of 4 m.
+	auto const four = vegetationHeightRaster(*flat(4.0), defaultHeightClasses()).image.pixel(5, 5);
+	auto const red = ElevationModel::open(path);
+	QVERIFY(red);
+	QCOMPARE(int(red->value(5, 5)), qRed(four));
+	
+	set.setModel(ElevationSet::Canopy, flat(20.0), dir.filePath(QStringLiteral("chm.asc")));
+	QVERIFY(!editor.editor->writeVegetationHeightMap(false, &error).isEmpty());
+	auto const canopy = ElevationModel::open(path);
+	QVERIFY(canopy);
+	QCOMPARE(int(canopy->value(5, 5)), qRed(vegetationHeightRaster(*flat(20.0), defaultHeightClasses()).image.pixel(5, 5)));
+	QVERIFY(qRed(four) != qRed(vegetationHeightRaster(*flat(20.0), defaultHeightClasses()).image.pixel(5, 5)));
 }
 
 

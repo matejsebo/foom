@@ -1177,6 +1177,7 @@ void MapEditorController::createActions()
 	dem_contours_act = newAction("dem-contours", tr("Contours..."), this, SLOT(elevationContoursClicked()));  // foom
 	dem_hillshade_act = newAction("dem-hillshade", tr("Hill shading..."), this, SLOT(elevationHillShadeClicked()));  // foom
 	dem_slope_act = newAction("dem-slope", tr("Slope gradient..."), this, SLOT(elevationSlopeClicked()));  // foom
+	dem_vegetation_height_act = newAction("dem-vegetation-height", tr("Vegetation height..."), this, SLOT(elevationVegetationHeightClicked()));  // foom
 	dem_hypsometric_act = newAction("dem-hypsometric", tr("Hypsometric map..."), this, SLOT(elevationHypsometricClicked()));  // foom
 	dem_features_act = newAction("dem-features", tr("Extract features..."), this, SLOT(elevationFeaturesClicked()));  // foom
 	dem_export_act = newAction("dem-export", tr("Export grid..."), this, SLOT(elevationExportClicked()));  // foom
@@ -1803,6 +1804,7 @@ void MapEditorController::createMenuAndToolbars()
 	elevation_menu->addAction(dem_hillshade_act);
 	elevation_menu->addAction(dem_slope_act);
 	elevation_menu->addAction(dem_hypsometric_act);
+	elevation_menu->addAction(dem_vegetation_height_act);
 	elevation_menu->addAction(dem_features_act);
 	
 	QMenu* courses_menu = window->menuBar()->addMenu(tr("&Courses"));  // foom: the design notes, "Menu placement"
@@ -8142,6 +8144,68 @@ int MapEditorController::extractLandforms(const LandformParams& params)
 			window->showStatusBarMessage(tr("%1 knoll(s) and %2 small depression(s) extracted").arg(knolls).arg(count - knolls), 5000);
 	}
 	return count;
+}
+
+// foom: the design notes, "Vegetation height from the map's grids".
+QString MapEditorController::writeVegetationHeightMap(bool attach, QString* error)
+{
+	auto const crs = map->getGeoreferencing().getProjectedCRSSpec();
+	auto& set = map->elevationSet();
+	std::unique_ptr<ElevationModel> difference;
+	auto const* heights = set.model(ElevationSet::Canopy, crs);
+	if (!heights)
+	{
+		auto const* surface = set.model(ElevationSet::Surface, crs);
+		auto const* terrain = set.model(ElevationSet::Terrain, crs);
+		if (surface && terrain)
+			difference = ElevationModel::difference(*surface, *terrain);
+		heights = difference.get();
+	}
+	if (!heights)
+	{
+		if (error)
+			*error = tr("The map needs a canopy grid, or a surface grid and a terrain grid.");
+		return {};
+	}
+	auto base = set.href(ElevationSet::Terrain);
+	if (base.isEmpty())
+		base = set.href(ElevationSet::Canopy);
+	auto const path = productPath(window ? window->currentPath() : QString{}, base, QStringLiteral("vegetation_height"));
+	auto const product = vegetationHeightRaster(*heights, defaultHeightClasses());
+	QString message = product.error;
+	if (message.isEmpty() && !writeGeoTiff(product, path, &message))
+		message = tr("Cannot write %1: %2").arg(path, message);
+	if (message.isEmpty() && attach && !attachProductTemplate(*map, path, &message))
+		message = tr("Cannot attach %1: %2").arg(path, message);
+	if (!message.isEmpty())
+	{
+		if (error)
+			*error = message;
+		return {};
+	}
+	return path;
+}
+
+void MapEditorController::elevationVegetationHeightClicked()
+{
+	auto const answer = QMessageBox::question(window, tr("Vegetation height"), tr("Attach the vegetation height raster as a template?"),
+	                                          QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel, QMessageBox::Yes);
+	if (answer == QMessageBox::Cancel)
+		return;
+	auto const attach = answer == QMessageBox::Yes;
+	QString error;
+	auto const path = writeVegetationHeightMap(attach, &error);
+	if (path.isEmpty())
+	{
+		QMessageBox::warning(window, tr("Vegetation height"), error);
+		return;
+	}
+	if (attach)
+	{
+		hideAllTemplates(false);
+		showTemplateWindow(true);
+	}
+	window->showStatusBarMessage(tr("Vegetation height written to %1").arg(path), 5000);
 }
 
 // foom: the design notes, "Hypsometric map".

@@ -764,6 +764,10 @@ public slots:
 	void elevationSlopeClicked();
 	/** foom: Asks for the ramp, then writes and attaches a hypsometric map (dem-hypsometric). */
 	void elevationHypsometricClicked();
+	/** foom: Writes and attaches the vegetation height raster of the map's grids (dem-vegetation-height). */
+	void elevationVegetationHeightClicked();
+	/** foom: Writes the vegetation height raster beside the map; returns its path, empty on failure. */
+	QString writeVegetationHeightMap(bool attach, QString* error);
 	/** foom: Writes the hypsometric map of the terrain grid beside the map; returns its path, empty on failure. */
 	QString writeHypsometricMap(const HypsometricParams& params, bool attach, QString* error);
 	/** foom: Asks for the minimum height and depth, then extracts knolls and small depressions (dem-features). */
@@ -1362,6 +1366,7 @@ private:
 	QAction* dem_hillshade_act = {};  // foom
 	QAction* dem_slope_act = {};  // foom
 	QAction* dem_hypsometric_act = {};  // foom
+	QAction* dem_vegetation_height_act = {};  // foom
 	QAction* dem_features_act = {};  // foom
 	QAction* dem_export_act = {};  // foom
 	/// foom: Saves the grid beside the map and makes it the kind's grid (an ElevationSet::Kind).
