@@ -48,9 +48,11 @@
 #include "gui/map/view_history.h"  // foom
 #include "core/ops/buildings.h"  // foom
 #include "core/ops/rectangle_box.h"  // foom
+#include "core/ops/sized_shape.h"  // foom
 #include "core/ops/smooth.h"  // foom
 #include "core/ops/to_curve.h"  // foom
 #include "core/ops/topology.h"  // foom
+#include "tools/distribute_points_tool.h"  // foom
 #include "core/ops/transform.h"  // foom
 #include "gui/main_window_controller.h"
 
@@ -574,6 +576,18 @@ public slots:
 	void drawFrameClicked();
 	/** foom: Draws a frame of the chosen symbol around the map with the margin in mm. */
 	void drawFrame(double margin_mm);
+	/** foom: Asks for the number of points, then starts the points-along tool (draw-points-along). */
+	void drawPointsAlongClicked();
+	/** foom: Starts the points-along tool with the chosen point symbol. */
+	void drawPointsAlong(const DistributePointsTool::Settings& settings);
+	/** foom: Asks for the shape, then starts the sized shape tool (draw-sized-shape). */
+	void drawSizedShapeClicked();
+	/** foom: Starts the sized shape tool. */
+	void drawSizedShape(const ops::SizedShapeParams& params);
+	/** foom: Takes the freehand smoothing from the checked action. */
+	void freehandSmoothingChosen();
+	/** foom: Switches joining while drawing on or off (auto-join). */
+	void autoJoinToggled(bool checked);
 	/** foom: Whether the rectangle tool leaves its rectangles open (draw-rectangle-open). */
 	bool leavesRectanglesOpen() const;
 	/** Activates the draw freehand tool. */
@@ -1344,6 +1358,12 @@ private:
 	QAction* draw_stairway_act = {};  // foom
 	QAction* draw_frame_act = {};  // foom
 	QAction* draw_rectangle_open_act = {};  // foom
+	QAction* draw_points_along_act = {};  // foom
+	QAction* draw_sized_shape_act = {};  // foom
+	QAction* freehand_smoothing_acts[4] = {};  // foom
+	QAction* auto_join_act = {};  // foom
+	DistributePointsTool::Settings points_along_settings;  // foom: kept for the session
+	ops::SizedShapeParams sized_shape_params;  // foom: kept for the session
 	double stairway_tread_mm = 0.5;  // foom: kept for the session
 	double frame_margin_mm = 0.0;  // foom: kept for the session
 	QAction* draw_freehand_act = {};

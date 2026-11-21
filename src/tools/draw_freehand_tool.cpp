@@ -29,6 +29,8 @@
 #include <QRectF>
 #include <QString>
 
+#include "tools/drawing_settings.h"  // foom
+#include "core/ops/smooth.h"  // foom
 #include "core/map.h"
 #include "core/map_view.h"
 #include "core/objects/object.h"
@@ -172,6 +174,21 @@ void DrawFreehandTool::finishDrawing()
 			--i;
 			if (!point_mask[i])
 				preview_path->deleteCoordinate(i, false);
+		}
+	}
+
+	// foom: the design notes, "Freehand smoothing"
+	auto const tolerance = freehandSmoothingTolerance(freehandSmoothingLevel());
+	if (tolerance > 0 && preview_path->getCoordinateCount() > 2)
+	{
+		ops::SmoothParams params;
+		params.tolerance = tolerance;
+		auto result = ops::smoothPaths(*map(), { preview_path }, params);
+		if (result.error.isEmpty() && !result.out.empty())
+		{
+			auto const* smoothed = result.out.front()->asPath();
+			if (smoothed->getCoordinateCount() >= 2)
+				preview_path->assignCoordinates(*smoothed, 0, smoothed->getCoordinateCount() - 1);
 		}
 	}
 	

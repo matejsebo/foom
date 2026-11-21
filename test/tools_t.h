@@ -66,6 +66,18 @@ private slots:
 	/** foom: Tests the frame around the map. */
 	void frameCommand();
 	
+	/** foom: Tests the points along a drawn path. */
+	void pointsAlongTool();
+	
+	/** foom: Tests shapes of a given size. */
+	void sizedShapeTool();
+	
+	/** foom: Tests freehand smoothing. */
+	void freehandSmoothing();
+	
+	/** foom: Tests joining while drawing. */
+	void autoJoin();
+	
 	/** foom: Tests the mirror action. */
 	void mirror();
 	

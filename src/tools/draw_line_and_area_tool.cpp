@@ -30,6 +30,7 @@
 #include <QPainter>
 #include <QPoint>
 
+#include "tools/drawing_settings.h"  // foom
 #include "core/map.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
@@ -236,8 +237,57 @@ void DrawLineAndAreaTool::finishDrawing()
     finishDrawing(nullptr);
 }
 
+// foom: the design notes, "Join while drawing"
+PathObject* DrawLineAndAreaTool::autoJoinTarget()
+{
+	if (!preview_path || !drawing_symbol || !(drawing_symbol->getContainedTypes() & Symbol::Line)
+	    || preview_path->parts().empty() || preview_path->parts().front().isClosed() || preview_path->getCoordinateCount() < 2)
+		return nullptr;
+	auto const tolerance = autoJoinToleranceMm();
+	auto const& coords = preview_path->getRawCoordinateVector();
+	auto const first = MapCoordF(coords.front());
+	auto const last = MapCoordF(coords.back());
+	PathObject* best = nullptr;
+	auto best_distance = tolerance;
+	auto* part = map()->getCurrentPart();
+	for (int i = 0; i < part->getNumObjects(); ++i)
+	{
+		auto* object = part->getObject(i);
+		if (object == preview_path || object->getType() != Object::Path || object->getSymbol() != drawing_symbol)
+			continue;
+		auto* path = object->asPath();
+		for (auto const& other : path->parts())
+		{
+			if (other.isClosed())
+				continue;
+			for (auto const* end : { &path->getRawCoordinateVector()[other.first_index], &path->getRawCoordinateVector()[other.last_index] })
+			{
+				for (auto const& mine : { first, last })
+				{
+					auto const distance = mine.distanceTo(MapCoordF(*end));
+					if (distance <= best_distance)
+					{
+						best_distance = distance;
+						best = path;
+					}
+				}
+			}
+		}
+	}
+	return best;
+}
+
 void DrawLineAndAreaTool::finishDrawing(PathObject* append_to_object)
 {
+	// foom: the design notes, "Join while drawing"
+	auto connect_threshold_sq = 0.01*0.01;
+	if (!append_to_object && !is_helper_tool && autoJoinEnabled())
+	{
+		append_to_object = autoJoinTarget();
+		if (append_to_object)
+			connect_threshold_sq = autoJoinToleranceMm() * autoJoinToleranceMm();
+	}
+
 	if (preview_path)
 	{
 		renderables->removeRenderablesOfObject(preview_path, false);
@@ -253,12 +303,12 @@ void DrawLineAndAreaTool::finishDrawing(PathObject* append_to_object)
 			
 			bool can_be_appended = false;
 			if (append_to_object)
-				can_be_appended = append_to_object->canBeConnected(preview_path, 0.01*0.01);
+				can_be_appended = append_to_object->canBeConnected(preview_path, connect_threshold_sq);  // foom: was 0.01*0.01
 			
 			if (can_be_appended)
 			{
 				auto undo_duplicate = append_to_object->duplicate();
-				append_to_object->connectIfClose(preview_path, 0.01*0.01);
+				append_to_object->connectIfClose(preview_path, connect_threshold_sq);  // foom: was 0.01*0.01
 				delete preview_path;
 				
 				map()->clearObjectSelection(false);

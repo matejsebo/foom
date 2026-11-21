@@ -164,6 +164,7 @@ set(Mapper_Common_SRCS
   core/ops/buildings.cpp
   core/ops/smooth.cpp
   core/ops/stairway.cpp
+  core/ops/sized_shape.cpp
   core/ops/frame.cpp
   core/ops/to_curve.cpp
   core/ops/import_points.cpp
@@ -266,6 +267,7 @@ set(Mapper_Common_SRCS
   gui/map/map_transform_dialogs.cpp
   gui/map/legibility_dialog.cpp
   gui/map/topology_dialogs.cpp
+  gui/map/sized_shape_dialog.cpp
   gui/map/to_curve_dialog.cpp
   gui/map/generator_dialog.cpp
   gui/map/selection_dialogs.cpp
@@ -359,6 +361,9 @@ set(Mapper_Common_SRCS
   tools/sketch_tools.cpp
   tools/rectangle_box_tool.cpp
   tools/stairway_tool.cpp
+  tools/points_along_tool.cpp
+  tools/sized_shape_tool.cpp
+  tools/drawing_settings.cpp
   tools/move_parallel_tool.cpp
   tools/reshape_tool.cpp
   tools/cutout_operation.cpp

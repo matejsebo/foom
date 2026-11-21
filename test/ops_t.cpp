@@ -69,6 +69,7 @@
 #include "core/ops/buildings.h"
 #include "core/ops/smooth.h"
 #include "core/ops/frame.h"
+#include "core/ops/sized_shape.h"
 #include "core/ops/stairway.h"
 #include "core/ops/to_curve.h"
 #include "core/ops/rectangle_box.h"
@@ -165,6 +166,7 @@ private slots:
 	void toCurveTest();
 	void stairwayTest();
 	void frameTest();
+	void sizedShapeTest();
 	void rectangleBoxTest();
 };
 
@@ -2551,6 +2553,88 @@ void OpsTest::frameTest()
 	params.symbol = line;
 	params.margin_mm = -1.0;
 	QVERIFY(!ops::frameAroundMap(map, params).error.isEmpty());
+}
+
+
+void OpsTest::sizedShapeTest()
+{
+	// the design notes, "Shapes of a given size", Accept (1) to (5).
+	Map map;
+	map.setScaleDenominator(10000);
+	auto* line = new LineSymbol();
+	map.addSymbol(line, 0);
+	auto* point = new PointSymbol();
+	map.addSymbol(point, 1);
+	auto const near = [](const MapCoord& coord, double x, double y) { return std::abs(coord.x() - x) < 0.002 && std::abs(coord.y() - y) < 0.002; };
+	auto const passes = [near](const PathObject* path, double x, double y) {
+		for (auto const& coord : path->getRawCoordinateVector())
+		{
+			if (near(coord, x, y))
+				return true;
+		}
+		return false;
+	};
+	
+	ops::SizedShapeParams params;
+	params.symbol = line;
+	params.kind = ops::SizedShapeParams::Circle;
+	params.width = 5.0;
+	auto result = ops::sizedShape(map, params, MapCoordF(10.0, 10.0));
+	QVERIFY2(result.error.isEmpty(), result.error.toLatin1());
+	QCOMPARE(result.out.size(), std::size_t(1));
+	auto const* circle = result.out.front()->asPath();
+	QCOMPARE(circle->getSymbol(), line);
+	QVERIFY(circle->parts().front().isClosed());
+	auto curves = 0;
+	for (auto const& coord : circle->getRawCoordinateVector())
+		curves += coord.isCurveStart() ? 1 : 0;
+	QCOMPARE(curves, 4);
+	QVERIFY(passes(circle, 15.0, 10.0));
+	QVERIFY(passes(circle, 10.0, 15.0));
+	QVERIFY(passes(circle, 5.0, 10.0));
+	QVERIFY(passes(circle, 10.0, 5.0));
+	
+	params.kind = ops::SizedShapeParams::Rectangle;
+	params.width = 10.0;
+	params.height = 4.0;
+	result = ops::sizedShape(map, params, MapCoordF(0.0, 0.0));
+	auto const* rectangle = result.out.front()->asPath();
+	QVERIFY(rectangle->parts().front().isClosed());
+	QVERIFY(near(rectangle->getCoordinate(0), -5.0, -2.0));
+	QVERIFY(near(rectangle->getCoordinate(1), 5.0, -2.0));
+	QVERIFY(near(rectangle->getCoordinate(2), 5.0, 2.0));
+	QVERIFY(near(rectangle->getCoordinate(3), -5.0, 2.0));
+	params.angle_deg = 90.0;
+	result = ops::sizedShape(map, params, MapCoordF(0.0, 0.0));
+	rectangle = result.out.front()->asPath();
+	for (auto const& corner : { QPointF(2.0, -5.0), QPointF(2.0, 5.0), QPointF(-2.0, 5.0), QPointF(-2.0, -5.0) })
+		QVERIFY(passes(rectangle, corner.x(), corner.y()));
+	params.angle_deg = 0.0;
+	
+	params.kind = ops::SizedShapeParams::Line;
+	params.width = 100.0;
+	params.metres = true;
+	result = ops::sizedShape(map, params, MapCoordF(0.0, 0.0));
+	auto const* straight = result.out.front()->asPath();
+	QCOMPARE(straight->getCoordinateCount(), MapCoordVector::size_type(2));
+	QVERIFY(near(straight->getCoordinate(0), 0.0, 0.0));
+	QVERIFY(near(straight->getCoordinate(1), 10.0, 0.0));
+	params.metres = false;
+	
+	params.kind = ops::SizedShapeParams::Ellipse;
+	params.width = 10.0;
+	params.height = 4.0;
+	result = ops::sizedShape(map, params, MapCoordF(0.0, 0.0));
+	auto const* ellipse = result.out.front()->asPath();
+	QVERIFY(passes(ellipse, 5.0, 0.0));
+	QVERIFY(passes(ellipse, 0.0, 2.0));
+	
+	params.kind = ops::SizedShapeParams::Circle;
+	params.width = 0.0;
+	QVERIFY(!ops::sizedShape(map, params, MapCoordF(0.0, 0.0)).error.isEmpty());
+	params.width = 2.0;
+	params.symbol = point;
+	QVERIFY(!ops::sizedShape(map, params, MapCoordF(0.0, 0.0)).error.isEmpty());
 }
 
 void OpsTest::rectangleBoxTest()

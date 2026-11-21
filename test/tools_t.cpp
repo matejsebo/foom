@@ -59,6 +59,8 @@
 #include "core/objects/object_query.h"
 #include "core/ops/align.h"
 #include "core/ops/to_curve.h"  // foom
+#include "tools/distribute_points_tool.h"  // foom
+#include "core/ops/sized_shape.h"  // foom
 #include "templates/template.h"  // foom
 #include "templates/template_image.h"  // foom
 #include "templates/template_map.h"  // foom
@@ -242,6 +244,10 @@ void ToolsTest::initTestCase()
 {
 	Q_INIT_RESOURCE(resources);
 	doStaticInitializations();
+	// foom: the settings which the tests change go to a folder of their own.
+	static QTemporaryDir settings_dir;
+	QSettings::setDefaultFormat(QSettings::IniFormat);
+	QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settings_dir.path());
 }
 
 
@@ -662,6 +668,199 @@ void ToolsTest::frameCommand()
 	QCOMPARE(map.map->getNumSelectedObjects(), 1);
 	QVERIFY(map.map->undoManager().undo());
 	QCOMPARE(map.map->getNumObjects(), objects_before);
+}
+
+
+void ToolsTest::pointsAlongTool()
+{
+	// the design notes, "Points along a drawn path", Accept.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* point = new PointSymbol();
+	map.map->addSymbol(point, map.map->getNumSymbols());
+	auto* action = editor.editor->getAction("draw-points-along");
+	QVERIFY(action);
+	editor.editor->getSymbolWidget()->selectSingleSymbol(point);
+	QVERIFY(action->isEnabled());
+	
+	auto const objects_before = map.map->getNumObjects();
+	DistributePointsTool::Settings settings;
+	settings.num_points_per_line = 5;
+	settings.points_at_ends = true;
+	editor.editor->drawPointsAlong(settings);
+	auto* widget = editor.map_widget;
+	auto const viewport = [widget](double x, double y) { return widget->mapToViewport(MapCoord(x, y)).toPoint(); };
+	auto const move = [widget](const QPoint& pos) {
+		QMouseEvent event(QEvent::MouseMove, pos, widget->mapToGlobal(pos), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+		QApplication::sendEvent(widget, &event);
+	};
+	QTest::mouseClick(widget, Qt::LeftButton, {}, viewport(0.0, 0.0));
+	move(viewport(20.0, 0.0));
+	QTest::mouseClick(widget, Qt::LeftButton, {}, viewport(20.0, 0.0));
+	QTest::keyClick(widget, Qt::Key_Return);
+	QCOMPARE(map.map->getNumObjects(), objects_before + 5);
+	QCOMPARE(map.map->getNumSelectedObjects(), 5);
+	std::vector<double> xs;
+	for (auto const* object : map.map->selectedObjects())
+	{
+		QCOMPARE(object->getType(), Object::Point);
+		QCOMPARE(object->getSymbol(), point);
+		QVERIFY(std::abs(object->asPoint()->getCoordF().y()) < 0.2);
+		xs.push_back(object->asPoint()->getCoordF().x());
+	}
+	std::sort(xs.begin(), xs.end());
+	for (std::size_t i = 0; i < xs.size(); ++i)
+		QVERIFY2(std::abs(xs[i] - 5.0 * double(i)) < 0.2, qPrintable(QString::number(xs[i])));
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(map.map->getNumObjects(), objects_before);
+	editor.editor->setTool(nullptr);
+}
+
+void ToolsTest::sizedShapeTool()
+{
+	// the design notes, "Shapes of a given size", Accept (6).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* action = editor.editor->getAction("draw-sized-shape");
+	QVERIFY(action);
+	editor.editor->getSymbolWidget()->selectSingleSymbol(map.line_symbol);
+	QVERIFY(action->isEnabled());
+	auto const objects_before = map.map->getNumObjects();
+	ops::SizedShapeParams params;
+	params.kind = ops::SizedShapeParams::Circle;
+	params.width = 2.0;
+	editor.editor->drawSizedShape(params);
+	auto* widget = editor.map_widget;
+	QTest::mouseClick(widget, Qt::LeftButton, {}, widget->mapToViewport(MapCoord(10.0, 10.0)).toPoint());
+	QCOMPARE(map.map->getNumObjects(), objects_before + 1);
+	QCOMPARE(map.map->getNumSelectedObjects(), 1);
+	auto* shape = map.map->getFirstSelectedObject();
+	shape->update();
+	auto const centre = shape->getExtent().center();
+	QVERIFY2(std::abs(centre.x() - 10.0) < 0.2 && std::abs(centre.y() - 10.0) < 0.2, qPrintable(QStringLiteral("%1 %2").arg(centre.x()).arg(centre.y())));
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(map.map->getNumObjects(), objects_before);
+	editor.editor->setTool(nullptr);
+}
+
+void ToolsTest::freehandSmoothing()
+{
+	// the design notes, "Freehand smoothing", Accept.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	char const* const ids[4] = { "freehand-smoothing-off", "freehand-smoothing-slight", "freehand-smoothing-medium", "freehand-smoothing-strong" };
+	for (auto const* id : ids)
+		QVERIFY2(editor.editor->getAction(id), id);
+	editor.editor->getSymbolWidget()->selectSingleSymbol(map.line_symbol);
+	auto* widget = editor.map_widget;
+	auto const viewport = [widget](double x, double y) { return widget->mapToViewport(MapCoord(x, y)).toPoint(); };
+	auto const drawArc = [&]() -> const PathObject* {
+		auto const objects_before = map.map->getCurrentPart()->getNumObjects();
+		editor.editor->drawFreehandClicked();
+		QTest::mousePress(widget, Qt::LeftButton, {}, viewport(0.0, 0.0));
+		for (int i = 1; i <= 64; ++i)
+		{
+			auto const t = M_PI * i / 64;
+			auto const pos = viewport(10.0 - 10.0 * std::cos(t), 10.0 * std::sin(t));
+			QMouseEvent event(QEvent::MouseMove, pos, widget->mapToGlobal(pos), Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+			QApplication::sendEvent(widget, &event);
+		}
+		QTest::mouseRelease(widget, Qt::LeftButton, {}, viewport(20.0, 0.0));
+		auto const* part = map.map->getCurrentPart();
+		editor.editor->setTool(nullptr);
+		if (part->getNumObjects() != objects_before + 1)
+			return nullptr;
+		return part->getObject(part->getNumObjects() - 1)->asPath();
+	};
+	auto const curvesOf = [](const PathObject* path) {
+		auto curves = 0;
+		for (auto const& coord : path->getRawCoordinateVector())
+			curves += coord.isCurveStart() ? 1 : 0;
+		return curves;
+	};
+	auto const endsNear = [](const PathObject* path) {
+		auto const& first = path->getRawCoordinateVector().front();
+		auto const& last = path->getRawCoordinateVector().back();
+		return std::abs(first.x()) < 0.3 && std::abs(first.y()) < 0.3 && std::abs(last.x() - 20.0) < 0.3 && std::abs(last.y()) < 0.3;
+	};
+	
+	editor.editor->getAction(ids[0])->trigger();
+	QVERIFY(editor.editor->getAction(ids[0])->isChecked());
+	QCOMPARE(QSettings().value(QStringLiteral("Editor/freehand_smoothing")).toInt(), 0);
+	auto const* plain = drawArc();
+	QVERIFY(plain);
+	QCOMPARE(curvesOf(plain), 0);
+	QVERIFY(endsNear(plain));
+	auto const plain_count = plain->getCoordinateCount();
+	
+	editor.editor->getAction(ids[2])->trigger();
+	QVERIFY(editor.editor->getAction(ids[2])->isChecked());
+	QVERIFY(!editor.editor->getAction(ids[0])->isChecked());
+	QCOMPARE(QSettings().value(QStringLiteral("Editor/freehand_smoothing")).toInt(), 2);
+	auto const* smooth = drawArc();
+	QVERIFY(smooth);
+	QVERIFY(curvesOf(smooth) > 0);
+	QVERIFY(endsNear(smooth));
+	QVERIFY2(smooth->getCoordinateCount() - 2 * MapCoordVector::size_type(curvesOf(smooth)) <= plain_count,
+	         qPrintable(QStringLiteral("%1 %2").arg(smooth->getCoordinateCount()).arg(plain_count)));
+}
+
+void ToolsTest::autoJoin()
+{
+	// the design notes, "Join while drawing", Accept.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* action = editor.editor->getAction("auto-join");
+	QVERIFY(action);
+	QVERIFY(action->isCheckable());
+	QVERIFY(!action->isChecked());
+	auto* part = map.map->getCurrentPart();
+	// A map of its own line alone.
+	while (part->getNumObjects() > 0)
+		map.map->deleteObject(part->getObject(0));
+	auto* old_line = new PathObject(map.line_symbol, { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0) });
+	map.map->addObject(old_line);
+	editor.editor->getSymbolWidget()->selectSingleSymbol(map.line_symbol);
+	auto* widget = editor.map_widget;
+	auto const viewport = [widget](double x, double y) { return widget->mapToViewport(MapCoord(x, y)).toPoint(); };
+	auto const move = [widget](const QPoint& pos) {
+		QMouseEvent event(QEvent::MouseMove, pos, widget->mapToGlobal(pos), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+		QApplication::sendEvent(widget, &event);
+	};
+	auto const drawLine = [&](double from_x) {
+		editor.editor->drawPathClicked();
+		// The start lies exactly at the place: clicks fall on whole pixels.
+		QTest::mouseClick(widget, Qt::LeftButton, {}, viewport(from_x, 0.0));
+		move(viewport(20.0, 0.0));
+		QTest::mouseClick(widget, Qt::LeftButton, {}, viewport(20.0, 0.0));
+		QTest::keyClick(widget, Qt::Key_Return, Qt::ControlModifier);  // Return alone closes the path
+		editor.editor->setTool(nullptr);
+	};
+	
+	action->trigger();
+	QVERIFY(action->isChecked());
+	auto const pixel = widget->getMapView()->pixelToLength(1) / 1000.0;  // mm
+	QVERIFY2(pixel < 0.3, qPrintable(QString::number(pixel)));  // a click lies within half a pixel of its place
+	drawLine(10.1);
+	QCOMPARE(part->getNumObjects(), 1);
+	auto const* joined = part->getObject(0)->asPath();
+	QCOMPARE(joined->getSymbol(), map.line_symbol);
+	auto const& coords = joined->getRawCoordinateVector();
+	auto const x_min = std::min(coords.front().x(), coords.back().x());
+	auto const x_max = std::max(coords.front().x(), coords.back().x());
+	QVERIFY2(std::abs(x_min) < 0.2 && std::abs(x_max - 20.0) < 0.2, qPrintable(QStringLiteral("%1 %2").arg(x_min).arg(x_max)));
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(part->getNumObjects(), 1);
+	QCOMPARE(part->getObject(0)->asPath()->getCoordinateCount(), MapCoordVector::size_type(2));
+	
+	drawLine(11.0);
+	QCOMPARE(part->getNumObjects(), 2);
+	QVERIFY(map.map->undoManager().undo());
+	
+	action->trigger();
+	QVERIFY(!action->isChecked());
+	drawLine(10.1);
+	QCOMPARE(part->getNumObjects(), 2);
 }
 
 

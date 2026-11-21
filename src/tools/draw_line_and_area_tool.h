@@ -114,6 +114,9 @@ protected:
 	/** Finishes drawing, appending to the given object if not nullptr. */
 	void finishDrawing(PathObject* append_to_object);
 	
+	/** foom: The line which a finished line joins while drawing, or nullptr (the design notes, "Join while drawing"). */
+	PathObject* autoJoinTarget();
+	
 	
 	/** Deletes preview all objects and points. */
 	void deletePreviewObjects();

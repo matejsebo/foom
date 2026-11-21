@@ -268,6 +268,10 @@
 #include "tools/draw_rectangle_tool.h"
 #include "tools/rectangle_box_tool.h"
 #include "tools/stairway_tool.h"  // foom
+#include "tools/points_along_tool.h"  // foom
+#include "tools/sized_shape_tool.h"  // foom
+#include "tools/drawing_settings.h"  // foom
+#include "gui/map/sized_shape_dialog.h"  // foom
 #include "core/ops/frame.h"  // foom
 #include "tools/draw_text_tool.h"
 #include "tools/edit_point_tool.h"
@@ -1280,6 +1284,22 @@ void MapEditorController::createActions()
 	draw_stairway_act = newToolAction("draw-stairway", tr("Stairway..."), this, SLOT(drawStairwayClicked()), "draw-rectangle.png");  // foom
 	draw_rectangle_open_act = newCheckAction("draw-rectangle-open", tr("Leave rectangles open"), nullptr, nullptr);  // foom
 	draw_frame_act = newAction("draw-frame", tr("Frame around map..."), this, SLOT(drawFrameClicked()));  // foom
+	draw_points_along_act = newToolAction("draw-points-along", tr("Points along a line..."), this, SLOT(drawPointsAlongClicked()), "draw-point.png");  // foom
+	draw_sized_shape_act = newToolAction("draw-sized-shape", tr("Shape of a given size..."), this, SLOT(drawSizedShapeClicked()), "draw-circle.png");  // foom
+	{
+		// foom: the design notes, "Freehand smoothing"
+		auto* group = new QActionGroup(this);
+		const char* const ids[4] = { "freehand-smoothing-off", "freehand-smoothing-slight", "freehand-smoothing-medium", "freehand-smoothing-strong" };
+		const QString names[4] = { tr("Off"), tr("Slight"), tr("Medium"), tr("Strong") };
+		for (int i = 0; i < 4; ++i)
+		{
+			freehand_smoothing_acts[i] = newCheckAction(ids[i], names[i], this, SLOT(freehandSmoothingChosen()));
+			group->addAction(freehand_smoothing_acts[i]);
+		}
+		freehand_smoothing_acts[freehandSmoothingLevel()]->setChecked(true);
+	}
+	auto_join_act = newCheckAction("auto-join", tr("Join while drawing"), this, SLOT(autoJoinToggled(bool)));  // foom
+	auto_join_act->setChecked(autoJoinEnabled());
 	draw_freehand_act = newToolAction("drawfreehand", tr("Draw free-handedly"), this, SLOT(drawFreehandClicked()), "draw-freehand.png", QString{}, "toolbars.html#tool_draw_freehand"); // TODO: documentation
 	draw_fill_act = newToolAction("drawfill", tr("Fill bounded areas"), this, SLOT(drawFillClicked()), "tool-fill.png", QString{}, "toolbars.html#tool_draw_fill"); // TODO: documentation
 	draw_text_act = newToolAction("drawtext", tr("Write text"), this, SLOT(drawTextClicked()), "draw-text.png", QString{}, "toolbars.html#tool_draw_text");
@@ -1723,6 +1743,14 @@ void MapEditorController::createMenuAndToolbars()
 	tools_menu->addAction(draw_stairway_act);  // foom
 	tools_menu->addAction(draw_rectangle_open_act);  // foom
 	tools_menu->addAction(draw_frame_act);  // foom
+	tools_menu->addAction(draw_points_along_act);  // foom
+	tools_menu->addAction(draw_sized_shape_act);  // foom
+	{
+		auto* smoothing_menu = tools_menu->addMenu(tr("Freehand smoothing"));  // foom
+		for (auto* action : freehand_smoothing_acts)
+			smoothing_menu->addAction(action);
+	}
+	tools_menu->addAction(auto_join_act);  // foom
 	tools_menu->addAction(draw_freehand_act);
 	tools_menu->addAction(draw_fill_act);
 	tools_menu->addAction(draw_text_act);
@@ -3386,6 +3414,8 @@ void MapEditorController::updateSymbolDependentActions()
 	draw_rectangle_box_act->setEnabled(draw_rectangle_act->isEnabled());  // foom
 	draw_stairway_act->setEnabled(draw_rectangle_act->isEnabled() && (symbol->getContainedTypes() & Symbol::Line));  // foom
 	draw_frame_act->setEnabled(draw_rectangle_act->isEnabled());  // foom
+	draw_points_along_act->setEnabled(draw_point_act->isEnabled());  // foom
+	draw_sized_shape_act->setEnabled(draw_rectangle_act->isEnabled());  // foom
 	draw_rectangle_box_act->setStatusTip(tr("Draw a frame with an optional numbered grid.") + (draw_rectangle_box_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a line, area or combined symbol to be able to use this tool."))));
 	draw_freehand_act->setEnabled(draw_path_act->isEnabled());
 	draw_freehand_act->setStatusTip(tr("Draw paths free-handedly.") + (draw_freehand_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a line, area or combined symbol to be able to use this tool."))));
@@ -3705,6 +3735,57 @@ void MapEditorController::drawFrame(double margin_mm)
 	params.symbol = activeSymbol();
 	params.margin_mm = margin_mm;
 	applyOpResult(ops::frameAroundMap(*map, params));
+}
+
+// foom: the design notes, "Points along a drawn path"
+void MapEditorController::drawPointsAlongClicked()
+{
+	auto* point = activeSymbol() && activeSymbol()->getType() == Symbol::Point ? const_cast<PointSymbol*>(activeSymbol()->asPoint()) : nullptr;
+	if (!point)
+		return;
+	if (DistributePointsTool::showSettingsDialog(window, point, points_along_settings))
+		drawPointsAlong(points_along_settings);
+}
+
+// foom
+void MapEditorController::drawPointsAlong(const DistributePointsTool::Settings& settings)
+{
+	auto* point = activeSymbol() && activeSymbol()->getType() == Symbol::Point ? const_cast<PointSymbol*>(activeSymbol()->asPoint()) : nullptr;
+	if (point)
+		setTool(new PointsAlongTool(this, draw_points_along_act, point, settings));
+}
+
+// foom: the design notes, "Shapes of a given size"
+void MapEditorController::drawSizedShapeClicked()
+{
+	SizedShapeDialog dialog(sized_shape_params, window);
+	if (dialog.exec() == QDialog::Accepted)
+	{
+		sized_shape_params = dialog.params();
+		drawSizedShape(sized_shape_params);
+	}
+}
+
+// foom
+void MapEditorController::drawSizedShape(const ops::SizedShapeParams& params)
+{
+	setTool(new SizedShapeTool(this, draw_sized_shape_act, params));
+}
+
+// foom: the design notes, "Freehand smoothing"
+void MapEditorController::freehandSmoothingChosen()
+{
+	for (int i = 0; i < 4; ++i)
+	{
+		if (freehand_smoothing_acts[i] && freehand_smoothing_acts[i]->isChecked())
+			setFreehandSmoothingLevel(i);
+	}
+}
+
+// foom: the design notes, "Join while drawing"
+void MapEditorController::autoJoinToggled(bool checked)
+{
+	setAutoJoinEnabled(checked);
 }
 
 // foom: the design notes, "Open rectangles"
