@@ -140,6 +140,23 @@ public:
 	bool canChangeTemplateGeoreferenced() const override;
 	bool trySetTemplateGeoreferenced(bool value, QWidget* dialog_parent) override;
 	
+	// foom: the design notes, "Embedded raster templates"
+	
+	/** The size limit of embedding, from the setting Templates/embed_limit_mb (2 MB by default). */
+	static qint64 embedLimitBytes();
+	
+	/** Whether the template is drawn from bytes kept in the map file. */
+	bool isEmbedded() const { return !embedded_data.isEmpty(); }
+	
+	/** Keeps the bytes of the loaded template's file in the template; refuses with a message. */
+	bool embed(qint64 limit_bytes, QString* error = nullptr);
+	
+	/** Gives up the bytes, writing them to the path first when no file is there. */
+	bool unembed(QString* error = nullptr);
+	
+	LookupResult tryToFindTemplateFile(const QString& map_path) override;
+	bool fileExists() const override;
+	
 	
 public slots:
 	void updateGeoreferencing();
@@ -166,6 +183,9 @@ protected:
 	 * CRS specs.
 	 */
 	bool isGeoreferencingUsable() const;
+	
+	/** foom: Reads the embedded bytes into the image, with the kept transform. */
+	bool loadEmbeddedImage();
 	
 	/** Information about an undo step for the paint-on-template functionality. */
 	struct DrawOnImageUndoStep
@@ -196,6 +216,11 @@ protected:
 	
 	GeoreferencingOptions available_georef;
 	std::unique_ptr<Georeferencing> georef;
+	
+	// foom: the embedded file, its format and the transform which it was used with
+	QByteArray embedded_data;
+	QByteArray embedded_format;
+	GeoreferencingOption::Transform embedded_transform;
 };
 
 

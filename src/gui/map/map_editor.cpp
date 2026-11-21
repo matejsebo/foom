@@ -246,6 +246,7 @@
 #include "templates/paint_on_template_feature.h"
 #include "templates/template.h"
 #include "templates/template_dialog_reopen.h"
+#include "templates/template_image.h"  // foom
 #include "templates/template_relink.h"  // foom
 #include "templates/template_track.h"
 #include "tools/box_zoom_tool.h"
@@ -3039,6 +3040,19 @@ void MapEditorController::relinkTemplatesClicked()
 	if (!report.failed.isEmpty())
 		lines << tr("Found but not loaded: %1").arg(report.failed.join(QLatin1String(", ")));
 	QMessageBox::information(window, title, lines.join(QLatin1Char('\n')));
+}
+
+// foom: the design notes, "Embedded raster templates"
+bool MapEditorController::setTemplateEmbedded(Template* temp, bool embedded, QString* error)
+{
+	auto* image = qobject_cast<TemplateImage*>(temp);
+	if (!image)
+	{
+		if (error)
+			*error = tr("Only image templates can be embedded.");
+		return false;
+	}
+	return embedded ? image->embed(TemplateImage::embedLimitBytes(), error) : image->unembed(error);
 }
 
 // foom

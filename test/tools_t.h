@@ -51,6 +51,9 @@ private slots:
 	/** foom: Tests the view of the favourite templates only. */
 	void favouriteTemplatesCommand();
 	
+	/** foom: Tests embedding an image template. */
+	void embedTemplateCommand();
+	
 	/** foom: Tests the mirror action. */
 	void mirror();
 	

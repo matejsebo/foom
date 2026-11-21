@@ -87,6 +87,9 @@ const char* GdalTemplate::getTemplateType() const
 
 Template::LookupResult GdalTemplate::tryToFindTemplateFile(const QString& map_path)
 {
+	if (isEmbedded())  // foom: the design notes, "Embedded raster templates"
+		return TemplateImage::tryToFindTemplateFile(map_path);
+	
 	auto template_path_utf8 = template_path.toUtf8();
 	if (GdalFile::isRelative(template_path_utf8))
 	{
@@ -115,6 +118,9 @@ bool GdalTemplate::fileExists() const
 
 bool GdalTemplate::loadTemplateFileImpl()
 {
+	if (isEmbedded())  // foom: the design notes, "Embedded raster templates"
+		return TemplateImage::loadTemplateFileImpl();
+	
 	GdalImageReader reader(template_path);
 	if (!reader.canRead())
 	{

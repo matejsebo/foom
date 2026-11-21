@@ -30,8 +30,11 @@
 #include <QtGlobal>
 #include <QtMath>
 #include <QBrush>
+#include <QBuffer>  // foom
 #include <QByteArray>
 #include <QDialog>
+#include <QDir>  // foom
+#include <QFile>  // foom
 #include <QFileInfo>  // IWYU pragma: keep
 #include <QImageReader>
 #include <QImageWriter>
@@ -43,6 +46,7 @@
 #include <QPoint>
 #include <QRect>
 #include <QSaveFile>
+#include <QSettings>  // foom
 #include <QSize>
 #include <QStringRef>
 #include <QTransform>
@@ -121,6 +125,9 @@ TemplateImage::TemplateImage(const TemplateImage& proto)
 // not copied: undo_index
 , available_georef(proto.available_georef)
 , georef(new Georeferencing(*proto.georef))
+, embedded_data(proto.embedded_data)  // foom
+, embedded_format(proto.embedded_format)  // foom
+, embedded_transform(proto.embedded_transform)  // foom
 {
 	const Georeferencing& georef = map->getGeoreferencing();
 	connect(&georef, &Georeferencing::projectionChanged, this, &TemplateImage::updateGeoreferencing);
@@ -185,6 +192,22 @@ void TemplateImage::saveTypeSpecificTemplateConfiguration(QXmlStreamWriter& xml)
 		xml.writeCharacters(available_georef.effective.crs_spec);
 		xml.writeEndElement(/*crs_spec*/);
 	}
+	if (isEmbedded())  // foom: the design notes, "Embedded raster templates"
+	{
+		xml.writeStartElement(QString::fromLatin1("data"));
+		xml.writeAttribute(QString::fromLatin1("format"), QString::fromLatin1(embedded_format));
+		if (!embedded_transform.source.isEmpty())
+		{
+			auto const& t = embedded_transform.pixel_to_world;
+			QStringList numbers;
+			for (auto value : { t.m11(), t.m12(), t.m13(), t.m21(), t.m22(), t.m23(), t.m31(), t.m32(), t.m33() })
+				numbers << QString::number(value, 'g', 17);
+			xml.writeAttribute(QString::fromLatin1("source"), QString::fromUtf8(embedded_transform.source));
+			xml.writeAttribute(QString::fromLatin1("pixel_to_world"), numbers.join(QLatin1Char(' ')));
+		}
+		xml.writeCharacters(QString::fromLatin1(embedded_data.toBase64()));
+		xml.writeEndElement(/*data*/);
+	}
 }
 
 bool TemplateImage::loadTypeSpecificTemplateConfiguration(QXmlStreamReader& xml)
@@ -194,14 +217,141 @@ bool TemplateImage::loadTypeSpecificTemplateConfiguration(QXmlStreamReader& xml)
 		/// \todo check specification language
 		available_georef.effective.crs_spec = xml.readElementText();
 	}
+	else if (xml.name() == QLatin1String("data"))  // foom
+	{
+		auto const attributes = xml.attributes();
+		embedded_format = attributes.value(QLatin1String("format")).toLatin1();
+		embedded_transform = {};
+		auto const numbers = attributes.value(QLatin1String("pixel_to_world")).toString().split(QLatin1Char(' '), QString::SkipEmptyParts);
+		if (attributes.hasAttribute(QLatin1String("source")) && numbers.size() == 9)
+		{
+			double m[9];
+			auto ok = true;
+			for (int i = 0; i < 9 && ok; ++i)
+				m[i] = numbers[i].toDouble(&ok);
+			if (ok)
+			{
+				embedded_transform.source = attributes.value(QLatin1String("source")).toUtf8();
+				embedded_transform.pixel_to_world = QTransform(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8]);
+			}
+		}
+		embedded_data = QByteArray::fromBase64(xml.readElementText().toLatin1());
+	}
 	else
 		xml.skipCurrentElement(); // unsupported
 	
 	return true;
 }
 
+// foom: the design notes, "Embedded raster templates"
+qint64 TemplateImage::embedLimitBytes()
+{
+	auto const mb = QSettings().value(QStringLiteral("Templates/embed_limit_mb"), 2.0).toDouble();
+	return qint64(mb * 1024 * 1024);
+}
+
+bool TemplateImage::embed(qint64 limit_bytes, QString* error)
+{
+	auto const fail = [error](const QString& message) {
+		if (error)
+			*error = message;
+		return false;
+	};
+	if (isEmbedded())
+		return true;
+	if (image.isNull())
+		return fail(tr("The template must be loaded to be embedded."));
+	QFile file(template_path);
+	if (!file.open(QIODevice::ReadOnly))
+		return fail(tr("The file %1 cannot be read.").arg(template_path));
+	if (file.size() > limit_bytes)
+		return fail(tr("The file is larger than the limit for embedding, %1 MB.").arg(double(limit_bytes) / (1024 * 1024), 0, 'f', 1));
+	auto bytes = file.readAll();
+	QBuffer buffer(&bytes);
+	QImageReader reader(&buffer);
+	auto const format = reader.format();
+	if (format.isEmpty() || !reader.canRead())
+		return fail(tr("This image format cannot be embedded."));
+	embedded_data = bytes;
+	embedded_format = format;
+	embedded_transform = available_georef.effective.transform;
+	drawable = false;
+	map->setTemplatesDirty();
+	return true;
+}
+
+bool TemplateImage::unembed(QString* error)
+{
+	if (!isEmbedded())
+		return true;
+	if (!QFileInfo::exists(template_path))
+	{
+		QDir().mkpath(QFileInfo(template_path).absolutePath());
+		QSaveFile file(template_path);
+		if (!file.open(QIODevice::WriteOnly) || file.write(embedded_data) != embedded_data.size() || !file.commit())
+		{
+			if (error)
+				*error = tr("The file %1 cannot be written.").arg(template_path);
+			return false;
+		}
+	}
+	embedded_data.clear();
+	embedded_format.clear();
+	embedded_transform = {};
+	drawable = template_state == Loaded && !findExportFormat(template_path).isEmpty();
+	map->setTemplatesDirty();
+	return true;
+}
+
+Template::LookupResult TemplateImage::tryToFindTemplateFile(const QString& map_path)
+{
+	if (isEmbedded())
+	{
+		if (template_state != Loaded)
+			template_state = Unloaded;
+		return FoundByAbsPath;
+	}
+	return Template::tryToFindTemplateFile(map_path);
+}
+
+bool TemplateImage::fileExists() const
+{
+	return isEmbedded() || Template::fileExists();
+}
+
+bool TemplateImage::loadEmbeddedImage()
+{
+	QBuffer buffer(&embedded_data);
+	QImageReader reader(&buffer, embedded_format);
+	image = reader.read();
+	if (image.isNull())
+	{
+		setErrorString(reader.errorString());
+		return false;
+	}
+	GeoreferencingOption option;
+	option.transform = embedded_transform;
+	available_georef = findAvailableGeoreferencing(option);
+	if (!embedded_transform.source.isEmpty())
+		available_georef.effective.transform = embedded_transform;  // the kept transform, not a world file beside the path
+	if (is_georeferenced)
+	{
+		if (!isGeoreferencingUsable())
+		{
+			setErrorString(tr("Georeferencing not found"));
+			return false;
+		}
+		calculateGeoreferencing();
+	}
+	drawable = false;
+	return true;
+}
+
 bool TemplateImage::loadTemplateFileImpl()
 {
+	if (isEmbedded())  // foom
+		return loadEmbeddedImage();
+	
 	QImageReader reader(template_path);
 	const QSize size = reader.size();
 	const QImage::Format format = reader.imageFormat();

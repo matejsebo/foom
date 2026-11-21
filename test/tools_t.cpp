@@ -61,6 +61,7 @@
 #include "core/ops/to_curve.h"  // foom
 #include "templates/template.h"  // foom
 #include "templates/template_image.h"  // foom
+#include "templates/template_map.h"  // foom
 #include "core/bookmarks.h"
 #include "core/extents.h"
 #include "elevation/elevation_model.h"
@@ -482,6 +483,35 @@ void ToolsTest::favouriteTemplatesCommand()
 	QVERIFY(action->isChecked());
 	action->trigger();
 	QVERIFY(!view->areFavouriteTemplatesOnly());
+}
+
+
+void ToolsTest::embedTemplateCommand()
+{
+	// the design notes, "Embedded raster templates", Accept (editor).
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	auto const path = QDir(dir.path()).absoluteFilePath(QStringLiteral("a.png"));
+	QImage image(4, 4, QImage::Format_RGB32);
+	image.fill(Qt::green);
+	QVERIFY(image.save(path, "PNG"));
+	
+	TestMap map;
+	TestMapEditor editor(map.map);
+	map.map->addTemplate(-1, std::make_unique<TemplateImage>(path, map.map));
+	auto* temp = qobject_cast<TemplateImage*>(map.map->getTemplate(0));
+	QVERIFY(temp);
+	QVERIFY(temp->loadTemplateFile());
+	QString error;
+	QVERIFY2(editor.editor->setTemplateEmbedded(temp, true, &error), qPrintable(error));
+	QVERIFY(temp->isEmbedded());
+	QVERIFY(editor.editor->setTemplateEmbedded(temp, false, &error));
+	QVERIFY(!temp->isEmbedded());
+	
+	map.map->addTemplate(-1, std::make_unique<TemplateMap>(QDir(dir.path()).absoluteFilePath(QStringLiteral("b.omap")), map.map));
+	error.clear();
+	QVERIFY(!editor.editor->setTemplateEmbedded(map.map->getTemplate(1), true, &error));
+	QVERIFY(!error.isEmpty());
 }
 
 

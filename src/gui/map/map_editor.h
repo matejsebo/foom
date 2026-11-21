@@ -683,6 +683,8 @@ public slots:
 	void toCurveClicked();
 	/** foom: Turns the straight segments of the selected paths into curves through the same vertices ("to curve"). */
 	void toCurve(const ops::ToCurveParams& params);
+	/** foom: Embeds an image template in the map file, or gives the bytes up; false with a message for other templates. */
+	bool setTemplateEmbedded(Template* temp, bool embedded, QString* error = nullptr);
 	/** foom: Relinks the templates from the old folder to the new one; returns how many were relinked. */
 	int relinkTemplates(const QString& old_folder, const QString& new_folder);
 	/** foom: Asks for the axis, then mirrors the selected objects. */

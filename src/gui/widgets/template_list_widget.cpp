@@ -287,6 +287,16 @@ TemplateListWidget::TemplateListWidget(Map& map, MapView& main_view, MapEditorCo
 			temp->setFavourite(checked);
 	});
 	favourite_action->setCheckable(true);
+	// foom: the design notes, "Embedded raster templates"
+	embed_action = edit_menu->addAction(tr("Embed in map file"), this, [this](bool checked) {
+		auto* temp = currentTemplate();
+		QString error;
+		if (temp && !this->controller.setTemplateEmbedded(temp, checked, &error))
+			QMessageBox::warning(this, tr("Error"), error);
+		auto const* image = qobject_cast<const TemplateImage*>(temp);
+		embed_action->setChecked(image && image->isEmbedded());
+	});
+	embed_action->setCheckable(true);
 	position_action = edit_menu->addAction(tr("Positioning..."));
 	position_action->setCheckable(true);
 	edit_menu->addSeparator();
@@ -510,6 +520,9 @@ void TemplateListWidget::updateButtons()
 		georef_action->setEnabled(georef_enabled);
 		favourite_action->setChecked(temp && temp->isFavourite());  // foom
 		favourite_action->setEnabled(bool(temp));  // foom
+		auto const* image_template = qobject_cast<const TemplateImage*>(temp);  // foom
+		embed_action->setChecked(image_template && image_template->isEmbedded());
+		embed_action->setEnabled(image_template && (image_template->isEmbedded() || image_template->getTemplateState() == Template::Loaded));
 		move_by_hand_action->setEnabled(custom_enabled);
 		adjust_button->setEnabled(custom_enabled);
 		position_action->setEnabled(custom_enabled);
