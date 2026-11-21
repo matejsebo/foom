@@ -162,6 +162,7 @@ set(Mapper_Common_SRCS
   core/ops/topology.cpp
   core/ops/buildings.cpp
   core/ops/smooth.cpp
+  core/ops/to_curve.cpp
   core/ops/import_points.cpp
   core/ops/rectangle_box.cpp
   core/renderables/path_text_renderable.cpp
@@ -262,6 +263,7 @@ set(Mapper_Common_SRCS
   gui/map/map_transform_dialogs.cpp
   gui/map/legibility_dialog.cpp
   gui/map/topology_dialogs.cpp
+  gui/map/to_curve_dialog.cpp
   gui/map/generator_dialog.cpp
   gui/map/selection_dialogs.cpp
   gui/map/image_properties_dialog.cpp

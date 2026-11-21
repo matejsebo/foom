@@ -49,6 +49,7 @@
 #include "core/ops/buildings.h"  // foom
 #include "core/ops/rectangle_box.h"  // foom
 #include "core/ops/smooth.h"  // foom
+#include "core/ops/to_curve.h"  // foom
 #include "core/ops/topology.h"  // foom
 #include "core/ops/transform.h"  // foom
 #include "gui/main_window_controller.h"
@@ -674,6 +675,10 @@ public slots:
 	void toPolylineClicked();
 	/** foom: Replaces the curves of the selected paths by straight segments ("to polyline"). */
 	void toPolyline(double tolerance);
+	/** foom: Asks for the options, then turns the straight segments of the selected paths into curves. */
+	void toCurveClicked();
+	/** foom: Turns the straight segments of the selected paths into curves through the same vertices ("to curve"). */
+	void toCurve(const ops::ToCurveParams& params);
 	/** foom: Asks for the axis, then mirrors the selected objects. */
 	void mirrorClicked();
 	/** foom: Asks for the count and interpolates between the two selected paths (interpolate). */
@@ -1374,6 +1379,8 @@ private:
 	QAction* simplify_path_act = {};
 	QAction* to_polyline_act = {};  // foom
 	double to_polyline_tolerance = 0.05;  // foom: mm on paper, kept for the session
+	QAction* to_curve_act = {};  // foom
+	ops::ToCurveParams to_curve_params;  // foom: kept for the session
 	QAction* mirror_act = {};  // foom
 	QAction* convert_to_point_act = {};  // foom
 	QAction* interpolate_act = {};  // foom

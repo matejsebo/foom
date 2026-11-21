@@ -68,6 +68,7 @@
 #include "core/ops/reshape.h"
 #include "core/ops/buildings.h"
 #include "core/ops/smooth.h"
+#include "core/ops/to_curve.h"
 #include "core/ops/rectangle_box.h"
 #include "core/ops/topology.h"
 #include "core/symbols/line_symbol.h"
@@ -159,6 +160,7 @@ private slots:
 	void symbolUpdateTest();
 	void buildingsTest();
 	void smoothTest();
+	void toCurveTest();
 	void rectangleBoxTest();
 };
 
@@ -2309,6 +2311,148 @@ void OpsTest::smoothTest()
 	auto* point = new PointObject(point_symbol);
 	map.addObject(point);
 	QVERIFY(!ops::smoothPaths(map, { point }, params).error.isEmpty());
+}
+
+
+void OpsTest::toCurveTest()
+{
+	// the design notes, "Polyline to curve", Accept.
+	Map map;
+	auto* symbol = new LineSymbol();
+	map.addSymbol(symbol, 0);
+	auto* point_symbol = new PointSymbol();
+	map.addSymbol(point_symbol, 1);
+	auto const line = [&map, symbol](const MapCoordVector& coords) {
+		auto* object = new PathObject(symbol, coords);
+		map.addObject(object);
+		return object;
+	};
+	auto const coordsOf = [](const ops::OpResult& result) {
+		return result.out.front()->asPath()->getRawCoordinateVector();
+	};
+	auto const at = [](const MapCoord& coord) { return QPointF(coord.x(), coord.y()); };
+	auto const len = [](const QPointF& v) { return std::hypot(v.x(), v.y()); };
+	auto const sine = [len](const QPointF& a, const QPointF& b) { return std::abs(a.x() * b.y() - a.y() * b.x()) / (len(a) * len(b)); };
+	auto const along = [sine](const QPointF& v, const QPointF& direction) {
+		return sine(v, direction) < 0.001 && QPointF::dotProduct(v, direction) > 0;
+	};
+	auto const smoothAt = [at, sine](const MapCoordVector& c, std::size_t i) {
+		auto const a = at(c[i - 1]) - at(c[i]);
+		auto const b = at(c[i + 1]) - at(c[i]);
+		return sine(a, b) < 0.001 && QPointF::dotProduct(a, b) < 0;
+	};
+	ops::ToCurveParams defaults;
+	
+	// (1) Every vertex is kept, every segment becomes a curve.
+	auto* zig = line({ MapCoord(0.0, 0.0), MapCoord(10.0, 5.0), MapCoord(20.0, 0.0), MapCoord(30.0, 5.0) });
+	auto result = ops::toCurve(map, { zig }, defaults);
+	QVERIFY2(result.error.isEmpty(), result.error.toLatin1());
+	QCOMPARE(result.out.size(), std::size_t(1));
+	QCOMPARE(result.consumed, (std::vector<const Object*>{ zig }));
+	QCOMPARE(result.out.front()->uuid(), zig->uuid());
+	auto c = coordsOf(result);
+	QCOMPARE(c.size(), MapCoordVector::size_type(10));
+	for (std::size_t i : { 0u, 3u, 6u })
+		QVERIFY(c[i].isCurveStart());
+	QVERIFY(c[0].isPositionEqualTo(MapCoord(0.0, 0.0)));
+	QVERIFY(c[3].isPositionEqualTo(MapCoord(10.0, 5.0)));
+	QVERIFY(c[6].isPositionEqualTo(MapCoord(20.0, 0.0)));
+	QVERIFY(c[9].isPositionEqualTo(MapCoord(30.0, 5.0)));
+	QVERIFY(smoothAt(c, 3));
+	QVERIFY(smoothAt(c, 6));
+	
+	// (2) The end angles.
+	QVERIFY(along(at(c[1]) - at(c[0]), QPointF(10.0, 5.0)));
+	auto free_ends = defaults;
+	free_ends.keep_end_angles = false;
+	auto const free = coordsOf(ops::toCurve(map, { zig }, free_ends));
+	QVERIFY(along(at(free[1]) - at(free[0]), QPointF(0.6, 0.8)));
+	
+	// (3) The tangent factor.
+	auto longer = defaults;
+	longer.tangent_factor = 0.5;
+	auto const l = coordsOf(ops::toCurve(map, { zig }, longer));
+	QCOMPARE(l.size(), c.size());
+	for (std::size_t i = 0; i < 9; i += 3)
+	{
+		auto const ratio1 = len(at(l[i + 1]) - at(l[i])) / len(at(c[i + 1]) - at(c[i]));
+		auto const ratio2 = len(at(l[i + 2]) - at(l[i + 3])) / len(at(c[i + 2]) - at(c[i + 3]));
+		QVERIFY2(std::abs(ratio1 - 1.5) < 0.002, qPrintable(QString::number(ratio1)));
+		QVERIFY2(std::abs(ratio2 - 1.5) < 0.002, qPrintable(QString::number(ratio2)));
+	}
+	
+	// (4) Corners.
+	auto* bend = line({ MapCoord(0.0, 0.0), MapCoord(10.0, 0.0), MapCoord(12.0, 10.0), MapCoord(22.0, 10.0) });
+	auto sharp = defaults;
+	sharp.corner_angle_deg = 60.0;
+	c = coordsOf(ops::toCurve(map, { bend }, sharp));
+	QCOMPARE(c.size(), MapCoordVector::size_type(10));
+	QVERIFY(c[2].isPositionEqualTo(c[3]));
+	QVERIFY(c[4].isPositionEqualTo(c[3]));
+	c = coordsOf(ops::toCurve(map, { bend }, defaults));
+	QVERIFY(!c[2].isPositionEqualTo(c[3]));
+	QVERIFY(smoothAt(c, 3));
+	
+	// (5) Keep straight parts.
+	auto* road = line({ MapCoord(0.0, 0.0), MapCoord(40.0, 0.0), MapCoord(42.0, 0.5), MapCoord(44.0, 1.5), MapCoord(45.5, 3.0), MapCoord(73.5, 31.0) });
+	auto roads = defaults;
+	roads.keep_straight_parts = true;
+	c = coordsOf(ops::toCurve(map, { road }, roads));
+	QCOMPARE(c.size(), MapCoordVector::size_type(12));
+	QVERIFY(!c[0].isCurveStart());
+	QVERIFY(c[1].isCurveStart() && c[4].isCurveStart() && c[7].isCurveStart());
+	QVERIFY(!c[10].isCurveStart());
+	QVERIFY(c[10].isPositionEqualTo(MapCoord(45.5, 3.0)));
+	QVERIFY(std::abs(c[2].y()) < 0.001 && c[2].x() > 40.0);
+	QVERIFY(along(at(c[10]) - at(c[9]), QPointF(1.0, 1.0)));
+	QCOMPARE(coordsOf(ops::toCurve(map, { road }, defaults)).size(), MapCoordVector::size_type(16));
+	
+	// (6) A closed part.
+	MapCoordVector hexagon;
+	for (int i = 0; i < 6; ++i)
+		hexagon.emplace_back(10 * std::cos(i * M_PI / 3), 10 * std::sin(i * M_PI / 3));
+	auto* closed = line(hexagon);
+	closed->closeAllParts();
+	result = ops::toCurve(map, { closed }, defaults);
+	QCOMPARE(result.out.size(), std::size_t(1));
+	auto const* closed_out = result.out.front()->asPath();
+	QCOMPARE(closed_out->parts().size(), std::size_t(1));
+	QVERIFY(closed_out->parts().front().isClosed());
+	c = closed_out->getRawCoordinateVector();
+	QCOMPARE(c.size(), MapCoordVector::size_type(19));
+	for (std::size_t i = 0; i < 18; i += 3)
+		QVERIFY(c[i].isCurveStart());
+	auto const first_handles = std::vector<QPointF>{ at(c[17]) - at(c[0]), at(c[1]) - at(c[0]) };
+	QVERIFY(sine(first_handles[0], first_handles[1]) < 0.001 && QPointF::dotProduct(first_handles[0], first_handles[1]) < 0);
+	
+	// (7) An existing curve stays, and the new handle continues it.
+	MapCoord joint(10, 0);
+	joint.setCurveStart(true);
+	joint.setDashPoint(true);
+	auto* mixed = line({ MapCoord(0.0, 0.0), joint, MapCoord(10.0, 5.0), MapCoord(15.0, 10.0), MapCoord(20.0, 10.0) });
+	c = coordsOf(ops::toCurve(map, { mixed }, defaults));
+	QCOMPARE(c.size(), MapCoordVector::size_type(7));
+	QVERIFY(c[0].isCurveStart());
+	QVERIFY(c[3].isCurveStart() && c[3].isDashPoint());
+	QVERIFY(c[3].isPositionEqualTo(MapCoord(10.0, 0.0)));
+	QVERIFY(c[4].isPositionEqualTo(MapCoord(10.0, 5.0)));
+	QVERIFY(c[5].isPositionEqualTo(MapCoord(15.0, 10.0)));
+	QVERIFY(c[6].isPositionEqualTo(MapCoord(20.0, 10.0)));
+	QVERIFY(smoothAt(c, 3));
+	QVERIFY(along(at(c[1]) - at(c[0]), QPointF(1.0, 0.0)));
+	
+	// (8) Nothing to convert.
+	MapCoord curve_start(0, 0);
+	curve_start.setCurveStart(true);
+	auto* curved = line({ curve_start, MapCoord(3.0, 0.0), MapCoord(7.0, 0.0), MapCoord(10.0, 0.0) });
+	auto* point = new PointObject(point_symbol);
+	map.addObject(point);
+	result = ops::toCurve(map, { curved, point }, defaults);
+	QVERIFY(result.error.isEmpty());
+	QVERIFY(result.out.empty());
+	QVERIFY(result.consumed.empty());
+	result = ops::toCurve(map, { point }, defaults);
+	QVERIFY(!result.error.isEmpty());
 }
 
 void OpsTest::rectangleBoxTest()

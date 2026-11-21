@@ -56,6 +56,7 @@
 #include "core/objects/object.h"
 #include "core/objects/object_query.h"
 #include "core/ops/align.h"
+#include "core/ops/to_curve.h"  // foom
 #include "core/bookmarks.h"
 #include "core/extents.h"
 #include "elevation/elevation_model.h"
@@ -391,6 +392,45 @@ void ToolsTest::toPolyline()
 	QCOMPARE(part->getNumObjects(), 1);
 	QCOMPARE(part->getObject(0), object);
 	QVERIFY(object->getRawCoordinateVector()[1].isCurveStart());
+	
+	map.map->clearObjectSelection(true);
+	QVERIFY(!action->isEnabled());
+}
+
+
+void ToolsTest::toCurve()
+{
+	// the design notes, "Polyline to curve", Accept (editor).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* action = editor.editor->getAction("to-curve");
+	QVERIFY(action);
+	
+	auto* object = map.line_object;
+	auto const uuid = object->uuid();
+	auto const old_coords = object->getRawCoordinateVector();
+	QVERIFY(!old_coords[0].isCurveStart());
+	map.map->addObjectToSelection(object, true);
+	QVERIFY(action->isEnabled());
+	auto const undo_steps = map.map->undoManager().undoStepCount();
+	
+	editor.editor->toCurve(ops::ToCurveParams());
+	auto* part = map.map->getCurrentPart();
+	QCOMPARE(part->getNumObjects(), 1);
+	auto* curved = part->getObject(0);
+	QVERIFY(curved != object);
+	QCOMPARE(curved->uuid(), uuid);
+	auto const& new_coords = curved->getRawCoordinateVector();
+	QCOMPARE(new_coords.size(), old_coords.size() + 2);
+	QVERIFY(new_coords[0].isCurveStart());
+	for (std::size_t i = 1; i <= 4; ++i)
+		QVERIFY(new_coords[new_coords.size() - i].isPositionEqualTo(old_coords[old_coords.size() - i]));
+	QVERIFY(map.map->selectedObjects() == (Map::ObjectSelection{ curved }));
+	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 1);
+	
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(part->getNumObjects(), 1);
+	QCOMPARE(part->getObject(0), object);
 	
 	map.map->clearObjectSelection(true);
 	QVERIFY(!action->isEnabled());

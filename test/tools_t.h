@@ -42,6 +42,9 @@ private slots:
 	/** foom: Tests the to-polyline action. */
 	void toPolyline();
 	
+	/** foom: Tests the to-curve command. */
+	void toCurve();
+	
 	/** foom: Tests the mirror action. */
 	void mirror();
 	

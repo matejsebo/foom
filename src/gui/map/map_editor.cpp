@@ -208,6 +208,7 @@
 #include "gui/widgets/symbol_tools_dialogs.h"  // foom
 #include "gui/map/rectangle_box_dialog.h"
 #include "gui/map/topology_dialogs.h"
+#include "gui/map/to_curve_dialog.h"  // foom
 #include "gui/widgets/issues_widget.h"
 #include "gui/map/find_replace_text_dialog.h"
 #include "undo/map_data_undo.h"
@@ -1324,6 +1325,7 @@ void MapEditorController::createActions()
 	convert_to_curves_act = newAction("converttocurves", tr("Convert to curves"), this, SLOT(convertToCurvesClicked()), "tool-convert-to-curves.png", QString{}, "toolbars.html#convert_to_curves");
 	simplify_path_act = newAction("simplify", tr("Simplify path"), this, SLOT(simplifyPathClicked()), "tool-simplify-path.png", QString{}, "toolbars.html#simplify_path");
 	to_polyline_act = newAction("to-polyline", tr("To polyline..."), this, SLOT(toPolylineClicked()));  // foom
+	to_curve_act = newAction("to-curve", tr("To curve..."), this, SLOT(toCurveClicked()));  // foom
 	mirror_act = newAction("mirror", tr("Mirror..."), this, SLOT(mirrorClicked()));  // foom
 	convert_to_point_act = newAction("convert-to-point", tr("Convert to point objects..."), this, SLOT(convertToPointsClicked()));  // foom
 	interpolate_act = newAction("interpolate", tr("Interpolate..."), this, SLOT(interpolateClicked()));  // foom
@@ -1731,6 +1733,7 @@ void MapEditorController::createMenuAndToolbars()
 	tools_menu->addAction(convert_to_curves_act);
 	tools_menu->addAction(simplify_path_act);
 	tools_menu->addAction(to_polyline_act);  // foom
+	tools_menu->addAction(to_curve_act);  // foom
 	tools_menu->addAction(mirror_act);  // foom
 	tools_menu->addAction(interpolate_act);  // foom
 	tools_menu->addAction(object_info_act);  // foom
@@ -3403,6 +3406,8 @@ void MapEditorController::updateObjectDependentActions()
 	simplify_path_act->setStatusTip(tr("Reduce the number of points in path objects while trying to retain their shape.") + (simplify_path_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a path object to activate this tool."))));
 	to_polyline_act->setEnabled(have_area || have_line);  // foom
 	to_polyline_act->setStatusTip(tr("Replace the curves of path objects by straight segments.") + (to_polyline_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a path object to activate this tool."))));
+	to_curve_act->setEnabled(have_area || have_line);  // foom
+	to_curve_act->setStatusTip(tr("Turn the straight segments of path objects into curves through the same vertices.") + (to_curve_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a path object to activate this tool."))));
 	mirror_act->setEnabled(have_selection);  // foom
 	object_info_act->setEnabled(map->getNumSelectedObjects() == 1);  // foom
 	convert_to_point_act->setEnabled(have_selection);  // foom
@@ -6115,6 +6120,26 @@ void MapEditorController::toPolyline(double tolerance)
 	ops::FlattenParams params;
 	params.tolerance = tolerance;
 	applyOpResult(ops::flatten(*map, in, params));
+}
+
+// foom
+void MapEditorController::toCurveClicked()
+{
+	ToCurveDialog dialog(to_curve_params, window);
+	if (dialog.exec() == QDialog::Accepted)
+	{
+		to_curve_params = dialog.params();
+		toCurve(to_curve_params);
+	}
+}
+
+// foom
+void MapEditorController::toCurve(const ops::ToCurveParams& params)
+{
+	// the design notes, "Polyline to curve".
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	applyOpResult(ops::toCurve(*map, in, params));
 }
 
 // foom
