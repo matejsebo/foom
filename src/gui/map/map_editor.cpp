@@ -3065,7 +3065,8 @@ void MapEditorController::relinkTemplatesClicked()
 	                                              QDir::toNativeSeparators(missingTemplatesFolder(*map)), &ok);
 	if (!ok || old_folder.trimmed().isEmpty())
 		return;
-	auto const new_folder = QFileDialog::getExistingDirectory(window, tr("The folder in which they are now"));
+	auto const new_folder = QFileDialog::getExistingDirectory(window, tr("The folder in which they are now"),
+	                                                          relinkStartFolder(old_folder.trimmed(), window->currentPath()));
 	if (new_folder.isEmpty())
 		return;
 	auto const report = OpenOrienteering::relinkTemplates(*map, old_folder.trimmed(), new_folder);

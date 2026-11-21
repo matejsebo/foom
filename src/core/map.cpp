@@ -887,6 +887,9 @@ void Map::drawTemplates(QPainter* painter, const QRectF& bounding_box, int first
 		{
 			visibility = view->getTemplateVisibility(temp);
 			visibility.visible &= visibility.opacity > 0;
+			// foom: the design notes, "Favourite templates": on screen only
+			if (on_screen && view->areFavouriteTemplatesOnly() && !temp->isFavourite())
+				visibility.visible = false;
 			scale *= view->getZoom();
 		}
 		if (visibility.visible)

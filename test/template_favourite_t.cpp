@@ -29,6 +29,7 @@
 #include <QIODevice>
 #include <QImage>
 #include <QObject>
+#include <QPainter>
 #include <QString>
 #include <QTemporaryDir>
 
@@ -60,10 +61,10 @@ bool loadMap(Map& map, MapView* view, const QString& path)
 	return importer && importer->doImport();
 }
 
-bool writeImage(const QString& path)
+bool writeImage(const QString& path, const QColor& color)
 {
 	QImage image(4, 4, QImage::Format_RGB32);
-	image.fill(QColor(Qt::green));
+	image.fill(color);
 	return image.save(path, "PNG");
 }
 
@@ -94,6 +95,7 @@ Q_OBJECT
 		for (int i = 0; i < 2; ++i)
 		{
 			QVERIFY(map.getTemplate(i)->loadTemplateFile());
+			map.getTemplate(i)->setTemplateState(Template::Loaded);  // as the editor's setup does
 			view.setTemplateVisibility(map.getTemplate(i), { 1.0f, true });
 		}
 		map.getTemplate(0)->setFavourite(true);
@@ -105,8 +107,8 @@ private slots:
 		Q_INIT_RESOURCE(resources);
 		doStaticInitializations();
 		QVERIFY(dir.isValid());
-		QVERIFY(writeImage(file("a.png")));
-		QVERIFY(writeImage(file("b.png")));
+		QVERIFY(writeImage(file("a.png"), Qt::green));
+		QVERIFY(writeImage(file("b.png"), Qt::red));
 	}
 	
 	/// Accept (1)
@@ -185,6 +187,31 @@ private slots:
 		QFile plain(file("plain.foom"));
 		QVERIFY(plain.open(QIODevice::ReadOnly));
 		QVERIFY(!plain.readAll().contains("favourites_only"));
+	}
+	
+	/// Accept (3)
+	void drawTest()
+	{
+		Map map;
+		MapView view(&map);
+		fillMap(map, view);
+		auto const box = map.getTemplate(0)->calculateTemplateBoundingBox();
+		auto const centreColor = [&map, &view, box](bool on_screen) {
+			QImage image(40, 40, QImage::Format_RGB32);
+			image.fill(Qt::white);
+			QPainter painter(&image);
+			painter.scale(40.0 / box.width(), 40.0 / box.height());
+			painter.translate(-box.topLeft());
+			map.drawTemplates(&painter, box, 0, map.getNumTemplates() - 1, &view, on_screen);
+			painter.end();
+			return QColor(image.pixel(20, 20));
+		};
+		// b lies over a.
+		QCOMPARE(centreColor(true), QColor(Qt::red));
+		view.setFavouriteTemplatesOnly(true);
+		QCOMPARE(centreColor(true), QColor(Qt::green));
+		// Printing draws the templates by their own visibility.
+		QCOMPARE(centreColor(false), QColor(Qt::red));
 	}
 };
 

@@ -162,6 +162,21 @@ TemplateRelinkReport relinkTemplates(Map& map, const QString& old_folder, const 
 	return report;
 }
 
+QString relinkStartFolder(const QString& old_folder, const QString& map_path)
+{
+	auto folder = normalPath(old_folder);
+	while (!folder.isEmpty())
+	{
+		if (QFileInfo(folder).isDir())
+			return folder;
+		auto const up = normalPath(QFileInfo(folder).path());
+		if (up == folder)
+			break;
+		folder = up;
+	}
+	return map_path.isEmpty() ? QString() : normalPath(QFileInfo(map_path).absolutePath());
+}
+
 QString relinkByFolderHint(const Map& map)
 {
 	if (missingTemplateCount(map) < 2)

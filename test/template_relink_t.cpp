@@ -117,6 +117,7 @@ private slots:
 	void relinkTest();
 	void prefixTest();
 	void savedTest();
+	void startFolderTest();
 };
 
 
@@ -218,6 +219,15 @@ void TemplateRelinkTest::savedTest()
 	QCOMPARE(missingTemplateCount(map), 1);
 	QCOMPARE(QDir::cleanPath(map.getTemplate(indexOf(map, QStringLiteral("a.png")))->getTemplatePath()),
 	         QDir::cleanPath(file(QStringLiteral("new/maps/a.png"))));
+}
+
+
+/// Accept (5)
+void TemplateRelinkTest::startFolderTest()
+{
+	QCOMPARE(QDir::cleanPath(relinkStartFolder(file(QStringLiteral("old/maps")), map_path)), QDir::cleanPath(dir.path()));
+	QCOMPARE(QDir::cleanPath(relinkStartFolder(file(QStringLiteral("new/maps/gone")), map_path)), QDir::cleanPath(file(QStringLiteral("new/maps"))));
+	QCOMPARE(QDir::cleanPath(relinkStartFolder(QString(), map_path)), QDir::cleanPath(file(QStringLiteral("work"))));
 }
 
 
