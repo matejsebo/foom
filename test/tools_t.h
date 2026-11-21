@@ -127,6 +127,9 @@ private slots:
 	/** foom: Tests the status set commands. */
 	void statusSetCommands();
 	
+	/** foom: Tests the compare with file command. */
+	void symbolCompareCommand();
+	
 	/** foom: Tests the point cloud import command. */
 	void demPointCloud();
 	

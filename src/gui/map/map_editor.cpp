@@ -199,6 +199,7 @@
 #include "core/selection_queries.h"  // foom
 #include "core/object_information.h"  // foom
 #include "core/status_sets.h"  // foom
+#include "core/symbol_compare.h"  // foom
 #include "core/symbol_tools.h"  // foom
 #include "gui/widgets/symbol_tools_dialogs.h"  // foom
 #include "gui/map/rectangle_box_dialog.h"
@@ -1320,6 +1321,7 @@ void MapEditorController::createActions()
 	to_polyline_act = newAction("to-polyline", tr("To polyline..."), this, SLOT(toPolylineClicked()));  // foom
 	mirror_act = newAction("mirror", tr("Mirror..."), this, SLOT(mirrorClicked()));  // foom
 	interpolate_act = newAction("interpolate", tr("Interpolate..."), this, SLOT(interpolateClicked()));  // foom
+	compare_symbols_act = newAction("symbols-compare", tr("Compare with file..."), this, SLOT(compareSymbolsClicked()));  // foom
 	status_save_act = newAction("symbols-status-save", tr("Save status set..."), this, SLOT(saveStatusSetClicked()));  // foom
 	status_apply_act = newAction("symbols-status-apply", tr("Apply status set..."), this, SLOT(applyStatusSetClicked()));  // foom
 	status_delete_act = newAction("symbols-status-delete", tr("Delete status set..."), this, SLOT(deleteStatusSetClicked()));  // foom
@@ -1818,6 +1820,7 @@ void MapEditorController::createMenuAndToolbars()
 	symbols_menu->addAction(replace_font_act);  // foom
 	symbols_menu->addAction(replace_color_act);  // foom
 	symbols_menu->addAction(renumber_symbols_act);  // foom
+	symbols_menu->addAction(compare_symbols_act);  // foom
 	auto* status_menu = symbols_menu->addMenu(tr("Status sets"));  // foom: the design notes, "Status sets"
 	status_menu->addAction(status_save_act);
 	status_menu->addAction(status_apply_act);
@@ -6129,6 +6132,67 @@ void MapEditorController::mirror(double axis_angle, bool duplicate)
 	params.axis_angle = axis_angle;
 	params.duplicate = duplicate;
 	applyOpResult(ops::mirror(*map, in, params));
+}
+
+// foom: the design notes, "Compare with file".
+void MapEditorController::compareSymbolsClicked()
+{
+	auto selected = MainWindow::getOpenFileName(window, tr("Compare with file"), FileFormat::MapFile);
+	if (!selected)
+		return;
+	Map reference;
+	auto importer = selected.fileFormat() ? selected.fileFormat()->makeImporter(selected.filePath(), &reference, nullptr) : nullptr;
+	if (!importer || !importer->doImport())
+	{
+		QMessageBox::warning(window, tr("Compare with file"), tr("Cannot read %1.").arg(selected.filePath()));
+		return;
+	}
+	QDialog options_dialog(window);
+	options_dialog.setWindowTitle(tr("Compare with file"));
+	auto* used_check = new QCheckBox(tr("Only the symbols used in this map"));
+	auto* identical_check = new QCheckBox(tr("List identical symbols"));
+	auto* descriptions_check = new QCheckBox(tr("Compare descriptions"));
+	descriptions_check->setChecked(true);
+	auto* colours_check = new QCheckBox(tr("Compare colours"));
+	colours_check->setChecked(true);
+	auto* option_buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+	connect(option_buttons, &QDialogButtonBox::accepted, &options_dialog, &QDialog::accept);
+	connect(option_buttons, &QDialogButtonBox::rejected, &options_dialog, &QDialog::reject);
+	auto* options_layout = new QVBoxLayout(&options_dialog);
+	for (auto* check : { used_check, identical_check, descriptions_check, colours_check })
+		options_layout->addWidget(check);
+	options_layout->addWidget(option_buttons);
+	if (options_dialog.exec() != QDialog::Accepted)
+		return;
+	SymbolCompareOptions options;
+	options.used_only = used_check->isChecked();
+	options.list_identical = identical_check->isChecked();
+	options.descriptions = descriptions_check->isChecked();
+	options.colours = colours_check->isChecked();
+	auto const text = symbolComparisonText(compareSymbolSets(*map, reference, options));
+
+	QDialog dialog(window);
+	dialog.setWindowTitle(tr("Compare with %1").arg(QFileInfo(selected.filePath()).fileName()));
+	auto* view = new QPlainTextEdit(text);
+	view->setReadOnly(true);
+	view->setMinimumSize(480, 360);
+	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close);
+	auto* copy = buttons->addButton(tr("Copy"), QDialogButtonBox::ActionRole);
+	auto* save = buttons->addButton(tr("Save..."), QDialogButtonBox::ActionRole);
+	connect(copy, &QPushButton::clicked, &dialog, [text]() { QApplication::clipboard()->setText(text); });
+	connect(save, &QPushButton::clicked, &dialog, [this, text, &dialog]() {
+		auto const path = QFileDialog::getSaveFileName(&dialog, tr("Save report"), {}, tr("Text files") + QLatin1String(" (*.txt)"));
+		if (path.isEmpty())
+			return;
+		QFile file(path);
+		if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text) || file.write(text.toUtf8()) < 0)
+			QMessageBox::warning(&dialog, tr("Save report"), file.errorString());
+	});
+	connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	auto* layout = new QVBoxLayout(&dialog);
+	layout->addWidget(view);
+	layout->addWidget(buttons);
+	dialog.exec();
 }
 
 // foom: the design notes, "Status sets".

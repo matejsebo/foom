@@ -43,6 +43,7 @@
 #include "core/object_information.h"
 #include "core/selection_queries.h"
 #include "core/status_sets.h"
+#include "core/symbol_compare.h"
 #include "core/symbol_tools.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
@@ -146,6 +147,7 @@ private slots:
 	void objectInformationTest();
 	void symbolToolsTest();
 	void statusSetsTest();
+	void symbolCompareTest();
 	void buildingsTest();
 	void smoothTest();
 	void rectangleBoxTest();
@@ -1701,6 +1703,93 @@ void OpsTest::statusSetsTest()
 	QVERIFY(contour->isHidden());
 	QVERIFY(!field->isHidden());
 	QVERIFY(boulder->isProtected());
+}
+
+
+void OpsTest::symbolCompareTest()
+{
+	// the design notes, "Compare with file", Accept (1) to (4).
+	auto const make_map = [](Map& map, bool other) {
+		auto* brown = new MapColor(QStringLiteral("Brown"), 0);
+		brown->setCmyk(MapColorCmyk(0.0f, 0.56f, 1.0f, 0.18f));
+		auto* black = new MapColor(QStringLiteral("Black"), 1);
+		black->setCmyk(other ? MapColorCmyk(0.1f, 0.1f, 0.1f, 1.0f) : MapColorCmyk(0.0f, 0.0f, 0.0f, 1.0f));
+		if (other)
+		{
+			map.addColor(black, 0);
+			map.addColor(brown, 1);
+			auto* blue = new MapColor(QStringLiteral("Blue"), 2);
+			map.addColor(blue, 2);
+		}
+		else
+		{
+			map.addColor(brown, 0);
+			map.addColor(black, 1);
+		}
+		auto const line = [&map, brown](int number, const char* name, double width) {
+			auto* symbol = new LineSymbol();
+			symbol->setNumberComponent(0, number);
+			symbol->setName(QString::fromLatin1(name));
+			symbol->setColor(map.getColor(map.findColorIndex(brown)));
+			symbol->setLineWidth(width);
+			map.addSymbol(symbol, map.getNumSymbols());
+			return symbol;
+		};
+		line(101, "Contour", 0.14);
+		if (other)
+		{
+			line(102, "Index contour", 0.3);
+			auto* field = new AreaSymbol();
+			field->setNumberComponent(0, 401);
+			field->setName(QStringLiteral("Field"));
+			map.addSymbol(field, map.getNumSymbols());
+		}
+		else
+		{
+			line(102, "Index", 0.25);
+			auto* boulder = new PointSymbol();
+			boulder->setNumberComponent(0, 501);
+			boulder->setName(QStringLiteral("Boulder"));
+			map.addSymbol(boulder, map.getNumSymbols());
+		}
+	};
+	Map here, there;
+	make_map(here, false);
+	make_map(there, true);
+	SymbolCompareOptions options;
+	auto result = compareSymbolSets(here, there, options);
+	QCOMPARE(result.only_here, QStringList{ QStringLiteral("501 Boulder") });
+	QCOMPARE(result.only_there, QStringList{ QStringLiteral("401 Field") });
+	QCOMPARE(int(result.changed.size()), 1);
+	QCOMPARE(result.changed.front().symbol, QStringLiteral("102 Index"));
+	QCOMPARE(result.changed.front().differences, (QStringList{ QStringLiteral("name"), QStringLiteral("definition") }));
+	QVERIFY(result.identical.isEmpty());
+	options.list_identical = true;
+	QCOMPARE(compareSymbolSets(here, there, options).identical, QStringList{ QStringLiteral("101 Contour") });
+	
+	here.getSymbol(0)->setDescription(QStringLiteral("Joins points of equal height."));
+	result = compareSymbolSets(here, there, options);
+	QVERIFY(std::any_of(result.changed.begin(), result.changed.end(), [](const SymbolComparison::Change& c) {
+		return c.symbol == QLatin1String("101 Contour") && c.differences == QStringList{ QStringLiteral("description") };
+	}));
+	options.descriptions = false;
+	QCOMPARE(compareSymbolSets(here, there, options).identical, QStringList{ QStringLiteral("101 Contour") });
+	
+	here.getSymbol(0)->setDescription(QString{});
+	options = SymbolCompareOptions{};
+	options.used_only = true;
+	here.addObject(new PathObject(here.getSymbol(0), MapCoordVector{ MapCoord(0.0, 0.0), MapCoord(10.0, 0.0) }));
+	result = compareSymbolSets(here, there, options);
+	QVERIFY(result.only_here.isEmpty());
+	QVERIFY(result.changed.empty());
+	QCOMPARE(result.only_there, QStringList{ QStringLiteral("401 Field") });
+	
+	QCOMPARE(result.colours_only_there, QStringList{ QStringLiteral("Blue") });
+	QVERIFY(result.colours_only_here.isEmpty());
+	QCOMPARE(result.colours_changed, QStringList{ QStringLiteral("Black") });
+	QVERIFY(result.colour_order_differs);
+	auto const text = symbolComparisonText(result);
+	QVERIFY(text.contains(QLatin1String("Blue")) && text.contains(QLatin1String("Black")) && text.contains(QLatin1String("401 Field")) && text.contains(QLatin1String("another order")));
 }
 
 void OpsTest::buildingsTest()

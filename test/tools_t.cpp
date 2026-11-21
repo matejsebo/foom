@@ -1646,6 +1646,15 @@ void ToolsTest::statusSetCommands()
 }
 
 
+void ToolsTest::symbolCompareCommand()
+{
+	// the design notes, "Compare with file", Accept (5).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("symbols-compare"));
+}
+
+
 void ToolsTest::demPointCloud()
 {
 	// the design notes, "Reading point clouds and gridding them", Accept (9).
