@@ -142,6 +142,9 @@ private slots:
 	/** foom: Tests the symbol groups dock and the group filter. */
 	void symbolGroupsDock();
 	
+	/** foom: Tests the update from file command. */
+	void symbolUpdateCommand();
+	
 	/** foom: Tests the point cloud import command. */
 	void demPointCloud();
 	

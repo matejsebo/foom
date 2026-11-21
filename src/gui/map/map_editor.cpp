@@ -203,6 +203,7 @@
 #include "core/symbol_compare.h"  // foom
 #include "core/symbol_descriptions.h"  // foom
 #include "core/symbol_tools.h"  // foom
+#include "core/symbol_update.h"  // foom
 #include "gui/widgets/symbol_groups_widget.h"  // foom
 #include "gui/widgets/symbol_tools_dialogs.h"  // foom
 #include "gui/map/rectangle_box_dialog.h"
@@ -1328,6 +1329,7 @@ void MapEditorController::createActions()
 	interpolate_act = newAction("interpolate", tr("Interpolate..."), this, SLOT(interpolateClicked()));  // foom
 	export_descriptions_act = newAction("symbols-descriptions-export", tr("Export symbol descriptions..."), this, SLOT(exportSymbolDescriptionsClicked()));  // foom
 	import_descriptions_act = newAction("symbols-descriptions-import", tr("Import symbol descriptions..."), this, SLOT(importSymbolDescriptionsClicked()));  // foom
+	update_symbols_act = newAction("symbols-update", tr("Update from file..."), this, SLOT(updateSymbolsClicked()));  // foom
 	compare_symbols_act = newAction("symbols-compare", tr("Compare with file..."), this, SLOT(compareSymbolsClicked()));  // foom
 	symbol_groups_act = newCheckAction("symbols-groups", tr("Symbol groups"), this, SLOT(showSymbolGroups(bool)));  // foom
 	status_save_act = newAction("symbols-status-save", tr("Save status set..."), this, SLOT(saveStatusSetClicked()));  // foom
@@ -1831,6 +1833,7 @@ void MapEditorController::createMenuAndToolbars()
 	symbols_menu->addAction(replace_color_act);  // foom
 	symbols_menu->addAction(renumber_symbols_act);  // foom
 	symbols_menu->addAction(compare_symbols_act);  // foom
+	symbols_menu->addAction(update_symbols_act);  // foom
 	symbols_menu->addAction(export_descriptions_act);  // foom
 	symbols_menu->addAction(import_descriptions_act);  // foom
 	auto* status_menu = symbols_menu->addMenu(tr("Status sets"));  // foom: the design notes, "Status sets"
@@ -6176,6 +6179,29 @@ void MapEditorController::importSymbolDescriptionsClicked()
 	if (result.malformed > 0)
 		message += QLatin1Char('\n') + tr("%1 row(s) without three fields were skipped.").arg(result.malformed);
 	QMessageBox::information(window, tr("Import symbol descriptions"), message);
+}
+
+// foom: the design notes, "Update from file".
+void MapEditorController::updateSymbolsClicked()
+{
+	auto selected = MainWindow::getOpenFileName(window, tr("Update from file"), FileFormat::MapFile);
+	if (!selected)
+		return;
+	Map reference;
+	auto importer = selected.fileFormat() ? selected.fileFormat()->makeImporter(selected.filePath(), &reference, nullptr) : nullptr;
+	if (!importer || !importer->doImport())
+	{
+		QMessageBox::warning(window, tr("Update from file"), tr("Cannot read %1.").arg(selected.filePath()));
+		return;
+	}
+	bool ok = false;
+	auto const percent = QInputDialog::getDouble(window, tr("Update from file"), tr("Scale the new definitions to:"), 100.0, 1.0, 10000.0, 1, &ok);
+	if (!ok)
+		return;
+	auto const report = updateSymbolsFrom(*map, reference, percent / 100.0);
+	auto const list = [](const QStringList& items) { return items.isEmpty() ? tr("none") : items.join(QStringLiteral(", ")); };
+	QMessageBox::information(window, tr("Update from file"),
+	                         tr("Changed: %1\nAdded: %2\nUnchanged: %3 symbol(s)").arg(list(report.changed), list(report.added)).arg(report.unchanged.size()));
 }
 
 // foom: the design notes, "Compare with file".

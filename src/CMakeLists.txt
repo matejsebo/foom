@@ -190,6 +190,7 @@ set(Mapper_Common_SRCS
   core/symbol_descriptions.cpp
   core/symbol_tools.cpp
   core/symbol_tree.cpp
+  core/symbol_update.cpp
   core/object_information.cpp
   core/selection_queries.cpp
   core/object_groups.cpp

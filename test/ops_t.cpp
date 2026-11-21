@@ -47,6 +47,7 @@
 #include "core/symbol_descriptions.h"
 #include "core/symbol_tools.h"
 #include "core/symbol_tree.h"
+#include "core/symbol_update.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
 #include "core/objects/text_object.h"
@@ -155,6 +156,7 @@ private slots:
 	void symbolDescriptionsTest();
 	void favouritesTest();
 	void symbolTreeTest();
+	void symbolUpdateTest();
 	void buildingsTest();
 	void smoothTest();
 	void rectangleBoxTest();
@@ -1951,6 +1953,74 @@ void OpsTest::symbolTreeTest()
 	QCOMPARE(int(map.symbolTree().size()), 1);
 	QCOMPARE(map.symbolTree()[0].name, QStringLiteral("Printing"));
 	QCOMPARE(map.symbolTree()[0].parent, -1);
+}
+
+
+void OpsTest::symbolUpdateTest()
+{
+	// the design notes, "Update from file", Accept (1) and (2).
+	auto const make_map = [](Map& map, bool reference) {
+		auto* brown = new MapColor(QStringLiteral("Brown"), 0);
+		brown->setCmyk(MapColorCmyk(0.0f, 0.56f, 1.0f, 0.18f));
+		map.addColor(brown, 0);
+		auto const line = [&map, brown](int number, const char* name, double width) {
+			auto* symbol = new LineSymbol();
+			symbol->setNumberComponent(0, number);
+			symbol->setName(QString::fromLatin1(name));
+			symbol->setColor(brown);
+			symbol->setLineWidth(width);
+			map.addSymbol(symbol, map.getNumSymbols());
+			return symbol;
+		};
+		line(101, "Contour", 0.14);
+		auto* index = line(102, "Index", reference ? 0.3 : 0.25);
+		if (reference)
+		{
+			auto* yellow = new MapColor(QStringLiteral("Yellow"), 1);
+			yellow->setCmyk(MapColorCmyk(0.0f, 0.27f, 0.79f, 0.0f));
+			map.addColor(yellow, 1);
+			auto* field = new AreaSymbol();
+			field->setNumberComponent(0, 401);
+			field->setName(QStringLiteral("Field"));
+			field->setColor(yellow);
+			map.addSymbol(field, map.getNumSymbols());
+		}
+		else
+		{
+			index->setProtected(true);
+			auto* boulder = new PointSymbol();
+			boulder->setNumberComponent(0, 501);
+			boulder->setName(QStringLiteral("Boulder"));
+			boulder->setHidden(true);
+			map.addSymbol(boulder, map.getNumSymbols());
+			map.addObject(new PathObject(index, MapCoordVector{ MapCoord(0.0, 0.0), MapCoord(10.0, 0.0) }));
+		}
+	};
+	Map map, reference;
+	make_map(map, false);
+	make_map(reference, true);
+	auto const report = updateSymbolsFrom(map, reference);
+	QCOMPARE(report.added, QStringList{ QStringLiteral("401 Field") });
+	QCOMPARE(report.changed, QStringList{ QStringLiteral("102 Index") });
+	QCOMPARE(report.unchanged, QStringList{ QStringLiteral("101 Contour") });
+	QCOMPARE(map.getNumPublicSymbols(), 4);
+	auto const* index = map.getSymbol(1);
+	QCOMPARE(index->getNumberAsString(), QStringLiteral("102"));
+	QCOMPARE(index->asLine()->getLineWidth(), 300);
+	QVERIFY(index->isProtected());
+	QCOMPARE(map.getPart(0)->getObject(0)->getSymbol(), index);
+	auto has_yellow = false;
+	for (int i = 0; i < map.getNumColors(); ++i)
+		has_yellow |= map.getColor(i)->getName() == QLatin1String("Yellow");
+	QVERIFY(has_yellow);
+	QCOMPARE(map.getSymbol(2)->getNumberAsString(), QStringLiteral("501"));
+	QVERIFY(map.getSymbol(2)->isHidden());
+	
+	Map scaled;
+	make_map(scaled, false);
+	auto const scaled_report = updateSymbolsFrom(scaled, reference, 1.5);
+	QCOMPARE(scaled_report.changed, (QStringList{ QStringLiteral("101 Contour"), QStringLiteral("102 Index") }));
+	QCOMPARE(scaled.getSymbol(1)->asLine()->getLineWidth(), 450);
 }
 
 void OpsTest::buildingsTest()

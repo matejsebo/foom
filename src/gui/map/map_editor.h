@@ -697,6 +697,8 @@ public slots:
 	void showSymbolGroups(bool show);
 	/** foom: Compares the symbols and colours with another map file (symbols-compare). */
 	void compareSymbolsClicked();
+	/** foom: Takes symbol definitions from another map file (symbols-update). */
+	void updateSymbolsClicked();
 	/** foom: The symbol descriptions file; see the design notes, "Descriptions file". */
 	void exportSymbolDescriptionsClicked();
 	void importSymbolDescriptionsClicked();
@@ -1380,6 +1382,7 @@ private:
 	QAction* replace_color_act = {};  // foom
 	QAction* renumber_symbols_act = {};  // foom
 	QAction* compare_symbols_act = {};  // foom
+	QAction* update_symbols_act = {};  // foom
 	QAction* export_descriptions_act = {};  // foom
 	QAction* import_descriptions_act = {};  // foom
 	QAction* symbol_groups_act = {};  // foom

@@ -1746,6 +1746,15 @@ void ToolsTest::symbolGroupsDock()
 }
 
 
+void ToolsTest::symbolUpdateCommand()
+{
+	// the design notes, "Update from file", Accept (3).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("symbols-update"));
+}
+
+
 void ToolsTest::demPointCloud()
 {
 	// the design notes, "Reading point clouds and gridding them", Accept (9).
