@@ -103,6 +103,9 @@ private slots:
 	/** foom: Tests the vegetation height command. */
 	void demVegetationHeight();
 	
+	/** foom: Tests the profile command. */
+	void demProfile();
+	
 	/** foom: Tests the point cloud import command. */
 	void demPointCloud();
 	

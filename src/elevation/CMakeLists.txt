@@ -32,6 +32,7 @@ set(MAPPER_ELEVATION_SOURCES
   elevation_set.cpp
   landforms.cpp
   point_cloud.cpp
+  profile.cpp
   raster_products.cpp
   trees.cpp
 )

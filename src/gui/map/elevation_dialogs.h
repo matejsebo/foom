@@ -32,6 +32,7 @@
 #include "elevation/elevation_set.h"
 #include "elevation/landforms.h"
 #include "elevation/point_cloud.h"
+#include "elevation/profile.h"
 #include "elevation/raster_products.h"
 
 class QCheckBox;
@@ -242,6 +243,25 @@ private:
 	QDoubleSpinBox* interval_edit;
 	QCheckBox* zero_check;
 	QCheckBox* attach_check;
+};
+
+
+/**
+ * The dem-profile dialog: the chart, the figures, and saving as CSV or PNG.
+ */
+class ProfileDialog : public QDialog
+{
+Q_OBJECT
+public:
+	ProfileDialog(const Profile& profile, QWidget* parent);
+	~ProfileDialog() override;
+	
+private:
+	void saveCsv();
+	void saveImage();
+	
+	Profile profile;
+	QWidget* chart;
 };
 
 

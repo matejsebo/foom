@@ -20,10 +20,19 @@
 
 #include "elevation_dialogs.h"
 
+#include <algorithm>
 #include <cmath>
 #include <initializer_list>
 
 #include <QApplication>
+#include <QPixmap>
+#include <QColor>
+#include <QPen>
+#include <QPalette>
+#include <QPainterPath>
+#include <QPainter>
+#include <QMessageBox>
+#include <QFileDialog>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -649,6 +658,140 @@ HypsometricParams HypsometricDialog::params() const
 }
 
 bool HypsometricDialog::attach() const { return attach_check->isChecked(); }
+
+
+namespace {
+
+/// The heights against the distance; the vertical scale is the horizontal one times the factor.
+class ProfileChart : public QWidget
+{
+public:
+	ProfileChart(const Profile& profile, QWidget* parent)
+	: QWidget(parent)
+	, profile(profile)
+	{
+		setMinimumSize(480, 200);
+		setAutoFillBackground(true);
+		QPalette palette;
+		palette.setColor(QPalette::Window, Qt::white);
+		setPalette(palette);
+	}
+	
+	void setFactor(double value)
+	{
+		factor = value;
+		update();
+	}
+	
+protected:
+	void paintEvent(QPaintEvent*) override
+	{
+		if (profile.samples.size() < 2 || !(profile.length > 0.0) || std::isnan(profile.minimum))
+			return;
+		QPainter painter(this);
+		painter.setRenderHint(QPainter::Antialiasing);
+		auto const margin = 40.0;
+		auto const area = QRectF(rect()).adjusted(margin, 10.0, -10.0, -margin);
+		auto const range = std::max(profile.maximum - profile.minimum, 1.0);
+		// Metres per pixel along; the vertical scale exaggerates by the factor, at most what fits.
+		auto const scale_x = area.width() / profile.length;
+		auto const scale_y = std::min(scale_x * factor, area.height() / range);
+		auto const base = profile.minimum;
+		auto const point = [&](const ProfileSample& s) {
+			return QPointF(area.left() + s.distance * scale_x, area.bottom() - (s.height - base) * scale_y);
+		};
+		painter.setPen(QPen(Qt::gray, 0));
+		painter.drawLine(area.bottomLeft(), area.bottomRight());
+		painter.drawLine(area.bottomLeft(), QPointF(area.left(), area.top()));
+		painter.setPen(Qt::black);
+		painter.drawText(QRectF(0.0, area.bottom() - 10.0, margin - 4.0, 20.0), Qt::AlignRight | Qt::AlignVCenter, QString::number(base, 'f', 0));
+		painter.drawText(QRectF(area.right() - 80.0, area.bottom() + 4.0, 80.0, 20.0), Qt::AlignRight, QString::number(profile.length, 'f', 0) + QStringLiteral(" m"));
+		QPainterPath line;
+		auto open = false;
+		for (auto const& s : profile.samples)
+		{
+			if (std::isnan(s.height))
+			{
+				open = false;
+				continue;
+			}
+			if (open)
+				line.lineTo(point(s));
+			else
+				line.moveTo(point(s));
+			open = true;
+		}
+		painter.setPen(QPen(QColor(153, 102, 51), 2.0));
+		painter.drawPath(line);
+	}
+	
+private:
+	const Profile& profile;
+	double factor = 5.0;
+};
+
+}  // namespace
+
+
+
+ProfileDialog::ProfileDialog(const Profile& profile, QWidget* parent)
+: QDialog(parent)
+, profile(profile)
+{
+	// the design notes, "Profile".
+	setWindowTitle(tr("Profile"));
+	auto* chart_widget = new ProfileChart(this->profile, this);
+	chart = chart_widget;
+	auto* factor_edit = new QDoubleSpinBox();
+	factor_edit->setDecimals(1);
+	factor_edit->setRange(1.0, 20.0);
+	factor_edit->setValue(5.0);
+	connect(factor_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [chart_widget](double value) { chart_widget->setFactor(value); });
+	auto const metres = [](double value) { return std::isnan(value) ? QStringLiteral("-") : QString::number(value, 'f', 1) + QStringLiteral(" m"); };
+	auto* figures = new QLabel(tr("Length %1, start %2, end %3, lowest %4, highest %5, ascent %6, descent %7")
+	                           .arg(metres(profile.length), metres(profile.start), metres(profile.end), metres(profile.minimum),
+	                                metres(profile.maximum), metres(profile.ascent), metres(profile.descent)));
+	figures->setWordWrap(true);
+	auto* csv_button = new QPushButton(tr("Save CSV..."));
+	auto* image_button = new QPushButton(tr("Save image..."));
+	connect(csv_button, &QPushButton::clicked, this, &ProfileDialog::saveCsv);
+	connect(image_button, &QPushButton::clicked, this, &ProfileDialog::saveImage);
+	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close);
+	connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+	
+	auto* row = new QHBoxLayout();
+	row->addWidget(new QLabel(tr("Vertical factor:")));
+	row->addWidget(factor_edit);
+	row->addStretch(1);
+	row->addWidget(csv_button);
+	row->addWidget(image_button);
+	auto* layout = new QVBoxLayout(this);
+	layout->addWidget(chart, 1);
+	layout->addWidget(figures);
+	layout->addLayout(row);
+	layout->addWidget(buttons);
+}
+
+ProfileDialog::~ProfileDialog() = default;
+
+void ProfileDialog::saveCsv()
+{
+	auto const path = QFileDialog::getSaveFileName(this, tr("Save CSV"), {}, tr("CSV") + QLatin1String(" (*.csv)"));
+	if (path.isEmpty())
+		return;
+	QString error;
+	if (!writeProfileCsv(profile, path, &error))
+		QMessageBox::warning(this, tr("Save CSV"), error);
+}
+
+void ProfileDialog::saveImage()
+{
+	auto const path = QFileDialog::getSaveFileName(this, tr("Save image"), {}, tr("PNG") + QLatin1String(" (*.png)"));
+	if (path.isEmpty())
+		return;
+	if (!chart->grab().save(path, "PNG"))
+		QMessageBox::warning(this, tr("Save image"), tr("Cannot write %1").arg(path));
+}
 
 
 }  // namespace OpenOrienteering

@@ -57,6 +57,7 @@
 #include "core/extents.h"
 #include "elevation/elevation_model.h"
 #include "elevation/elevation_set.h"
+#include "elevation/profile.h"
 #include "elevation/raster_products.h"
 #include "elevation/landforms.h"
 #include "elevation/point_cloud.h"
@@ -1434,6 +1435,38 @@ void ToolsTest::demVegetationHeight()
 	QVERIFY(canopy);
 	QCOMPARE(int(canopy->value(5, 5)), qRed(vegetationHeightRaster(*flat(20.0), defaultHeightClasses()).image.pixel(5, 5)));
 	QVERIFY(qRed(four) != qRed(vegetationHeightRaster(*flat(20.0), defaultHeightClasses()).image.pixel(5, 5)));
+}
+
+
+void ToolsTest::demProfile()
+{
+	// the design notes, "Profile", Accept (5).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("dem-profile"));
+	auto const& georef = map.map->getGeoreferencing();
+	auto const a = georef.toProjectedCoords(MapCoordF(10.0, 50.0));
+	auto const b = georef.toProjectedCoords(MapCoordF(30.0, 50.0));
+	auto const left = std::floor(std::min(a.x(), b.x())) - 50.0;
+	auto const top = std::ceil(std::max(a.y(), b.y())) + 50.0;
+	auto const width = int(std::abs(b.x() - a.x())) + 100;
+	auto const height = int(std::abs(b.y() - a.y())) + 100;
+	map.map->elevationSet().setModel(ElevationSet::Terrain, std::make_unique<ElevationModel>(width, height, QPointF(left, top), 1.0,
+	                                 std::vector<float>(std::size_t(width) * std::size_t(height), 100.0f)), QStringLiteral("flat.asc"));
+	QString error;
+	map.map->clearObjectSelection(false);
+	QVERIFY(editor.editor->elevationProfileOfSelection(&error).samples.empty());
+	QVERIFY(!error.isEmpty());
+	auto* line = new PathObject(map.line_symbol, MapCoordVector{ MapCoord(10.0, 50.0), MapCoord(30.0, 50.0) });
+	map.map->addObject(line);
+	map.map->clearObjectSelection(false);
+	map.map->addObjectToSelection(line, true);
+	error.clear();
+	auto const profile = editor.editor->elevationProfileOfSelection(&error);
+	QVERIFY2(!profile.samples.empty(), qPrintable(error));
+	QVERIFY2(std::abs(profile.length - std::hypot(b.x() - a.x(), b.y() - a.y())) < 0.01, qPrintable(QString::number(profile.length)));
+	QCOMPARE(profile.minimum, 100.0);
+	QCOMPARE(profile.maximum, 100.0);
 }
 
 

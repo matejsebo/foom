@@ -92,6 +92,7 @@ class IssueModel;  // foom
 struct LegibilityParams;  // foom
 struct LandformParams;  // foom
 struct HypsometricParams;  // foom
+struct Profile;  // foom
 struct GriddingParams;  // foom
 struct PointCloudProducts;  // foom
 struct PointPair;  // foom
@@ -764,6 +765,10 @@ public slots:
 	void elevationSlopeClicked();
 	/** foom: Asks for the ramp, then writes and attaches a hypsometric map (dem-hypsometric). */
 	void elevationHypsometricClicked();
+	/** foom: Shows the profile of the selected line (dem-profile). */
+	void elevationProfileClicked();
+	/** foom: The profile of the terrain grid along the one selected line or area; no sample and a message otherwise. */
+	Profile elevationProfileOfSelection(QString* error);
 	/** foom: Writes and attaches the vegetation height raster of the map's grids (dem-vegetation-height). */
 	void elevationVegetationHeightClicked();
 	/** foom: Writes the vegetation height raster beside the map; returns its path, empty on failure. */
@@ -1366,6 +1371,7 @@ private:
 	QAction* dem_hillshade_act = {};  // foom
 	QAction* dem_slope_act = {};  // foom
 	QAction* dem_hypsometric_act = {};  // foom
+	QAction* dem_profile_act = {};  // foom
 	QAction* dem_vegetation_height_act = {};  // foom
 	QAction* dem_features_act = {};  // foom
 	QAction* dem_export_act = {};  // foom

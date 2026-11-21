@@ -66,6 +66,7 @@
 #include "elevation/elevation_model.h"
 #include "elevation/elevation_set.h"
 #include "elevation/landforms.h"
+#include "elevation/profile.h"
 #include "elevation/raster_products.h"
 #include "elevation/trees.h"
 #include "fileformats/file_format.h"
@@ -667,6 +668,61 @@ private slots:
 		QCOMPARE(product.image.pixel(2, 0), qRgb(0, 0, 0));
 		params.white_at_zero = false;
 		QVERIFY(hypsometricRaster(*zero, params).image.pixel(0, 0) != qRgb(255, 255, 255));
+	}
+
+	void profileTest()
+	{
+		// the design notes, "Profile", Accept (1) to (4).
+		auto const plane = makeGrid(200, 50, 0.0, 50.0, 1.0, [](double x, double) { return 100.0 + 0.1 * x; });
+		std::vector<QPointF> const line = { QPointF(20.5, 25.0), QPointF(120.5, 25.0) };
+		auto profile = elevationProfile(*plane, line);
+		QCOMPARE(int(profile.samples.size()), 101);
+		for (std::size_t k = 0; k < profile.samples.size(); ++k)
+		{
+			auto const& s = profile.samples[k];
+			QVERIFY(std::abs(s.distance - double(k)) < 1e-9);
+			QVERIFY(std::abs(s.height - (100.0 + 0.1 * s.projected.x())) < 0.001);
+		}
+		QVERIFY(std::abs(profile.length - 100.0) < 1e-9);
+		QVERIFY(std::abs(profile.start - 102.05) < 0.001);
+		QVERIFY(std::abs(profile.end - 112.05) < 0.001);
+		QCOMPARE(profile.minimum, profile.start);
+		QCOMPARE(profile.maximum, profile.end);
+		QVERIFY2(profile.ascent > 9.0 && profile.ascent <= 10.0 + 1e-6, qPrintable(QString::number(profile.ascent)));
+		QCOMPARE(profile.descent, 0.0);
+		QCOMPARE(int(elevationProfile(*plane, line, 2.0).samples.size()), 51);
+	
+		auto const ripples = [](double amplitude) {
+			return makeGrid(200, 50, 0.0, 50.0, 1.0, [amplitude](double x, double) { return 100.0 + amplitude * std::sin(x / 3.0); });
+		};
+		auto const small = elevationProfile(*ripples(0.4), line);
+		QCOMPARE(small.ascent, 0.0);
+		QCOMPARE(small.descent, 0.0);
+		auto const large = elevationProfile(*ripples(2.0), line);
+		QVERIFY(large.ascent > 0.0 && large.descent > 0.0);
+	
+		auto holes = makeGrid(200, 50, 0.0, 50.0, 1.0, [](double x, double) { return 100.0 + 0.1 * x; });
+		for (int row = 0; row < 50; ++row)
+		{
+			holes->setValue(70, row, std::numeric_limits<float>::quiet_NaN());
+			holes->setValue(71, row, std::numeric_limits<float>::quiet_NaN());
+		}
+		auto const gappy = elevationProfile(*holes, line);
+		auto const voids = std::count_if(gappy.samples.begin(), gappy.samples.end(), [](const ProfileSample& s) { return std::isnan(s.height); });
+		QVERIFY(voids >= 1);
+		QVERIFY(std::abs(gappy.start - 102.05) < 0.001);
+		QVERIFY(std::abs(gappy.end - 112.05) < 0.001);
+	
+		QTemporaryDir dir;
+		auto const csv = dir.filePath(QStringLiteral("profile.csv"));
+		QVERIFY(writeProfileCsv(gappy, csv));
+		QFile file(csv);
+		QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+		auto const lines = QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'), QString::SkipEmptyParts);
+		QCOMPARE(lines.front(), QStringLiteral("distance;easting;northing;height"));
+		QCOMPARE(lines.size(), int(gappy.samples.size()) + 1);
+		QVERIFY(std::any_of(lines.begin(), lines.end(), [](const QString& l) { return l.endsWith(QLatin1Char(';')); }));
+		QCOMPARE(lines.at(1), QStringLiteral("0.00;20.50;25.00;102.05"));
 	}
 
 	void productTemplate()

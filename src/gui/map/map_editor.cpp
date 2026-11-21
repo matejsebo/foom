@@ -123,6 +123,7 @@
 #include "elevation/elevation_set.h"  // foom
 #include "elevation/cliffs.h"  // foom
 #include "elevation/landforms.h"  // foom
+#include "elevation/profile.h"  // foom
 #include "elevation/trees.h"  // foom
 #include "elevation/point_cloud.h"  // foom
 #include "core/map_transform.h"  // foom
@@ -1178,6 +1179,7 @@ void MapEditorController::createActions()
 	dem_hillshade_act = newAction("dem-hillshade", tr("Hill shading..."), this, SLOT(elevationHillShadeClicked()));  // foom
 	dem_slope_act = newAction("dem-slope", tr("Slope gradient..."), this, SLOT(elevationSlopeClicked()));  // foom
 	dem_vegetation_height_act = newAction("dem-vegetation-height", tr("Vegetation height..."), this, SLOT(elevationVegetationHeightClicked()));  // foom
+	dem_profile_act = newAction("dem-profile", tr("Profile..."), this, SLOT(elevationProfileClicked()));  // foom
 	dem_hypsometric_act = newAction("dem-hypsometric", tr("Hypsometric map..."), this, SLOT(elevationHypsometricClicked()));  // foom
 	dem_features_act = newAction("dem-features", tr("Extract features..."), this, SLOT(elevationFeaturesClicked()));  // foom
 	dem_export_act = newAction("dem-export", tr("Export grid..."), this, SLOT(elevationExportClicked()));  // foom
@@ -1805,6 +1807,7 @@ void MapEditorController::createMenuAndToolbars()
 	elevation_menu->addAction(dem_slope_act);
 	elevation_menu->addAction(dem_hypsometric_act);
 	elevation_menu->addAction(dem_vegetation_height_act);
+	elevation_menu->addAction(dem_profile_act);
 	elevation_menu->addAction(dem_features_act);
 	
 	QMenu* courses_menu = window->menuBar()->addMenu(tr("&Courses"));  // foom: the design notes, "Menu placement"
@@ -8206,6 +8209,53 @@ void MapEditorController::elevationVegetationHeightClicked()
 		showTemplateWindow(true);
 	}
 	window->showStatusBarMessage(tr("Vegetation height written to %1").arg(path), 5000);
+}
+
+// foom: the design notes, "Profile".
+Profile MapEditorController::elevationProfileOfSelection(QString* error)
+{
+	auto const* model = map->elevationSet().model(ElevationSet::Terrain, map->getGeoreferencing().getProjectedCRSSpec());
+	if (!model)
+	{
+		if (error)
+			*error = tr("The map has no terrain grid.");
+		return {};
+	}
+	auto* object = map->getNumSelectedObjects() == 1 ? map->getFirstSelectedObject() : nullptr;
+	if (!object || object->getType() != Object::Path)
+	{
+		if (error)
+			*error = tr("Select one line or area.");
+		return {};
+	}
+	auto* path = object->asPath();
+	path->update();
+	if (path->parts().empty())
+	{
+		if (error)
+			*error = tr("Select one line or area.");
+		return {};
+	}
+	auto const& georef = map->getGeoreferencing();
+	std::vector<QPointF> line;
+	for (auto const& coord : path->parts().front().path_coords)
+		line.push_back(georef.toProjectedCoords(coord.pos));
+	return elevationProfile(*model, line);
+}
+
+void MapEditorController::elevationProfileClicked()
+{
+	if (!terrainModel(*map, window))
+		return;
+	QString error;
+	auto const profile = elevationProfileOfSelection(&error);
+	if (profile.samples.empty())
+	{
+		QMessageBox::warning(window, tr("Profile"), error);
+		return;
+	}
+	ProfileDialog dialog(profile, window);
+	dialog.exec();
 }
 
 // foom: the design notes, "Hypsometric map".
