@@ -68,6 +68,8 @@
 #include "core/ops/reshape.h"
 #include "core/ops/buildings.h"
 #include "core/ops/smooth.h"
+#include "core/ops/frame.h"
+#include "core/ops/stairway.h"
 #include "core/ops/to_curve.h"
 #include "core/ops/rectangle_box.h"
 #include "core/ops/topology.h"
@@ -161,6 +163,8 @@ private slots:
 	void buildingsTest();
 	void smoothTest();
 	void toCurveTest();
+	void stairwayTest();
+	void frameTest();
 	void rectangleBoxTest();
 };
 
@@ -2453,6 +2457,100 @@ void OpsTest::toCurveTest()
 	QVERIFY(result.consumed.empty());
 	result = ops::toCurve(map, { point }, defaults);
 	QVERIFY(!result.error.isEmpty());
+}
+
+
+void OpsTest::stairwayTest()
+{
+	// the design notes, "Stairway", Accept (1) to (3).
+	Map map;
+	auto* line = new LineSymbol();
+	map.addSymbol(line, 0);
+	auto* area = new AreaSymbol();
+	map.addSymbol(area, 1);
+	map.addObject(new PathObject(line, { MapCoord(50.0, 50.0), MapCoord(60.0, 50.0) }));
+	map.getPart(0)->getObject(0)->setGroup(1);
+	
+	ops::StairwayGeometry geometry;
+	geometry.first = MapCoordF(0.0, 0.0);
+	geometry.second = MapCoordF(10.0, 0.0);
+	geometry.last = MapCoordF(0.0, 4.0);
+	ops::StairwayParams params;
+	params.symbol = line;
+	params.tread_mm = 1.0;
+	params.group = 2;
+	auto result = ops::stairway(map, geometry, params);
+	QVERIFY2(result.error.isEmpty(), result.error.toLatin1());
+	QCOMPARE(result.out.size(), std::size_t(5));
+	QVERIFY(result.consumed.empty());
+	for (std::size_t k = 0; k < 5; ++k)
+	{
+		auto const* path = result.out[k]->asPath();
+		QCOMPARE(path->getSymbol(), line);
+		QCOMPARE(path->group(), 2);
+		QCOMPARE(path->getCoordinateCount(), MapCoordVector::size_type(2));
+		QVERIFY(path->getCoordinate(0).isPositionEqualTo(MapCoord(0.0, double(k))));
+		QVERIFY(path->getCoordinate(1).isPositionEqualTo(MapCoord(10.0, double(k))));
+	}
+	
+	params.tread_mm = 1.5;
+	result = ops::stairway(map, geometry, params);
+	QCOMPARE(result.out.size(), std::size_t(4));
+	for (std::size_t k = 0; k < 4; ++k)
+		QVERIFY(std::abs(result.out[k]->asPath()->getCoordinate(0).y() - 4.0 * double(k) / 3.0) < 0.001);
+	
+	params.tread_mm = 0.0;
+	QVERIFY(!ops::stairway(map, geometry, params).error.isEmpty());
+	params.tread_mm = 1.0;
+	params.symbol = area;
+	QVERIFY(!ops::stairway(map, geometry, params).error.isEmpty());
+	params.symbol = line;
+	geometry.second = geometry.first;
+	QVERIFY(!ops::stairway(map, geometry, params).error.isEmpty());
+}
+
+void OpsTest::frameTest()
+{
+	// the design notes, "Frame around the map", Accept (1) and (2).
+	Map map;
+	auto* black = new MapColor(QStringLiteral("Black"), 0);
+	map.addColor(black, 0);
+	auto* line = new LineSymbol();
+	line->setColor(black);
+	line->setLineWidth(0.2);
+	map.addSymbol(line, 0);
+	auto* point = new PointSymbol();
+	map.addSymbol(point, 1);
+	ops::FrameParams params;
+	params.symbol = line;
+	params.margin_mm = 2.0;
+	QVERIFY(!ops::frameAroundMap(map, params).error.isEmpty());
+	
+	map.addObject(new PathObject(line, { MapCoord(0.0, 0.0), MapCoord(20.0, 10.0) }));
+	map.updateAllObjects();
+	auto const extent = map.calculateExtent(false, false);
+	auto result = ops::frameAroundMap(map, params);
+	QVERIFY2(result.error.isEmpty(), result.error.toLatin1());
+	QCOMPARE(result.out.size(), std::size_t(1));
+	auto const* frame = result.out.front()->asPath();
+	QCOMPARE(frame->getSymbol(), line);
+	QVERIFY(frame->parts().front().isClosed());
+	auto const grown = extent.adjusted(-2.0, -2.0, 2.0, 2.0);
+	auto const near = [](const MapCoordF& a, const QPointF& b) { return std::abs(a.x() - b.x()) < 0.001 && std::abs(a.y() - b.y()) < 0.001; };
+	QVERIFY(near(MapCoordF(frame->getCoordinate(0)), grown.topLeft()));
+	QVERIFY(near(MapCoordF(frame->getCoordinate(1)), grown.topRight()));
+	QVERIFY(near(MapCoordF(frame->getCoordinate(2)), grown.bottomRight()));
+	QVERIFY(near(MapCoordF(frame->getCoordinate(3)), grown.bottomLeft()));
+	
+	params.margin_mm = 0.0;
+	result = ops::frameAroundMap(map, params);
+	QVERIFY(near(MapCoordF(result.out.front()->asPath()->getCoordinate(0)), extent.topLeft()));
+	
+	params.symbol = point;
+	QVERIFY(!ops::frameAroundMap(map, params).error.isEmpty());
+	params.symbol = line;
+	params.margin_mm = -1.0;
+	QVERIFY(!ops::frameAroundMap(map, params).error.isEmpty());
 }
 
 void OpsTest::rectangleBoxTest()

@@ -267,6 +267,8 @@
 #include "tools/draw_point_gps_tool.h"
 #include "tools/draw_rectangle_tool.h"
 #include "tools/rectangle_box_tool.h"
+#include "tools/stairway_tool.h"  // foom
+#include "core/ops/frame.h"  // foom
 #include "tools/draw_text_tool.h"
 #include "tools/edit_point_tool.h"
 #include "tools/edit_line_tool.h"
@@ -1275,6 +1277,9 @@ void MapEditorController::createActions()
 	draw_circle_act = newToolAction("drawcircle", tr("Draw circles and ellipses"), this, SLOT(drawCircleClicked()), "draw-circle.png", QString{}, "toolbars.html#tool_draw_circle");
 	draw_rectangle_act = newToolAction("drawrectangle", tr("Draw rectangles"), this, SLOT(drawRectangleClicked()), "draw-rectangle.png", QString{}, "toolbars.html#tool_draw_rectangle");
 	draw_rectangle_box_act = newToolAction("draw-rectangle-box", tr("Rectangle box..."), this, SLOT(drawRectangleBoxClicked()), "draw-rectangle.png");  // foom
+	draw_stairway_act = newToolAction("draw-stairway", tr("Stairway..."), this, SLOT(drawStairwayClicked()), "draw-rectangle.png");  // foom
+	draw_rectangle_open_act = newCheckAction("draw-rectangle-open", tr("Leave rectangles open"), nullptr, nullptr);  // foom
+	draw_frame_act = newAction("draw-frame", tr("Frame around map..."), this, SLOT(drawFrameClicked()));  // foom
 	draw_freehand_act = newToolAction("drawfreehand", tr("Draw free-handedly"), this, SLOT(drawFreehandClicked()), "draw-freehand.png", QString{}, "toolbars.html#tool_draw_freehand"); // TODO: documentation
 	draw_fill_act = newToolAction("drawfill", tr("Fill bounded areas"), this, SLOT(drawFillClicked()), "tool-fill.png", QString{}, "toolbars.html#tool_draw_fill"); // TODO: documentation
 	draw_text_act = newToolAction("drawtext", tr("Write text"), this, SLOT(drawTextClicked()), "draw-text.png", QString{}, "toolbars.html#tool_draw_text");
@@ -1715,6 +1720,9 @@ void MapEditorController::createMenuAndToolbars()
 	tools_menu->addAction(draw_circle_act);
 	tools_menu->addAction(draw_rectangle_act);
 	tools_menu->addAction(draw_rectangle_box_act);  // foom
+	tools_menu->addAction(draw_stairway_act);  // foom
+	tools_menu->addAction(draw_rectangle_open_act);  // foom
+	tools_menu->addAction(draw_frame_act);  // foom
 	tools_menu->addAction(draw_freehand_act);
 	tools_menu->addAction(draw_fill_act);
 	tools_menu->addAction(draw_text_act);
@@ -3376,6 +3384,8 @@ void MapEditorController::updateSymbolDependentActions()
 	draw_rectangle_act->setEnabled(draw_path_act->isEnabled());
 	draw_rectangle_act->setStatusTip(tr("Draw rectangles.") + (draw_rectangle_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a line, area or combined symbol to be able to use this tool."))));
 	draw_rectangle_box_act->setEnabled(draw_rectangle_act->isEnabled());  // foom
+	draw_stairway_act->setEnabled(draw_rectangle_act->isEnabled() && (symbol->getContainedTypes() & Symbol::Line));  // foom
+	draw_frame_act->setEnabled(draw_rectangle_act->isEnabled());  // foom
 	draw_rectangle_box_act->setStatusTip(tr("Draw a frame with an optional numbered grid.") + (draw_rectangle_box_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a line, area or combined symbol to be able to use this tool."))));
 	draw_freehand_act->setEnabled(draw_path_act->isEnabled());
 	draw_freehand_act->setStatusTip(tr("Draw paths free-handedly.") + (draw_freehand_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a line, area or combined symbol to be able to use this tool."))));
@@ -3656,6 +3666,51 @@ void MapEditorController::drawRectangleBoxClicked()
 	RectangleBoxDialog dialog(map, window);
 	if (dialog.exec() == QDialog::Accepted)
 		drawRectangleBox(dialog.params());
+}
+
+// foom: the design notes, "Stairway"
+void MapEditorController::drawStairwayClicked()
+{
+	bool ok = false;
+	auto const tread = QInputDialog::getDouble(window, tr("Stairway"), tr("Tread depth (mm):"), stairway_tread_mm, 0.05, 20.0, 2, &ok);
+	if (ok)
+	{
+		stairway_tread_mm = tread;
+		drawStairway(tread);
+	}
+}
+
+// foom
+void MapEditorController::drawStairway(double tread_mm)
+{
+	setTool(new StairwayTool(this, draw_stairway_act, tread_mm));
+}
+
+// foom: the design notes, "Frame around the map"
+void MapEditorController::drawFrameClicked()
+{
+	bool ok = false;
+	auto const margin = QInputDialog::getDouble(window, tr("Frame around map"), tr("Make a frame around the entire map, at a margin of (mm):"), frame_margin_mm, 0.0, 100.0, 2, &ok);
+	if (ok)
+	{
+		frame_margin_mm = margin;
+		drawFrame(margin);
+	}
+}
+
+// foom
+void MapEditorController::drawFrame(double margin_mm)
+{
+	ops::FrameParams params;
+	params.symbol = activeSymbol();
+	params.margin_mm = margin_mm;
+	applyOpResult(ops::frameAroundMap(*map, params));
+}
+
+// foom: the design notes, "Open rectangles"
+bool MapEditorController::leavesRectanglesOpen() const
+{
+	return draw_rectangle_open_act && draw_rectangle_open_act->isChecked();
 }
 
 // foom

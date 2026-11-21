@@ -566,6 +566,16 @@ public slots:
 	void drawRectangleBoxClicked();
 	/** foom: Starts the rectangle box tool with the given parameters. */
 	void drawRectangleBox(const ops::RectangleBoxParams& params);
+	/** foom: Asks for the tread depth, then starts the stairway tool (draw-stairway). */
+	void drawStairwayClicked();
+	/** foom: Starts the stairway tool with the tread depth in mm. */
+	void drawStairway(double tread_mm);
+	/** foom: Asks for the margin, then draws the frame around the map (draw-frame). */
+	void drawFrameClicked();
+	/** foom: Draws a frame of the chosen symbol around the map with the margin in mm. */
+	void drawFrame(double margin_mm);
+	/** foom: Whether the rectangle tool leaves its rectangles open (draw-rectangle-open). */
+	bool leavesRectanglesOpen() const;
 	/** Activates the draw freehand tool. */
 	void drawFreehandClicked();
 	/** Activates the draw fill tool. */
@@ -1331,6 +1341,11 @@ private:
 	QAction* draw_circle_act = {};
 	QAction* draw_rectangle_act = {};
 	QAction* draw_rectangle_box_act = {};  // foom
+	QAction* draw_stairway_act = {};  // foom
+	QAction* draw_frame_act = {};  // foom
+	QAction* draw_rectangle_open_act = {};  // foom
+	double stairway_tread_mm = 0.5;  // foom: kept for the session
+	double frame_margin_mm = 0.0;  // foom: kept for the session
 	QAction* draw_freehand_act = {};
 	QAction* draw_fill_act = {};
 	QAction* draw_text_act = {};

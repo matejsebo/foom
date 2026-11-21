@@ -508,6 +508,15 @@ void DrawRectangleTool::finishDrawing()
 		preview_path->parts().front().setClosed(true, true);
 	}
 	
+	// foom: the design notes, "Open rectangles"
+	if (preview_path && editor->leavesRectanglesOpen() && preview_path->getSymbol()
+	    && !(preview_path->getSymbol()->getContainedTypes() & Symbol::Area)
+	    && preview_path->parts().front().isClosed())
+	{
+		preview_path->parts().front().setClosed(false);
+		preview_path->deleteCoordinate(preview_path->getCoordinateCount() - 1, false);
+	}
+	
 	angle_helper->setActive(false);
 	angles.clear();
 	setEditingInProgress(false);

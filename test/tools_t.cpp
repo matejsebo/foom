@@ -550,6 +550,121 @@ void ToolsTest::templateSeparationCommand()
 }
 
 
+void ToolsTest::stairwayTool()
+{
+	// the design notes, "Stairway", Accept (4).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* action = editor.editor->getAction("draw-stairway");
+	QVERIFY(action);
+	editor.editor->getSymbolWidget()->selectSingleSymbol(map.line_symbol);
+	QVERIFY(action->isEnabled());
+	auto const objects_before = map.map->getNumObjects();
+	editor.editor->drawStairway(1.0);
+	auto* widget = editor.map_widget;
+	auto const viewport = [widget](double x, double y) { return widget->mapToViewport(MapCoord(x, y)).toPoint(); };
+	auto const move = [widget](const QPoint& pos) {
+		QMouseEvent event(QEvent::MouseMove, pos, widget->mapToGlobal(pos), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+		QApplication::sendEvent(widget, &event);
+	};
+	QTest::mouseClick(widget, Qt::LeftButton, {}, viewport(0.0, 0.0));
+	move(viewport(10.0, 0.0));
+	QTest::mouseClick(widget, Qt::LeftButton, {}, viewport(10.0, 0.0));
+	move(viewport(10.0, 4.0));
+	QTest::mouseClick(widget, Qt::LeftButton, {}, viewport(10.0, 4.0));
+	QTest::keyClick(widget, Qt::Key_Return);
+	QCOMPARE(map.map->getNumObjects(), objects_before + 5);
+	QCOMPARE(map.map->getNumSelectedObjects(), 5);
+	auto group = 0;
+	for (auto const* object : map.map->selectedObjects())
+	{
+		QVERIFY(object->group() != 0);
+		if (group == 0)
+			group = object->group();
+		QCOMPARE(object->group(), group);
+	}
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(map.map->getNumObjects(), objects_before);
+	editor.editor->setTool(nullptr);
+}
+
+void ToolsTest::openRectangle()
+{
+	// the design notes, "Open rectangles", Accept.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* open = editor.editor->getAction("draw-rectangle-open");
+	QVERIFY(open);
+	QVERIFY(open->isCheckable());
+	QVERIFY(!open->isChecked());
+	auto* widget = editor.map_widget;
+	auto const viewport = [widget](double x, double y) { return widget->mapToViewport(MapCoord(x, y)).toPoint(); };
+	auto const move = [widget](const QPoint& pos) {
+		QMouseEvent event(QEvent::MouseMove, pos, widget->mapToGlobal(pos), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+		QApplication::sendEvent(widget, &event);
+	};
+	auto const drawRectangle = [&]() -> const PathObject* {
+		auto const objects_before = map.map->getCurrentPart()->getNumObjects();
+		editor.editor->drawRectangleClicked();
+		QTest::mouseClick(widget, Qt::LeftButton, {}, viewport(0.0, 0.0));
+		move(viewport(10.0, 0.0));
+		QTest::mouseClick(widget, Qt::LeftButton, {}, viewport(10.0, 0.0));
+		move(viewport(10.0, 5.0));
+		QTest::mouseClick(widget, Qt::LeftButton, {}, viewport(10.0, 5.0));
+		QTest::keyClick(widget, Qt::Key_Return);
+		auto const* part = map.map->getCurrentPart();
+		if (part->getNumObjects() != objects_before + 1)
+			return nullptr;
+		auto const* object = part->getObject(part->getNumObjects() - 1);
+		editor.editor->setTool(nullptr);
+		return object->getType() == Object::Path ? object->asPath() : nullptr;
+	};
+	
+	editor.editor->getSymbolWidget()->selectSingleSymbol(map.line_symbol);
+	open->trigger();
+	QVERIFY(open->isChecked());
+	auto const* path = drawRectangle();
+	QVERIFY(path);
+	QVERIFY(!path->parts().front().isClosed());
+	QCOMPARE(path->getCoordinateCount(), MapCoordVector::size_type(4));
+	// The clicks lie on whole pixels.
+	auto const near = [path](int i, double x, double y) { return std::abs(path->getCoordinate(i).x() - x) < 0.2 && std::abs(path->getCoordinate(i).y() - y) < 0.2; };
+	QVERIFY(near(0, 0.0, 0.0));
+	QVERIFY(near(1, 10.0, 0.0));
+	QVERIFY(near(2, 10.0, 5.0));
+	QVERIFY(near(3, 0.0, 5.0));
+	
+	open->trigger();
+	path = drawRectangle();
+	QVERIFY(path);
+	QVERIFY(path->parts().front().isClosed());
+	
+	open->trigger();
+	auto* area = new AreaSymbol();
+	area->setColor(map.map->getColor(0));
+	map.map->addSymbol(area, map.map->getNumSymbols());
+	editor.editor->getSymbolWidget()->selectSingleSymbol(area);
+	path = drawRectangle();
+	QVERIFY(path);
+	QVERIFY(path->parts().front().isClosed());
+}
+
+void ToolsTest::frameCommand()
+{
+	// the design notes, "Frame around the map", Accept (3).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("draw-frame"));
+	editor.editor->getSymbolWidget()->selectSingleSymbol(map.line_symbol);
+	auto const objects_before = map.map->getNumObjects();
+	editor.editor->drawFrame(1.0);
+	QCOMPARE(map.map->getNumObjects(), objects_before + 1);
+	QCOMPARE(map.map->getNumSelectedObjects(), 1);
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(map.map->getNumObjects(), objects_before);
+}
+
+
 void ToolsTest::mirror()
 {
 	// the design notes, "Mirror", editor paragraph.

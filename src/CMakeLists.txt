@@ -163,6 +163,8 @@ set(Mapper_Common_SRCS
   core/ops/topology.cpp
   core/ops/buildings.cpp
   core/ops/smooth.cpp
+  core/ops/stairway.cpp
+  core/ops/frame.cpp
   core/ops/to_curve.cpp
   core/ops/import_points.cpp
   core/ops/rectangle_box.cpp
@@ -356,6 +358,7 @@ set(Mapper_Common_SRCS
   tools/lasso_tool.cpp
   tools/sketch_tools.cpp
   tools/rectangle_box_tool.cpp
+  tools/stairway_tool.cpp
   tools/move_parallel_tool.cpp
   tools/reshape_tool.cpp
   tools/cutout_operation.cpp

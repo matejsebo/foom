@@ -57,6 +57,15 @@ private slots:
 	/** foom: Tests giving a template a spot colour plate. */
 	void templateSeparationCommand();
 	
+	/** foom: Tests the stairway tool. */
+	void stairwayTool();
+	
+	/** foom: Tests open rectangles. */
+	void openRectangle();
+	
+	/** foom: Tests the frame around the map. */
+	void frameCommand();
+	
 	/** foom: Tests the mirror action. */
 	void mirror();
 	
