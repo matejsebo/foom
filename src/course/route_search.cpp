@@ -365,6 +365,46 @@ bool RouteSearch::usesHeights() const
 }
 
 
+RouteResult RouteSearch::followLine(const MapCoordF& from, const MapCoordF& to) const
+{
+	RouteResult result;
+	result.found = true;
+	result.points = { from, to };
+	result.length_m = std::hypot(to.x() - from.x(), to.y() - from.y()) * d->pixel_m / d->terrain.pixel;
+	auto const flat = straightTime(from, to);
+	result.time_s = flat;
+	if (!d->use_heights || result.length_m <= 0.0)
+		return result;
+	// the design notes.
+	auto const pieces = std::max(1, int(std::ceil(result.length_m / d->pixel_m)));
+	auto const piece_m = result.length_m / pieces;
+	auto const ux = (to.x() - from.x()) / std::hypot(to.x() - from.x(), to.y() - from.y());
+	auto const uy = (to.y() - from.y()) / std::hypot(to.x() - from.x(), to.y() - from.y());
+	auto sloped = 0.0;
+	auto climb = 0.0;
+	for (int i = 0; i < pieces; ++i)
+	{
+		auto const a = MapCoordF(from.x() + (to.x() - from.x()) * i / pieces, from.y() + (to.y() - from.y()) * i / pieces);
+		auto const b = MapCoordF(from.x() + (to.x() - from.x()) * (i + 1) / pieces, from.y() + (to.y() - from.y()) * (i + 1) / pieces);
+		auto const piece_time = straightTime(a, b);
+		auto const rise = d->heights(b) - d->heights(a);
+		if (std::isnan(rise))
+		{
+			sloped += piece_time;
+			continue;
+		}
+		if (rise > 0.0)
+			climb += rise;
+		auto const gradient = rise / piece_m;
+		sloped += piece_time * edgeSlopeFactor(gradient * ux, gradient * uy, ux, uy, 4 * d->pixel_m, d->cell_m);
+	}
+	auto const correction = std::max(0.0, std::min(1.0, d->settings.climb_factor));
+	result.time_s = flat + correction * (sloped - flat);
+	result.climb_m = climb;
+	return result;
+}
+
+
 void RouteSearch::setGridCell(double cell_m)
 {
 	d->cell_m = cell_m > 0.0 ? cell_m : 0.0;

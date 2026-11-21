@@ -132,6 +132,13 @@ public:
 	/** The time of the straight line between two places as if nothing were impassable, in s: what a course costs without routes. */
 	double straightTime(const MapCoordF& from, const MapCoordF& to) const;
 	
+	/**
+	 * Along a straight piece of a marked route: its length, its time, which
+	 * with heights is the flat time plus the correction of the climb times
+	 * what the slope adds, and its climb.
+	 */
+	RouteResult followLine(const MapCoordF& from, const MapCoordF& to) const;
+	
 private:
 	struct Data;
 	Data* d;

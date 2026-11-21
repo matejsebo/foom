@@ -112,6 +112,7 @@ private slots:
 	void roadTest();
 	void slopeTest();
 	void sideSlopeTest();
+	void followLineTest();
 	void edgeSlopeTest();
 };
 
@@ -378,6 +379,50 @@ void RouteSearchTest::edgeSlopeTest()
 		auto const new_time = fine.fastest(ends.first, ends.second).time_s;
 		QVERIFY2(std::abs(new_time / old_time - 1.0) < 0.01, qPrintable(QStringLiteral("%1 %2").arg(old_time).arg(new_time)));
 	}
+}
+
+
+/// Accept (1) and (2) of the climb along a marked route
+void RouteSearchTest::followLineTest()
+{
+	Map map;
+	map.setScaleDenominator(10000);
+	auto* open = addSymbol<AreaSymbol>(map, 401);
+	addArea(map, open, fieldArea());
+	auto const terrain = buildRouteTerrain(map, RouteSettings{}, fieldArea());
+	auto const flat = 160.0 * 0.2 / 0.86;
+	// A plane which rises to the east by 1 m in 10 m; 1 mm of the map is 10 m.
+	auto const plane = [](const MapCoordF& place) { return place.x() * 10.0 * 0.1; };
+	
+	for (auto const factor : { 1.0, 0.5, 0.0 })
+	{
+		RouteSettings settings;
+		settings.climb_factor = factor;
+		RouteSearch search(terrain, settings, 10000);
+		search.setHeights(plane);
+		auto const line = search.followLine(MapCoordF(2.0, 5.0), MapCoordF(18.0, 5.0));
+		auto const expected = flat * (1.0 + factor * (slopeFactor(0.1) - 1.0));
+		QVERIFY2(std::abs(line.time_s / expected - 1.0) < 0.03, qPrintable(QStringLiteral("%1: %2 / %3").arg(factor).arg(line.time_s).arg(expected)));
+		QVERIFY2(std::abs(line.climb_m - 16.0) < 0.5, qPrintable(QString::number(line.climb_m)));
+		QVERIFY(std::abs(line.length_m - 160.0) < 0.01);
+	}
+	
+	// Without heights: the flat time, no climb.
+	RouteSearch without(terrain, RouteSettings{}, 10000);
+	auto const line = without.followLine(MapCoordF(2.0, 5.0), MapCoordF(18.0, 5.0));
+	QVERIFY2(std::abs(line.time_s / flat - 1.0) < 0.01, qPrintable(QString::number(line.time_s)));
+	QCOMPARE(line.climb_m, 0.0);
+	
+	// The correction does not touch the legs.
+	RouteSettings none;
+	none.climb_factor = 0.0;
+	RouteSearch uncorrected(terrain, none, 10000);
+	uncorrected.setHeights(plane);
+	RouteSearch corrected(terrain, RouteSettings{}, 10000);
+	corrected.setHeights(plane);
+	auto const a = uncorrected.fastest(MapCoordF(2.0, 5.0), MapCoordF(18.0, 5.0)).time_s;
+	auto const b = corrected.fastest(MapCoordF(2.0, 5.0), MapCoordF(18.0, 5.0)).time_s;
+	QVERIFY2(std::abs(a - b) < 1e-6, qPrintable(QStringLiteral("%1 %2").arg(a).arg(b)));
 }
 
 

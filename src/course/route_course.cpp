@@ -209,7 +209,11 @@ CourseRoutes routesOf(const Map& map, const CourseData& data, const QString& cou
 				for (auto const& polygon : polygons)
 				{
 					for (std::size_t p = 1; p < polygon.size(); ++p)
-						leg.route.time_s += search->straightTime(polygon[p - 1], polygon[p]);
+					{
+						auto const piece = search->followLine(polygon[p - 1], polygon[p]);
+						leg.route.time_s += piece.time_s;
+						leg.route.climb_m += piece.climb_m;
+					}
 				}
 				leg.route.points = path;
 				if (store && leg.route.found)
