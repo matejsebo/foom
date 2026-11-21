@@ -113,7 +113,7 @@ RouteSearch& RouteTool::routeSearch()
 		auto const settings = map()->courseData().route;
 		terrain = std::make_unique<RouteTerrain>(buildRouteTerrain(*map(), settings));
 		search = std::make_unique<RouteSearch>(*terrain, settings, map()->getScaleDenominator());
-		search->setHeights(routeHeightsOf(*map()));
+		setRouteHeights(*search, *map());
 	}
 	return *search;
 }

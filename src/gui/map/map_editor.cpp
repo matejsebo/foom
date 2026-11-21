@@ -5200,7 +5200,7 @@ void MapEditorController::analyseCourseRoutesClicked()
 	auto const settings = map->courseData().route;
 	auto const terrain = buildRouteTerrain(*map, settings);
 	RouteSearch search(terrain, settings, map->getScaleDenominator());
-	search.setHeights(routeHeightsOf(*map));
+	setRouteHeights(search, *map);
 	// Every leg of the course is searched anew.
 	StoredRoutes fresh;
 	auto routes = analyseCourseRoutes(*map, course_widget->previewData(), course, course_widget->previewPart(), search, fresh);

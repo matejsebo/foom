@@ -349,7 +349,7 @@ AllCourseRoutes analyseAllRoutesOfMap(Map& map, StoredRoutes& store)
 	auto const settings = map.courseData().route;
 	auto const terrain = buildRouteTerrain(map, settings);
 	RouteSearch search(terrain, settings, map.getScaleDenominator());
-	search.setHeights(routeHeightsOf(map));
+	setRouteHeights(search, map);
 	return analyseAllRoutes(map, map.courseData(), search, store);
 }
 
@@ -467,6 +467,20 @@ RouteHeights routeHeightsOf(Map& map)
 	if (!model)
 		return {};
 	return [model, georeferencing](const MapCoordF& place) { return model->at(georeferencing->toProjectedCoords(place)); };
+}
+
+
+double routeGridCellOf(Map& map)
+{
+	auto const* model = map.elevationSet().model(ElevationSet::Terrain, map.getGeoreferencing().getProjectedCRSSpec());
+	return model ? model->cellSize() : 0.0;
+}
+
+
+void setRouteHeights(RouteSearch& search, Map& map)
+{
+	search.setHeights(routeHeightsOf(map));
+	search.setGridCell(routeGridCellOf(map));
 }
 
 

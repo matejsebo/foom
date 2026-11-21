@@ -112,6 +112,7 @@ private slots:
 	void roadTest();
 	void slopeTest();
 	void sideSlopeTest();
+	void edgeSlopeTest();
 };
 
 
@@ -332,6 +333,51 @@ void RouteSearchTest::sideSlopeTest()
 	search.setHeights([](const MapCoordF&) { return std::nan(""); });
 	route = search.fastest(MapCoordF(5.0, 1.0), MapCoordF(5.0, 9.0));
 	QVERIFY2(std::abs(route.time_s - 80.0 * 0.2 / 0.86) < 0.3, qPrintable(QString::number(route.time_s)));
+}
+
+
+/// Accept (1) to (3) of the slope of an edge
+void RouteSearchTest::edgeSlopeTest()
+{
+	auto const knight = std::hypot(2.0, 1.0);
+	QVERIFY(std::abs(edgeSlopeFactor(0.1, 0.0, 1.0, 0.0, 5.08, 10.0) - 1.676) < 0.002);
+	QVERIFY(std::abs(edgeSlopeFactor(0.1, 0.0, 2.0 / knight, 1.0 / knight, 4 * knight * 1.27, 10.0) - 1.446) < 0.002);
+	QVERIFY(std::abs(edgeSlopeFactor(0.1, 0.0, 0.0, -1.0, 5.08, 10.0) - 1.0) < 1e-9);
+	QVERIFY(std::abs(edgeSlopeFactor(0.1, 0.0, 1.0, 0.0, 5.08, 0.0) - slopeFactor(0.1)) < 1e-9);
+	QVERIFY(std::abs(edgeSlopeFactor(0.1, 0.0, 1.0, 0.0, 5.08, 1.0) - 1.516) < 0.002);
+	
+	Map map;
+	map.setScaleDenominator(10000);
+	auto* open = addSymbol<AreaSymbol>(map, 401);
+	addArea(map, open, fieldArea());
+	auto const terrain = buildRouteTerrain(map, RouteSettings{}, fieldArea());
+	auto const flat = 160.0 * 0.2 / 0.86;
+	// A plane which rises to the east by 1 m in 10 m; 1 mm of the map is 10 m.
+	auto const plane = [](const MapCoordF& place) { return place.x() * 10.0 * 0.1; };
+	
+	RouteSearch coarse(terrain, RouteSettings{}, 10000);
+	coarse.setHeights(plane);
+	coarse.setGridCell(10.0);
+	auto route = coarse.fastest(MapCoordF(2.0, 5.0), MapCoordF(18.0, 5.0));
+	QVERIFY(route.found);
+	auto const factor = route.time_s / flat;
+	QVERIFY2(factor > 1.60 && factor < 1.68 && factor > slopeFactor(0.1), qPrintable(QString::number(factor)));
+	QVERIFY2(std::abs(route.climb_m - 16.0) < 0.5, qPrintable(QString::number(route.climb_m)));
+	
+	// On a fine grid as without a size of the cells.
+	RouteSearch before(terrain, RouteSettings{}, 10000);
+	before.setHeights(plane);
+	RouteSearch fine(terrain, RouteSettings{}, 10000);
+	fine.setHeights(plane);
+	fine.setGridCell(1.0);
+	for (auto const& ends : { std::make_pair(MapCoordF(2.0, 5.0), MapCoordF(18.0, 5.0)),
+	                          std::make_pair(MapCoordF(18.0, 5.0), MapCoordF(2.0, 5.0)),
+	                          std::make_pair(MapCoordF(5.0, 1.0), MapCoordF(5.0, 9.0)) })
+	{
+		auto const old_time = before.fastest(ends.first, ends.second).time_s;
+		auto const new_time = fine.fastest(ends.first, ends.second).time_s;
+		QVERIFY2(std::abs(new_time / old_time - 1.0) < 0.01, qPrintable(QStringLiteral("%1 %2").arg(old_time).arg(new_time)));
+	}
 }
 
 

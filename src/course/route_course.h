@@ -177,6 +177,12 @@ AllCourseRoutes analyseAllRoutesOfMap(Map& map, StoredRoutes& store);
  */
 RouteHeights routeHeightsOf(Map& map);
 
+/** The size of the cells of the terrain model of a map, in its projected units; 0 without a model. */
+double routeGridCellOf(Map& map);
+
+/** Gives a search the heights of the map and the size of the cells of its model. */
+void setRouteHeights(RouteSearch& search, Map& map);
+
 /** A time as the route tables have it: minutes and seconds, "05:01". */
 QString formatRouteTime(double seconds);
 

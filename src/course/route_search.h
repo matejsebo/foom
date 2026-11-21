@@ -61,6 +61,16 @@ double sideSlopeFactor(double angle_to_fall_line);
  */
 double sideSlopeExtra(double slope, double angle_to_fall_line);
 
+/**
+ * The slope factor which an edge has on the average over
+ * its places: its heading (ux, uy), a unit vector to the east and to the
+ * south, its horizontal length in m, the gradient (gx to the east, gy to
+ * the south) and the size of the cells of the grid in m, whose nearest
+ * cell gives the height of a node. Without a cell size, slopeFactor() of
+ * the gradient along the heading.
+ */
+double edgeSlopeFactor(double gx, double gy, double ux, double uy, double edge_m, double cell_m);
+
 /** The height of a place of the map in m, or NaN where it is not known. */
 using RouteHeights = std::function<double(const MapCoordF&)>;
 
@@ -97,6 +107,13 @@ public:
 	void setHeights(RouteHeights heights);
 	/** Heights were given and the settings use them. */
 	bool usesHeights() const;
+	
+	/**
+	 * The size of the cells of the grid of the heights in m; 0 for none.
+	 * With a size the slope factor of a step is the expected one of an
+	 * edge of its heading, edgeSlopeFactor().
+	 */
+	void setGridCell(double cell_m);
 	
 	/**
 	 * The fastest route. A place on an impassable pixel is taken to the

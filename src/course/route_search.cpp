@@ -111,6 +111,38 @@ double sideSlopeExtra(double slope, double angle_to_fall_line)
 	return 5.0 * slope * slope * slope * sideSlopeFactor(angle_to_fall_line);
 }
 
+double edgeSlopeFactor(double gx, double gy, double ux, double uy, double edge_m, double cell_m)
+{
+	if (!(cell_m > 0.0) || !(edge_m > 0.0))
+		return slopeFactor(gx * ux + gy * uy);
+	// The lines between columns and between rows which the edge crosses: the whole number or one more.
+	auto const columns = edge_m * std::abs(ux) / cell_m;
+	auto const rows = edge_m * std::abs(uy) / cell_m;
+	auto const column_count = std::floor(columns);
+	auto const row_count = std::floor(rows);
+	auto const column_more = columns - column_count;
+	auto const row_more = rows - row_count;
+	// A crossing changes the height of the edge by a cell's step of the slope.
+	auto const column_step = cell_m * gx * (ux < 0.0 ? -1.0 : 1.0);
+	auto const row_step = cell_m * gy * (uy < 0.0 ? -1.0 : 1.0);
+	auto factor = 0.0;
+	for (int c = 0; c < 2; ++c)
+	{
+		auto const column_weight = c == 0 ? 1.0 - column_more : column_more;
+		if (column_weight <= 0.0)
+			continue;
+		for (int r = 0; r < 2; ++r)
+		{
+			auto const row_weight = r == 0 ? 1.0 - row_more : row_more;
+			if (row_weight <= 0.0)
+				continue;
+			auto const rise = (column_count + c) * column_step + (row_count + r) * row_step;
+			factor += column_weight * row_weight * slopeFactor(rise / edge_m);
+		}
+	}
+	return factor;
+}
+
 
 
 struct RouteSearch::Data
@@ -123,6 +155,8 @@ struct RouteSearch::Data
 	double pace;
 	RouteHeights heights;
 	bool use_heights = false;
+	/** The size of the cells of the grid of the heights in m; 0 for none. */
+	double cell_m = 0.0;
 	
 	std::vector<float> cost;
 	std::vector<qint32> parent;
@@ -249,8 +283,17 @@ struct RouteSearch::Data
 		{
 			double here;
 			double there;
-			if (heightOf(x, y, here) && heightOf(nx, ny, there))
+			double ax, ay, bx, by;
+			if (cell_m > 0.0 && gradientOf(x, y, ax, ay) && gradientOf(nx, ny, bx, by))
+			{
+				// the design notes.
+				auto const norm = std::hypot(double(step.dx), double(step.dy));
+				time *= edgeSlopeFactor((ax + bx) / 2, (ay + by) / 2, step.dx / norm, step.dy / norm, 4 * step.length * pixel_m, cell_m);
+			}
+			else if (heightOf(x, y, here) && heightOf(nx, ny, there))
+			{
 				time *= slopeFactor((there - here) / (step.length * pixel_m));
+			}
 			time += sideSlopeTime(x, y, nx, ny, step);
 		}
 		return time;
@@ -319,6 +362,12 @@ void RouteSearch::setHeights(RouteHeights heights)
 bool RouteSearch::usesHeights() const
 {
 	return d->use_heights;
+}
+
+
+void RouteSearch::setGridCell(double cell_m)
+{
+	d->cell_m = cell_m > 0.0 ? cell_m : 0.0;
 }
 
 
