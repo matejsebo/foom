@@ -24,9 +24,9 @@
 #include <Qt>
 #include <QCheckBox>
 #include <QColor>
-#include <QDialogButtonBox>
 #include <QFileDialog>
-#include <QGridLayout>
+#include <QGroupBox>
+#include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMessageBox>
@@ -38,11 +38,13 @@
 #include <QString>
 #include <QVBoxLayout>
 
+#include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/objects/object.h"
 #include "gui/main_window.h"
 #include "gui/map/map_editor.h"
 #include "gui/map/map_widget.h"
+#include "tools/point_pairs_window.h"
 #include "util/util.h"
 
 
@@ -52,17 +54,24 @@ RubbersheetTool::RubbersheetTool(MapEditorController* editor, QAction* tool_acti
 : AffineTransformTool(editor, tool_action)
 {
 	auto* map = editor->getMap();
-	// The perimeter: the selected closed path, or the objects' bounding box grown by 1 mm.
-	auto const* selected = map->getNumSelectedObjects() == 1 ? map->getFirstSelectedObject() : nullptr;
-	if (selected && selected->getType() == Object::Path && !selected->asPath()->parts().empty()
-	    && selected->asPath()->parts().front().isClosed())
+	// The perimeter: the closed parts of the selected paths, or the objects' bounding box grown by 1 mm.
+	for (auto const* selected : map->selectedObjects())
 	{
-		auto const& part = selected->asPath()->parts().front();
+		if (selected->getType() != Object::Path)
+			continue;
 		auto const& coords = selected->getRawCoordinateVector();
-		for (auto i = part.first_index; i < part.last_index; ++i)
-			perimeter.emplace_back(coords[i]);
+		for (auto const& part : selected->asPath()->parts())
+		{
+			if (!part.isClosed())
+				continue;
+			std::vector<MapCoordF> vertices;
+			for (auto i = part.first_index; i < part.last_index; ++i)
+				vertices.emplace_back(coords[i]);
+			if (vertices.size() >= 3)
+				perimeter.push_back(vertices);
+		}
 	}
-	else
+	if (perimeter.empty())
 	{
 		QRectF bounds;
 		map->applyOnAllObjects([&bounds](const Object* object) {
@@ -72,7 +81,7 @@ RubbersheetTool::RubbersheetTool(MapEditorController* editor, QAction* tool_acti
 		if (bounds.isValid() || bounds.width() > 0 || bounds.height() > 0)
 		{
 			bounds.adjust(-1, -1, 1, 1);
-			perimeter = { MapCoordF(bounds.topLeft()), MapCoordF(bounds.topRight()), MapCoordF(bounds.bottomRight()), MapCoordF(bounds.bottomLeft()) };
+			perimeter.push_back({ MapCoordF(bounds.topLeft()), MapCoordF(bounds.topRight()), MapCoordF(bounds.bottomRight()), MapCoordF(bounds.bottomLeft()) });
 		}
 	}
 }
@@ -80,50 +89,236 @@ RubbersheetTool::RubbersheetTool(MapEditorController* editor, QAction* tool_acti
 RubbersheetTool::~RubbersheetTool() = default;
 
 
+PointPairsWindow* RubbersheetTool::createWindow()
+{
+	// The dialog: perimeter, settings, points.
+	auto* window = new PointPairsWindow(*map(), tr("Rubbersheeting transformation"), tr("Rubbersheeting points"), false, editor->getWindow());
+
+	summary_label = new QLabel();
+	summary_label->setObjectName(QStringLiteral("perimeter_summary"));
+	define_button = new QPushButton(tr("Define"));
+	define_button->setObjectName(QStringLiteral("define"));
+	auto* load_button = new QPushButton(tr("Load..."));
+	load_button->setObjectName(QStringLiteral("load_perimeter"));
+	auto* remove_button = new QPushButton(tr("Remove"));
+	remove_button->setObjectName(QStringLiteral("remove_perimeter"));
+	auto* save_button = new QPushButton(tr("Save..."));
+	save_button->setObjectName(QStringLiteral("save_perimeter"));
+	auto* perimeter_layout = new QHBoxLayout();
+	perimeter_layout->addWidget(summary_label, 1);
+	for (auto* button : { define_button.data(), load_button, remove_button, save_button })
+	{
+		button->setAutoDefault(false);
+		perimeter_layout->addWidget(button);
+	}
+	auto* perimeter_box = new QGroupBox(tr("Rubbersheeting perimeter"));
+	perimeter_box->setLayout(perimeter_layout);
+	window->addSection(perimeter_box);
+
+	protected_check = new QCheckBox(tr("Transform objects with protected symbols"));
+	layout_check = new QCheckBox(tr("Transform layout objects"));
+	decrease_check = new QCheckBox(tr("Decrease rubbersheeting near the perimeter"));
+	auto* settings_layout = new QVBoxLayout();
+	settings_layout->addWidget(protected_check);
+	settings_layout->addWidget(layout_check);
+	settings_layout->addWidget(decrease_check);
+	auto* settings_box = new QGroupBox(tr("Rubbersheeting settings"));
+	settings_box->setLayout(settings_layout);
+	window->addSection(settings_box);
+
+	connect(define_button, &QPushButton::clicked, this, &RubbersheetTool::toggleDefine);
+	connect(remove_button, &QPushButton::clicked, this, &RubbersheetTool::removePerimeter);
+	connect(load_button, &QPushButton::clicked, this, [this, window]() {
+		auto const path = QFileDialog::getOpenFileName(window, tr("Load perimeter"), {}, PointPairsWindow::fileFilter());
+		QString error;
+		if (!path.isEmpty() && !loadPerimeter(path, &error))
+			QMessageBox::warning(window, window->windowTitle(), error);
+	});
+	connect(save_button, &QPushButton::clicked, this, [this, window]() {
+		auto const path = QFileDialog::getSaveFileName(window, tr("Save perimeter"), {}, PointPairsWindow::fileFilter());
+		QString error;
+		if (!path.isEmpty() && !savePerimeter(path, &error))
+			QMessageBox::warning(window, window->windowTitle(), error);
+	});
+	perimeterChanged();
+	return window;
+}
+
+
 RubbersheetParams RubbersheetTool::params() const
 {
 	RubbersheetParams params;
 	params.pairs = pairs();
 	params.perimeter = perimeter;
+	params.include_protected = protected_check && protected_check->isChecked();
+	params.include_layout = layout_check && layout_check->isChecked();
+	params.decrease_near_perimeter = decrease_check && decrease_check->isChecked();
 	return params;
+}
+
+
+void RubbersheetTool::toggleDefine()
+{
+	if (defining)
+	{
+		if (polygon.size() >= 3)
+			perimeter.push_back(polygon);
+		polygon.clear();
+		defining = false;
+	}
+	else
+	{
+		polygon.clear();
+		defining = true;
+	}
+	perimeterChanged();
+}
+
+void RubbersheetTool::removePerimeter()
+{
+	perimeter.clear();
+	polygon.clear();
+	defining = false;
+	perimeterChanged();
+}
+
+bool RubbersheetTool::loadPerimeter(const QString& path, QString* error)
+{
+	QString message;
+	auto loaded = readRubbersheetPerimeter(path, *map(), &message);
+	if (!message.isEmpty() || loaded.empty())
+	{
+		if (error)
+			*error = message.isEmpty() ? tr("The file holds no polygon.") : message;
+		return false;
+	}
+	perimeter = loaded;
+	polygon.clear();
+	defining = false;
+	perimeterChanged();
+	return true;
+}
+
+bool RubbersheetTool::savePerimeter(const QString& path, QString* error) const
+{
+	return writeRubbersheetPerimeter(path, *map(), perimeter, error);
+}
+
+void RubbersheetTool::perimeterChanged()
+{
+	if (summary_label)
+	{
+		std::size_t vertices = 0;
+		for (auto const& p : perimeter)
+			vertices += p.size();
+		QString text = tr("No perimeter.");
+		if (!perimeter.empty())
+		{
+			text = tr("%n polygon(s), ", nullptr, int(perimeter.size()));
+			text += tr("%n vertices.", nullptr, int(vertices));
+		}
+		summary_label->setText(text);
+	}
+	if (define_button)
+		define_button->setText(defining ? tr("Finish") : tr("Define"));
+	updateDirtyRect();
+	updateStatusText();
+}
+
+
+void RubbersheetTool::transformMap()
+{
+	if (defining)
+		toggleDefine();
+	WarpReport report;
+	if (!editor->rubbersheetMapWith(params(), &report))
+	{
+		setStatusBarText(tr("Rubbersheeting needs at least one used pair and a perimeter."));
+		return;
+	}
+	// The report, in metres on the ground (Proposed).
+	auto const metres = map()->getGeoreferencing().getScaleDenominator() / 1000.0;
+	editor->getWindow()->showStatusBarMessage(tr("Rubbersheeting: largest displacement %1 m, mean %2 m, %n coordinate(s) moved.", nullptr, report.count)
+	                                          .arg(report.largest * metres, 0, 'f', 2).arg(report.mean * metres, 0, 'f', 2), 10000);
+	finish();
 }
 
 
 void RubbersheetTool::updateStatusText()
 {
+	if (defining)
+	{
+		setStatusBarText(tr("<b>Click</b>: A vertex of the perimeter. <b>Enter</b>: Close the polygon. <b>Backspace</b>: Take back the last vertex. <b>Esc</b>: Drop the polygon."));
+		return;
+	}
 	AffineTransformTool::updateStatusText();
 	if (!pairs().empty())
-		setStatusBarText(tr("<b>Click</b>: A point of the map, then the same point on the reference. <b>Enter</b>: Rubbersheeting by %n pair(s)... <b>Backspace</b>: Take back the last point. <b>Esc</b>: Cancel.", nullptr, int(pairs().size())));
+		setStatusBarText(tr("<b>Click</b>: A point of the map, then the same point on the reference. <b>Enter</b>: Rubbersheeting by %n used pair(s). <b>Backspace</b>: Take back the last point. <b>Esc</b>: Cancel.", nullptr, usedPairs()));
+}
+
+void RubbersheetTool::clickRelease()
+{
+	if (!defining)
+	{
+		AffineTransformTool::clickRelease();
+		return;
+	}
+	polygon.push_back(click_pos_map);
+	perimeterChanged();
 }
 
 bool RubbersheetTool::keyPress(QKeyEvent* event)
 {
-	if (event->key() != Qt::Key_Return && event->key() != Qt::Key_Enter)
-		return AffineTransformTool::keyPress(event);
-	if (pairs().empty())
-		return true;
-	RubbersheetDialog dialog(*editor->getMap(), params(), editor->getWindow());
-	if (dialog.exec() != QDialog::Accepted)
-		return true;
-	if (editor->rubbersheetMapWith(dialog.params()))
-		deactivate();
-	else
-		setStatusBarText(tr("Rubbersheeting needs at least one pair and a perimeter."));
-	return true;
+	if (defining)
+	{
+		switch (event->key())
+		{
+		case Qt::Key_Return:
+		case Qt::Key_Enter:
+			toggleDefine();
+			return true;
+		case Qt::Key_Backspace:
+			if (!polygon.empty())
+				polygon.pop_back();
+			perimeterChanged();
+			return true;
+		case Qt::Key_Escape:
+			polygon.clear();
+			defining = false;
+			perimeterChanged();
+			return true;
+		}
+		return false;
+	}
+	return AffineTransformTool::keyPress(event);
 }
 
 void RubbersheetTool::drawImpl(QPainter* painter, MapWidget* widget)
 {
-	if (perimeter.size() >= 3)
+	if (!perimeter.empty() || !polygon.empty())
 	{
 		painter->save();
 		painter->setRenderHint(QPainter::Antialiasing);
 		painter->setBrush(Qt::NoBrush);
 		painter->setPen(QPen(QColor(0, 160, 220), 2.0 * scaleFactor(), Qt::DashLine));
-		QPolygonF outline;
-		for (auto const& c : perimeter)
-			outline << widget->mapToViewport(c);
-		painter->drawPolygon(outline);
+		for (auto const& vertices : perimeter)
+		{
+			QPolygonF outline;
+			for (auto const& c : vertices)
+				outline << widget->mapToViewport(c);
+			painter->drawPolygon(outline);
+		}
+		if (!polygon.empty())
+		{
+			painter->setPen(QPen(QColor(0, 160, 220), 2.0 * scaleFactor()));
+			QPolygonF outline;
+			for (auto const& c : polygon)
+				outline << widget->mapToViewport(c);
+			painter->drawPolyline(outline);
+			auto const radius = 3.0 * scaleFactor();  // scaleFactor() is unsigned
+			for (auto const& point : outline)
+				painter->drawEllipse(point, radius, radius);
+		}
 		painter->restore();
 	}
 	AffineTransformTool::drawImpl(painter, widget);
@@ -132,105 +327,14 @@ void RubbersheetTool::drawImpl(QPainter* painter, MapWidget* widget)
 int RubbersheetTool::updateDirtyRectImpl(QRectF& rect)
 {
 	auto border = AffineTransformTool::updateDirtyRectImpl(rect);
-	for (auto const& c : perimeter)
+	for (auto const& vertices : perimeter)
+	{
+		for (auto const& c : vertices)
+			rectIncludeSafe(rect, QPointF(c));
+	}
+	for (auto const& c : polygon)
 		rectIncludeSafe(rect, QPointF(c));
-	return perimeter.empty() ? border : std::max(border, int(8 * scaleFactor()));
-}
-
-
-
-RubbersheetDialog::RubbersheetDialog(const Map& map, const RubbersheetParams& params, QWidget* parent)
-: QDialog(parent)
-, map(map)
-, current(params)
-{
-	setWindowTitle(tr("Rubbersheeting"));
-	summary_label = new QLabel();
-	protected_check = new QCheckBox(tr("Transform objects with protected symbols"));
-	protected_check->setChecked(params.include_protected);
-	layout_check = new QCheckBox(tr("Transform layout objects"));
-	layout_check->setChecked(params.include_layout);
-	decrease_check = new QCheckBox(tr("Decrease rubbersheeting near the perimeter"));
-	decrease_check->setChecked(params.decrease_near_perimeter);
-	
-	auto* load_points = new QPushButton(tr("Load points..."));
-	auto* save_points = new QPushButton(tr("Save points..."));
-	auto* load_perimeter = new QPushButton(tr("Load perimeter..."));
-	auto* save_perimeter = new QPushButton(tr("Save perimeter..."));
-	QString const filter = tr("Text files") + QLatin1String(" (*.txt);;") + tr("All files") + QLatin1String(" (*.*)");
-	auto const fail = [this](const QString& error) {
-		QMessageBox::warning(this, tr("Rubbersheeting"), error);
-	};
-	connect(load_points, &QPushButton::clicked, this, [this, filter, fail]() {
-		auto const path = QFileDialog::getOpenFileName(this, tr("Load points"), {}, filter);
-		if (path.isEmpty())
-			return;
-		QString error;
-		auto pairs = readRubbersheetPoints(path, this->map, &error);
-		if (!error.isEmpty())
-			fail(error);
-		else
-			current.pairs = pairs;
-		updateSummary();
-	});
-	connect(save_points, &QPushButton::clicked, this, [this, filter, fail]() {
-		auto const path = QFileDialog::getSaveFileName(this, tr("Save points"), {}, filter);
-		QString error;
-		if (!path.isEmpty() && !writeRubbersheetPoints(path, this->map, current.pairs, &error))
-			fail(error);
-	});
-	connect(load_perimeter, &QPushButton::clicked, this, [this, filter, fail]() {
-		auto const path = QFileDialog::getOpenFileName(this, tr("Load perimeter"), {}, filter);
-		if (path.isEmpty())
-			return;
-		QString error;
-		auto perimeter = readRubbersheetPerimeter(path, this->map, &error);
-		if (!error.isEmpty())
-			fail(error);
-		else if (perimeter.size() >= 3)
-			current.perimeter = perimeter;
-		updateSummary();
-	});
-	connect(save_perimeter, &QPushButton::clicked, this, [this, filter, fail]() {
-		auto const path = QFileDialog::getSaveFileName(this, tr("Save perimeter"), {}, filter);
-		QString error;
-		if (!path.isEmpty() && !writeRubbersheetPerimeter(path, this->map, current.perimeter, &error))
-			fail(error);
-	});
-	
-	auto* files = new QGridLayout();
-	files->addWidget(load_points, 0, 0);
-	files->addWidget(save_points, 0, 1);
-	files->addWidget(load_perimeter, 1, 0);
-	files->addWidget(save_perimeter, 1, 1);
-	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
-	connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
-	connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-	auto* layout = new QVBoxLayout(this);
-	layout->addWidget(summary_label);
-	layout->addWidget(protected_check);
-	layout->addWidget(layout_check);
-	layout->addWidget(decrease_check);
-	layout->addLayout(files);
-	layout->addWidget(buttons);
-	updateSummary();
-}
-
-RubbersheetDialog::~RubbersheetDialog() = default;
-
-RubbersheetParams RubbersheetDialog::params() const
-{
-	auto params = current;
-	params.include_protected = protected_check->isChecked();
-	params.include_layout = layout_check->isChecked();
-	params.decrease_near_perimeter = decrease_check->isChecked();
-	return params;
-}
-
-void RubbersheetDialog::updateSummary()
-{
-	summary_label->setText(tr("%n pair(s); ", nullptr, int(current.pairs.size()))
-	                       + tr("a perimeter of %n vertices.", nullptr, int(current.perimeter.size())));
+	return perimeter.empty() && polygon.empty() ? border : std::max(border, int(8 * scaleFactor()));
 }
 
 

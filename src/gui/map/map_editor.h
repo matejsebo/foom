@@ -102,6 +102,8 @@ struct PointCloudProducts;  // foom
 struct PointPair;  // foom
 struct RubbersheetParams;  // foom
 struct LocalWarpParams;  // foom
+struct WarpReport;  // foom
+class LocalWarpDialog;  // foom
 class FindReplaceTextDialog;  // foom
 class MoveParallelDialog;  // foom
 class NumericEntryBar;  // foom
@@ -883,12 +885,12 @@ public slots:
 	void mapAffineClicked();
 	/** foom: Starts the rubbersheet tool (map-rubbersheet). */
 	void mapRubbersheetClicked();
-	/** foom: Asks for the radius, then starts the local transformation tool (map-local-warp). */
+	/** foom: Opens the local transformation dialog beside the map (map-local-warp). */
 	void mapLocalWarpClicked();
 	/** foom: Asks for the target system and changes the map to it (map-reproject). */
 	void mapReprojectClicked();
 	/** foom: Changes the map's coordinate reference system; see the design notes. */
-	bool reprojectMap(const QString& id, const QString& spec, const std::vector<QString>& params);
+	bool reprojectMap(const QString& id, const QString& spec, const std::vector<QString>& params, const QPointF* offset = nullptr);
 	/** foom: Asks for the declination and turns the map to magnetic north (map-rotate-magnetic). */
 	void mapRotateMagneticClicked();
 	/** foom: Turns the map to magnetic north; see the design notes. */
@@ -899,10 +901,12 @@ public slots:
 	bool centerMap(const QPointF& offset);
 	/** foom: Starts the local transformation tool with the settings, without asking. */
 	void startLocalWarp(const LocalWarpParams& settings);
+	/** foom: The local transformation dialog, while it exists. */
+	LocalWarpDialog* localWarpDialog() const;
 	/** foom: One drag of the local transformation; see the design notes. */
 	bool localWarpMapWith(const LocalWarpParams& params);
 	/** foom: Rubbersheets the map; see the design notes. */
-	bool rubbersheetMapWith(const RubbersheetParams& params);
+	bool rubbersheetMapWith(const RubbersheetParams& params, WarpReport* report = nullptr);
 	/** foom: Transforms the map by the fit to the point pairs, turning orientations; see the design notes. */
 	bool affineTransformMap(const std::vector<PointPair>& pairs);
 	/** foom: Moves the map in the world; see the design notes. */
@@ -1318,6 +1322,7 @@ private:
 	
 	QAction* template_window_act = {};
 	QPointer<QWidget> template_dock_widget;
+	QPointer<LocalWarpDialog> local_warp_dialog;  // foom
 	TemplateListWidget* template_list_widget;
 	QAction* open_template_act = {};
 	QAction* reopen_template_act = {};

@@ -39,6 +39,7 @@ namespace OpenOrienteering {
 
 class CRSSelector;
 class Georeferencing;
+struct GeomagneticField;
 class Map;
 
 
@@ -104,8 +105,19 @@ public:
 	QString crsSpec() const;
 	std::vector<QString> crsParameters() const;
 	
+	/// Chooses the target system, as the selector does, and proposes its offsets.
+	void setTargetCRS(const QString& id, const std::vector<QString>& parameters);
+	
+	/// The projected point of the target system which becomes the map's origin.
+	QPointF targetOffset() const;
+	
 private:
+	void proposeOffset();
+	
+	std::unique_ptr<Georeferencing> georef;
 	CRSSelector* selector;
+	QDoubleSpinBox* east_edit;
+	QDoubleSpinBox* north_edit;
 };
 
 
@@ -122,6 +134,9 @@ public:
 	double declination() const;
 	bool keepSelectedSymbols() const;
 	bool keepLayout() const;
+	
+	/// The declination, its uncertainty and its yearly change, in the usual form.
+	static QString declinationText(const GeomagneticField& field);
 	
 private:
 	void updateAngles();

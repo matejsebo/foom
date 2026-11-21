@@ -22,8 +22,9 @@
 
 #include <vector>
 
-#include <QDialog>
 #include <QObject>
+#include <QPointer>
+#include <QString>
 
 #include "core/map_coord.h"
 #include "core/map_transform.h"
@@ -34,21 +35,23 @@ class QCheckBox;
 class QKeyEvent;
 class QLabel;
 class QPainter;
+class QPushButton;
 class QRectF;
-class QWidget;
 
 namespace OpenOrienteering {
 
-class Map;
 class MapEditorController;
 class MapWidget;
+class PointPairsWindow;
 
 
 /**
- * The map-rubbersheet tool: pairs as for the affine transformation, within a perimeter
- * taken from the selected closed path or the objects' bounding box; Enter opens the options.
+ * The map-rubbersheet tool: pairs as for the affine transformation, within perimeter
+ * polygons taken from the selected closed paths, the objects' bounding box, a file,
+ * or drawn with Define; the window beside the map holds the options.
  *
- * See the design notes, "Rubbersheeting".
+ * See the design notes, "Rubbersheeting" and
+ * "Pair tables, perimeters and the dialogs beside the map".
  */
 class RubbersheetTool : public AffineTransformTool
 {
@@ -57,41 +60,38 @@ public:
 	RubbersheetTool(MapEditorController* editor, QAction* tool_action);
 	~RubbersheetTool() override;
 	
-	/// The pairs so far and the perimeter, with the default options.
+	/// The pairs so far, the perimeter and the options of the window.
 	RubbersheetParams params() const;
+	
+	/// Starts a new perimeter polygon, or closes the one being defined.
+	void toggleDefine();
+	bool isDefining() const { return defining; }
+	
+	void removePerimeter();
+	bool loadPerimeter(const QString& path, QString* error);
+	bool savePerimeter(const QString& path, QString* error) const;
+	
+	void transformMap() override;
 	
 protected:
 	void updateStatusText() override;
+	void clickRelease() override;
 	bool keyPress(QKeyEvent* event) override;
 	void drawImpl(QPainter* painter, MapWidget* widget) override;
 	int updateDirtyRectImpl(QRectF& rect) override;
+	PointPairsWindow* createWindow() override;
 	
 private:
-	std::vector<MapCoordF> perimeter;
-};
-
-
-/**
- * The options of rubbersheeting, and loading and saving pairs and perimeter in text files.
- */
-class RubbersheetDialog : public QDialog
-{
-Q_OBJECT
-public:
-	RubbersheetDialog(const Map& map, const RubbersheetParams& params, QWidget* parent);
-	~RubbersheetDialog() override;
+	void perimeterChanged();
 	
-	RubbersheetParams params() const;
-	
-private:
-	void updateSummary();
-	
-	const Map& map;
-	RubbersheetParams current;
-	QLabel* summary_label;
-	QCheckBox* protected_check;
-	QCheckBox* layout_check;
-	QCheckBox* decrease_check;
+	std::vector<std::vector<MapCoordF>> perimeter;
+	std::vector<MapCoordF> polygon;  ///< The polygon being defined.
+	bool defining = false;
+	QPointer<QLabel> summary_label;
+	QPointer<QPushButton> define_button;
+	QPointer<QCheckBox> protected_check;
+	QPointer<QCheckBox> layout_check;
+	QPointer<QCheckBox> decrease_check;
 };
 
 

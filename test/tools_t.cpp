@@ -92,6 +92,11 @@
 #include "tools/affine_transform_tool.h"
 #include "tools/local_warp_tool.h"
 #include "tools/rubbersheet_tool.h"
+#include "tools/point_pairs_window.h"  // foom
+#include "gui/map/map_transform_dialogs.h"  // foom
+#include <QDoubleSpinBox>  // foom
+#include <QPointer>  // foom
+#include <QSpinBox>  // foom
 #include "tools/draw_path_tool.h"
 #include "tools/lasso_tool.h"
 #include "tools/sketch_tools.h"
@@ -2384,7 +2389,8 @@ void ToolsTest::mapRubbersheetTool()
 		for (auto const& c : object->getRawCoordinateVector())
 			rectIncludeSafe(bounds, QPointF(MapCoordF(c)));
 	});
-	auto const outline = tool->params().perimeter;
+	QCOMPARE(int(tool->params().perimeter.size()), 1);
+	auto const outline = tool->params().perimeter.front();
 	QCOMPARE(int(outline.size()), 4);
 	QRectF perimeter_box;
 	for (auto const& c : outline)
@@ -2409,7 +2415,8 @@ void ToolsTest::mapRubbersheetTool()
 	click(5.0, 0.0);
 	auto const params = tool->params();
 	QCOMPARE(int(params.pairs.size()), 1);
-	QVERIFY(params.perimeter.size() >= 4);
+	QCOMPARE(int(params.perimeter.size()), 1);
+	QVERIFY(params.perimeter.front().size() >= 4);
 	auto const steps = map.map->undoManager().undoStepCount();
 	QVERIFY(editor.editor->rubbersheetMapWith(params));
 	auto const inside = MapCoordF(probe->getRawCoordinateVector()[0]);
@@ -2498,6 +2505,178 @@ void ToolsTest::mapRotateMagneticAndCenter()
 	auto const offset = mapOffset(*map.map);
 	QVERIFY(std::abs(offset.x() - 1000.0) < 0.1 && std::abs(offset.y() - 2000.0) < 0.1);
 	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 2);
+}
+
+
+void ToolsTest::mapAffineWindow()
+{
+	// the design notes, "Pair tables, perimeters and the dialogs beside the map", Accept (8).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* action = editor.editor->getAction("map-affine");
+	auto* widget = editor.map_widget;
+	auto const click = [&](double x, double y) { editor.simulateClick(widget->mapToViewport(MapCoord(x, y))); };
+	auto const original = MapCoordF(map.line_object->getRawCoordinateVector().front());
+
+	action->trigger();
+	auto* tool = dynamic_cast<AffineTransformTool*>(editor.editor->getTool());
+	QVERIFY(tool);
+	QPointer<PointPairsWindow> window = tool->pairsWindow();
+	QVERIFY(window);
+	QVERIFY(window->isVisible());
+	auto* table = window->table();
+	click(0.0, 0.0);
+	click(10.0, 0.0);
+	click(20.0, 0.0);
+	click(25.0, 5.0);
+	QCOMPARE(table->rowCount(), 2);
+	QCOMPARE(table->item(1, 1)->text(), QStringLiteral("2"));
+
+	// Saving and loading.
+	QTemporaryDir dir;
+	auto const path = dir.filePath(QStringLiteral("pairs.txt"));
+	QString error;
+	QVERIFY2(tool->savePairs(path, &error), qPrintable(error));
+	auto const saved = readRubbersheetPoints(path, *map.map, &error);
+	QCOMPARE(saved.size(), std::size_t(2));
+	for (std::size_t i = 0; i < saved.size(); ++i)
+	{
+		QVERIFY(std::abs(saved[i].map.x() - tool->pairs()[i].map.x()) < 0.01);
+		QVERIFY(std::abs(saved[i].reference.y() - tool->pairs()[i].reference.y()) < 0.01);
+	}
+	window->findChild<QPushButton*>(QStringLiteral("remove_all"))->click();
+	QCOMPARE(table->rowCount(), 0);
+	QVERIFY(tool->pairs().empty());
+	QVERIFY2(tool->loadPairs(path, &error), qPrintable(error));
+	QCOMPARE(table->rowCount(), 2);
+	QCOMPARE(int(tool->pairs().size()), 2);
+
+	// The first pair left out: the translation of the second.
+	table->item(0, 0)->setCheckState(Qt::Unchecked);
+	QVERIFY(!tool->pairs()[0].used);
+	auto const shift = tool->pairs()[1].reference - tool->pairs()[1].map;
+	auto const steps = map.map->undoManager().undoStepCount();
+	window->findChild<QPushButton*>(QStringLiteral("transform"))->click();
+	QVERIFY(!dynamic_cast<AffineTransformTool*>(editor.editor->getTool()));
+	QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+	QVERIFY(!window);
+	auto const moved = MapCoordF(map.line_object->getRawCoordinateVector().front());
+	QVERIFY(std::abs(moved.x() - original.x() - shift.x()) < 0.001 && std::abs(moved.y() - original.y() - shift.y()) < 0.001);
+	QVERIFY(std::abs(shift.x() - 5.0) < 0.5 && std::abs(shift.y() - 5.0) < 0.5);
+	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 1);
+}
+
+
+void ToolsTest::mapRubbersheetWindow()
+{
+	// the design notes, "Pair tables, perimeters and the dialogs beside the map", Accept (9).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* widget = editor.map_widget;
+	auto const click = [&](double x, double y) { editor.simulateClick(widget->mapToViewport(MapCoord(x, y))); };
+	auto* square = new PathObject(map.line_symbol, MapCoordVector{ MapCoord(-30.0, -30.0), MapCoord(30.0, -30.0), MapCoord(30.0, 30.0), MapCoord(-30.0, 30.0) });
+	square->closeAllParts();
+	map.map->addObject(square);
+	auto* probe = new PathObject(map.line_symbol, MapCoordVector{ MapCoord(0.0, 0.0), MapCoord(60.0, 0.0), MapCoord(100.0, 0.0) });
+	map.map->addObject(probe);
+	map.map->clearObjectSelection(false);
+	map.map->addObjectToSelection(square, true);
+
+	editor.editor->getAction("map-rubbersheet")->trigger();
+	auto* tool = dynamic_cast<RubbersheetTool*>(editor.editor->getTool());
+	QVERIFY(tool);
+	QPointer<PointPairsWindow> window = tool->pairsWindow();
+	QVERIFY(window && window->isVisible());
+	auto* summary = window->findChild<QLabel*>(QStringLiteral("perimeter_summary"));
+	QVERIFY(summary);
+	QVERIFY2(summary->text().startsWith(QStringLiteral("1 polygon")), qPrintable(summary->text()));
+	QCOMPARE(int(tool->params().perimeter.size()), 1);
+
+	// A second polygon around (60, 0).
+	auto* define = window->findChild<QPushButton*>(QStringLiteral("define"));
+	define->click();
+	QVERIFY(tool->isDefining());
+	click(50.0, -10.0);
+	click(70.0, -10.0);
+	click(70.0, 10.0);
+	click(50.0, 10.0);
+	define->click();
+	QVERIFY(!tool->isDefining());
+	QCOMPARE(int(tool->params().perimeter.size()), 2);
+	QCOMPARE(int(tool->params().perimeter.back().size()), 4);
+	QVERIFY2(summary->text().startsWith(QStringLiteral("2 polygon")), qPrintable(summary->text()));
+
+	click(0.0, 0.0);
+	click(5.0, 0.0);
+	QCOMPARE(int(tool->params().pairs.size()), 1);
+	QCOMPARE(window->table()->rowCount(), 1);
+	auto const steps = map.map->undoManager().undoStepCount();
+	window->findChild<QPushButton*>(QStringLiteral("transform"))->click();
+	QVERIFY(!dynamic_cast<RubbersheetTool*>(editor.editor->getTool()));
+	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 1);
+	auto const& coords = probe->getRawCoordinateVector();
+	QVERIFY(std::abs(MapCoordF(coords[0]).x() - 5.0) < 0.5);
+	QVERIFY(std::abs(MapCoordF(coords[1]).x() - 65.0) < 0.5);
+	QCOMPARE(MapCoordF(coords[2]), MapCoordF(100.0, 0.0));
+	auto const message = editor.window->statusBar()->currentMessage();
+	QVERIFY2(message.contains(QStringLiteral("largest displacement")), qPrintable(message));
+	QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+	QVERIFY(!window);
+}
+
+
+void ToolsTest::mapLocalWarpDialog()
+{
+	// the design notes, "Pair tables, perimeters and the dialogs beside the map", Accept (10).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* widget = editor.map_widget;
+	auto* probe = new PathObject(map.line_symbol, MapCoordVector{ MapCoord(0.0, 0.0), MapCoord(30.0, 0.0) });
+	map.map->addObject(probe);
+
+	editor.editor->getAction("map-local-warp")->trigger();
+	auto* dialog = editor.editor->localWarpDialog();
+	QVERIFY(dialog);
+	QVERIFY(dialog->isVisible());
+	QVERIFY(!dynamic_cast<LocalWarpTool*>(editor.editor->getTool()));
+	auto* radius = dialog->findChild<QSpinBox*>(QStringLiteral("radius"));
+	QVERIFY(radius);
+	radius->setValue(20);
+	dialog->findChild<QPushButton*>(QStringLiteral("start"))->click();
+	QVERIFY(dynamic_cast<LocalWarpTool*>(editor.editor->getTool()));
+
+	editor.simulateDrag(widget->mapToViewport(MapCoord(0.0, 0.0)).toPoint(), widget->mapToViewport(MapCoord(5.0, 0.0)).toPoint());
+	QCOMPARE(MapCoordF(probe->getRawCoordinateVector()[1]), MapCoordF(30.0, 0.0));
+
+	// The radius changed in the dialog applies to the next drag.
+	radius->setValue(40);
+	editor.simulateDrag(widget->mapToViewport(MapCoord(0.0, 0.0)).toPoint(), widget->mapToViewport(MapCoord(5.0, 0.0)).toPoint());
+	auto const moved = MapCoordF(probe->getRawCoordinateVector()[1]);
+	QVERIFY2(std::abs(moved.x() - 31.25) < 0.3 && std::abs(moved.y()) < 0.3, qPrintable(QStringLiteral("%1 %2").arg(moved.x()).arg(moved.y())));
+
+	QTest::keyClick(widget, Qt::Key_Escape);
+	QVERIFY(!dynamic_cast<LocalWarpTool*>(editor.editor->getTool()));
+	QVERIFY(dialog->isVisible());
+	dialog->findChild<QPushButton*>(QStringLiteral("close"))->click();
+	QVERIFY(!dialog->isVisible());
+}
+
+
+void ToolsTest::mapReprojectDialog()
+{
+	// the design notes, "Pair tables, perimeters and the dialogs beside the map", Accept (11).
+	Georeferencing planar;
+	planar.setScaleDenominator(4000);
+	QVERIFY(planar.setProjectedCRS(QStringLiteral("EPSG"), QStringLiteral("EPSG:26954"), { QStringLiteral("26954") }));
+	planar.setMapRefPoint(MapCoord(0.0, 0.0));
+	planar.setProjectedRefPoint(QPointF(955000.0, 525000.0));
+	ReprojectDialog dialog(planar, nullptr);
+	dialog.setTargetCRS(QStringLiteral("EPSG"), { QStringLiteral("26913") });
+	QCOMPARE(dialog.crsId(), QStringLiteral("EPSG"));
+	QCOMPARE(dialog.crsParameters(), std::vector<QString>{ QStringLiteral("26913") });
+	QCOMPARE(dialog.targetOffset(), QPointF(498000.0, 4407000.0));
+	QCOMPARE(dialog.findChild<QDoubleSpinBox*>(QStringLiteral("east_offset"))->value(), 498000.0);
+	QCOMPARE(dialog.findChild<QDoubleSpinBox*>(QStringLiteral("north_offset"))->value(), 4407000.0);
 }
 
 
