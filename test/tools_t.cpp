@@ -515,6 +515,41 @@ void ToolsTest::embedTemplateCommand()
 }
 
 
+void ToolsTest::templateSeparationCommand()
+{
+	// the design notes, "Templates on a spot colour plate", Accept (editor).
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	auto const path = QDir(dir.path()).absoluteFilePath(QStringLiteral("a.png"));
+	QImage image(4, 4, QImage::Format_RGB32);
+	image.fill(Qt::green);
+	QVERIFY(image.save(path, "PNG"));
+	
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* spot = new MapColor(QStringLiteral("Brown"), map.map->getNumColors());
+	spot->setSpotColorName(QStringLiteral("BROWN"));
+	map.map->addColor(spot, map.map->getNumColors());
+	auto* process = new MapColor(QStringLiteral("Process"), map.map->getNumColors());
+	map.map->addColor(process, map.map->getNumColors());
+	map.map->addTemplate(-1, std::make_unique<TemplateImage>(path, map.map));
+	auto* temp = map.map->getTemplate(0);
+	
+	QString error;
+	QVERIFY2(editor.editor->setTemplateSeparation(temp, spot, &error), qPrintable(error));
+	QCOMPARE(temp->separationColor(), spot);
+	QVERIFY(!editor.editor->setTemplateSeparation(temp, process, &error));
+	QVERIFY(!error.isEmpty());
+	QCOMPARE(temp->separationColor(), spot);
+	map.map->addTemplate(-1, std::make_unique<TemplateMap>(QDir(dir.path()).absoluteFilePath(QStringLiteral("b.omap")), map.map));
+	error.clear();
+	QVERIFY(!editor.editor->setTemplateSeparation(map.map->getTemplate(1), spot, &error));
+	QVERIFY(!error.isEmpty());
+	QVERIFY(editor.editor->setTemplateSeparation(temp, nullptr, &error));
+	QVERIFY(!temp->separationColor());
+}
+
+
 void ToolsTest::mirror()
 {
 	// the design notes, "Mirror", editor paragraph.

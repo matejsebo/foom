@@ -52,6 +52,7 @@ class QXmlStreamWriter;
 namespace OpenOrienteering {
 
 class Map;
+class MapColor;  // foom
 class MapView;
 class Object;
 
@@ -563,6 +564,11 @@ public:
 	/** foom: Makes the template a favourite or not; marks the templates changed. */
 	void setFavourite(bool value);
 	
+	/** foom: The spot colour on whose plate the template prints (the design notes, "Templates on a spot colour plate"). */
+	inline const MapColor* separationColor() const {return separation_color;}
+	/** foom: Gives the template a spot colour plate, or none; marks the templates changed. */
+	void setSeparationColor(const MapColor* color);
+	
 	inline bool hasUnsavedChanges() const {return has_unsaved_changes;}
 	void setHasUnsavedChanges(bool value);
 	
@@ -806,6 +812,9 @@ protected:
 	
 	/// foom: A favourite template.
 	bool is_favourite = false;
+	
+	/// foom: The spot colour of the template's plate, or none.
+	const MapColor* separation_color = nullptr;
 	
 	// Transformation matrices calculated from cur_trans
 	Matrix map_to_template;

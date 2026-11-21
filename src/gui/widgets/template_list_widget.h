@@ -163,6 +163,7 @@ private:
 	QAction* georef_action;
 	QAction* favourite_action = nullptr;  // foom
 	QAction* embed_action = nullptr;  // foom
+	QAction* separation_action = nullptr;  // foom
 	QAction* vectorize_action;
 	
 	// Buttons

@@ -298,6 +298,9 @@ add_system_test(runner_check_t)  # foom: the design notes, Headless runner: chec
 target_compile_definitions(runner_check_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
 add_dependencies(runner_check_t foom-cli)
 add_system_test(prj_file_t)  # foom: the design notes, Projection file
+add_system_test(template_separation_t)  # foom: the design notes, Templates on a spot colour plate
+target_compile_definitions(template_separation_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
+add_dependencies(template_separation_t foom-cli)
 add_system_test(template_embed_t)  # foom: the design notes, Embedded raster templates
 add_system_test(template_favourite_t)  # foom: the design notes, Favourite templates
 add_system_test(template_relink_t)  # foom: the design notes, Relink by folder

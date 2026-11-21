@@ -80,6 +80,7 @@
 #include "settings.h"
 #include "core/georeferencing.h"
 #include "core/map.h"
+#include "core/map_color.h"  // foom
 #include "fileformats/file_format_registry.h"
 #include "fileformats/file_import_export.h"
 #include "gui/file_dialog.h"
@@ -297,6 +298,32 @@ TemplateListWidget::TemplateListWidget(Map& map, MapView& main_view, MapEditorCo
 		embed_action->setChecked(image && image->isEmbedded());
 	});
 	embed_action->setCheckable(true);
+	// foom: the design notes, "Templates on a spot colour plate"
+	separation_action = edit_menu->addAction(tr("Spot colour plate..."), this, [this]() {
+		auto* temp = currentTemplate();
+		if (!temp)
+			return;
+		QStringList names { tr("None") };
+		std::vector<const MapColor*> colors { nullptr };
+		auto current = 0;
+		for (int i = 0; i < this->map.getNumColors(); ++i)
+		{
+			auto const* color = this->map.getColor(i);
+			if (color->getSpotColorMethod() != MapColor::SpotColor)
+				continue;
+			if (color == temp->separationColor())
+				current = int(colors.size());
+			names << color->getName();
+			colors.push_back(color);
+		}
+		bool ok = false;
+		auto const chosen = QInputDialog::getItem(this, tr("Spot colour plate"), tr("Print the template on the plate of:"), names, current, false, &ok);
+		if (!ok)
+			return;
+		QString error;
+		if (!this->controller.setTemplateSeparation(temp, colors[std::size_t(names.indexOf(chosen))], &error))
+			QMessageBox::warning(this, tr("Error"), error);
+	});
 	position_action = edit_menu->addAction(tr("Positioning..."));
 	position_action->setCheckable(true);
 	edit_menu->addSeparator();
@@ -523,6 +550,7 @@ void TemplateListWidget::updateButtons()
 		auto const* image_template = qobject_cast<const TemplateImage*>(temp);  // foom
 		embed_action->setChecked(image_template && image_template->isEmbedded());
 		embed_action->setEnabled(image_template && (image_template->isEmbedded() || image_template->getTemplateState() == Template::Loaded));
+		separation_action->setEnabled(temp && temp->isRasterGraphics() && map.hasSpotColors());  // foom
 		move_by_hand_action->setEnabled(custom_enabled);
 		adjust_button->setEnabled(custom_enabled);
 		position_action->setEnabled(custom_enabled);

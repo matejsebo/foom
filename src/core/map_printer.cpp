@@ -62,6 +62,7 @@
 #include "core/map_view.h"
 #include "core/renderables/renderable.h"
 #include "templates/template.h"
+#include "core/print_output.h"  // foom
 #include "util/xml_stream_util.h"
 
 
@@ -1302,6 +1303,8 @@ void MapPrinter::drawSeparationPages(QPrinter* printer, QPainter* device_painter
 			}
 			
 			RenderConfig config = { map, page_extent, scale, RenderConfig::NoOptions, 1.0 };
+			if (options.show_templates)  // foom: the design notes, "Templates on a spot colour plate"
+				drawPlateTemplates(device_painter, map, color, page_extent, view);
 			map.drawColorSeparation(device_painter, config, color);
 			need_new_page = true;
 		}

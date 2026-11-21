@@ -683,6 +683,8 @@ public slots:
 	void toCurveClicked();
 	/** foom: Turns the straight segments of the selected paths into curves through the same vertices ("to curve"). */
 	void toCurve(const ops::ToCurveParams& params);
+	/** foom: Gives a raster template a spot colour plate, or none; false with a message for other templates and colours. */
+	bool setTemplateSeparation(Template* temp, const MapColor* color, QString* error = nullptr);
 	/** foom: Embeds an image template in the map file, or gives the bytes up; false with a message for other templates. */
 	bool setTemplateEmbedded(Template* temp, bool embedded, QString* error = nullptr);
 	/** foom: Relinks the templates from the old folder to the new one; returns how many were relinked. */

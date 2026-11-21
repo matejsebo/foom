@@ -28,9 +28,13 @@
 #include <QString>
 #include <QStringList>
 
+class QPainter;
+
 namespace OpenOrienteering {
 
 class Map;
+class MapColor;
+class MapView;
 
 
 /**
@@ -76,7 +80,16 @@ struct RasterPlate
  * The area is in map coordinates; the scale adjustment is the map scale
  * divided by the print scale.
  */
-std::vector<RasterPlate> renderSpotPlates(Map& map, const QRectF& area, double dpi, double scale_adjustment = 1);
+std::vector<RasterPlate> renderSpotPlates(Map& map, const QRectF& area, double dpi, double scale_adjustment = 1,
+                                         bool with_templates = false, const MapView* view = nullptr);
+
+/**
+ * Draws the loaded templates which are assigned to the spot colour and
+ * visible in the view (all, without a view), for that colour's plate.
+ *
+ * See the design notes, "Templates on a spot colour plate".
+ */
+void drawPlateTemplates(QPainter* painter, const Map& map, const MapColor* color, const QRectF& area, const MapView* view);
 
 /** Draws the plates cyan, magenta, yellow and black from the colours' CMYK values. */
 std::vector<RasterPlate> renderProcessPlates(Map& map, const QRectF& area, double dpi, double scale_adjustment = 1);
@@ -109,7 +122,8 @@ enum class PlateForm { Grey, LineArt, Halftone };
  * Returns false with a message when the map has no spot colour or a file cannot be written,
  * and, before any file is written, when a colour's screen is too fine for the resolution.
  */
-bool saveSpotPlates(Map& map, const QRectF& area, double dpi, double scale_adjustment, const QString& path, PlateForm form, QStringList* files, QString* error);
+bool saveSpotPlates(Map& map, const QRectF& area, double dpi, double scale_adjustment, const QString& path, PlateForm form, QStringList* files, QString* error,
+                    bool with_templates = false, const MapView* view = nullptr);
 
 
 }  // namespace OpenOrienteering

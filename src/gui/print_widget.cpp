@@ -1453,7 +1453,8 @@ void PrintWidget::exportPlates(QString path, int form)
 	}
 	else
 	{
-		ok = saveSpotPlates(*map, area, resolution, scale_adjustment, path, PlateForm(form), &files, &error);
+		ok = saveSpotPlates(*map, area, resolution, scale_adjustment, path, PlateForm(form), &files, &error,
+		                    map_printer->getOptions().show_templates, main_view);  // foom: templates on their plates
 	}
 	if (!ok)
 	{

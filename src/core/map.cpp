@@ -1314,6 +1314,12 @@ void Map::deleteColor(int pos)
 	}
 	
 	color_set->erase(pos);
+	// foom: a template loses the plate of the deleted colour.
+	for (auto& temp : templates)
+	{
+		if (temp->separationColor() == color)
+			temp->setSeparationColor(nullptr);
+	}
 	
 	// Treat combined symbols first before their parts
 	for (Symbol* symbol : symbols)

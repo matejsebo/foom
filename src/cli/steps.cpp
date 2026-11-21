@@ -1553,7 +1553,8 @@ StepResult StepRunner::exportImage(const Step& step, const QString& path, const 
 		QString error;
 		if (plates.kind == PlateRequest::Spot)
 		{
-			if (!saveSpotPlates(*map, area, resolution, printer.getScaleAdjustment(), path, plates.form, &files, &error))
+			if (!saveSpotPlates(*map, area, resolution, printer.getScaleAdjustment(), path, plates.form, &files, &error,
+			                    printer.getOptions().show_templates))  // foom: templates on their plates
 				return failure(error);
 		}
 		else

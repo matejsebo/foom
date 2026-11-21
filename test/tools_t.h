@@ -54,6 +54,9 @@ private slots:
 	/** foom: Tests embedding an image template. */
 	void embedTemplateCommand();
 	
+	/** foom: Tests giving a template a spot colour plate. */
+	void templateSeparationCommand();
+	
 	/** foom: Tests the mirror action. */
 	void mirror();
 	

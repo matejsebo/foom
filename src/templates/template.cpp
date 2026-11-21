@@ -256,6 +256,7 @@ Template::Template(const Template& proto)
 , passpoints(proto.passpoints)
 , template_group(proto.template_group)
 , is_favourite(proto.is_favourite)  // foom
+, separation_color(proto.separation_color)  // foom
 , map_to_template(proto.map_to_template)
 , template_to_map(proto.template_to_map)
 , template_to_map_other(proto.template_to_map_other)
@@ -299,6 +300,8 @@ void Template::saveTemplateConfiguration(QXmlStreamWriter& xml, bool open, const
 	}
 	if (is_favourite)  // foom
 		xml.writeAttribute(QString::fromLatin1("favourite"), QString::fromLatin1("true"));
+	if (separation_color && map->findColorIndex(separation_color) >= 0)  // foom
+		xml.writeAttribute(QString::fromLatin1("separation"), QString::number(map->findColorIndex(separation_color)));
 	
 	if (is_georeferenced)
 	{
@@ -354,6 +357,13 @@ std::unique_ptr<Template> Template::loadTemplateConfiguration(QXmlStreamReader& 
 	if (attributes.hasAttribute(QLatin1String("name")))
 		temp->template_file = attributes.value(QLatin1String("name")).toString();
 	temp->is_favourite = (attributes.value(QLatin1String("favourite")) == QLatin1String("true"));  // foom
+	if (attributes.hasAttribute(QLatin1String("separation")))  // foom
+	{
+		auto ok = false;
+		auto const index = attributes.value(QLatin1String("separation")).toInt(&ok);
+		if (ok && index >= 0 && index < map.getNumColors())
+			temp->separation_color = map.getColor(index);
+	}
 	temp->is_georeferenced = (attributes.value(QLatin1String("georef")) == QLatin1String("true"));
 	if (attributes.hasAttribute(QLatin1String("group")))
 		temp->template_group = attributes.value(QLatin1String("group")).toInt();
@@ -927,6 +937,15 @@ void Template::setFavourite(bool value)
 	if (template_state == Loaded)
 		setTemplateAreaDirty();
 	map->emitTemplateChanged(this);
+}
+
+// foom: the design notes, "Templates on a spot colour plate"
+void Template::setSeparationColor(const MapColor* color)
+{
+	if (separation_color == color)
+		return;
+	separation_color = color;
+	map->setTemplatesDirty();
 }
 
 void Template::setTemplatePath(const QString& value)

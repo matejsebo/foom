@@ -40,10 +40,12 @@
 
 #include "core/map.h"
 #include "core/map_color.h"
+#include "core/map_view.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
 #include "core/renderables/renderable.h"
 #include "core/symbols/symbol.h"
+#include "templates/template.h"
 
 
 namespace OpenOrienteering {
@@ -191,7 +193,26 @@ HiddenContent hiddenContent(const Map& map)
 }
 
 
-std::vector<RasterPlate> renderSpotPlates(Map& map, const QRectF& area, double dpi, double scale_adjustment)
+void drawPlateTemplates(QPainter* painter, const Map& map, const MapColor* color, const QRectF& area, const MapView* view)
+{
+	if (!color)
+		return;
+	for (int i = 0; i < map.getNumTemplates(); ++i)
+	{
+		auto const* temp = map.getTemplate(i);
+		if (temp->separationColor() != color || temp->getTemplateState() != Template::Loaded)
+			continue;
+		auto visibility = view ? view->getTemplateVisibility(temp) : TemplateVisibility{ 1.0f, true };
+		if (!visibility.visible || visibility.opacity <= 0)
+			continue;
+		auto const scale = std::max(temp->getTemplateScaleX(), temp->getTemplateScaleY()) * (view ? view->getZoom() : 1.0);
+		painter->save();
+		temp->drawTemplate(painter, area, scale, false, visibility.opacity);
+		painter->restore();
+	}
+}
+
+std::vector<RasterPlate> renderSpotPlates(Map& map, const QRectF& area, double dpi, double scale_adjustment, bool with_templates, const MapView* view)
 {
 	std::vector<RasterPlate> plates;
 	for (int i = map.getNumColors() - 1; i >= 0; --i)
@@ -203,7 +224,9 @@ std::vector<RasterPlate> renderSpotPlates(Map& map, const QRectF& area, double d
 		plate.name = color->getSpotColorName();
 		plate.screen_frequency = color->getScreenFrequency();
 		plate.screen_angle = color->getScreenAngle();
-		plate.ink = renderInk(map, area, dpi, scale_adjustment, [&map, color](QPainter& painter, RenderConfig& config) {
+		plate.ink = renderInk(map, area, dpi, scale_adjustment, [&map, color, &area, with_templates, view](QPainter& painter, RenderConfig& config) {
+			if (with_templates)
+				drawPlateTemplates(&painter, map, color, area, view);  // under the map's objects
 			map.drawColorSeparation(&painter, config, color);
 		});
 		plates.push_back(plate);
@@ -356,9 +379,10 @@ QString plateFileName(const QString& path, const QString& plate_name)
 	return result;
 }
 
-bool saveSpotPlates(Map& map, const QRectF& area, double dpi, double scale_adjustment, const QString& path, PlateForm form, QStringList* files, QString* error)
+bool saveSpotPlates(Map& map, const QRectF& area, double dpi, double scale_adjustment, const QString& path, PlateForm form, QStringList* files, QString* error,
+                    bool with_templates, const MapView* view)
 {
-	auto const plates = renderSpotPlates(map, area, dpi, scale_adjustment);
+	auto const plates = renderSpotPlates(map, area, dpi, scale_adjustment, with_templates, view);
 	if (plates.empty())
 	{
 		setError(error, tr("The map has no spot colours."));

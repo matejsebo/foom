@@ -3042,6 +3042,25 @@ void MapEditorController::relinkTemplatesClicked()
 	QMessageBox::information(window, title, lines.join(QLatin1Char('\n')));
 }
 
+// foom: the design notes, "Templates on a spot colour plate"
+bool MapEditorController::setTemplateSeparation(Template* temp, const MapColor* color, QString* error)
+{
+	if (!temp || !temp->isRasterGraphics())
+	{
+		if (error)
+			*error = tr("Only raster templates can be given a spot colour plate.");
+		return false;
+	}
+	if (color && (map->findColorIndex(color) < 0 || color->getSpotColorMethod() != MapColor::SpotColor))
+	{
+		if (error)
+			*error = tr("Only a spot colour of the map has a plate.");
+		return false;
+	}
+	temp->setSeparationColor(color);
+	return true;
+}
+
 // foom: the design notes, "Embedded raster templates"
 bool MapEditorController::setTemplateEmbedded(Template* temp, bool embedded, QString* error)
 {
