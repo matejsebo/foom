@@ -1285,6 +1285,9 @@ void MapEditorController::createActions()
 	select_by_property_act = newAction("select-by-property", tr("Select objects by property..."), this, SLOT(selectByPropertyClicked()));  // foom
 	select_by_index_act = newAction("select-by-index", tr("Select object by index..."), this, SLOT(selectByIndexClicked()));  // foom
 	select_next_act = newAction("select-next", tr("Select next object"), this, SLOT(selectNext()));  // foom
+	selection_save_act = newAction("selection-save", tr("Save selection..."), this, SLOT(saveSelectionClicked()));  // foom
+	selection_load_act = newAction("selection-load", tr("Reload selection..."), this, SLOT(loadSavedSelectionClicked()));  // foom
+	selection_delete_act = newAction("selection-delete", tr("Delete saved selection..."), this, SLOT(deleteSavedSelectionClicked()));  // foom
 	cut_hole_act = newToolAction("cuthole", tr("Cut free form hole"), this, SLOT(cutHoleClicked()), "tool-cut-hole.png", QString{}, "toolbars.html#cut_hole"); // cut hole using a path
 	cut_hole_circle_act = newToolAction("cutholecircle", tr("Cut round hole"), this, SLOT(cutHoleCircleClicked()), "tool-cut-hole.png", QString{}, "toolbars.html#cut_hole");
 	cut_hole_rectangle_act = newToolAction("cutholerectangle", tr("Cut rectangular hole"), this, SLOT(cutHoleRectangleClicked()), "tool-cut-hole.png", QString{}, "toolbars.html#cut_hole");
@@ -1553,6 +1556,9 @@ void MapEditorController::createMenuAndToolbars()
 	edit_menu->addAction(select_duplicates_act);  // foom
 	edit_menu->addAction(select_self_intersecting_act);  // foom
 	edit_menu->addAction(select_invalid_act);  // foom
+	edit_menu->addAction(selection_save_act);  // foom
+	edit_menu->addAction(selection_load_act);  // foom
+	edit_menu->addAction(selection_delete_act);  // foom
 	edit_menu->addAction(select_by_current_symbol_act);
 	edit_menu->addSeparator();
 	edit_menu->addAction(find_feature->showDialogAction());
@@ -4520,6 +4526,107 @@ void MapEditorController::selectByIndexClicked()
 	auto const number = QInputDialog::getInt(window, tr("Select object by index"), tr("Object number:"), 1, 1, count, 1, &ok);
 	if (ok)
 		selectByIndex(number);
+}
+
+// foom: the design notes, "Saved selections".
+void MapEditorController::saveSelection(const QString& name)
+{
+	SavedSelection selection;
+	selection.name = name;
+	for (auto const* object : map->selectedObjects())
+		selection.uuids.push_back(object->uuid());
+	auto selections = map->savedSelections();
+	auto existing = std::find_if(selections.begin(), selections.end(), [&name](const SavedSelection& s) { return s.name == name; });
+	if (existing != selections.end())
+		*existing = std::move(selection);
+	else
+		selections.push_back(std::move(selection));
+	map->setSavedSelections(std::move(selections));
+	map->setHasUnsavedChanges(true);
+}
+
+int MapEditorController::loadSavedSelection(const QString& name)
+{
+	auto const& selections = map->savedSelections();
+	auto const found = std::find_if(selections.begin(), selections.end(), [&name](const SavedSelection& s) { return s.name == name; });
+	if (found == selections.end())
+		return selectFound({});
+	std::vector<Object*> objects;
+	int elsewhere = 0;
+	auto const* part = map->getCurrentPart();
+	for (auto const& uuid : found->uuids)
+	{
+		auto* object = map->findObject(uuid);
+		if (!object)
+			continue;
+		if (part->contains(object))
+			objects.push_back(object);
+		else
+			++elsewhere;
+	}
+	auto const count = selectFound(objects);
+	if (elsewhere > 0 && window)
+		window->showStatusBarMessage(tr("%1 object(s) selected; %2 of the saved selection lie in other parts").arg(count).arg(elsewhere), 5000);
+	return count;
+}
+
+void MapEditorController::deleteSavedSelection(const QString& name)
+{
+	auto selections = map->savedSelections();
+	auto const before = selections.size();
+	selections.erase(std::remove_if(selections.begin(), selections.end(), [&name](const SavedSelection& s) { return s.name == name; }), selections.end());
+	if (selections.size() == before)
+		return;
+	map->setSavedSelections(std::move(selections));
+	map->setHasUnsavedChanges(true);
+}
+
+namespace {
+
+/// Asks for one of the saved selections' names; empty when cancelled or there is none.
+QString chooseSavedSelection(QWidget* parent, const Map& map, const QString& title)
+{
+	QStringList names;
+	for (auto const& selection : map.savedSelections())
+		names.push_back(selection.name);
+	if (names.isEmpty())
+	{
+		QMessageBox::information(parent, title, MapEditorController::tr("The map has no saved selection."));
+		return {};
+	}
+	bool ok = false;
+	auto const name = QInputDialog::getItem(parent, title, MapEditorController::tr("Selection:"), names, 0, false, &ok);
+	return ok ? name : QString{};
+}
+
+}  // namespace
+
+void MapEditorController::saveSelectionClicked()
+{
+	if (map->getNumSelectedObjects() == 0)
+	{
+		QMessageBox::information(window, tr("Save selection"), tr("Select the objects first."));
+		return;
+	}
+	bool ok = false;
+	auto const name = QInputDialog::getText(window, tr("Save selection"), tr("Name:"), QLineEdit::Normal,
+	                                        tr("Selection %1").arg(map->savedSelections().size() + 1), &ok);
+	if (ok && !name.trimmed().isEmpty())
+		saveSelection(name.trimmed());
+}
+
+void MapEditorController::loadSavedSelectionClicked()
+{
+	auto const name = chooseSavedSelection(window, *map, tr("Reload selection"));
+	if (!name.isEmpty())
+		loadSavedSelection(name);
+}
+
+void MapEditorController::deleteSavedSelectionClicked()
+{
+	auto const name = chooseSavedSelection(window, *map, tr("Delete saved selection"));
+	if (!name.isEmpty())
+		deleteSavedSelection(name);
 }
 
 // foom

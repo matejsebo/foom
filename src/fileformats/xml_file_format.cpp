@@ -42,6 +42,8 @@
 #include <QRectF>
 #include <QScopedValueRollback>
 #include <QString>
+#include <QUuid>
+#include <QStringList>
 #include <QStringList>  // foom
 #include <QStringRef>
 #include <QVariant>
@@ -206,6 +208,9 @@ namespace literal
 	static const QLatin1String bookmark_y("y");  // foom
 	static const QLatin1String bookmark_zoom("zoom");  // foom
 	static const QLatin1String bookmark_note("note");  // foom
+	static const QLatin1String saved_selections("saved_selections");  // foom
+	static const QLatin1String saved_selection("selection");  // foom
+	static const QLatin1String saved_uuids("uuids");  // foom
 	static const QLatin1String extents("extents");  // foom
 	static const QLatin1String course_data("course_data");  // foom
 	static const QLatin1String sync("sync");  // foom
@@ -324,6 +329,11 @@ bool XMLFileExporter::exportImplementation()
 		if (XMLFileFormat::foom_revision >= 1 && !map->bookmarks().empty())  // foom
 		{
 			exportBookmarks();
+			writeLineBreak(xml);
+		}
+		if (XMLFileFormat::foom_revision >= 1 && !map->savedSelections().empty())  // foom
+		{
+			exportSavedSelections();
 			writeLineBreak(xml);
 		}
 		if (XMLFileFormat::foom_revision >= 1 && !map->extents().empty())  // foom
@@ -576,6 +586,26 @@ void XMLFileExporter::exportBookmarks()
 }
 
 // foom
+void XMLFileExporter::exportSavedSelections()
+{
+	// the design notes, "Saved selections".
+	auto const& selections = map->savedSelections();
+	XmlElementWriter selections_element(xml, literal::saved_selections);
+	selections_element.writeAttribute(literal::count, selections.size());
+	for (auto const& selection : selections)
+	{
+		writeLineBreak(xml);
+		QStringList uuids;
+		for (auto const& uuid : selection.uuids)
+			uuids.push_back(uuid.toString(QUuid::WithoutBraces));
+		XmlElementWriter selection_element(xml, literal::saved_selection);
+		selection_element.writeAttribute(literal::name, selection.name);
+		selection_element.writeAttribute(literal::saved_uuids, uuids.join(QLatin1Char(' ')));
+	}
+	writeLineBreak(xml);
+}
+
+// foom
 void XMLFileExporter::exportExtents()
 {
 	// the design notes, "Named extents and the paper frame".
@@ -809,6 +839,8 @@ void XMLFileImporter::importElements()
 			importObjectGroups();
 		else if (name == literal::bookmarks)  // foom
 			importBookmarks();
+		else if (name == literal::saved_selections)  // foom
+			importSavedSelections();
 		else if (name == literal::extents)  // foom
 			importExtents();
 		else if (name == literal::course_data)  // foom
@@ -1232,6 +1264,36 @@ void XMLFileImporter::importBookmarks()
 			xml.skipCurrentElement();
 		}
 	}
+}
+
+// foom
+void XMLFileImporter::importSavedSelections()
+{
+	// the design notes, "Saved selections".
+	std::vector<SavedSelection> selections;
+	XmlElementReader selections_element(xml);
+	while (xml.readNextStartElement())
+	{
+		if (xml.name() == literal::saved_selection)
+		{
+			XmlElementReader selection_element(xml);
+			SavedSelection selection;
+			selection.name = selection_element.attribute<QString>(literal::name);
+			for (auto const& text : selection_element.attribute<QString>(literal::saved_uuids).split(QLatin1Char(' '), QString::SkipEmptyParts))
+			{
+				QUuid const uuid(text);
+				if (!uuid.isNull())
+					selection.uuids.push_back(uuid);
+			}
+			selections.push_back(std::move(selection));
+		}
+		else
+		{
+			addWarningUnsupportedElement();
+			xml.skipCurrentElement();
+		}
+	}
+	map->setSavedSelections(std::move(selections));
 }
 
 // foom

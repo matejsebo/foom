@@ -779,6 +779,13 @@ public slots:
 	void selectByDateClicked();
 	void selectByPropertyClicked();
 	void selectByIndexClicked();
+	/** foom: Saved selections; see the design notes, "Saved selections". */
+	void saveSelection(const QString& name);
+	int loadSavedSelection(const QString& name);
+	void deleteSavedSelection(const QString& name);
+	void saveSelectionClicked();
+	void loadSavedSelectionClicked();
+	void deleteSavedSelectionClicked();
 	/** foom: Asks for the tolerance and merges the contour lines of the selected symbols (dem-merge-contours). */
 	void elevationMergeContoursClicked();
 	/** foom: Joins the pieces of contour lines of the selected symbols by height, as one undo step; returns the joins. */
@@ -1395,6 +1402,9 @@ private:
 	QAction* select_by_property_act = {};  // foom
 	QAction* select_by_index_act = {};  // foom
 	QAction* select_next_act = {};  // foom
+	QAction* selection_save_act = {};  // foom
+	QAction* selection_load_act = {};  // foom
+	QAction* selection_delete_act = {};  // foom
 	/// foom: Replaces the selection with the objects and reports their number.
 	int selectFound(const std::vector<Object*>& found);
 	QAction* dem_merge_contours_act = {};  // foom

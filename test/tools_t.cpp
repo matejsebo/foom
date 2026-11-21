@@ -1530,6 +1530,45 @@ void ToolsTest::selectionCommands()
 }
 
 
+void ToolsTest::savedSelections()
+{
+	// the design notes, "Saved selections", Accept (1) to (3) and (5).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	for (auto const* id : { "selection-save", "selection-load", "selection-delete" })
+		QVERIFY2(editor.editor->getAction(id), id);
+	auto* second = new PathObject(map.line_symbol, MapCoordVector{ MapCoord(50.0, 50.0), MapCoord(60.0, 50.0) });
+	map.map->addObject(second);
+	auto* third = new PathObject(map.line_symbol, MapCoordVector{ MapCoord(70.0, 50.0), MapCoord(80.0, 50.0) });
+	map.map->addObject(third);
+	map.map->setHasUnsavedChanges(false);
+	
+	map.map->clearObjectSelection(false);
+	map.map->addObjectToSelection(second, false);
+	map.map->addObjectToSelection(third, true);
+	editor.editor->saveSelection(QStringLiteral("north"));
+	QCOMPARE(int(map.map->savedSelections().size()), 1);
+	QCOMPARE(int(map.map->savedSelections().front().uuids.size()), 2);
+	QVERIFY(map.map->hasUnsavedChanges());
+	map.map->clearObjectSelection(false);
+	map.map->addObjectToSelection(third, true);
+	editor.editor->saveSelection(QStringLiteral("north"));
+	QCOMPARE(int(map.map->savedSelections().size()), 1);
+	QCOMPARE(map.map->savedSelections().front().uuids, std::vector<QUuid>{ third->uuid() });
+	
+	map.map->clearObjectSelection(true);
+	QCOMPARE(editor.editor->loadSavedSelection(QStringLiteral("north")), 1);
+	QVERIFY(map.map->isObjectSelected(third));
+	QCOMPARE(editor.editor->loadSavedSelection(QStringLiteral("nowhere")), 0);
+	map.map->clearObjectSelection(true);
+	map.map->deleteObject(third);
+	QCOMPARE(editor.editor->loadSavedSelection(QStringLiteral("north")), 0);
+	
+	editor.editor->deleteSavedSelection(QStringLiteral("north"));
+	QVERIFY(map.map->savedSelections().empty());
+}
+
+
 void ToolsTest::demPointCloud()
 {
 	// the design notes, "Reading point clouds and gridding them", Accept (9).

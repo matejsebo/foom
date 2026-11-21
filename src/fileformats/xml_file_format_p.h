@@ -56,6 +56,7 @@ protected:
 	void exportMapParts();
 	void exportObjectGroups();  // foom
 	void exportBookmarks();  // foom
+	void exportSavedSelections();  // foom
 	void exportExtents();  // foom
 	void exportSyncCopies();  // foom
 	void exportForeignData();  // foom
@@ -102,6 +103,7 @@ protected:
 	void importMapParts();
 	void importObjectGroups();  // foom
 	void importBookmarks();  // foom
+	void importSavedSelections();  // foom
 	void importExtents();  // foom
 	void importSyncCopies();  // foom
 	void importForeignData();  // foom

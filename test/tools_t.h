@@ -112,6 +112,9 @@ private slots:
 	/** foom: Tests the selection commands of the Select menu. */
 	void selectionCommands();
 	
+	/** foom: Tests saved selections. */
+	void savedSelections();
+	
 	/** foom: Tests the point cloud import command. */
 	void demPointCloud();
 	

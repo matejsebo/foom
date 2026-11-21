@@ -88,6 +88,7 @@ private slots:
 	void foomIdentityTest();
 	void foomGroupTest();
 	void foomBookmarkTest();
+	void foomSavedSelectionTest();
 	void foomExtentTest();
 	void mapDataUndoTest();
 	

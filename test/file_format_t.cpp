@@ -72,6 +72,7 @@
 #include "core/georeferencing.h"
 #include "core/latlon.h"
 #include "core/bookmarks.h"
+#include "core/saved_selections.h"
 #include "core/extents.h"
 #include "core/map.h"
 #include "core/map_color.h"
@@ -2311,6 +2312,57 @@ void FileFormatTest::foomBookmarkTest()
 	QCOMPARE(parsed.zoom, 4.0);
 	QCOMPARE(parsed.note, QStringLiteral("Note"));
 	QVERIFY(!parseOcdBookmark(QStringLiteral("\tx1\ty2"), parsed));
+}
+
+
+void FileFormatTest::foomSavedSelectionTest()
+{
+	// the design notes, "Saved selections", Accept (4).
+	Map map;
+	auto* symbol = new PointSymbol();
+	map.addSymbol(symbol, 0);
+	auto* first = new PointObject(symbol);
+	map.addObject(first);
+	auto* second = new PointObject(symbol);
+	map.addObject(second);
+	SavedSelection north;
+	north.name = QStringLiteral("north");
+	north.uuids = { first->uuid(), second->uuid() };
+	SavedSelection south;
+	south.name = QStringLiteral("south \"bank\"");
+	south.uuids = { second->uuid() };
+	map.setSavedSelections({ north, south });
+	
+	XMLFileFormat format;
+	QBuffer buffer;
+	QVERIFY(buffer.open(QIODevice::ReadWrite));
+	auto exporter = format.makeExporter({}, &map, nullptr);
+	exporter->setDevice(&buffer);
+	QVERIFY(exporter->doExport());
+	QVERIFY(QString::fromUtf8(buffer.data()).contains(QLatin1String("<saved_selections count=\"2\">")));
+	QVERIFY(buffer.seek(0));
+	Map reloaded;
+	auto importer = format.makeImporter({}, &reloaded, nullptr);
+	importer->setDevice(&buffer);
+	QVERIFY(importer->doImport());
+	QVERIFY(importer->warnings().empty());
+	QVERIFY(reloaded.savedSelections() == map.savedSelections());
+	
+	QBuffer plain_buffer;
+	QVERIFY(plain_buffer.open(QIODevice::ReadWrite));
+	auto plain_exporter = format.makeExporter({}, &map, nullptr);
+	plain_exporter->setOption(QString::fromLatin1("foom"), false);
+	plain_exporter->setDevice(&plain_buffer);
+	QVERIFY(plain_exporter->doExport());
+	QVERIFY(!QString::fromUtf8(plain_buffer.data()).contains(QLatin1String("<saved_selections")));
+	
+	map.setSavedSelections({});
+	QBuffer empty_buffer;
+	QVERIFY(empty_buffer.open(QIODevice::ReadWrite));
+	auto empty_exporter = format.makeExporter({}, &map, nullptr);
+	empty_exporter->setDevice(&empty_buffer);
+	QVERIFY(empty_exporter->doExport());
+	QVERIFY(!QString::fromUtf8(empty_buffer.data()).contains(QLatin1String("<saved_selections")));
 }
 
 namespace {
