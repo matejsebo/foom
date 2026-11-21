@@ -188,6 +188,7 @@
 #include "gui/map/course_bulk_dialog.h"  // foom
 #include "gui/map/course_canvases_dialog.h"  // foom
 #include "gui/map/course_maps_dialog.h"  // foom
+#include "gui/map/course_punch_dialog.h"  // foom
 #include "gui/map/route_settings_dialog.h"  // foom
 #include "gui/map/course_statistics_dialog.h"  // foom
 #include "check/issue.h"
@@ -1427,6 +1428,8 @@ void MapEditorController::createActions()
 	course_insert_act = newAction("course-insert-into-courses", tr("Insert course object into courses..."), this, SLOT(insertIntoCoursesClicked()), nullptr, tr("Put a course object into many courses at once."));
 	course_delete_act = newAction("course-delete-from-courses", tr("Delete course object from courses..."), this, SLOT(deleteFromCoursesClicked()), nullptr, tr("Take a course object out of many courses at once. The object stays in the map."));
 	course_renumber_act = newAction("course-renumber", tr("Renumber all controls..."), this, SLOT(renumberControlsClicked()), nullptr, tr("Give the controls new codes, from a new first code on."));
+	// foom: the design notes, "Punching unit ids"
+	course_punch_ids_act = newAction("course-punch-ids", tr("Punching unit IDs..."), this, SLOT(punchIdsClicked()), nullptr, tr("Give the controls the IDs of their punching units."));
 	// foom: the design notes, "Statistics and the consistency check"
 	course_statistics_act = newAction("course-statistics", tr("Statistics..."), this, SLOT(courseStatisticsClicked()), nullptr, tr("Show the statistics of the courses, their legs and the event."));
 	course_check_act = newAction("course-check", tr("Consistency check"), this, SLOT(runCourseCheck()), nullptr, tr("Check the courses, the controls and their descriptions, and list what is found in the issues window."));
@@ -1930,6 +1933,7 @@ void MapEditorController::createMenuAndToolbars()
 	courses_menu->addAction(course_insert_act);
 	courses_menu->addAction(course_delete_act);
 	courses_menu->addAction(course_renumber_act);
+	courses_menu->addAction(course_punch_ids_act);  // foom
 	courses_menu->addSeparator();
 	courses_menu->addAction(course_statistics_act);
 	courses_menu->addAction(course_check_act);
@@ -5548,6 +5552,20 @@ void MapEditorController::renumberControlsClicked()
 		return;
 	}
 	CourseRenumberDialog dialog(map, window);
+	if (dialog.exec() == QDialog::Accepted)
+		window->showStatusBarMessage(dialog.report(), 10000);
+}
+
+// foom: the design notes, "Punching unit ids".
+void MapEditorController::punchIdsClicked()
+{
+	auto const& objects = map->courseData().objects;
+	if (std::none_of(begin(objects), end(objects), [](const CourseObject& object) { return object.kind == CourseObject::Control; }))
+	{
+		QMessageBox::information(window, tr("Punching unit IDs"), tr("The map has no controls."));
+		return;
+	}
+	CoursePunchDialog dialog(map, window);
 	if (dialog.exec() == QDialog::Accepted)
 		window->showStatusBarMessage(dialog.report(), 10000);
 }
