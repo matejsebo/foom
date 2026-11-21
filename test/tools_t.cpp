@@ -1655,6 +1655,27 @@ void ToolsTest::symbolCompareCommand()
 }
 
 
+void ToolsTest::convertToPointCommand()
+{
+	// the design notes, "Convert objects", Accept (4).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("convert-to-point"));
+	auto* point_symbol = new PointSymbol();
+	map.map->addSymbol(point_symbol, map.map->getNumSymbols());
+	map.map->clearObjectSelection(false);
+	map.map->addObjectToSelection(map.line_object, true);
+	// Selecting an object selects its symbol in the pane; the point symbol is chosen after.
+	editor.editor->getSymbolWidget()->selectSingleSymbol(point_symbol);
+	auto const objects = map.map->getNumObjects();
+	auto const steps = map.map->undoManager().undoStepCount();
+	editor.editor->convertToPoints(0.0, 0.0);
+	QCOMPARE(map.map->getNumObjects(), objects);
+	QCOMPARE(map.map->getCurrentPart()->getObject(map.map->getCurrentPart()->getNumObjects() - 1)->getType(), Object::Point);
+	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 1);
+}
+
+
 void ToolsTest::demPointCloud()
 {
 	// the design notes, "Reading point clouds and gridding them", Accept (9).

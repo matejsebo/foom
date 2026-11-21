@@ -142,6 +142,7 @@
 #include "core/ops/group.h"
 #include "core/object_groups.h"
 #include "core/ops/flatten.h"
+#include "core/ops/convert.h"  // foom
 #include "core/ops/interpolate.h"  // foom
 #include "core/ops/mirror.h"
 #include "core/ops/transform.h"
@@ -1320,6 +1321,7 @@ void MapEditorController::createActions()
 	simplify_path_act = newAction("simplify", tr("Simplify path"), this, SLOT(simplifyPathClicked()), "tool-simplify-path.png", QString{}, "toolbars.html#simplify_path");
 	to_polyline_act = newAction("to-polyline", tr("To polyline..."), this, SLOT(toPolylineClicked()));  // foom
 	mirror_act = newAction("mirror", tr("Mirror..."), this, SLOT(mirrorClicked()));  // foom
+	convert_to_point_act = newAction("convert-to-point", tr("Convert to point objects..."), this, SLOT(convertToPointsClicked()));  // foom
 	interpolate_act = newAction("interpolate", tr("Interpolate..."), this, SLOT(interpolateClicked()));  // foom
 	compare_symbols_act = newAction("symbols-compare", tr("Compare with file..."), this, SLOT(compareSymbolsClicked()));  // foom
 	status_save_act = newAction("symbols-status-save", tr("Save status set..."), this, SLOT(saveStatusSetClicked()));  // foom
@@ -1724,6 +1726,7 @@ void MapEditorController::createMenuAndToolbars()
 	tools_menu->addAction(mirror_act);  // foom
 	tools_menu->addAction(interpolate_act);  // foom
 	tools_menu->addAction(object_info_act);  // foom
+	tools_menu->addAction(convert_to_point_act);  // foom
 	tools_menu->addAction(move_by_act);  // foom
 	tools_menu->addAction(rotate_by_act);  // foom
 	tools_menu->addAction(stretch_act);  // foom
@@ -3381,6 +3384,7 @@ void MapEditorController::updateObjectDependentActions()
 	to_polyline_act->setStatusTip(tr("Replace the curves of path objects by straight segments.") + (to_polyline_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select a path object to activate this tool."))));
 	mirror_act->setEnabled(have_selection);  // foom
 	object_info_act->setEnabled(map->getNumSelectedObjects() == 1);  // foom
+	convert_to_point_act->setEnabled(have_selection);  // foom
 	interpolate_act->setEnabled(map->getNumSelectedObjects() == 2 && std::all_of(map->selectedObjects().begin(), map->selectedObjects().end(), [](const Object* o) { return o->getType() == Object::Path; }));  // foom
 	mirror_act->setStatusTip(tr("Mirror the selected objects about an axis through their center.") + (mirror_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select at least one object to activate this tool."))));
 	for (auto* action : { move_by_act, rotate_by_act, stretch_act })  // foom
@@ -6344,6 +6348,51 @@ void MapEditorController::objectInformationClicked()
 	layout->addWidget(view);
 	layout->addWidget(buttons);
 	dialog.exec();
+}
+
+// foom
+void MapEditorController::convertToPointsClicked()
+{
+	auto const* symbol = symbol_widget ? symbol_widget->getSingleSelectedSymbol() : nullptr;
+	if (!symbol || symbol->getType() != Symbol::Point)
+	{
+		QMessageBox::information(window, tr("Convert to point objects"), tr("Select a point symbol in the symbol pane first."));
+		return;
+	}
+	QDialog dialog(window);
+	dialog.setWindowTitle(tr("Convert to point objects"));
+	auto* dx_edit = new QDoubleSpinBox();
+	auto* dy_edit = new QDoubleSpinBox();
+	for (auto* edit : { dx_edit, dy_edit })
+	{
+		edit->setRange(-1000.0, 1000.0);
+		edit->setDecimals(2);
+		edit->setSuffix(QStringLiteral(" mm"));
+	}
+	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+	connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+	connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	auto* form = new QFormLayout();
+	form->addRow(tr("Offset of texts, right:"), dx_edit);
+	form->addRow(tr("Offset of texts, down:"), dy_edit);
+	auto* layout = new QVBoxLayout(&dialog);
+	layout->addLayout(form);
+	layout->addWidget(buttons);
+	if (dialog.exec() == QDialog::Accepted)
+		convertToPoints(dx_edit->value(), dy_edit->value());
+}
+
+// foom
+void MapEditorController::convertToPoints(double dx, double dy)
+{
+	// the design notes, "Convert objects".
+	auto const& selection = map->selectedObjects();
+	std::vector<const Object*> in(begin(selection), end(selection));
+	ops::ConvertToPointsParams params;
+	auto const* symbol = symbol_widget ? symbol_widget->getSingleSelectedSymbol() : nullptr;
+	params.symbol = symbol && symbol->getType() == Symbol::Point ? symbol->asPoint() : nullptr;
+	params.text_offset = MapCoordF(dx, dy);
+	applyOpResult(ops::convertToPoints(*map, in, params));
 }
 
 // foom

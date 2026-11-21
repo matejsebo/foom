@@ -153,6 +153,7 @@ set(Mapper_Common_SRCS
   core/ops/flatten.cpp
   core/ops/group.cpp
   core/ops/bounds.cpp
+  core/ops/convert.cpp
   core/ops/interpolate.cpp
   core/ops/mirror.cpp
   core/ops/offset.cpp

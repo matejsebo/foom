@@ -54,6 +54,7 @@
 #include "core/ops/flatten.h"
 #include "core/ops/group.h"
 #include "core/ops/bounds.h"
+#include "core/ops/convert.h"
 #include "core/ops/interpolate.h"
 #include "core/ops/mirror.h"
 #include "core/ops/offset.h"
@@ -148,6 +149,7 @@ private slots:
 	void symbolToolsTest();
 	void statusSetsTest();
 	void symbolCompareTest();
+	void convertToPointsTest();
 	void buildingsTest();
 	void smoothTest();
 	void rectangleBoxTest();
@@ -1790,6 +1792,66 @@ void OpsTest::symbolCompareTest()
 	QVERIFY(result.colour_order_differs);
 	auto const text = symbolComparisonText(result);
 	QVERIFY(text.contains(QLatin1String("Blue")) && text.contains(QLatin1String("Black")) && text.contains(QLatin1String("401 Field")) && text.contains(QLatin1String("another order")));
+}
+
+
+void OpsTest::convertToPointsTest()
+{
+	// the design notes, "Convert objects", Accept (1) to (3).
+	Map map;
+	auto* line_symbol = new LineSymbol();
+	map.addSymbol(line_symbol, 0);
+	auto* area_symbol = new AreaSymbol();
+	map.addSymbol(area_symbol, 1);
+	auto* text_symbol = new TextSymbol();
+	map.addSymbol(text_symbol, 2);
+	auto* point_symbol = new PointSymbol();
+	map.addSymbol(point_symbol, 3);
+	auto const path = [&map](const Symbol* s, MapCoordVector coords, bool closed) {
+		auto* object = new PathObject(s, coords);
+		if (closed)
+			object->closeAllParts();
+		map.addObject(object);
+		return object;
+	};
+	auto const at = [](const Object* object) { return MapCoordF(object->getRawCoordinateVector().front()); };
+	auto const near = [](const MapCoordF& p, double x, double y) { return std::abs(p.x() - x) <= 0.001 && std::abs(p.y() - y) <= 0.001; };
+	
+	auto* text = new TextObject(text_symbol);
+	text->setAnchorPosition(MapCoord(10.0, 10.0));
+	text->setText(QStringLiteral("405"));
+	text->setTag(QStringLiteral("ele"), QStringLiteral("405"));
+	map.addObject(text);
+	ops::ConvertToPointsParams params;
+	params.symbol = point_symbol;
+	params.text_offset = MapCoordF(1.0, -2.0);
+	auto result = ops::convertToPoints(map, { text }, params);
+	QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+	QCOMPARE(result.out.size(), std::size_t(1));
+	QCOMPARE(result.consumed, std::vector<const Object*>{ text });
+	QCOMPARE(result.out.front()->getType(), Object::Point);
+	QCOMPARE(result.out.front()->getSymbol(), static_cast<const Symbol*>(point_symbol));
+	QVERIFY(near(at(result.out.front().get()), 11.0, 8.0));
+	QCOMPARE(result.out.front()->uuid(), text->uuid());
+	QCOMPARE(result.out.front()->getTag(QStringLiteral("ele")), QStringLiteral("405"));
+	
+	params.text_offset = MapCoordF();
+	auto* square = path(area_symbol, { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0), MapCoord(10.0, 10.0), MapCoord(0.0, 10.0) }, true);
+	auto* ell = path(area_symbol, { MapCoord(0.0, 0.0), MapCoord(20.0, 0.0), MapCoord(20.0, 10.0), MapCoord(10.0, 10.0), MapCoord(10.0, 20.0), MapCoord(0.0, 20.0) }, true);
+	auto* bend = path(line_symbol, { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0), MapCoord(10.0, 10.0) }, false);
+	result = ops::convertToPoints(map, { square, ell, bend }, params);
+	QCOMPARE(result.out.size(), std::size_t(3));
+	QVERIFY(near(at(result.out[0].get()), 5.0, 5.0));
+	QVERIFY2(near(at(result.out[1].get()), 8.333, 8.333), qPrintable(QStringLiteral("%1 %2").arg(at(result.out[1].get()).x()).arg(at(result.out[1].get()).y())));
+	QVERIFY(near(at(result.out[2].get()), 7.5, 2.5));
+	
+	auto* point = new PointObject(point_symbol);
+	map.addObject(point);
+	result = ops::convertToPoints(map, { point, bend }, params);
+	QCOMPARE(result.out.size(), std::size_t(1));
+	QVERIFY(!result.warning.isEmpty());
+	params.symbol = nullptr;
+	QVERIFY(!ops::convertToPoints(map, { bend }, params).error.isEmpty());
 }
 
 void OpsTest::buildingsTest()

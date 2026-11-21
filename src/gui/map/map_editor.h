@@ -678,6 +678,10 @@ public slots:
 	void mirrorClicked();
 	/** foom: Asks for the count and interpolates between the two selected paths (interpolate). */
 	void interpolateClicked();
+	/** foom: Asks for the text offset and converts the selection to points of the selected point symbol (convert-to-point). */
+	void convertToPointsClicked();
+	/** foom: Converts the selection as one undo step; see the design notes, "Convert objects". */
+	void convertToPoints(double dx, double dy);
 	/** foom: Shows the details of the one selected object (object-info). */
 	void objectInformationClicked();
 	/** foom: Symbols menu: replace a font, replace a colour, renumber symbols. */
@@ -1364,6 +1368,7 @@ private:
 	QAction* to_polyline_act = {};  // foom
 	double to_polyline_tolerance = 0.05;  // foom: mm on paper, kept for the session
 	QAction* mirror_act = {};  // foom
+	QAction* convert_to_point_act = {};  // foom
 	QAction* interpolate_act = {};  // foom
 	QAction* object_info_act = {};  // foom
 	QAction* replace_font_act = {};  // foom
