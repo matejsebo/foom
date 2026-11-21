@@ -26,6 +26,8 @@
 
 #include <Qt>
 #include <QtGlobal>
+#include <memory>
+
 #include <QtTest>
 #include <QAction>
 #include <QApplication>
@@ -57,6 +59,8 @@
 #include "core/objects/object_query.h"
 #include "core/ops/align.h"
 #include "core/ops/to_curve.h"  // foom
+#include "templates/template.h"  // foom
+#include "templates/template_image.h"  // foom
 #include "core/bookmarks.h"
 #include "core/extents.h"
 #include "elevation/elevation_model.h"
@@ -434,6 +438,32 @@ void ToolsTest::toCurve()
 	
 	map.map->clearObjectSelection(true);
 	QVERIFY(!action->isEnabled());
+}
+
+
+void ToolsTest::relinkTemplatesCommand()
+{
+	// the design notes, "Relink by folder", Accept (editor).
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	auto const old_path = QDir(dir.path()).absoluteFilePath(QStringLiteral("old/a.png"));
+	auto const new_path = QDir(dir.path()).absoluteFilePath(QStringLiteral("new/a.png"));
+	QVERIFY(QDir().mkpath(QFileInfo(new_path).absolutePath()));
+	QImage image(4, 4, QImage::Format_RGB32);
+	image.fill(Qt::green);
+	QVERIFY(image.save(new_path, "PNG"));
+	
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("templates-relink"));
+	map.map->addTemplate(-1, std::make_unique<TemplateImage>(old_path, map.map));
+	auto* temp = map.map->getTemplate(0);
+	QVERIFY(!temp->loadTemplateFile());
+	QCOMPARE(temp->getTemplateState(), Template::Invalid);
+	
+	QCOMPARE(editor.editor->relinkTemplates(QDir(dir.path()).absoluteFilePath(QStringLiteral("old")),
+	                                        QDir(dir.path()).absoluteFilePath(QStringLiteral("new"))), 1);
+	QCOMPARE(map.map->getTemplate(0)->getTemplateState(), Template::Loaded);
 }
 
 

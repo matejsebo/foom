@@ -339,6 +339,7 @@ set(Mapper_Common_SRCS
   templates/template_image_open_dialog.cpp
   templates/template_map.cpp
   templates/template_placeholder.cpp
+  templates/template_relink.cpp
   templates/template_position_dock_widget.cpp
   templates/template_positioning_dialog.cpp
   templates/template_table_model.cpp

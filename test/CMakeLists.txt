@@ -297,6 +297,7 @@ add_dependencies(runner_template_t foom-cli)
 add_system_test(runner_check_t)  # foom: the design notes, Headless runner: check and course-statistics
 target_compile_definitions(runner_check_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
 add_dependencies(runner_check_t foom-cli)
+add_system_test(template_relink_t)  # foom: the design notes, Relink by folder
 add_system_test(runner_courses_t)  # foom: the design notes, Headless runner: export-courses and import-courses
 target_compile_definitions(runner_courses_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
 add_dependencies(runner_courses_t foom-cli)

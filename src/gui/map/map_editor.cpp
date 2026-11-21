@@ -246,6 +246,7 @@
 #include "templates/paint_on_template_feature.h"
 #include "templates/template.h"
 #include "templates/template_dialog_reopen.h"
+#include "templates/template_relink.h"  // foom
 #include "templates/template_track.h"
 #include "tools/box_zoom_tool.h"
 #include "tools/compose_course_tool.h"  // foom
@@ -1253,6 +1254,7 @@ void MapEditorController::createActions()
 	open_template_act = newAction("opentemplate", tr("Open template..."), this, SLOT(openTemplateClicked()), nullptr, QString{}, "templates_menu.html");
 	reopen_template_act = newAction("reopentemplate", tr("Reopen template..."), this, SLOT(reopenTemplateClicked()), nullptr, QString{}, "templates_menu.html");
 	add_map_service_act = newAction("template-add-service", tr("Add map service..."), this, SLOT(addMapServiceClicked()));  // foom
+	relink_templates_act = newAction("templates-relink", tr("Relink by folder..."), this, SLOT(relinkTemplatesClicked()));  // foom
 	updateMapServiceAction();  // foom
 	
 	tags_window_act = newCheckAction("tagswindow", tr("Tag editor"), this, SLOT(showTagsWindow(bool)), "tag-editor.png", tr("Show/Hide the tag editor window"), "tag_editor.html");
@@ -1857,6 +1859,7 @@ void MapEditorController::createMenuAndToolbars()
 	template_menu->addAction(open_template_act);
 	template_menu->addAction(reopen_template_act);
 	template_menu->addAction(add_map_service_act);  // foom
+	template_menu->addAction(relink_templates_act);  // foom
 	
 	QMenu* elevation_menu = window->menuBar()->addMenu(tr("&Elevation"));  // foom: the design notes, "Menu placement"
 	elevation_menu->addAction(dem_open_act);
@@ -3007,6 +3010,35 @@ void MapEditorController::openTemplateClicked()
 }
 
 // foom
+// foom: the design notes, "Relink by folder"
+void MapEditorController::relinkTemplatesClicked()
+{
+	auto const title = tr("Relink by folder");
+	bool ok = false;
+	auto const old_folder = QInputDialog::getText(window, title, tr("The folder in which the templates were:"), QLineEdit::Normal,
+	                                              QDir::toNativeSeparators(missingTemplatesFolder(*map)), &ok);
+	if (!ok || old_folder.trimmed().isEmpty())
+		return;
+	auto const new_folder = QFileDialog::getExistingDirectory(window, tr("The folder in which they are now"));
+	if (new_folder.isEmpty())
+		return;
+	auto const report = OpenOrienteering::relinkTemplates(*map, old_folder.trimmed(), new_folder);
+	QStringList lines;
+	lines << tr("%n template(s) relinked.", nullptr, report.relinked.size());
+	if (!report.not_found.isEmpty())
+		lines << tr("Not in the new folder: %1").arg(report.not_found.join(QLatin1String(", ")));
+	if (!report.failed.isEmpty())
+		lines << tr("Found but not loaded: %1").arg(report.failed.join(QLatin1String(", ")));
+	QMessageBox::information(window, title, lines.join(QLatin1Char('\n')));
+}
+
+// foom
+int MapEditorController::relinkTemplates(const QString& old_folder, const QString& new_folder)
+{
+	auto const report = OpenOrienteering::relinkTemplates(*map, old_folder, new_folder);
+	return report.relinked.size();
+}
+
 void MapEditorController::addMapServiceClicked()
 {
 	// the design notes, "Tile and map service templates".

@@ -45,6 +45,9 @@ private slots:
 	/** foom: Tests the to-curve command. */
 	void toCurve();
 	
+	/** foom: Tests relinking templates by folder. */
+	void relinkTemplatesCommand();
+	
 	/** foom: Tests the mirror action. */
 	void mirror();
 	

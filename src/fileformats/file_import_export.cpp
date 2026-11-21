@@ -50,6 +50,7 @@
 #include "fileformats/file_format.h"
 #include "templates/template.h"
 #include "templates/template_placeholder.h"
+#include "templates/template_relink.h"  // foom
 
 
 namespace OpenOrienteering {
@@ -258,7 +259,8 @@ void Importer::validate()
 		addWarning(tr("At least one template file could not be found."));
 #else
 		addWarning(tr("At least one template file could not be found.") + QLatin1Char(' ') +
-		           tr("Click the red template name(s) in the Templates -> Template setup window to locate the template file name(s)."));
+		           tr("Click the red template name(s) in the Templates -> Template setup window to locate the template file name(s).")
+		           + relinkByFolderHint(*map));  // foom
 #endif
 	}
 	

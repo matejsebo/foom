@@ -462,6 +462,8 @@ public slots:
 	/** Shows a file selector to open a template. */
 	void openTemplateClicked();
 	void addMapServiceClicked();  // foom
+	/** foom: Asks for the old and the new folder, then relinks the templates (templates-relink). */
+	void relinkTemplatesClicked();
 	/** foom: Asks for geodata files, then imports them with the import options (import-geodata). */
 	void importGeodataClicked();
 	/** foom: Asks for a delimited text file, then imports its rows as points (import-points). */
@@ -679,6 +681,8 @@ public slots:
 	void toCurveClicked();
 	/** foom: Turns the straight segments of the selected paths into curves through the same vertices ("to curve"). */
 	void toCurve(const ops::ToCurveParams& params);
+	/** foom: Relinks the templates from the old folder to the new one; returns how many were relinked. */
+	int relinkTemplates(const QString& old_folder, const QString& new_folder);
 	/** foom: Asks for the axis, then mirrors the selected objects. */
 	void mirrorClicked();
 	/** foom: Asks for the count and interpolates between the two selected paths (interpolate). */
@@ -1287,6 +1291,7 @@ private:
 	QAction* open_template_act = {};
 	QAction* reopen_template_act = {};
 	QAction* add_map_service_act = {};  // foom
+	QAction* relink_templates_act = {};  // foom
 	QAction* import_geodata_act = {};  // foom
 	QAction* import_points_act = {};  // foom
 	QAction* layout_create_act = {};  // foom
