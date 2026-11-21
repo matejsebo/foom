@@ -28,13 +28,17 @@
 
 #include <Qt>
 #include <QtGlobal>
+#include <QByteArray>  // foom
 #include <QColor>
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
 #include <QIODevice>
 #include <QJsonArray>
+#include <QJsonDocument>  // foom
+#include <QJsonObject>  // foom
 #include <QJsonValue>
+#include <QList>  // foom
 #include <QLatin1Char>
 #include <QLatin1String>
 #include <QPageSize>
@@ -45,9 +49,13 @@
 #include <QSizeF>
 #include <QStringList>
 #include <QTextStream>
+#include <QUuid>  // foom
 
 #include "job.h"
 #include "mapper_config.h"
+#include "check/issue.h"  // foom
+#include "check/legibility.h"  // foom
+#include "check/map_check.h"  // foom
 #include "core/crs_template.h"
 #include "core/crt_rules.h"
 #include "core/georeferencing.h"
@@ -55,6 +63,7 @@
 #include "core/extent_printing.h"
 #include "core/extents.h"
 #include "course/course_map.h"  // foom
+#include "course/course_report.h"  // foom
 #include "course/route_course.h"  // foom
 #include "course/route_store.h"  // foom
 #include "core/map.h"
@@ -358,6 +367,159 @@ struct ExportExtent
 /**
  * Returns the layer names of the import step's "layer": a string or an array of strings.
  */
+// foom: the design notes, "Headless runner", the step `check`.
+
+enum Checker
+{
+	MapChecker,
+	LegibilityChecker,
+	CourseChecker,
+	CheckerCount
+};
+
+const char* const checker_names[CheckerCount] = { "map", "legibility", "courses" };
+
+/** The rules which a checker reports. */
+std::vector<const char*> rulesOf(int checker)
+{
+	switch (checker)
+	{
+	case MapChecker:
+		return { rule::text_empty, rule::path_degenerate, rule::symbol_undefined, rule::symbol_wrong_type,
+		         rule::object_duplicate, rule::vertex_duplicate, rule::area_open, rule::symbol_unused,
+		         rule::color_unused, rule::template_missing, rule::text_path_overflow };
+	case LegibilityChecker:
+		return { rule::line_short, rule::area_small, rule::gap };
+	case CourseChecker:
+		return { rule::course_start_missing, rule::course_finish_missing, rule::course_climb_zero,
+		         rule::course_identical, rule::course_not_checked, rule::relay_structure, rule::course_part,
+		         rule::control_unused, rule::control_too_close, rule::leg_opposite, rule::description_d_empty,
+		         rule::description_de_missing, rule::description_fg_missing, rule::punch_consecutive,
+		         rule::punch_repeated };
+	default:
+		return {};
+	}
+}
+
+/** Which checkers run, and which of their rules are kept. */
+struct CheckRules
+{
+	bool run[CheckerCount] = {};
+	bool whole[CheckerCount] = {};
+	QList<QByteArray> named;  ///< rule ids named alone
+	
+	bool keeps(int checker, const QByteArray& rule) const
+	{
+		return whole[checker] || named.contains(rule);
+	}
+};
+
+CheckRules parseCheckRules(const Params& p)
+{
+	CheckRules result;
+	if (!p.has("rules"))
+	{
+		result.run[MapChecker] = result.whole[MapChecker] = true;
+		return result;
+	}
+	auto const what = QLatin1String("\"rules\" must be a non-empty array of checkers and rule ids");
+	auto const v = p.value("rules");
+	if (!v.isArray() || v.toArray().isEmpty())
+		p.fail(what);
+	for (auto const& item : v.toArray())
+	{
+		if (!item.isString())
+			p.fail(what);
+		auto const name = item.toString().toLatin1();
+		auto found = false;
+		for (int checker = 0; checker < CheckerCount && !found; ++checker)
+		{
+			if (name == checker_names[checker])
+			{
+				result.run[checker] = result.whole[checker] = found = true;
+				break;
+			}
+			for (auto const* rule : rulesOf(checker))
+			{
+				if (name == rule)
+				{
+					result.run[checker] = found = true;
+					result.named.push_back(name);
+					break;
+				}
+			}
+		}
+		if (!found)
+			p.fail(QString::fromLatin1("unknown rule \"%1\": expected \"map\", \"legibility\", \"courses\" or a rule id of them").arg(item.toString()));
+	}
+	return result;
+}
+
+/** True for JSON output, false for CSV. */
+bool checkOutIsJson(const Params& p, const QString& out)
+{
+	auto const suffix = QFileInfo(out).suffix().toLower();
+	if (suffix == QLatin1String("json"))
+		return true;
+	if (suffix != QLatin1String("csv"))
+		p.fail(QString::fromLatin1("\"out\" of \"check\" must end in .csv or .json, not \"%1\"").arg(out));
+	return false;
+}
+
+/** The least severity which makes the step fail, or -1 for none. */
+int parseFailOn(const Params& p)
+{
+	if (!p.has("fail_on"))
+		return -1;
+	auto const v = p.requireString("fail_on");
+	for (auto severity : { Issue::Info, Issue::Warning, Issue::Error })
+	{
+		if (v == severityName(severity))
+			return int(severity);
+	}
+	p.fail(QString::fromLatin1("unknown fail_on \"%1\": expected \"error\", \"warning\" or \"info\"").arg(v));
+}
+
+double parseGap(const Params& p, const Map* map)
+{
+	if (!p.has("gap"))
+		return map ? defaultGap(*map) : 0.0;
+	auto const gap = p.requireNumber("gap");
+	if (!(gap > 0))
+		p.fail(QLatin1String("parameter \"gap\" must be a positive number of mm"));
+	return gap;
+}
+
+/** The issues as the JSON file of the step `check`. */
+QByteArray issuesJson(const std::vector<Issue>& issues)
+{
+	QJsonArray array;
+	for (auto const& issue : issues)
+	{
+		QJsonArray objects;
+		for (auto const& uuid : issue.objects)
+			objects.append(uuid.toString(QUuid::WithoutBraces));
+		array.append(QJsonObject{
+			{ QStringLiteral("rule"), QString::fromLatin1(issue.rule) },
+			{ QStringLiteral("severity"), severityName(issue.severity) },
+			{ QStringLiteral("objects"), objects },
+			{ QStringLiteral("x"), issue.where.x() },
+			{ QStringLiteral("y"), issue.where.y() },
+			{ QStringLiteral("measured"), issue.measured },
+			{ QStringLiteral("limit"), issue.limit },
+			{ QStringLiteral("message"), issue.message },
+			{ QStringLiteral("subject"), issue.subject },
+		});
+	}
+	return QJsonDocument(QJsonObject{ { QStringLiteral("issues"), array } }).toJson();
+}
+
+bool writeBytes(const QString& path, const QByteArray& bytes)
+{
+	QFile file(path);
+	return file.open(QIODevice::WriteOnly | QIODevice::Truncate) && file.write(bytes) == bytes.size();
+}
+
 // foom: the design notes, "The maps of the courses as PDF files"
 QStringList parseCourseNames(const Params& p)
 {
@@ -849,11 +1011,22 @@ void StepRunner::validate(const Step& step, bool& map_open)
 		if (p.has("declination"))
 			p.requireNumber("declination");
 	}
-	else if (name == QLatin1String("check"))
+	else if (name == QLatin1String("check"))  // foom
 	{
 		p.requireMap(map_open);
-		p.checkKnown({ "rules", "out" });
-		p.fail(QLatin1String("step \"check\" is not supported yet: the map check is not built"));
+		p.checkKnown({ "rules", "out", "gap", "between_contours", "fail_on" });
+		parseCheckRules(p);
+		if (p.has("out"))
+			checkOutIsJson(p, p.requireString("out"));
+		parseGap(p, nullptr);
+		p.optionalBool("between_contours", false);
+		parseFailOn(p);
+	}
+	else if (name == QLatin1String("course-statistics"))  // foom
+	{
+		p.requireMap(map_open);
+		p.checkKnown({ "out" });
+		p.requireString("out");
 	}
 	else if (name == QLatin1String("export"))
 	{
@@ -981,6 +1154,10 @@ StepResult StepRunner::run(const Step& step)
 		return exportCourseMapsStep(step);
 	if (name == QLatin1String("analyse-routes"))  // foom
 		return analyseRoutesStep(step);
+	if (name == QLatin1String("check"))  // foom
+		return checkStep(step);
+	if (name == QLatin1String("course-statistics"))  // foom
+		return courseStatisticsStep(step);
 	if (name == QLatin1String("field-copy-create"))
 		return fieldCopyCreate(step);
 	if (name == QLatin1String("merge-from-file"))
@@ -1470,6 +1647,101 @@ StepResult StepRunner::analyseRoutesStep(const Step& step)
 	result.details.insert(QLatin1String("missing"), missing);
 	if (!all.skipped.isEmpty())
 		result.details.insert(QLatin1String("skipped"), QJsonArray::fromStringList(all.skipped));
+	return result;
+}
+
+
+// foom: the design notes, "Headless runner", the step `check`.
+StepResult StepRunner::checkStep(const Step& step)
+{
+	Params p(step);
+	auto const rules = parseCheckRules(p);
+	auto const fail_on = parseFailOn(p);
+	
+	std::vector<Issue> issues;
+	auto const keep = [&rules, &issues](std::vector<Issue> found, int checker) {
+		for (auto& issue : found)
+		{
+			if (rules.keeps(checker, issue.rule))
+				issues.push_back(std::move(issue));
+		}
+	};
+	if (rules.run[MapChecker])
+	{
+		// Without a view, nothing has tried the files of the templates yet.
+		loadTemplateFiles(*map);
+		keep(checkMap(*map), MapChecker);
+	}
+	if (rules.run[LegibilityChecker])
+	{
+		LegibilityParams params;
+		params.gap_mm = parseGap(p, map.get());
+		params.between_contours = p.optionalBool("between_contours", false);
+		keep(checkLegibility(*map, params), LegibilityChecker);
+	}
+	if (rules.run[CourseChecker])
+		keep(checkCourses(*map, map->courseData()), CourseChecker);
+	
+	StepResult result;
+	auto const out = p.optionalString("out");
+	if (!out.isEmpty())
+	{
+		auto const path = job.resolvePath(out);
+		QByteArray bytes;
+		if (checkOutIsJson(p, out))
+		{
+			bytes = issuesJson(issues);
+		}
+		else
+		{
+			IssueModel model;
+			model.setIssues(issues);
+			bytes = model.toCsv();
+		}
+		if (!writeBytes(path, bytes))
+			return failure(QString::fromLatin1("cannot write \"%1\"").arg(path));
+		result.details.insert(QLatin1String("path"), path);
+	}
+	
+	int count[3] = {};
+	QJsonObject by_rule;
+	auto failing = 0;
+	for (auto const& issue : issues)
+	{
+		++count[issue.severity];
+		auto const rule = QString::fromLatin1(issue.rule);
+		by_rule.insert(rule, by_rule.value(rule).toInt() + 1);
+		if (fail_on >= 0 && int(issue.severity) >= fail_on)
+			++failing;
+	}
+	result.details.insert(QLatin1String("issues"), int(issues.size()));
+	result.details.insert(QLatin1String("errors"), count[Issue::Error]);
+	result.details.insert(QLatin1String("warnings"), count[Issue::Warning]);
+	result.details.insert(QLatin1String("infos"), count[Issue::Info]);
+	result.details.insert(QLatin1String("rules"), by_rule);
+	if (failing > 0)
+	{
+		result.ok = false;
+		result.message = QString::fromLatin1("%1 issue(s) of severity %2 or higher").arg(QString::number(failing), severityName(Issue::Severity(fail_on)));
+	}
+	return result;
+}
+
+
+// foom: the design notes, "Statistics and the consistency check"
+StepResult StepRunner::courseStatisticsStep(const Step& step)
+{
+	Params p(step);
+	auto const path = job.resolvePath(p.requireString("out"));
+	auto const statistics = courseStatistics(*map, map->courseData());
+	if (!writeBytes(path, courseStatisticsText(statistics).toUtf8()))
+		return failure(QString::fromLatin1("cannot write \"%1\"").arg(path));
+	
+	StepResult result;
+	result.details.insert(QLatin1String("path"), path);
+	result.details.insert(QLatin1String("courses"), statistics.course_count);
+	result.details.insert(QLatin1String("controls"), statistics.control_count);
+	result.details.insert(QLatin1String("classes"), statistics.class_count);
 	return result;
 }
 

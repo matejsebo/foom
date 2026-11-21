@@ -445,12 +445,28 @@ private slots:
 			}),
 		});
 		// Features which do not exist yet are reported, not ignored.
-		QTest::newRow("check is unsupported") << jobDocument({
+		QTest::newRow("check with an unknown rule") << jobDocument({
 			step(QStringLiteral("open"), {{ QStringLiteral("path"), testData(QStringLiteral("rotated.omap")) }}),
 			step(QStringLiteral("check"), {
 				{ QStringLiteral("rules"), QJsonArray{ QStringLiteral("min-width") } },
 				{ QStringLiteral("out"), outPath(QStringLiteral("malformed.csv")) },
 			}),
+		});
+		QTest::newRow("check into a text file") << jobDocument({
+			step(QStringLiteral("open"), {{ QStringLiteral("path"), testData(QStringLiteral("rotated.omap")) }}),
+			step(QStringLiteral("save-as"), {{ QStringLiteral("path"), outPath(QStringLiteral("malformed.foom")) }}),
+			step(QStringLiteral("check"), {{ QStringLiteral("out"), outPath(QStringLiteral("malformed.txt")) }}),
+		});
+		QTest::newRow("check with an unknown fail_on") << jobDocument({
+			step(QStringLiteral("open"), {{ QStringLiteral("path"), testData(QStringLiteral("rotated.omap")) }}),
+			step(QStringLiteral("check"), {
+				{ QStringLiteral("out"), outPath(QStringLiteral("malformed.csv")) },
+				{ QStringLiteral("fail_on"), QStringLiteral("fatal") },
+			}),
+		});
+		QTest::newRow("course-statistics without out") << jobDocument({
+			step(QStringLiteral("open"), {{ QStringLiteral("path"), testData(QStringLiteral("rotated.omap")) }}),
+			step(QStringLiteral("course-statistics"), {}),
 		});
 		QTest::newRow("export course is unsupported") << jobDocument({
 			step(QStringLiteral("open"), {{ QStringLiteral("path"), testData(QStringLiteral("rotated.omap")) }}),

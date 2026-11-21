@@ -51,9 +51,8 @@ struct StepResult
  * Validates and runs the steps of a job.
  *
  * The steps are those of the table in "Headless runner",
- * the design notes. Steps whose features are not built yet are
- * rejected by validate(): `check`, the `course` parameter of `export`, and
- * the `layer` and `clip` parameters of `import`.
+ * the design notes. Parameters whose features are not built yet
+ * are rejected by validate(): the `course` parameter of `export`.
  */
 class StepRunner
 {
@@ -92,6 +91,8 @@ private:
 	StepResult saveAs(const Step& step);
 	StepResult exportCourseMapsStep(const Step& step);  // foom
 	StepResult analyseRoutesStep(const Step& step);  // foom
+	StepResult checkStep(const Step& step);  // foom
+	StepResult courseStatisticsStep(const Step& step);  // foom
 	StepResult fieldCopyCreate(const Step& step);  // foom
 	StepResult mergeFromFile(const Step& step);  // foom
 	StepResult fieldCopyClose(const Step& step);  // foom
