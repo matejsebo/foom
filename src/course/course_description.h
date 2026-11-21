@@ -241,6 +241,8 @@ struct CourseDescriptionLayout
 		/** On the base line: its middle, and for TextTitle and TextRow its left end. */
 		QPointF anchor;
 		QString text;
+		/** The width of its cells, 0 for no limit; what is drawn plainly is made smaller to fit them. */
+		double width = 0;
 	};
 	
 	/** The size of a box in mm. */

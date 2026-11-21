@@ -408,6 +408,7 @@ private slots:
 	void headLayoutTest();
 	void secondBlockTest();
 	void pictureTest();
+	void plainFitTest();
 };
 
 
@@ -1055,6 +1056,50 @@ void CourseDescriptionTest::pictureTest()
 		}
 		QVERIFY(found);
 	}
+}
+
+
+/// Accept (12), the last sentence
+void CourseDescriptionTest::plainFitTest()
+{
+	DescriptionMap m;
+	m.data.options = forestOptions();
+	m.course("A very long name of a course", { "sS1", "c31", "fF2" });
+	m.addDescription(0, 0, false);
+	
+	auto const drawing = drawCourseDescriptions(m.map, m.data, QStringLiteral("A very long name of a course"));
+	QVERIFY(drawing.drawn);
+	QCOMPARE(drawing.layouts.size(), std::size_t(1));
+	QVERIFY(drawing.plain[0]);
+	
+	// 10 pixels for a millimetre; the map from (-5, -5) to (95, 95).
+	auto const ground = QColor(0, 120, 200);
+	QImage image(1000, 1000, QImage::Format_ARGB32_Premultiplied);
+	image.fill(ground);
+	{
+		QPainter painter(&image);
+		painter.setRenderHint(QPainter::Antialiasing);
+		painter.scale(10.0, 10.0);
+		painter.translate(5.0, 5.0);
+		paintCourseDescriptions(&painter, &m.map, drawing, QRectF(-5, -5, 100, 100), 10.0);
+	}
+	auto const colour = [&image](double x, double y) {
+		return QColor(image.pixel(qRound((x + 5) * 10), qRound((y + 5) * 10)));
+	};
+	auto const is_dark = [](const QColor& c) { return c.red() < 160 && c.green() < 160 && c.blue() < 160; };
+	
+	// The row of the name is the third, from 8.4 mm to 14.4 mm; its cell reaches from 0 to 19.2 mm.
+	auto beyond = 0;
+	auto inside = 0;
+	for (auto y = 8.8; y <= 14.0; y += 0.1)
+	{
+		for (auto x = -1.4; x <= -0.4; x += 0.1)
+			beyond += is_dark(colour(x, y)) ? 1 : 0;
+		for (auto x = 0.6; x <= 18.6; x += 0.1)
+			inside += is_dark(colour(x, y)) ? 1 : 0;
+	}
+	QCOMPARE(beyond, 0);
+	QVERIFY(inside > 0);
 }
 
 

@@ -195,7 +195,7 @@ public:
 	void head(const CourseDescription& description, int title_mode)
 	{
 		auto top = beginRow(1.0, false, -1);
-		text(Layout::Text::Title, description.title, full_row_middle, top + title_base_line * box);
+		text(Layout::Text::Title, description.title, full_row_middle, top + title_base_line * box, cellWidth(0, 8));
 		
 		if (title_mode == 0)
 		{
@@ -207,10 +207,10 @@ public:
 			top = beginRow(height, false, -1);
 			headCells(top, height);
 			for (int i = 0; i < names.size(); ++i)
-				text(Layout::Text::Title, names[i], cellMiddle(0, 3), top + (title_base_line + class_pitch * i) * box);
+				text(Layout::Text::Title, names[i], cellMiddle(0, 3), top + (title_base_line + class_pitch * i) * box, cellWidth(0, 3));
 			auto const base_line = top + ((height - 1.0) / 2 + title_base_line) * box;
-			text(Layout::Text::Title, description.length, cellMiddle(3, 6), base_line);
-			text(Layout::Text::Title, description.climb, cellMiddle(6, 8), base_line);
+			text(Layout::Text::Title, description.length, cellMiddle(3, 6), base_line, cellWidth(3, 6));
+			text(Layout::Text::Title, description.climb, cellMiddle(6, 8), base_line, cellWidth(6, 8));
 			return;
 		}
 		
@@ -223,16 +223,16 @@ public:
 			else
 			{
 				top = beginRow(1.0, false, -1);
-				text(Layout::Text::Title, description.classes.join(QLatin1String(", ")), full_row_middle, top + title_base_line * box);
+				text(Layout::Text::Title, description.classes.join(QLatin1String(", ")), full_row_middle, top + title_base_line * box, cellWidth(0, 8));
 			}
 		}
 		
 		top = beginRow(1.0, false, -1);
 		headCells(top, 1.0);
 		auto const base_line = top + title_base_line * box;
-		text(Layout::Text::Title, description.course, cellMiddle(0, 3), base_line);
-		text(Layout::Text::Title, description.length, cellMiddle(3, 6), base_line);
-		text(Layout::Text::Title, description.climb, cellMiddle(6, 8), base_line);
+		text(Layout::Text::Title, description.course, cellMiddle(0, 3), base_line, cellWidth(0, 3));
+		text(Layout::Text::Title, description.length, cellMiddle(3, 6), base_line, cellWidth(3, 6));
+		text(Layout::Text::Title, description.climb, cellMiddle(6, 8), base_line, cellWidth(6, 8));
 	}
 	
 	void row(const Row& row, int index)
@@ -361,6 +361,11 @@ private:
 		return (column_edges[first_column] + column_edges[end_column]) / 2;
 	}
 	
+	static double cellWidth(int first_column, int end_column)
+	{
+		return column_edges[end_column] - column_edges[first_column];
+	}
+	
 	void vertical(double x_in_boxes, bool thick, double top, double height_in_boxes)
 	{
 		auto const x = left + x_in_boxes * box;
@@ -422,10 +427,10 @@ private:
 		layout.pictograms.push_back({ symbol, { left + x_in_boxes * box, top + box / 2 } });
 	}
 	
-	void text(Layout::Text::Style style, const QString& text, double x_in_boxes, double base_line)
+	void text(Layout::Text::Style style, const QString& text, double x_in_boxes, double base_line, double width_in_boxes = 0)
 	{
 		if (!text.isEmpty())
-			layout.texts.push_back({ style, { left + x_in_boxes * box, base_line }, text });
+			layout.texts.push_back({ style, { left + x_in_boxes * box, base_line }, text, width_in_boxes * box });
 	}
 	
 	Layout& layout;
@@ -556,15 +561,20 @@ void paintPlain(QPainter* painter, const Layout& layout)
 	for (auto const& text : layout.texts)
 	{
 		auto const font = plainFont(text.style);
-		auto const factor = plain_em[int(text.style)] * layout.box / 256.0;
+		auto factor = plain_em[int(text.style)] * layout.box / 256.0;
 		auto const shown = plainText(text.text);
+		// A text which is wider than its cells is made smaller, with a fifth of a box to spare.
+		auto const advance = QFontMetricsF(font).horizontalAdvance(shown);
+		auto const room = text.width - 0.2 * layout.box;
+		if (text.width > 0 && room > 0 && advance * factor > room)
+			factor = room / advance;
 		QPainterPath glyphs;
 		glyphs.addText(0.0, 0.0, font, shown);
 		painter->save();
 		painter->translate(text.anchor);
 		painter->scale(factor, factor);
 		if (!isLeftAligned(text.style))
-			painter->translate(-QFontMetricsF(font).horizontalAdvance(shown) / 2, 0.0);
+			painter->translate(-advance / 2, 0.0);
 		painter->drawPath(glyphs);
 		painter->restore();
 	}
