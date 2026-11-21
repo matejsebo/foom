@@ -1676,6 +1676,16 @@ void ToolsTest::convertToPointCommand()
 }
 
 
+void ToolsTest::symbolDescriptionCommands()
+{
+	// the design notes, "Descriptions file", Accept (4).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("symbols-descriptions-export"));
+	QVERIFY(editor.editor->getAction("symbols-descriptions-import"));
+}
+
+
 void ToolsTest::demPointCloud()
 {
 	// the design notes, "Reading point clouds and gridding them", Accept (9).

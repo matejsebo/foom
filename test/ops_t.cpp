@@ -44,6 +44,7 @@
 #include "core/selection_queries.h"
 #include "core/status_sets.h"
 #include "core/symbol_compare.h"
+#include "core/symbol_descriptions.h"
 #include "core/symbol_tools.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
@@ -150,6 +151,7 @@ private slots:
 	void statusSetsTest();
 	void symbolCompareTest();
 	void convertToPointsTest();
+	void symbolDescriptionsTest();
 	void buildingsTest();
 	void smoothTest();
 	void rectangleBoxTest();
@@ -1852,6 +1854,48 @@ void OpsTest::convertToPointsTest()
 	QVERIFY(!result.warning.isEmpty());
 	params.symbol = nullptr;
 	QVERIFY(!ops::convertToPoints(map, { bend }, params).error.isEmpty());
+}
+
+
+void OpsTest::symbolDescriptionsTest()
+{
+	// the design notes, "Descriptions file", Accept (1) to (3).
+	auto const make_map = [](Map& map, bool german) {
+		auto* contour = new LineSymbol();
+		contour->setNumberComponent(0, 101);
+		contour->setName(german ? QString::fromUtf8("H\xc3\xb6henlinie") : QStringLiteral("Contour"));
+		if (!german)
+			contour->setDescription(QStringLiteral("Joins points;\n\"equal\" height"));
+		map.addSymbol(contour, 0);
+		auto* field = new AreaSymbol();
+		field->setNumberComponent(0, 401);
+		field->setName(QStringLiteral("Field"));
+		map.addSymbol(field, 1);
+	};
+	Map english, german;
+	make_map(english, false);
+	make_map(german, true);
+	auto const csv = symbolDescriptionsCsv(english);
+	auto const lines = csv.split(QLatin1Char('\n'), QString::SkipEmptyParts);
+	QCOMPARE(lines.front(), QStringLiteral("number;name;description"));
+	QVERIFY(csv.contains(QLatin1String("101;Contour;\"Joins points;\n\"\"equal\"\" height\"")));
+	QVERIFY(csv.contains(QLatin1String("401;Field;\n")));
+	
+	auto result = applySymbolDescriptionsCsv(german, csv);
+	QCOMPARE(result.changed, 1);
+	QVERIFY(result.unmatched.isEmpty());
+	QCOMPARE(result.malformed, 0);
+	QCOMPARE(german.getSymbol(0)->getName(), QStringLiteral("Contour"));
+	QCOMPARE(german.getSymbol(0)->getDescription(), english.getSymbol(0)->getDescription());
+	
+	auto more = csv;
+	more.replace(QLatin1Char('\n'), QStringLiteral("\r\n"));
+	more += QStringLiteral("999;Nothing;\r\n401;Field only\r\n");
+	result = applySymbolDescriptionsCsv(german, more);
+	QCOMPARE(result.changed, 0);
+	QCOMPARE(result.unmatched, QStringList{ QStringLiteral("999") });
+	QCOMPARE(result.malformed, 1);
+	QCOMPARE(german.getSymbol(0)->getDescription(), english.getSymbol(0)->getDescription());
 }
 
 void OpsTest::buildingsTest()

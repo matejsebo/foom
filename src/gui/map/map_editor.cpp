@@ -201,6 +201,7 @@
 #include "core/object_information.h"  // foom
 #include "core/status_sets.h"  // foom
 #include "core/symbol_compare.h"  // foom
+#include "core/symbol_descriptions.h"  // foom
 #include "core/symbol_tools.h"  // foom
 #include "gui/widgets/symbol_tools_dialogs.h"  // foom
 #include "gui/map/rectangle_box_dialog.h"
@@ -1323,6 +1324,8 @@ void MapEditorController::createActions()
 	mirror_act = newAction("mirror", tr("Mirror..."), this, SLOT(mirrorClicked()));  // foom
 	convert_to_point_act = newAction("convert-to-point", tr("Convert to point objects..."), this, SLOT(convertToPointsClicked()));  // foom
 	interpolate_act = newAction("interpolate", tr("Interpolate..."), this, SLOT(interpolateClicked()));  // foom
+	export_descriptions_act = newAction("symbols-descriptions-export", tr("Export symbol descriptions..."), this, SLOT(exportSymbolDescriptionsClicked()));  // foom
+	import_descriptions_act = newAction("symbols-descriptions-import", tr("Import symbol descriptions..."), this, SLOT(importSymbolDescriptionsClicked()));  // foom
 	compare_symbols_act = newAction("symbols-compare", tr("Compare with file..."), this, SLOT(compareSymbolsClicked()));  // foom
 	status_save_act = newAction("symbols-status-save", tr("Save status set..."), this, SLOT(saveStatusSetClicked()));  // foom
 	status_apply_act = newAction("symbols-status-apply", tr("Apply status set..."), this, SLOT(applyStatusSetClicked()));  // foom
@@ -1824,6 +1827,8 @@ void MapEditorController::createMenuAndToolbars()
 	symbols_menu->addAction(replace_color_act);  // foom
 	symbols_menu->addAction(renumber_symbols_act);  // foom
 	symbols_menu->addAction(compare_symbols_act);  // foom
+	symbols_menu->addAction(export_descriptions_act);  // foom
+	symbols_menu->addAction(import_descriptions_act);  // foom
 	auto* status_menu = symbols_menu->addMenu(tr("Status sets"));  // foom: the design notes, "Status sets"
 	status_menu->addAction(status_save_act);
 	status_menu->addAction(status_apply_act);
@@ -6136,6 +6141,37 @@ void MapEditorController::mirror(double axis_angle, bool duplicate)
 	params.axis_angle = axis_angle;
 	params.duplicate = duplicate;
 	applyOpResult(ops::mirror(*map, in, params));
+}
+
+// foom: the design notes, "Descriptions file".
+void MapEditorController::exportSymbolDescriptionsClicked()
+{
+	auto const path = QFileDialog::getSaveFileName(window, tr("Export symbol descriptions"), {}, tr("CSV") + QLatin1String(" (*.csv)"));
+	if (path.isEmpty())
+		return;
+	QFile file(path);
+	if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write(symbolDescriptionsCsv(*map).toUtf8()) < 0)
+		QMessageBox::warning(window, tr("Export symbol descriptions"), file.errorString());
+}
+
+void MapEditorController::importSymbolDescriptionsClicked()
+{
+	auto const path = QFileDialog::getOpenFileName(window, tr("Import symbol descriptions"), {}, tr("CSV") + QLatin1String(" (*.csv);;") + tr("All files") + QLatin1String(" (*.*)"));
+	if (path.isEmpty())
+		return;
+	QFile file(path);
+	if (!file.open(QIODevice::ReadOnly))
+	{
+		QMessageBox::warning(window, tr("Import symbol descriptions"), file.errorString());
+		return;
+	}
+	auto const result = applySymbolDescriptionsCsv(*map, QString::fromUtf8(file.readAll()));
+	auto message = tr("%1 symbol(s) changed.").arg(result.changed);
+	if (!result.unmatched.isEmpty())
+		message += QLatin1Char('\n') + tr("No symbol has the number(s): %1").arg(result.unmatched.join(QStringLiteral(", ")));
+	if (result.malformed > 0)
+		message += QLatin1Char('\n') + tr("%1 row(s) without three fields were skipped.").arg(result.malformed);
+	QMessageBox::information(window, tr("Import symbol descriptions"), message);
 }
 
 // foom: the design notes, "Compare with file".

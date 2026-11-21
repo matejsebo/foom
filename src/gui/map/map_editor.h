@@ -695,6 +695,9 @@ public slots:
 	void saveStatusSetClicked();
 	/** foom: Compares the symbols and colours with another map file (symbols-compare). */
 	void compareSymbolsClicked();
+	/** foom: The symbol descriptions file; see the design notes, "Descriptions file". */
+	void exportSymbolDescriptionsClicked();
+	void importSymbolDescriptionsClicked();
 	void applyStatusSetClicked();
 	void deleteStatusSetClicked();
 	/** foom: Adds count paths between the two selected paths as one undo step; see the design notes. */
@@ -1375,6 +1378,8 @@ private:
 	QAction* replace_color_act = {};  // foom
 	QAction* renumber_symbols_act = {};  // foom
 	QAction* compare_symbols_act = {};  // foom
+	QAction* export_descriptions_act = {};  // foom
+	QAction* import_descriptions_act = {};  // foom
 	QAction* status_save_act = {};  // foom
 	QAction* status_apply_act = {};  // foom
 	QAction* status_delete_act = {};  // foom

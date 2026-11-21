@@ -187,6 +187,7 @@ set(Mapper_Common_SRCS
   core/lasso_query.cpp
   core/status_sets.cpp
   core/symbol_compare.cpp
+  core/symbol_descriptions.cpp
   core/symbol_tools.cpp
   core/object_information.cpp
   core/selection_queries.cpp

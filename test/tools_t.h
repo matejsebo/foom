@@ -133,6 +133,9 @@ private slots:
 	/** foom: Tests the convert to point objects command. */
 	void convertToPointCommand();
 	
+	/** foom: Tests the symbol descriptions file commands. */
+	void symbolDescriptionCommands();
+	
 	/** foom: Tests the point cloud import command. */
 	void demPointCloud();
 	
