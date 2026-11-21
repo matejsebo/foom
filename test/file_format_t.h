@@ -90,6 +90,7 @@ private slots:
 	void foomBookmarkTest();
 	void foomSavedSelectionTest();
 	void foomStatusSetTest();
+	void foomFavouritesTest();
 	void foomExtentTest();
 	void mapDataUndoTest();
 	

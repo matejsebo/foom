@@ -215,6 +215,8 @@ namespace literal
 	static const QLatin1String status_set("status_set");  // foom
 	static const QLatin1String status_hidden("hidden");  // foom
 	static const QLatin1String status_protected("protected");  // foom
+	static const QLatin1String favorites("favorites");  // foom
+	static const QLatin1String favorite_numbers("numbers");  // foom
 	static const QLatin1String extents("extents");  // foom
 	static const QLatin1String course_data("course_data");  // foom
 	static const QLatin1String sync("sync");  // foom
@@ -345,6 +347,13 @@ bool XMLFileExporter::exportImplementation()
 			exportStatusSets();
 			writeLineBreak(xml);
 		}
+		if (XMLFileFormat::foom_revision >= 1 && !map->favouriteSymbols().isEmpty())  // foom: the design notes, "Favourites"
+		{
+			XmlElementWriter favorites_element(xml, literal::favorites);
+			favorites_element.writeAttribute(literal::favorite_numbers, map->favouriteSymbols().join(QLatin1Char(' ')));
+		}
+		if (XMLFileFormat::foom_revision >= 1 && !map->favouriteSymbols().isEmpty())  // foom
+			writeLineBreak(xml);
 		if (XMLFileFormat::foom_revision >= 1 && !map->extents().empty())  // foom
 		{
 			exportExtents();
@@ -870,6 +879,11 @@ void XMLFileImporter::importElements()
 			importSavedSelections();
 		else if (name == literal::status_sets)  // foom
 			importStatusSets();
+		else if (name == literal::favorites)  // foom: the design notes, "Favourites"
+		{
+			XmlElementReader favorites_element(xml);
+			map->setFavouriteSymbols(favorites_element.attribute<QString>(literal::favorite_numbers).split(QLatin1Char(' '), QString::SkipEmptyParts));
+		}
 		else if (name == literal::extents)  // foom
 			importExtents();
 		else if (name == literal::course_data)  // foom

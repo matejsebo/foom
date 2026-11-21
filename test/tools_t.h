@@ -136,6 +136,9 @@ private slots:
 	/** foom: Tests the symbol descriptions file commands. */
 	void symbolDescriptionCommands();
 	
+	/** foom: Tests the favourites filter of the symbol pane. */
+	void favouritesFilter();
+	
 	/** foom: Tests the point cloud import command. */
 	void demPointCloud();
 	

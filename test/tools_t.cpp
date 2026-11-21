@@ -50,6 +50,7 @@
 #include "core/map_part.h"
 #include "core/map_printer.h"
 #include "core/map_transform.h"
+#include "core/symbol_tools.h"
 #include "core/objects/object.h"
 #include "core/objects/object_query.h"
 #include "core/ops/align.h"
@@ -1683,6 +1684,28 @@ void ToolsTest::symbolDescriptionCommands()
 	TestMapEditor editor(map.map);
 	QVERIFY(editor.editor->getAction("symbols-descriptions-export"));
 	QVERIFY(editor.editor->getAction("symbols-descriptions-import"));
+}
+
+
+void ToolsTest::favouritesFilter()
+{
+	// the design notes, "Favourites", Accept (3).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	map.line_symbol->setNumberComponent(0, 101);
+	auto* second = new LineSymbol();
+	second->setNumberComponent(0, 102);
+	map.map->addSymbol(second, map.map->getNumSymbols());
+	auto* third = new LineSymbol();
+	third->setNumberComponent(0, 103);
+	map.map->addSymbol(third, map.map->getNumSymbols());
+	addFavourites(*map.map, { map.line_symbol, third });
+	auto* widget = editor.editor->getSymbolWidget();
+	widget->setFavouritesOnly(true);
+	QVERIFY(widget->favouritesOnly());
+	QVERIFY(widget->shownSymbols() == (std::vector<const Symbol*>{ map.line_symbol, third }));
+	widget->setFavouritesOnly(false);
+	QCOMPARE(int(widget->shownSymbols().size()), map.map->getNumPublicSymbols());
 }
 
 

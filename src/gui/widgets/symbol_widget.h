@@ -95,6 +95,11 @@ public:
 	/** foom: Selects exactly these symbols. */
 	void selectSymbols(const std::vector<const Symbol*>& symbols);
 	
+	/** foom: Shows only the favourite symbols, or all; see the design notes, "Favourites". */
+	void setFavouritesOnly(bool enabled);
+	bool favouritesOnly() const;
+	std::vector<const Symbol*> shownSymbols() const;
+	
 signals:
 	/**
 	 * @brief The collection of selected symbols changed.

@@ -88,6 +88,24 @@ void SymbolWidget::selectSymbols(const std::vector<const Symbol*>& symbols)
 	render_widget->selectSymbols(symbols);
 }
 
+// foom
+void SymbolWidget::setFavouritesOnly(bool enabled)
+{
+	render_widget->setFavouritesOnly(enabled);
+}
+
+// foom
+bool SymbolWidget::favouritesOnly() const
+{
+	return render_widget->favouritesOnly();
+}
+
+// foom
+std::vector<const Symbol*> SymbolWidget::shownSymbols() const
+{
+	return render_widget->shownSymbols();
+}
+
 void SymbolWidget::contextMenuEvent(QContextMenuEvent* event)
 {
 	render_widget->showContextMenu(event->globalPos());

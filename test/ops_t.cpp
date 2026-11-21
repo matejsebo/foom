@@ -152,6 +152,7 @@ private slots:
 	void symbolCompareTest();
 	void convertToPointsTest();
 	void symbolDescriptionsTest();
+	void favouritesTest();
 	void buildingsTest();
 	void smoothTest();
 	void rectangleBoxTest();
@@ -1896,6 +1897,27 @@ void OpsTest::symbolDescriptionsTest()
 	QCOMPARE(result.unmatched, QStringList{ QStringLiteral("999") });
 	QCOMPARE(result.malformed, 1);
 	QCOMPARE(german.getSymbol(0)->getDescription(), english.getSymbol(0)->getDescription());
+}
+
+
+void OpsTest::favouritesTest()
+{
+	// the design notes, "Favourites", Accept (1).
+	Map map;
+	auto* contour = new LineSymbol();
+	contour->setNumberComponent(0, 101);
+	map.addSymbol(contour, 0);
+	auto* field = new AreaSymbol();
+	field->setNumberComponent(0, 401);
+	map.addSymbol(field, 1);
+	addFavourites(map, { contour, field });
+	QCOMPARE(map.favouriteSymbols(), (QStringList{ QStringLiteral("101"), QStringLiteral("401") }));
+	addFavourites(map, { contour });
+	QCOMPARE(map.favouriteSymbols().size(), 2);
+	removeFavourites(map, { field });
+	QCOMPARE(map.favouriteSymbols(), QStringList{ QStringLiteral("101") });
+	QVERIFY(isFavourite(map, contour));
+	QVERIFY(!isFavourite(map, field));
 }
 
 void OpsTest::buildingsTest()

@@ -124,6 +124,13 @@ public:
 	/** foom: Selects exactly these symbols (private ones excepted). */
 	void selectSymbols(const std::vector<const Symbol*>& symbols);
 	
+	/** foom: Shows only the favourite symbols, or all. */
+	void setFavouritesOnly(bool enabled);
+	/** foom: Whether only the favourites are shown. */
+	bool favouritesOnly() const { return favourites_only; }
+	/** foom: The symbols in the grid, in grid order. */
+	std::vector<const Symbol*> shownSymbols() const;
+	
 	/**
 	 * @brief Returns the recommended size for the widget.
 	 * 
@@ -216,6 +223,8 @@ protected slots:
 	void selectAll();
 	void selectUnused();
 	void selectByProperty();  // foom
+	void addSelectedToFavourites();  // foom
+	void removeSelectedFromFavourites();  // foom
 	void invertSelection();
 	void sortByNumber();
 	void sortByColor();
@@ -368,6 +377,9 @@ private:
 	QAction* deselect_objects_action;
 	QAction* sort_manual_action;
 	QAction* show_custom_icons;
+	QAction* favourites_only_action = nullptr;  // foom: the design notes, "Favourites"
+	bool favourites_only = false;  // foom
+	std::vector<int> shown_symbols;  // foom: the symbols in the grid, by index, in grid order
 	
 	SymbolToolTip* tooltip;
 	

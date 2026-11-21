@@ -69,6 +69,16 @@ int replaceColor(Map& map, const MapColor* from, const MapColor* to, const std::
 int renumberSymbols(Map& map, int start, int step, const std::vector<const Symbol*>& scope = {});
 
 
+/// Makes the symbols favourites (by number), each number once.
+void addFavourites(Map& map, const std::vector<const Symbol*>& symbols);
+
+/// Removes the symbols' numbers from the favourites.
+void removeFavourites(Map& map, const std::vector<const Symbol*>& symbols);
+
+/// Whether the symbol's number is a favourite.
+bool isFavourite(const Map& map, const Symbol* symbol);
+
+
 }  // namespace OpenOrienteering
 
 #endif

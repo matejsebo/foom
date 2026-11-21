@@ -42,6 +42,7 @@
 #include <QSet>  // foom
 #include <QSharedData>
 #include <QString>
+#include <QStringList>  // foom
 #include <QTransform>
 #include <QUuid>
 
@@ -997,6 +998,12 @@ public:
 	/** foom: Replaces the status sets. */
 	void setStatusSets(std::vector<StatusSet> sets) { map_status_sets = std::move(sets); }
 	
+	/** foom: Returns the favourite symbols' numbers. See the design notes, "Favourites". */
+	const QStringList& favouriteSymbols() const { return map_favourite_symbols; }
+	
+	/** foom: Replaces the favourite symbols' numbers. */
+	void setFavouriteSymbols(const QStringList& numbers) { map_favourite_symbols = numbers; }
+	
 	/** foom: Returns the named extents. See the design notes. */
 	const std::vector<Extent>& extents() const { return map_extents; }
 	
@@ -1791,6 +1798,7 @@ private:
 	std::vector<Bookmark> map_bookmarks;  ///< foom: view state, see the design notes
 	std::vector<SavedSelection> map_saved_selections;  ///< foom: see the design notes, "Saved selections"
 	std::vector<StatusSet> map_status_sets;  ///< foom: see the design notes, "Status sets"
+	QStringList map_favourite_symbols;  ///< foom: see the design notes, "Favourites"
 	ForeignData map_foreign_data;  ///< foom: see the design notes, "OCD round trip"
 	std::vector<Extent> map_extents;  ///< foom: see the design notes
 	CourseData map_course_data;  ///< foom: see the design notes

@@ -2414,6 +2414,48 @@ void FileFormatTest::foomStatusSetTest()
 	QVERIFY(!QString::fromUtf8(empty_buffer.data()).contains(QLatin1String("<status_sets")));
 }
 
+
+void FileFormatTest::foomFavouritesTest()
+{
+	// the design notes, "Favourites", Accept (2).
+	Map map;
+	auto* symbol = new PointSymbol();
+	map.addSymbol(symbol, 0);
+	map.addObject(new PointObject(symbol));
+	map.setFavouriteSymbols(QStringList{ QStringLiteral("101"), QStringLiteral("418.1") });
+	
+	XMLFileFormat format;
+	QBuffer buffer;
+	QVERIFY(buffer.open(QIODevice::ReadWrite));
+	auto exporter = format.makeExporter({}, &map, nullptr);
+	exporter->setDevice(&buffer);
+	QVERIFY(exporter->doExport());
+	QVERIFY(QString::fromUtf8(buffer.data()).contains(QLatin1String("<favorites numbers=\"101 418.1\"/>")));
+	QVERIFY(buffer.seek(0));
+	Map reloaded;
+	auto importer = format.makeImporter({}, &reloaded, nullptr);
+	importer->setDevice(&buffer);
+	QVERIFY(importer->doImport());
+	QVERIFY(importer->warnings().empty());
+	QCOMPARE(reloaded.favouriteSymbols(), map.favouriteSymbols());
+	
+	QBuffer plain_buffer;
+	QVERIFY(plain_buffer.open(QIODevice::ReadWrite));
+	auto plain_exporter = format.makeExporter({}, &map, nullptr);
+	plain_exporter->setOption(QString::fromLatin1("foom"), false);
+	plain_exporter->setDevice(&plain_buffer);
+	QVERIFY(plain_exporter->doExport());
+	QVERIFY(!QString::fromUtf8(plain_buffer.data()).contains(QLatin1String("<favorites")));
+	
+	map.setFavouriteSymbols({});
+	QBuffer empty_buffer;
+	QVERIFY(empty_buffer.open(QIODevice::ReadWrite));
+	auto empty_exporter = format.makeExporter({}, &map, nullptr);
+	empty_exporter->setDevice(&empty_buffer);
+	QVERIFY(empty_exporter->doExport());
+	QVERIFY(!QString::fromUtf8(empty_buffer.data()).contains(QLatin1String("<favorites")));
+}
+
 namespace {
 	
 std::vector<Extent> sampleExtents()

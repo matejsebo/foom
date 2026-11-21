@@ -183,4 +183,41 @@ int renumberSymbols(Map& map, int start, int step, const std::vector<const Symbo
 }
 
 
+void addFavourites(Map& map, const std::vector<const Symbol*>& symbols)
+{
+	// the design notes, "Favourites".
+	auto favourites = map.favouriteSymbols();
+	for (auto const* symbol : symbols)
+	{
+		auto const number = symbol->getNumberAsString();
+		if (!favourites.contains(number))
+			favourites.push_back(number);
+	}
+	if (favourites != map.favouriteSymbols())
+	{
+		map.setFavouriteSymbols(favourites);
+		map.setSymbolsDirty();
+	}
+}
+
+
+void removeFavourites(Map& map, const std::vector<const Symbol*>& symbols)
+{
+	auto favourites = map.favouriteSymbols();
+	for (auto const* symbol : symbols)
+		favourites.removeAll(symbol->getNumberAsString());
+	if (favourites != map.favouriteSymbols())
+	{
+		map.setFavouriteSymbols(favourites);
+		map.setSymbolsDirty();
+	}
+}
+
+
+bool isFavourite(const Map& map, const Symbol* symbol)
+{
+	return symbol && map.favouriteSymbols().contains(symbol->getNumberAsString());
+}
+
+
 }  // namespace OpenOrienteering

@@ -21,6 +21,8 @@
 
 #include "symbol_render_widget.h"
 
+#include <algorithm>  // foom
+
 #include <QApplication>
 #include <QBuffer>
 #include <QClipboard>
@@ -45,6 +47,7 @@
 #include "core/symbols/symbol_icon_decorator.h"
 #include "core/symbols/text_symbol.h"
 #include "gui/symbols/symbol_setting_dialog.h"
+#include "core/symbol_tools.h"  // foom
 #include "gui/widgets/symbol_tools_dialogs.h"  // foom
 #include "gui/widgets/symbol_tooltip.h"
 #include "util/backports.h"  // IWYU pragma: keep
@@ -138,6 +141,11 @@ SymbolRenderWidget::SymbolRenderWidget(Map* map, bool mobile_mode, QWidget* pare
 	context_menu->addSeparator();
 	
 	show_custom_icons = context_menu->addAction(tr("Show custom icons"), this, SLOT(setCustomIconsVisible(bool)));
+	context_menu->addAction(tr("Add to favourites"), this, SLOT(addSelectedToFavourites()));  // foom
+	context_menu->addAction(tr("Remove from favourites"), this, SLOT(removeSelectedFromFavourites()));  // foom
+	favourites_only_action = context_menu->addAction(tr("Show favourites only"));  // foom
+	favourites_only_action->setCheckable(true);  // foom
+	connect(favourites_only_action, &QAction::toggled, this, &SymbolRenderWidget::setFavouritesOnly);  // foom
 	show_custom_icons->setCheckable(true);
 	
 	QMenu* select_menu = new QMenu(tr("Select symbols"), context_menu);
@@ -249,7 +257,14 @@ void SymbolRenderWidget::adjustLayout()
 	// Allow symbol widget to be that much wider than the viewport
 	int overflow = icon_size / 3;
 	icons_per_row = qMax(1, (width() + overflow) / icon_size);
-	num_rows = qMax(1, (map->getNumPublicSymbols() + icons_per_row -1) / icons_per_row);  // foom: private symbols are not shown
+	// foom: private symbols are not shown; with favourites only, neither are the others.
+	shown_symbols.clear();
+	for (int i = 0; i < map->getNumPublicSymbols(); ++i)
+	{
+		if (!favourites_only || isFavourite(*map, map->getSymbol(i)))
+			shown_symbols.push_back(i);
+	}
+	num_rows = qMax(1, (int(shown_symbols.size()) + icons_per_row -1) / icons_per_row);  // foom
 	setFixedHeight(num_rows * icon_size);
 	
 	if (old_icon_size != icon_size)
@@ -346,6 +361,11 @@ void SymbolRenderWidget::hover(const QPoint& pos)
 
 QPoint SymbolRenderWidget::iconPosition(int i) const
 {
+	// foom: the icon's place in the grid, which leaves out symbols not shown.
+	auto const slot = std::find(shown_symbols.begin(), shown_symbols.end(), i);
+	if (slot == shown_symbols.end())
+		return QPoint(-2 * icon_size, -2 * icon_size);
+	i = int(slot - shown_symbols.begin());
 	return QPoint((i % icons_per_row) * icon_size, (i / icons_per_row) * icon_size);
 }
 
@@ -357,8 +377,7 @@ int SymbolRenderWidget::symbolIndexAt(const QPoint& pos) const
 	if (icon_in_row < icons_per_row)
 	{
 		i = icon_in_row + icons_per_row * (pos.y() / icon_size);
-		if (i >= map->getNumPublicSymbols())  // foom
-			i = -1;
+		i = (i >= 0 && i < int(shown_symbols.size())) ? shown_symbols[std::size_t(i)] : -1;  // foom
 	}
 	
 	return i;
@@ -481,7 +500,7 @@ void SymbolRenderWidget::paintEvent(QPaintEvent* event)
 	
 	int x = 0;
 	int y = 0;
-	for (int i = 0; i < map->getNumPublicSymbols(); ++i)  // foom
+	for (auto const i : shown_symbols)  // foom
 	{
 		if (event_rect.contains(x,y))
 		{
@@ -529,14 +548,14 @@ void SymbolRenderWidget::mouseMoveEvent(QMouseEvent* event)
 			
 			if ((event->pos() - last_click_pos).manhattanLength() < Settings::getInstance().getStartDragDistancePx())
 				return;
-			dragging = sort_manual_action->isChecked();
+			dragging = sort_manual_action->isChecked() && !favourites_only;  // foom
 		}
 	}
 	else
 	{
 		if (event->buttons() & Qt::LeftButton
 		    && current_symbol_index >= 0
-		    && sort_manual_action->isChecked())
+		    && sort_manual_action->isChecked() && !favourites_only)  // foom
 		{
 			if ((event->pos() - last_click_pos).manhattanLength() < Settings::getInstance().getStartDragDistancePx())
 				return;
@@ -1004,6 +1023,44 @@ void SymbolRenderWidget::selectAll()
 		selected_symbols.insert(i);
 	emitGuarded_selectedSymbolsChanged();
 	update();
+}
+
+// foom: the design notes, "Favourites".
+void SymbolRenderWidget::setFavouritesOnly(bool enabled)
+{
+	favourites_only = enabled;
+	if (favourites_only_action && favourites_only_action->isChecked() != enabled)
+		favourites_only_action->setChecked(enabled);
+	updateAll();
+}
+
+// foom
+std::vector<const Symbol*> SymbolRenderWidget::shownSymbols() const
+{
+	std::vector<const Symbol*> symbols;
+	for (auto const index : shown_symbols)
+		symbols.push_back(map->getSymbol(index));
+	return symbols;
+}
+
+// foom
+void SymbolRenderWidget::addSelectedToFavourites()
+{
+	std::vector<const Symbol*> symbols;
+	for (auto const index : selected_symbols)
+		symbols.push_back(map->getSymbol(index));
+	addFavourites(*map, symbols);
+	updateAll();
+}
+
+// foom
+void SymbolRenderWidget::removeSelectedFromFavourites()
+{
+	std::vector<const Symbol*> symbols;
+	for (auto const index : selected_symbols)
+		symbols.push_back(map->getSymbol(index));
+	removeFavourites(*map, symbols);
+	updateAll();
 }
 
 // foom: the design notes, "Selecting symbols, replacing fonts and colours, renumbering".
