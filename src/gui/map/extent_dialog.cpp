@@ -176,7 +176,7 @@ void ExtentDialog::fromCurrentView()
 
 void ExtentDialog::fromPrintArea()
 {
-	setRect(editor->getMap()->printerConfig().print_area);
+	setRect(static_cast<const Map&>(*editor->getMap()).printerConfig().print_area);
 }
 
 

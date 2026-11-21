@@ -56,10 +56,11 @@ public:
 public slots:
 	/** Fills the rectangle from the map area the main widget shows. */
 	void fromCurrentView();
+	/** Fills the rectangle from the print area, or the default one; the map gets none. */
+	void fromPrintArea();
 	
 private slots:
 	void fromPaperFormat();
-	void fromPrintArea();
 
 private:
 	void setRect(const QRectF& rect);

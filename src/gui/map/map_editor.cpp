@@ -4546,12 +4546,19 @@ int MapEditorController::deleteMatchingText(const ops::ReplaceTextParams& params
 // foom
 void MapEditorController::extentDefineClicked()
 {
-	Extent extent;
-	extent.name = tr("Extent %1").arg(map->extents().size() + 1);
-	extent.rect_mm = map->printerConfig().print_area;
-	ExtentDialog dialog(this, extent, window);
+	ExtentDialog dialog(this, newExtent(), window);
 	if (dialog.exec() == QDialog::Accepted && !dialog.extent().name.isEmpty())
 		defineExtent(dialog.extent());
+}
+
+// foom
+Extent MapEditorController::newExtent() const
+{
+	Extent extent;
+	extent.name = tr("Extent %1").arg(map->extents().size() + 1);
+	// The const overload, which does not make a print area for the map.
+	extent.rect_mm = static_cast<const Map&>(*map).printerConfig().print_area;
+	return extent;
 }
 
 // foom

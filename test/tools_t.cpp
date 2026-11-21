@@ -43,6 +43,7 @@
 #include "core/map_color.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
+#include "core/map_printer.h"
 #include "core/objects/object.h"
 #include "core/objects/object_query.h"
 #include "core/ops/align.h"
@@ -1146,6 +1147,12 @@ void ToolsTest::extents()
 	TestMapEditor editor(map.map);
 	QVERIFY(editor.editor->getAction("extent-define") && editor.editor->getAction("extent-delete"));
 	QVERIFY(!editor.editor->getAction("extent-delete")->isEnabled());
+	// Proposing an extent does not give the map a print area.
+	QVERIFY(!map.map->hasPrinterConfig());
+	auto const proposed = editor.editor->newExtent();
+	QCOMPARE(proposed.name, QStringLiteral("Extent 1"));
+	QCOMPARE(proposed.rect_mm, static_cast<const Map&>(*map.map).printerConfig().print_area);
+	QVERIFY(!map.map->hasPrinterConfig());
 	auto const undo_steps = map.map->undoManager().undoStepCount();
 	Extent sheet;
 	sheet.name = QStringLiteral("sheet");
@@ -1182,6 +1189,13 @@ void ToolsTest::extents()
 	QVERIFY(std::abs(entered.left() - shown.left()) < 0.011 && std::abs(entered.top() - shown.top()) < 0.011);
 	QVERIFY(std::abs(entered.width() - shown.width()) < 0.011 && std::abs(entered.height() - shown.height()) < 0.011);
 	QVERIFY(shown.width() > 1.0 && shown.height() > 1.0);
+	
+	// "From print area" neither.
+	dialog.fromPrintArea();
+	QVERIFY(!map.map->hasPrinterConfig());
+	auto const area = static_cast<const Map&>(*map.map).printerConfig().print_area;
+	QVERIFY(std::abs(dialog.extent().rect_mm.width() - area.width()) < 0.011);
+	QVERIFY(std::abs(dialog.extent().rect_mm.height() - area.height()) < 0.011);
 }
 
 

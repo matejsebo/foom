@@ -772,6 +772,8 @@ public slots:
 	void issueActivated(const QVector<QUuid>& objects, const OpenOrienteering::MapCoordF& where);
 	/** foom: Opens the extent dialog for a new extent. */
 	void extentDefineClicked();
+	/** foom: The extent which the dialog proposes: the next free name, the print area or the default one. The map gets no print area. */
+	Extent newExtent() const;
 	/** foom: Adds the extent, or replaces the one of its name, as one undo step. */
 	void defineExtent(const Extent& extent);
 	/** foom: Asks which extent to delete. */
