@@ -27,6 +27,8 @@
 #include <QObject>
 #include <QString>
 
+#include "core/background_extents.h"
+#include "core/extents.h"
 #include "course/course_canvas.h"
 
 class QCheckBox;
@@ -67,6 +69,9 @@ public:
 	void setCurrentCanvas(int index);
 	int currentCanvas() const;
 	
+	/** The extents taken from background maps, which the map gets when the dialog is accepted. */
+	const std::vector<Extent>& loadedExtents() const { return loaded_extents; }
+	
 	/** The text of an entry of the list of courses: "Map Exchange - Map exchange #1". */
 	static QString entryText(const CanvasCourse& entry);
 	
@@ -78,6 +83,7 @@ private:
 	void symbolChanged(QListWidgetItem* item);
 	void newClicked();
 	void renameClicked();
+	void backgroundExtentChosen(int index);
 	
 	const Map* map;
 	CourseCanvases data;
@@ -92,6 +98,9 @@ private:
 	QWidget* canvas_panel;
 	QSpinBox* scale_edit;
 	QComboBox* extent_box;
+	QComboBox* load_extent_box;
+	std::vector<BackgroundExtent> background_extents;
+	std::vector<Extent> loaded_extents;
 	QDoubleSpinBox* box_edit;
 	QSpinBox* rows_edit;
 	QListWidget* course_list;

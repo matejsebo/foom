@@ -5983,6 +5983,8 @@ void MapEditorController::courseCanvasesClicked()
 	CourseCanvasesDialog dialog(map, window);
 	if (dialog.exec() != QDialog::Accepted)
 		return;
+	// foom: the design notes, "Canvases: load extent from background map"
+	importExtents(*map, dialog.loadedExtents());
 	auto data = map->courseData();
 	if (data.canvases == dialog.canvases())
 		return;

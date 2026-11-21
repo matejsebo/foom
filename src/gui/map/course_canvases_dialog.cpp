@@ -46,6 +46,7 @@
 #include <QVBoxLayout>
 #include <QVariant>
 
+#include "core/background_extents.h"
 #include "core/extents.h"
 #include "core/map.h"
 #include "core/symbols/symbol.h"
@@ -128,6 +129,14 @@ CourseCanvasesDialog::CourseCanvasesDialog(const Map* map, QWidget* parent)
 	for (auto const& extent : map->extents())
 		extent_box->addItem(extent.name);
 	extent_box->setToolTip(tr("The extents of the map are made with the command Define extent."));
+	// the design notes, "Canvases: load extent from background map"
+	background_extents = backgroundMapExtents(*map);
+	load_extent_box = new QComboBox();
+	load_extent_box->setObjectName(QStringLiteral("canvas-load-extent"));
+	load_extent_box->addItem(QString{});
+	for (auto const& entry : background_extents)
+		load_extent_box->addItem(backgroundExtentLabel(entry));
+	load_extent_box->setEnabled(!background_extents.empty());
 	box_edit = new QDoubleSpinBox();
 	box_edit->setObjectName(QStringLiteral("canvas-box"));
 	box_edit->setRange(0.0, 20.0);
@@ -167,6 +176,7 @@ CourseCanvasesDialog::CourseCanvasesDialog(const Map* map, QWidget* parent)
 	auto* form = new QFormLayout();
 	form->addRow(tr("Export scale:"), scale_edit);
 	form->addRow(tr("Extent:"), extent_box);
+	form->addRow(tr("Load extent from background map:"), load_extent_box);
 	form->addRow(tr("Description box:"), box_edit);
 	form->addRow(tr("Rows of the description:"), rows_edit);
 	auto* lists = new QHBoxLayout();
@@ -202,6 +212,7 @@ CourseCanvasesDialog::CourseCanvasesDialog(const Map* map, QWidget* parent)
 	connect(delete_button, &QPushButton::clicked, this, [this]() { removeCanvas(currentCanvas()); });
 	connect(scale_edit, QOverload<int>::of(&QSpinBox::valueChanged), this, &CourseCanvasesDialog::valuesChanged);
 	connect(extent_box, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &CourseCanvasesDialog::valuesChanged);
+	connect(load_extent_box, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &CourseCanvasesDialog::backgroundExtentChosen);
 	connect(box_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &CourseCanvasesDialog::valuesChanged);
 	connect(rows_edit, QOverload<int>::of(&QSpinBox::valueChanged), this, &CourseCanvasesDialog::valuesChanged);
 	connect(course_list, &QListWidget::itemChanged, this, &CourseCanvasesDialog::courseChanged);
@@ -371,6 +382,24 @@ void CourseCanvasesDialog::symbolChanged(QListWidgetItem* item)
 	}
 }
 
+
+// the design notes, "Canvases: load extent from background map"
+void CourseCanvasesDialog::backgroundExtentChosen(int index)
+{
+	if (index < 1 || std::size_t(index) > background_extents.size())
+		return;
+	auto const& extent = background_extents[std::size_t(index - 1)].extent;
+	auto const same = std::find_if(loaded_extents.begin(), loaded_extents.end(), [&extent](const Extent& other) { return other.name == extent.name; });
+	if (same != loaded_extents.end())
+		*same = extent;
+	else
+		loaded_extents.push_back(extent);
+	if (extent_box->findText(extent.name) < 0)
+		extent_box->addItem(extent.name);
+	extent_box->setCurrentIndex(extent_box->findText(extent.name));
+	QSignalBlocker blocker(load_extent_box);
+	load_extent_box->setCurrentIndex(0);
+}
 
 void CourseCanvasesDialog::newClicked()
 {
