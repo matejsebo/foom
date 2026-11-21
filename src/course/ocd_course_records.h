@@ -21,9 +21,12 @@
 #ifndef FOOM_OCD_COURSE_RECORDS_H
 #define FOOM_OCD_COURSE_RECORDS_H
 
+#include <vector>
+
 #include <QString>
 #include <QStringList>
 
+#include "core/map_coord.h"
 #include "course/course_data.h"
 
 namespace OpenOrienteering {
@@ -102,16 +105,40 @@ void removeReadRecords(Map& map);
 int takeNamedExtents(Map& map);
 
 /**
- * The record of a fastest route of the route analysis: the object string
- * of type 5 of its line object, "<number> s1 n<name> f<from> t<to> i0
- * z<seconds> c<caption>". Reading gives the codes, the time, and the
- * length and the climb of the caption; it returns false for a record
- * which is none, and for that of an alternative route.
+ * The record of a route of the route analysis: the object string of type 5
+ * of its line object, "<number> s1 n<name> f<from> t<to> i<index>
+ * z<seconds> c<caption>". The index is 0 for the fastest route of a leg
+ * and from 2 on for the routes over via points, whose index in FOOM is
+ * one less. Reading gives the codes, the index, the time, and the length
+ * and the climb of the caption; it returns false for a record which is
+ * none, for one without the codes of a leg, and for the index 1.
  *
- * See the design notes, "Route analysis: the routes in OCD files".
+ * See the design notes, "Route analysis: the routes in OCD files"
+ * and "Route analysis: captions and routes over via points in OCD files".
  */
 bool parseRoute(const QString& record, StoredRoute& route, bool* has_climb = nullptr);
 QString formatRoute(int number, const StoredRoute& route, bool with_heights);
+
+/** The caption of a route: "308 m | 51 m | 02:14" with heights, "291 m | 00:58" without. */
+QString routeCaption(const StoredRoute& route, bool with_heights);
+
+/** A route whose rounded length is at least this has a caption in an OCD file. */
+constexpr int route_caption_min_m = 240;
+
+/** Where the caption of a route stands: its anchor on the base line, and its angle in radians, counter-clockwise. */
+struct RouteCaptionPlace
+{
+	bool valid = false;
+	MapCoordF anchor;
+	double rotation = 0.0;
+};
+
+/**
+ * The place of the caption of a route with these points (mm, y down): at the
+ * middle of its length, in the direction of the route over 16 mm around it
+ * so that it reads from left to right, its base line 0.7 mm to the left.
+ */
+RouteCaptionPlace routeCaptionPlace(const std::vector<MapCoordF>& points);
 
 /**
  * Makes the route objects of an imported OCD file kept routes, and takes

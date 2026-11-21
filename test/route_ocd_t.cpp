@@ -27,6 +27,7 @@
 #include <Qt>
 #include <QtGlobal>
 #include <QtTest>
+#include <QtEndian>
 #include <QBuffer>
 #include <QByteArray>
 #include <QDir>
@@ -36,6 +37,7 @@
 #include <QLatin1Char>
 #include <QLatin1String>
 #include <QObject>
+#include <QPointF>
 #include <QRectF>
 #include <QString>
 #include <QStringList>
@@ -278,6 +280,10 @@ private slots:
 	void roundTripTest();
 	void withoutRoutesTest();
 	void olderVersionTest();
+	void viaRecordTest();
+	void captionPlaceTest();
+	void viaRoutesAndCaptionsTest();
+	void drawnLegTest();
 };
 
 
@@ -397,6 +403,277 @@ void RouteOcdTest::olderVersionTest()
 	QCOMPARE(reloaded.getNumObjects(), objects);
 }
 
+
+
+/// Accept (1) of "captions and routes over via points"
+void RouteOcdTest::viaRecordTest()
+{
+	StoredRoute route;
+	route.from = QStringLiteral("S1");
+	route.to = QStringLiteral("31");
+	route.index = 1;
+	route.length_m = 564.4;
+	route.time_s = 190.2;
+	route.climb_m = 33.0;
+	QCOMPARE(OcdCourse::formatRoute(20, route, true), QStringLiteral("20\ts1\tnLeg S1-31\tfS1\tt31\ti2\tz190\tc564 m | 33 m | 03:10"));
+	
+	StoredRoute read;
+	QVERIFY(OcdCourse::parseRoute(QStringLiteral("20\ts1\tnLeg S1-31\tfS1\tt31\ti2\tz190\tc564 m | 33 m | 03:10"), read));
+	QCOMPARE(read.index, 1);
+	QCOMPARE(read.length_m, 564.0);
+	QVERIFY(read.via.empty());
+	QVERIFY(OcdCourse::parseRoute(QStringLiteral("84\ts1\tnLeg 67-37\tf67\tt37\ti3\tz216\tc603 m | 42 m | 03:36"), read));
+	QCOMPARE(read.index, 2);
+	QVERIFY(!OcdCourse::parseRoute(QStringLiteral("20\ts1\tnLeg S1-31\tfS1\tt31\ti1\tz190\tc564 m | 03:10"), read));
+	QVERIFY(!OcdCourse::parseRoute(QStringLiteral("93\ts1\tnLeg 93\tf\tt\ti0\tz148\tc324 m | 52 m | 02:28"), read));
+}
+
+
+/// Accept (2) of "captions and routes over via points"
+void RouteOcdTest::captionPlaceTest()
+{
+	auto const near = [](const MapCoordF& a, double x, double y) {
+		return std::abs(a.x() - x) < 0.001 && std::abs(a.y() - y) < 0.001;
+	};
+	auto const quarter = 2 * std::atan(1.0);
+	
+	auto place = OcdCourse::routeCaptionPlace({ MapCoordF(0, 0), MapCoordF(40, 0) });
+	QVERIFY(place.valid);
+	QVERIFY2(near(place.anchor, 20, -0.7), qPrintable(QStringLiteral("%1 %2").arg(place.anchor.x()).arg(place.anchor.y())));
+	QVERIFY(std::abs(place.rotation) < 1e-9);
+	
+	place = OcdCourse::routeCaptionPlace({ MapCoordF(40, 0), MapCoordF(0, 0) });
+	QVERIFY(near(place.anchor, 20, -0.7));
+	QVERIFY(std::abs(place.rotation) < 1e-9);
+	
+	place = OcdCourse::routeCaptionPlace({ MapCoordF(0, 0), MapCoordF(0, -40) });
+	QVERIFY2(near(place.anchor, -0.7, -20), qPrintable(QStringLiteral("%1 %2").arg(place.anchor.x()).arg(place.anchor.y())));
+	QVERIFY(std::abs(place.rotation - quarter) < 1e-9);
+	
+	place = OcdCourse::routeCaptionPlace({ MapCoordF(0, 0), MapCoordF(20, 0), MapCoordF(20, -20) });
+	QVERIFY2(near(place.anchor, 20 - 0.7 / std::sqrt(2.0), -0.7 / std::sqrt(2.0)), qPrintable(QStringLiteral("%1 %2").arg(place.anchor.x()).arg(place.anchor.y())));
+	QVERIFY(std::abs(place.rotation - quarter / 2) < 1e-9);
+	
+	QVERIFY(!OcdCourse::routeCaptionPlace({ MapCoordF(0, 0) }).valid);
+}
+
+
+namespace {
+
+/// An object as an OCD file of version 12 or later has it.
+struct RawObject
+{
+	qint32 symbol = 0;
+	int angle = 0;        ///< tenths of degrees
+	QPointF first;        ///< mm, y up, as the file has it
+	QString text;
+	QString record;
+};
+
+/// The objects of an OCD file of version 12 or later.
+std::vector<RawObject> rawObjects(const QByteArray& file)
+{
+	std::vector<RawObject> objects;
+	auto const read32 = [&file](int offset) {
+		return offset + 4 <= file.size() ? qFromLittleEndian<qint32>(reinterpret_cast<const uchar*>(file.constData()) + offset) : 0;
+	};
+	auto const read16 = [&file](int offset) {
+		return offset + 2 <= file.size() ? qFromLittleEndian<quint16>(reinterpret_cast<const uchar*>(file.constData()) + offset) : 0;
+	};
+	auto const utf16 = [&file](int offset, int bytes) {
+		auto const text = QString::fromUtf16(reinterpret_cast<const char16_t*>(file.constData() + offset), bytes / 2);
+		return text.left(text.indexOf(QChar(0)) < 0 ? text.size() : text.indexOf(QChar(0)));
+	};
+	auto block = read32(12);
+	while (block > 0 && block + 4 + 256 * 40 <= file.size())
+	{
+		for (int i = 0; i < 256; ++i)
+		{
+			auto const entry = block + 4 + 40 * i;
+			auto const pos = read32(entry + 16);
+			if (pos <= 0 || pos + 56 > file.size())
+				continue;
+			RawObject object;
+			object.symbol = read32(pos);
+			object.angle = qint16(read16(pos + 6));
+			auto const items = read32(pos + 44);
+			auto const texts = read16(pos + 48);
+			auto const strings = read16(pos + 50);
+			if (items > 0)
+				object.first = QPointF((read32(pos + 56) >> 8) / 100.0, (read32(pos + 60) >> 8) / 100.0);
+			auto const text_at = pos + 56 + 8 * items;
+			object.text = utf16(text_at, 8 * texts);
+			object.record = utf16(text_at + 8 * texts, 8 * strings);
+			objects.push_back(object);
+		}
+		block = read32(block);
+	}
+	return objects;
+}
+
+StoredRoute routeOf(const char* from, const char* to, int index, double length, std::vector<MapCoordF> points)
+{
+	StoredRoute route;
+	route.from = QString::fromLatin1(from);
+	route.to = QString::fromLatin1(to);
+	route.index = index;
+	route.length_m = length;
+	route.time_s = length * 0.3;
+	route.points = std::move(points);
+	if (index > 0)
+		route.via.push_back(route.points[1]);
+	return route;
+}
+
+/// The map of the other cases with the routes S1-31 of 300 m and its two routes over via points, and 31-F1 of 200 m.
+void keepRoutes(Map& map)
+{
+	StoredRoutes routes;
+	routes.routes.push_back(routeOf("S1", "31", 0, 300.0, { MapCoordF(4, 5), MapCoordF(34, 5) }));
+	routes.routes.push_back(routeOf("S1", "31", 1, 350.0, { MapCoordF(4, 5), MapCoordF(19, 1), MapCoordF(34, 5) }));
+	routes.routes.push_back(routeOf("S1", "31", 2, 380.0, { MapCoordF(4, 5), MapCoordF(19, 9), MapCoordF(34, 5) }));
+	routes.routes.push_back(routeOf("31", "F1", 0, 200.0, { MapCoordF(8, 5), MapCoordF(18, 5) }));
+	auto data = map.courseData();
+	data.routes = routes;
+	changeCourseData(map, data);
+}
+
+const RawObject* withRecord(const std::vector<RawObject>& objects, qint32 symbol, const QString& part)
+{
+	for (auto const& object : objects)
+	{
+		if (object.symbol == symbol && object.record.contains(part))
+			return &object;
+	}
+	return nullptr;
+}
+
+int countSymbol(const std::vector<RawObject>& objects, qint32 symbol)
+{
+	return int(std::count_if(begin(objects), end(objects), [symbol](const RawObject& o) { return o.symbol == symbol; }));
+}
+
+const Symbol* symbolWithNumber(const Map& map, int first, int second)
+{
+	for (int i = 0; i < map.getNumSymbols(); ++i)
+	{
+		auto const* symbol = map.getSymbol(i);
+		if (symbol->getNumberComponent(0) == first && symbol->getNumberComponent(1) == second)
+			return symbol;
+	}
+	return nullptr;
+}
+
+}  // namespace
+
+
+/// Accept (3) and (4) of "captions and routes over via points"
+void RouteOcdTest::viaRoutesAndCaptionsTest()
+{
+	constexpr qint32 fastest = 10602010;
+	constexpr qint32 alternative = 10603010;
+	constexpr qint32 dotted = 10603011;
+	constexpr qint32 fastest_caption = 10602110;
+	constexpr qint32 alternative_caption = 10603110;
+	
+	Map map;
+	fillMap(map);
+	keepRoutes(map);
+	auto const objects = map.getNumObjects();
+	QVERIFY(!symbolWithNumber(map, 10603, 10));
+	
+	QStringList warnings;
+	auto const written = exportTo(map, "OCD2018", &warnings);
+	QVERIFY(!written.isEmpty());
+	QVERIFY2(warnings.filter(QStringLiteral("route")).isEmpty(), qPrintable(warnings.join(QLatin1Char('\n'))));
+	QCOMPARE(map.getNumObjects(), objects);
+	
+	auto const raw = rawObjects(written);
+	QCOMPARE(countSymbol(raw, fastest), 2);
+	QCOMPARE(countSymbol(raw, alternative), 1);
+	QCOMPARE(countSymbol(raw, dotted), 1);
+	QCOMPARE(countSymbol(raw, fastest_caption), 1);
+	QCOMPARE(countSymbol(raw, alternative_caption), 2);
+	
+	auto const* line = withRecord(raw, fastest, QStringLiteral("nLeg S1-31"));
+	QVERIFY(line);
+	auto const number = line->record.section(QLatin1Char('\t'), 0, 0);
+	auto const* first_via = withRecord(raw, alternative, QStringLiteral("\ti2\t"));
+	auto const* second_via = withRecord(raw, dotted, QStringLiteral("\ti3\t"));
+	QVERIFY(first_via && second_via);
+	QCOMPARE(first_via->record.section(QLatin1Char('\t'), 0, 0), number);
+	QCOMPARE(second_via->record.section(QLatin1Char('\t'), 0, 0), number);
+	QVERIFY(first_via->record.contains(QStringLiteral("nLeg S1-31\tfS1\tt31\ti2")));
+	
+	auto const* caption = withRecord(raw, fastest_caption, QStringLiteral("nLeg S1-31"));
+	QVERIFY(caption);
+	QCOMPARE(caption->record, line->record);
+	QCOMPARE(caption->text, QStringLiteral("300 m | 01:30"));
+	QCOMPARE(caption->angle, 0);
+	// The line runs from (4, 5) to (34, 5) in the map, the y axis turned in the file: the caption is 0.7 mm above its middle.
+	QVERIFY2(std::abs(caption->first.x() - line->first.x() - 15.0) < 0.02 && std::abs(caption->first.y() - line->first.y() - 0.7) < 0.02,
+	         qPrintable(QStringLiteral("%1 %2 / %3 %4").arg(caption->first.x()).arg(caption->first.y()).arg(line->first.x()).arg(line->first.y())));
+	QVERIFY(!withRecord(raw, fastest_caption, QStringLiteral("nLeg 31-F1")));
+	QVERIFY(withRecord(raw, alternative_caption, QStringLiteral("\ti2\t")));
+	QVERIFY(withRecord(raw, alternative_caption, QStringLiteral("\ti3\t")));
+	
+	// Read again.
+	Map reloaded;
+	QVERIFY(importFrom(written, "OCD", reloaded));
+	auto const& kept = reloaded.courseData().routes;
+	QCOMPARE(kept.routes.size(), std::size_t(4));
+	auto const* via_one = kept.find(QStringLiteral("S1"), QStringLiteral("31"), 1);
+	auto const* via_two = kept.find(QStringLiteral("S1"), QStringLiteral("31"), 2);
+	QVERIFY(via_one && via_two);
+	QCOMPARE(via_one->length_m, 350.0);
+	QCOMPARE(via_two->time_s, 114.0);
+	QVERIFY(kept.find(QStringLiteral("31"), QStringLiteral("F1")));
+	QCOMPARE(routeObjects(reloaded), 0);
+	QCOMPARE(reloaded.getNumObjects(), objects);
+	auto const* line_symbol = symbolWithNumber(reloaded, 10603, 10);
+	QVERIFY(line_symbol && line_symbol->getType() == Symbol::Line);
+	line_symbol = symbolWithNumber(reloaded, 10603, 11);
+	QVERIFY(line_symbol && line_symbol->getType() == Symbol::Line);
+	auto const* text_symbol = symbolWithNumber(reloaded, 10602, 110);
+	QVERIFY(text_symbol && text_symbol->getType() == Symbol::Text);
+	text_symbol = symbolWithNumber(reloaded, 10603, 110);
+	QVERIFY(text_symbol && text_symbol->getType() == Symbol::Text);
+	
+	// Written once more, with the symbols which the map has now.
+	auto const again = rawObjects(exportTo(reloaded, "OCD2018"));
+	QStringList before;
+	QStringList after;
+	for (auto const& object : raw)
+		if (!object.record.isEmpty() && object.record.contains(QStringLiteral("\tnLeg ")))
+			before.push_back(QString::number(object.symbol) + QLatin1Char(' ') + object.record);
+	for (auto const& object : again)
+		if (!object.record.isEmpty() && object.record.contains(QStringLiteral("\tnLeg ")))
+			after.push_back(QString::number(object.symbol) + QLatin1Char(' ') + object.record);
+	before.sort();
+	after.sort();
+	QCOMPARE(after, before);
+}
+
+
+/// Accept (5) of "captions and routes over via points"
+void RouteOcdTest::drawnLegTest()
+{
+	Map map;
+	fillMap(map);
+	auto* plain = addSymbol<LineSymbol>(map, 999);
+	plain->setColor(map.getColor(1));
+	plain->setLineWidth(0.3);
+	auto* line = new PathObject(plain);
+	line->addCoordinate(MapCoord(2.0, 8.0));
+	line->addCoordinate(MapCoord(9.0, 8.0));
+	line->setTag(QStringLiteral("ocd:object_string_type"), QStringLiteral("5"));
+	line->setTag(QStringLiteral("ocd:object_string"), QStringLiteral("93\ts1\tnLeg 93\tf\tt\ti0\tz148\tc324 m | 52 m | 02:28"));
+	map.addObject(line);
+	Map reloaded;
+	QVERIFY(importFrom(exportTo(map, "OCD2018"), "OCD", reloaded));
+	QCOMPARE(routeObjects(reloaded), 1);
+	QVERIFY(reloaded.courseData().routes.isEmpty());
+}
 
 
 /*

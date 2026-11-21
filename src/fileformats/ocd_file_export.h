@@ -57,6 +57,7 @@ class Object;
 class PathObject;
 class PointObject;
 class PointSymbol;
+struct StoredRoute;  // foom
 class Symbol;
 class Template;
 class TextObject;
@@ -361,7 +362,14 @@ private:
 	/** foom: Writes the routes which the map keeps as OCD route objects. */
 	template< class Format >
 	void exportRouteObjects(OcdFile<Format>& file);
+	/** foom: Writes the line and the caption of a kept route. */
+	template< class Format >
+	void exportRoute(OcdFile<Format>& file, const Symbol* line_symbol, const TextSymbol* caption_symbol, const StoredRoute& route, int number);
 	const Symbol* route_symbol = nullptr;
+	/** foom: The symbols of the routes over via points, 10603.010 and 10603.011, taken in turn. */
+	const Symbol* via_route_symbols[2] = {};
+	/** foom: The symbols of the captions of the fastest routes and of those over via points. */
+	const TextSymbol* route_caption_symbols[2] = {};
 	QHash<QUuid, CourseRecord> course_records;
 	QSet<QUuid> hidden_course_objects;
 	bool course_records_prepared = false;

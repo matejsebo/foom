@@ -666,13 +666,14 @@ bool parseRoute(const QString& record, StoredRoute& route, bool* has_climb)
 		default:   break;  // the mark s1 and the name of the leg
 		}
 	}
-	// An alternative route has an index above 0.
-	if (from.isEmpty() || to.isEmpty() || index != 0)
+	// The routes over via points of a leg are counted from 2.
+	if (from.isEmpty() || to.isEmpty() || index < 0 || index == 1)
 		return false;
 	
 	route = {};
 	route.from = from;
 	route.to = to;
+	route.index = index == 0 ? 0 : index - 1;
 	route.time_s = seconds;
 	// "308 m | 51 m | 02:14" with heights, "291 m | 00:58" without.
 	auto const parts = caption.split(QStringLiteral(" | "));
@@ -687,7 +688,7 @@ bool parseRoute(const QString& record, StoredRoute& route, bool* has_climb)
 	return true;
 }
 
-QString formatRoute(int number, const StoredRoute& route, bool with_heights)
+QString routeCaption(const StoredRoute& route, bool with_heights)
 {
 	auto const metres = [](double value) { return QString(QString::number(qRound64(value)) + QLatin1String(" m")); };
 	QStringList caption;
@@ -695,15 +696,67 @@ QString formatRoute(int number, const StoredRoute& route, bool with_heights)
 	if (with_heights)
 		caption.push_back(metres(route.climb_m));
 	caption.push_back(formatRouteTime(route.time_s));
+	return caption.join(QStringLiteral(" | "));
+}
+
+RouteCaptionPlace routeCaptionPlace(const std::vector<MapCoordF>& points)
+{
+	// the design notes, "Route analysis: captions and routes over via points in OCD files".
+	constexpr double stretch = 16.0;
+	constexpr double offset = 0.7;
+	RouteCaptionPlace place;
+	if (points.size() < 2)
+		return place;
+	std::vector<double> at { 0.0 };
+	for (std::size_t i = 1; i < points.size(); ++i)
+		at.push_back(at.back() + std::hypot(points[i].x() - points[i - 1].x(), points[i].y() - points[i - 1].y()));
+	auto const total = at.back();
+	if (total <= 0.0)
+		return place;
+	auto const pointAt = [&points, &at, total](double s) {
+		s = std::max(0.0, std::min(s, total));
+		std::size_t i = 1;
+		while (i + 1 < points.size() && at[i] < s)
+			++i;
+		auto const length = at[i] - at[i - 1];
+		auto const u = length > 0.0 ? (s - at[i - 1]) / length : 0.0;
+		return MapCoordF(points[i - 1].x() + u * (points[i].x() - points[i - 1].x()), points[i - 1].y() + u * (points[i].y() - points[i - 1].y()));
+	};
+	auto const middle = pointAt(total / 2);
+	auto const before = pointAt(total / 2 - stretch / 2);
+	auto const after = pointAt(total / 2 + stretch / 2);
+	auto dx = after.x() - before.x();
+	auto dy = after.y() - before.y();
+	if (dx == 0.0 && dy == 0.0)
+	{
+		dx = points.back().x() - points.front().x();
+		dy = points.back().y() - points.front().y();
+	}
+	// Counter-clockwise, the y axis of the map pointing down; turned to read from left to right.
+	auto const half_turn = 4 * std::atan(1.0);
+	auto angle = std::atan2(-dy, dx);
+	if (angle > half_turn / 2 + 1e-12)
+		angle -= half_turn;
+	else if (angle <= -half_turn / 2 + 1e-12)
+		angle += half_turn;
+	// The base line to the left of the direction of reading.
+	place.anchor = MapCoordF(middle.x() - offset * std::sin(angle), middle.y() - offset * std::cos(angle));
+	place.rotation = angle;
+	place.valid = true;
+	return place;
+}
+
+QString formatRoute(int number, const StoredRoute& route, bool with_heights)
+{
 	QStringList fields;
 	fields.push_back(QString::number(number));
 	fields.push_back(QStringLiteral("s1"));
 	fields.push_back(QLatin1String("nLeg ") + route.from + QLatin1Char('-') + route.to);
 	fields.push_back(QLatin1Char('f') + route.from);
 	fields.push_back(QLatin1Char('t') + route.to);
-	fields.push_back(QStringLiteral("i0"));
+	fields.push_back(QLatin1Char('i') + QString::number(route.index > 0 ? route.index + 1 : 0));
 	fields.push_back(QLatin1Char('z') + QString::number(qRound64(route.time_s)));
-	fields.push_back(QLatin1Char('c') + caption.join(QStringLiteral(" | ")));
+	fields.push_back(QLatin1Char('c') + routeCaption(route, with_heights));
 	return fields.join(QLatin1Char('\t'));
 }
 

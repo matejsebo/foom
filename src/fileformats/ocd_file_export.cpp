@@ -3226,49 +3226,173 @@ void OcdFileExport::exportForeignStrings(OcdFile<Format>& file)
 }
 
 
-// foom: the routes of the route analysis, the design notes, "Route analysis: the routes in OCD files".
+// foom: the routes of the route analysis, the design notes, "Route analysis: the routes in OCD files"
+// and "Route analysis: captions and routes over via points in OCD files".
+namespace {
+
+/// A fastest route which is written: found, of a leg and not a marked route, with a line.
+bool isWrittenFastest(const StoredRoute& route)
+{
+	return route.index == 0 && route.found && !route.isMarkedRoute() && route.points.size() >= 2;
+}
+
+/// A route over via points which is written: found, with a line, and the fastest route of its leg written.
+bool isWrittenVia(const StoredRoutes& routes, const StoredRoute& route)
+{
+	if (route.index <= 0 || !route.found || route.points.size() < 2)
+		return false;
+	auto const* fastest = routes.find(route.from, route.to, 0);
+	return fastest && isWrittenFastest(*fastest);
+}
+
+bool hasCaption(const StoredRoute& route)
+{
+	return qRound64(route.length_m) >= OcdCourse::route_caption_min_m;
+}
+
+}  // namespace
+
+
 template< class Format >
 void OcdFileExport::exportRouteSymbol(OcdFile<Format>& file)
 {
 	route_symbol = nullptr;
-	if (ocd_version < 12 || map->courseData().routes.isEmpty())
+	via_route_symbols[0] = via_route_symbols[1] = nullptr;
+	route_caption_symbols[0] = route_caption_symbols[1] = nullptr;
+	auto const& routes = map->courseData().routes;
+	if (ocd_version < 12 || routes.isEmpty())
 		return;
 	
-	// The symbol of the fastest routes, 10602.010, when the map has it.
-	auto const number = decltype(symbol_numbers.begin()->second)(10602 * Format::BaseSymbol::symbol_number_factor + 10);
-	for (auto const& entry : symbol_numbers)
+	// What the routes need.
+	auto via_routes = 0;
+	auto fastest_captions = false;
+	auto via_captions = false;
+	for (auto const& route : routes.routes)
 	{
-		if (entry.second != number)
-			continue;
-		if (entry.first->getType() == Symbol::Line)
-			route_symbol = entry.first;
-		else
-			addWarning(tr("The routes of the route analysis are not written: the symbol 10602.010 of the map is not a line symbol."));
-		return;
+		if (isWrittenFastest(route))
+		{
+			fastest_captions = fastest_captions || hasCaption(route);
+		}
+		else if (isWrittenVia(routes, route))
+		{
+			++via_routes;
+			via_captions = via_captions || hasCaption(route);
+		}
 	}
 	
-	// Or one which only the file has.
-	auto const* course_line = courseLineSymbol(*map);
-	auto const* color = course_line ? course_line->getColor() : nullptr;
-	if (!color && map->getNumColors() > 0)
-		color = map->getColor(0);
-	if (!color)
+	using Number = decltype(symbol_numbers.begin()->second);
+	auto const numberOf = [](int first, int second) { return Number(first * Format::BaseSymbol::symbol_number_factor + second); };
+	// The map's own symbol with the number: when it is of the type, it is taken; when it is of another, none is.
+	auto const ownSymbol = [this, numberOf](int first, int second, Symbol::Type type, bool& other_type) -> const Symbol* {
+		other_type = false;
+		auto const number = numberOf(first, second);
+		for (auto const& entry : symbol_numbers)
+		{
+			if (entry.second != number)
+				continue;
+			if (entry.first->getType() == type)
+				return entry.first;
+			other_type = true;
+		}
+		return nullptr;
+	};
+	auto const addLine = [this, &file, numberOf](int first, int second, const QString& name, double width, const MapColor* color, int dash, int gap) {
+		auto symbol = std::make_unique<LineSymbol>();
+		symbol->setNumberComponent(0, first);
+		symbol->setNumberComponent(1, second);
+		symbol->setName(name);
+		symbol->setLineWidth(width);
+		symbol->setColor(color);
+		if (dash > 0)
+		{
+			symbol->setDashed(true);
+			symbol->setDashLength(dash);
+			symbol->setBreakLength(gap);
+		}
+		symbol_numbers[symbol.get()] = numberOf(first, second);
+		auto const ocd_symbol = exportLineSymbol<typename Format::LineSymbol>(symbol.get());
+		FILEFORMAT_ASSERT(!ocd_symbol.isEmpty());
+		file.symbols().insert(ocd_symbol);
+		const Symbol* added = symbol.get();
+		temporary_symbols.push_back(std::move(symbol));
+		return added;
+	};
+	auto const addCaption = [this, &file, numberOf](int first, int second, const QString& name, const MapColor* color) {
+		auto symbol = std::make_unique<TextSymbol>();
+		symbol->setNumberComponent(0, first);
+		symbol->setNumberComponent(1, second);
+		symbol->setName(name);
+		symbol->setFontFamily(QStringLiteral("Arial"));
+		symbol->setFontSize(2300);
+		symbol->setBold(true);
+		symbol->setColor(color);
+		symbol_numbers[symbol.get()] = numberOf(first, second);
+		exportTextSymbol<Format, typename Format::TextSymbol>(file, symbol.get());
+		const TextSymbol* added = symbol.get();
+		temporary_symbols.push_back(std::move(symbol));
+		return added;
+	};
+	auto const colorOf = [](const Symbol* symbol) -> const MapColor* {
+		return symbol && symbol->getType() == Symbol::Line ? static_cast<const LineSymbol*>(symbol)->getColor() : nullptr;
+	};
+	
+	// The symbol of the fastest routes, 10602.010, when the map has it; or one which only the file has.
+	auto other_type = false;
+	route_symbol = ownSymbol(10602, 10, Symbol::Line, other_type);
+	if (other_type)
 	{
-		addWarning(tr("The routes of the route analysis are not written: the map has no colour for their symbol."));
+		addWarning(tr("The routes of the route analysis are not written: the symbol 10602.010 of the map is not a line symbol."));
 		return;
 	}
-	auto symbol = std::make_unique<LineSymbol>();
-	symbol->setNumberComponent(0, 10602);
-	symbol->setNumberComponent(1, 10);
-	symbol->setName(QStringLiteral("Fastest Route"));
-	symbol->setLineWidth(0.5);
-	symbol->setColor(color);
-	symbol_numbers[symbol.get()] = number;
-	auto const ocd_symbol = exportLineSymbol<typename Format::LineSymbol>(symbol.get());
-	FILEFORMAT_ASSERT(!ocd_symbol.isEmpty());
-	file.symbols().insert(ocd_symbol);
-	route_symbol = symbol.get();
-	temporary_symbols.push_back(std::move(symbol));
+	if (!route_symbol)
+	{
+		auto const* course_line = courseLineSymbol(*map);
+		auto const* color = course_line ? course_line->getColor() : nullptr;
+		if (!color && map->getNumColors() > 0)
+			color = map->getColor(0);
+		if (!color)
+		{
+			addWarning(tr("The routes of the route analysis are not written: the map has no colour for their symbol."));
+			return;
+		}
+		route_symbol = addLine(10602, 10, QStringLiteral("Fastest Route"), 0.5, color, 0, 0);
+	}
+	auto const* route_color = colorOf(route_symbol);
+	
+	// The routes over via points, in turn of 10603.010 and 10603.011.
+	auto const via_names = { std::make_pair(10, true), std::make_pair(11, false) };
+	auto v = 0;
+	for (auto const& via : via_names)
+	{
+		if (via_routes > v)
+		{
+			via_route_symbols[v] = ownSymbol(10603, via.first, Symbol::Line, other_type);
+			if (other_type)
+				addWarning(tr("Routes over via points are not written: the symbol 10603.%1 of the map is not a line symbol.").arg(via.first, 3, 10, QLatin1Char('0')));
+			else if (!via_route_symbols[v] && route_color)
+				via_route_symbols[v] = via.second ? addLine(10603, 10, QStringLiteral("Alternative Routes"), 0.5, route_color, 1800, 500)
+				                                  : addLine(10603, 11, QStringLiteral("Alternative Routes"), 0.35, route_color, 300, 1000);
+		}
+		++v;
+	}
+	
+	// The captions.
+	auto const caption = [&](int first, const Symbol* line, const QString& name) -> const TextSymbol* {
+		auto const* symbol = ownSymbol(first, 110, Symbol::Text, other_type);
+		if (other_type)
+		{
+			addWarning(tr("The captions of routes are not written: the symbol %1.110 of the map is not a text symbol.").arg(first));
+			return nullptr;
+		}
+		if (symbol)
+			return static_cast<const TextSymbol*>(symbol);
+		auto const* color = colorOf(line);
+		return color ? addCaption(first, 110, name, color) : nullptr;
+	};
+	if (fastest_captions)
+		route_caption_symbols[0] = caption(10602, route_symbol, QStringLiteral("Fastest Route Length, Climb and Time"));
+	if (via_captions)
+		route_caption_symbols[1] = caption(10603, via_route_symbols[0] ? via_route_symbols[0] : via_route_symbols[1], QStringLiteral("Alternative Routes Length, Climb and Time"));
 }
 
 
@@ -3279,23 +3403,84 @@ void OcdFileExport::exportRouteObjects(OcdFile<Format>& file)
 	if (!route_symbol)
 		return;
 	auto const& routes = map->courseData().routes;
+	
+	// The fastest routes, numbered; a marked route has no object, and a leg without a route has none.
+	QHash<QString, int> numbers;
+	auto const legOf = [](const StoredRoute& route) -> QString { return route.from + QLatin1Char('\t') + route.to; };
 	auto number = 0;
 	for (auto const& route : routes.routes)
 	{
-		// a marked route has no object, and a leg without a route has none.
-		// Nor is a route over via points written: the OCD record of it is not known.
-		if (!route.found || route.isMarkedRoute() || route.index > 0 || route.points.size() < 2)
+		if (!isWrittenFastest(route))
 			continue;
-		PathObject object(route_symbol);
-		for (auto const& point : route.points)
-			object.addCoordinate(MapCoord(point.x(), point.y()));
-		object.setTag(QStringLiteral("ocd:object_string_type"), QStringLiteral("5"));
-		object.setTag(QStringLiteral("ocd:object_string"), OcdCourse::formatRoute(++number, route, routes.with_heights));
-		if (area_offset.nativeX() != 0 || area_offset.nativeY() != 0)
-			object.move(-area_offset);
-		object.update();
-		exportPathObject<Format>(file, &object);
+		numbers.insert(legOf(route), ++number);
+		exportRoute(file, route_symbol, route_caption_symbols[0], route, number);
 	}
+	
+	// The routes over via points, with the number of the fastest route of their leg.
+	auto written = 0;
+	for (auto const& route : routes.routes)
+	{
+		if (!isWrittenVia(routes, route))
+			continue;
+		auto const* symbol = via_route_symbols[written % 2];
+		++written;
+		if (symbol)
+			exportRoute(file, symbol, route_caption_symbols[1], route, numbers.value(legOf(route)));
+	}
+}
+
+
+// foom
+template< class Format >
+void OcdFileExport::exportRoute(OcdFile<Format>& file, const Symbol* line_symbol, const TextSymbol* caption_symbol, const StoredRoute& route, int number)
+{
+	auto const record = OcdCourse::formatRoute(number, route, map->courseData().routes.with_heights);
+	
+	PathObject line(line_symbol);
+	for (auto const& point : route.points)
+		line.addCoordinate(MapCoord(point.x(), point.y()));
+	line.setTag(QStringLiteral("ocd:object_string_type"), QStringLiteral("5"));
+	line.setTag(QStringLiteral("ocd:object_string"), record);
+	if (area_offset.nativeX() != 0 || area_offset.nativeY() != 0)
+		line.move(-area_offset);
+	line.update();
+	exportPathObject<Format>(file, &line);
+	
+	if (!caption_symbol || !hasCaption(route))
+		return;
+	auto const place = OcdCourse::routeCaptionPlace(route.points);
+	if (!place.valid)
+		return;
+	TextObject caption(caption_symbol);
+	caption.setAnchorPosition(place.anchor);
+	caption.setHorizontalAlignment(TextObject::AlignHCenter);
+	caption.setVerticalAlignment(TextObject::AlignBaseline);
+	caption.setRotation(place.rotation);
+	caption.setText(OcdCourse::routeCaption(route, map->courseData().routes.with_heights));
+	caption.setTag(QStringLiteral("ocd:object_string_type"), QStringLiteral("5"));
+	caption.setTag(QStringLiteral("ocd:object_string"), record);
+	if (area_offset.nativeX() != 0 || area_offset.nativeY() != 0)
+		caption.move(-area_offset);
+	caption.update();
+	
+	// The symbol may have no variant for this alignment, as no object of the map used it: the regular one is taken.
+	auto const alignment = ocdTextAlignment(&caption);
+	auto const has_variant = std::any_of(begin(text_format_mapping), end(text_format_mapping), [caption_symbol, alignment](const auto& m) {
+		return m.symbol == caption_symbol && m.alignment == alignment;
+	});
+	if (!has_variant)
+	{
+		auto const regular = std::find_if(begin(text_format_mapping), end(text_format_mapping), [caption_symbol](const auto& m) {
+			return m.symbol == caption_symbol;
+		});
+		if (regular == end(text_format_mapping))
+			return;
+		text_format_mapping.push_back({ caption_symbol, alignment, 0, regular->symbol_number });
+	}
+	typename Format::Object::IndexEntryType entry = {};
+	auto const ocd_object = exportTextObject<typename Format::Object>(&caption, entry);
+	FILEFORMAT_ASSERT(!ocd_object.isEmpty());
+	file.objects().insert(ocd_object, entry);
 }
 
 
