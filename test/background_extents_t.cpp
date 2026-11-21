@@ -25,6 +25,8 @@
 #include <QtTest>
 #include <QComboBox>
 #include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QObject>
 #include <QPointF>
 #include <QRectF>
@@ -38,6 +40,7 @@
 #include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_coord.h"
+#include "fileformats/file_format_registry.h"
 #include "fileformats/file_import_export.h"
 #include "fileformats/xml_file_format.h"
 #include "gui/map/course_canvases_dialog.h"
@@ -56,6 +59,20 @@ bool saveMap(const Map& map, const QString& path)
 	XMLFileFormat format;
 	auto exporter = format.makeExporter(path, &map, nullptr);
 	return exporter && exporter->doExport();
+}
+
+bool saveOcd(const Map& map, const QString& path)
+{
+	auto const* format = FileFormats.findFormat("OCD2018");
+	if (!format)
+		return false;
+	auto exporter = format->makeExporter(path, &map, nullptr);
+	return exporter && exporter->doExport();
+}
+
+QRectF placedRect(const Template& temp, const QRectF& r)
+{
+	return QRectF(QPointF(temp.templateToMap(r.topLeft())), QPointF(temp.templateToMap(r.bottomRight())));
 }
 
 bool near(const QRectF& a, const QRectF& b)
@@ -218,6 +235,36 @@ private slots:
 		// The map is not changed before the dialog is accepted.
 		QVERIFY(map.extents().empty());
 	}
+	
+	/// Accept (5)
+	void ocdTest()
+	{
+		{
+			Map east;
+			east.setGeoreferencing(utm13(10000, QPointF(500100, 5000050)));
+			east.setExtents({ extentOf(QStringLiteral("East"), QRectF(0, 0, 100, 80)) });
+			QVERIFY(saveOcd(east, file("east.ocd")));
+		}
+		Map map;
+		map.setGeoreferencing(utm13(10000, QPointF(500000, 5000000)));
+		auto temp = std::make_unique<TemplateMap>(file("east.ocd"), &map);
+		// As the OCD import sets it for a background map of an OCD file.
+		temp->setProperty(TemplateMap::ocdTransformProperty(), true);
+		auto* background = temp.get();
+		map.addTemplate(-1, std::move(temp));
+		auto const expected = QRectF(10, -5, 100, 80);
+		auto const found = backgroundMapExtents(map);
+		QCOMPARE(found.size(), std::size_t(1));
+		QVERIFY2(near(found.front().extent.rect_mm, expected), qPrintable(rectText(found.front().extent.rect_mm)));
+		// Once loaded, the background is drawn there, and the entry stays.
+		QVERIFY(background->loadTemplateFile());
+		background->setTemplateState(Template::Loaded);
+		QVERIFY2(near(placedRect(*background, QRectF(0, 0, 100, 80)), expected), qPrintable(rectText(placedRect(*background, QRectF(0, 0, 100, 80)))));
+		auto const again = backgroundMapExtents(map);
+		QCOMPARE(again.size(), std::size_t(1));
+		QVERIFY2(near(again.front().extent.rect_mm, expected), qPrintable(rectText(again.front().extent.rect_mm)));
+	}
+	
 };
 
 

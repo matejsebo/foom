@@ -25,6 +25,8 @@
 #include <QCoreApplication>
 #include <QPointF>
 #include <QRectF>
+#include <QVariant>
+#include <QtGlobal>
 
 #include "core/georeferencing.h"
 #include "core/map.h"
@@ -41,13 +43,22 @@ std::vector<BackgroundExtent> backgroundMapExtents(const Map& map)
 	for (int i = 0; i < map.getNumTemplates(); ++i)
 	{
 		auto const* temp = qobject_cast<const TemplateMap*>(map.getTemplate(i));
-		if (!temp)
+		// Not the vector data (OgrTemplate), which is a TemplateMap too.
+		if (!temp || qstrcmp(temp->getTemplateType(), "TemplateMap") != 0)
 			continue;
 		// Read afresh: a georeferenced map template has its objects moved at load, but not its extents.
 		Map source;
 		if (!source.loadFrom(temp->getTemplatePath()) || source.extents().empty())
 			continue;
-		auto const place = [&map, &source, temp](const QPointF& corner) -> QPointF {
+		// An OCD background which is not loaded yet has no transform: it gets the offset
+		// of its origin at load (TemplateMap::transformForOcd()), which is taken here.
+		auto const ocd_pending = temp->property(TemplateMap::ocdTransformProperty()).toBool();
+		auto const ocd_offset = ocd_pending
+		        ? QPointF(map.getGeoreferencing().toMapCoordF(source.getGeoreferencing().toProjectedCoords(MapCoordF{})))
+		        : QPointF();
+		auto const place = [&map, &source, temp, ocd_pending, ocd_offset](const QPointF& corner) -> QPointF {
+			if (ocd_pending)
+				return corner + ocd_offset;
 			if (temp->isTemplateGeoreferenced())
 			{
 				auto ok = false;
