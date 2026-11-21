@@ -191,6 +191,8 @@
 #include "gui/map/extent_dialog.h"
 #include "gui/map/legibility_dialog.h"
 #include "gui/map/elevation_dialogs.h"  // foom
+#include "gui/map/selection_dialogs.h"  // foom
+#include "core/selection_queries.h"  // foom
 #include "gui/map/rectangle_box_dialog.h"
 #include "gui/map/topology_dialogs.h"
 #include "gui/widgets/issues_widget.h"
@@ -1276,6 +1278,13 @@ void MapEditorController::createActions()
 	group_act = newAction("group", tr("Group..."), this, SLOT(groupClicked()));  // foom
 	ungroup_act = newAction("ungroup", tr("Ungroup"), this, SLOT(ungroupSelection()));  // foom
 	select_group_act = newAction("select-group", tr("Select group"), this, SLOT(selectGroup()));  // foom
+	select_duplicates_act = newAction("select-duplicates", tr("Select duplicate objects"), this, SLOT(selectDuplicates()));  // foom
+	select_self_intersecting_act = newAction("select-self-intersecting", tr("Select self-intersecting objects"), this, SLOT(selectSelfIntersecting()));  // foom
+	select_invalid_act = newAction("select-invalid", tr("Select objects with invalid geometry"), this, SLOT(selectInvalid()));  // foom
+	select_by_date_act = newAction("select-by-date", tr("Select objects by date..."), this, SLOT(selectByDateClicked()));  // foom
+	select_by_property_act = newAction("select-by-property", tr("Select objects by property..."), this, SLOT(selectByPropertyClicked()));  // foom
+	select_by_index_act = newAction("select-by-index", tr("Select object by index..."), this, SLOT(selectByIndexClicked()));  // foom
+	select_next_act = newAction("select-next", tr("Select next object"), this, SLOT(selectNext()));  // foom
 	cut_hole_act = newToolAction("cuthole", tr("Cut free form hole"), this, SLOT(cutHoleClicked()), "tool-cut-hole.png", QString{}, "toolbars.html#cut_hole"); // cut hole using a path
 	cut_hole_circle_act = newToolAction("cutholecircle", tr("Cut round hole"), this, SLOT(cutHoleCircleClicked()), "tool-cut-hole.png", QString{}, "toolbars.html#cut_hole");
 	cut_hole_rectangle_act = newToolAction("cutholerectangle", tr("Cut rectangular hole"), this, SLOT(cutHoleRectangleClicked()), "tool-cut-hole.png", QString{}, "toolbars.html#cut_hole");
@@ -1537,6 +1546,13 @@ void MapEditorController::createMenuAndToolbars()
 	edit_menu->addAction(select_all_act);
 	edit_menu->addAction(select_nothing_act);
 	edit_menu->addAction(invert_selection_act);
+	edit_menu->addAction(select_next_act);  // foom: the design notes, "Selection queries"
+	edit_menu->addAction(select_by_index_act);  // foom
+	edit_menu->addAction(select_by_property_act);  // foom
+	edit_menu->addAction(select_by_date_act);  // foom
+	edit_menu->addAction(select_duplicates_act);  // foom
+	edit_menu->addAction(select_self_intersecting_act);  // foom
+	edit_menu->addAction(select_invalid_act);  // foom
 	edit_menu->addAction(select_by_current_symbol_act);
 	edit_menu->addSeparator();
 	edit_menu->addAction(find_feature->showDialogAction());
@@ -4404,6 +4420,106 @@ void MapEditorController::ungroupSelection()
 void MapEditorController::selectGroup()
 {
 	expandSelectionToGroups(*map);
+}
+
+// foom: the design notes, "Selection queries".
+int MapEditorController::selectFound(const std::vector<Object*>& found)
+{
+	map->clearObjectSelection(false);
+	for (auto* object : found)
+		map->addObjectToSelection(object, false);
+	map->emitSelectionChanged();
+	if (window)
+		window->showStatusBarMessage(tr("%1 object(s) selected").arg(int(found.size())), 5000);
+	return int(found.size());
+}
+
+int MapEditorController::selectDuplicates()
+{
+	return selectFound(findDuplicates(*map->getCurrentPart()));
+}
+
+int MapEditorController::selectSelfIntersecting()
+{
+	return selectFound(findSelfIntersecting(*map->getCurrentPart()));
+}
+
+int MapEditorController::selectInvalid()
+{
+	return selectFound(findInvalid(*map->getCurrentPart()));
+}
+
+int MapEditorController::selectByDate(int kind, qint64 from, qint64 to)
+{
+	return selectFound(findByDate(*map->getCurrentPart(), DateKind(kind), from, to));
+}
+
+int MapEditorController::selectByProperty(const PropertyQuery& query)
+{
+	return selectFound(findByProperty(*map->getCurrentPart(), query));
+}
+
+int MapEditorController::selectByIndex(int number)
+{
+	auto* part = map->getCurrentPart();
+	if (number < 1 || number > part->getNumObjects())
+		return selectFound({});
+	return selectFound({ part->getObject(number - 1) });
+}
+
+void MapEditorController::selectNext()
+{
+	auto* part = map->getCurrentPart();
+	auto const count = part->getNumObjects();
+	if (count == 0)
+		return;
+	int last = -1;
+	for (int i = 0; i < count; ++i)
+	{
+		if (map->isObjectSelected(part->getObject(i)))
+			last = i;
+	}
+	selectFound({ part->getObject((last + 1) % count) });
+}
+
+void MapEditorController::selectByDateClicked()
+{
+	SelectByDateDialog dialog(window);
+	if (dialog.exec() == QDialog::Accepted)
+		selectByDate(int(dialog.kind()), dialog.from(), dialog.to());
+}
+
+void MapEditorController::selectByPropertyClicked()
+{
+	SelectByPropertyDialog dialog(window);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	auto query = dialog.query();
+	if (dialog.onlySelectedSymbols() && symbol_widget)
+	{
+		for (int i = 0; i < map->getNumSymbols(); ++i)
+		{
+			if (symbol_widget->isSymbolSelected(map->getSymbol(i)))
+				query.symbols.push_back(map->getSymbol(i));
+		}
+		if (query.symbols.empty())
+		{
+			selectFound({});
+			return;
+		}
+	}
+	selectByProperty(query);
+}
+
+void MapEditorController::selectByIndexClicked()
+{
+	bool ok = false;
+	auto const count = map->getCurrentPart()->getNumObjects();
+	if (count == 0)
+		return;
+	auto const number = QInputDialog::getInt(window, tr("Select object by index"), tr("Object number:"), 1, 1, count, 1, &ok);
+	if (ok)
+		selectByIndex(number);
 }
 
 // foom

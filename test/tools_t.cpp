@@ -1501,6 +1501,35 @@ void ToolsTest::demMergeContours()
 }
 
 
+void ToolsTest::selectionCommands()
+{
+	// the design notes, "Selection queries", Accept (6).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	for (auto const* id : { "select-duplicates", "select-self-intersecting", "select-invalid", "select-by-date", "select-by-property", "select-by-index", "select-next" })
+		QVERIFY2(editor.editor->getAction(id), id);
+	auto* second = new PathObject(map.line_symbol, MapCoordVector{ MapCoord(50.0, 50.0), MapCoord(60.0, 50.0) });
+	map.map->addObject(second);
+	auto* third = new PathObject(map.line_symbol, MapCoordVector{ MapCoord(50.0, 50.0), MapCoord(60.0, 50.0) });
+	map.map->addObject(third);
+	auto const* part = map.map->getCurrentPart();
+	QCOMPARE(part->getNumObjects(), 3);
+	
+	QCOMPARE(editor.editor->selectByIndex(2), 1);
+	QCOMPARE(map.map->getNumSelectedObjects(), 1);
+	QVERIFY(map.map->isObjectSelected(part->getObject(1)));
+	editor.editor->selectNext();
+	QVERIFY(map.map->isObjectSelected(part->getObject(2)));
+	QCOMPARE(map.map->getNumSelectedObjects(), 1);
+	editor.editor->selectNext();
+	QVERIFY(map.map->isObjectSelected(part->getObject(0)));
+	
+	QCOMPARE(editor.editor->selectDuplicates(), 1);
+	QCOMPARE(map.map->getNumSelectedObjects(), 1);
+	QVERIFY(map.map->isObjectSelected(third));
+}
+
+
 void ToolsTest::demPointCloud()
 {
 	// the design notes, "Reading point clouds and gridding them", Accept (9).

@@ -183,6 +183,7 @@ set(Mapper_Common_SRCS
   core/extent_printing.cpp
   core/extents.cpp
   core/lasso_query.cpp
+  core/selection_queries.cpp
   core/object_groups.cpp
   core/ops/transform.cpp
   core/ops/vertex_type.cpp
@@ -253,6 +254,7 @@ set(Mapper_Common_SRCS
   gui/map/legibility_dialog.cpp
   gui/map/topology_dialogs.cpp
   gui/map/generator_dialog.cpp
+  gui/map/selection_dialogs.cpp
   gui/map/image_properties_dialog.cpp
   gui/map/merge_dialog.cpp
   gui/map/sketch_dialog.cpp

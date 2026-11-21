@@ -92,6 +92,7 @@ class IssueModel;  // foom
 struct LegibilityParams;  // foom
 struct LandformParams;  // foom
 struct HypsometricParams;  // foom
+struct PropertyQuery;  // foom
 struct Profile;  // foom
 struct GriddingParams;  // foom
 struct PointCloudProducts;  // foom
@@ -767,6 +768,17 @@ public slots:
 	void elevationHypsometricClicked();
 	/** foom: Shows the profile of the selected line (dem-profile). */
 	void elevationProfileClicked();
+	/** foom: The queries of the Select menu, each replacing the selection in the current part; return the number selected. */
+	int selectDuplicates();
+	int selectSelfIntersecting();
+	int selectInvalid();
+	int selectByDate(int kind, qint64 from, qint64 to);
+	int selectByProperty(const PropertyQuery& query);
+	int selectByIndex(int number);
+	void selectNext();
+	void selectByDateClicked();
+	void selectByPropertyClicked();
+	void selectByIndexClicked();
 	/** foom: Asks for the tolerance and merges the contour lines of the selected symbols (dem-merge-contours). */
 	void elevationMergeContoursClicked();
 	/** foom: Joins the pieces of contour lines of the selected symbols by height, as one undo step; returns the joins. */
@@ -1376,6 +1388,15 @@ private:
 	QAction* dem_slope_act = {};  // foom
 	QAction* dem_hypsometric_act = {};  // foom
 	QAction* dem_profile_act = {};  // foom
+	QAction* select_duplicates_act = {};  // foom
+	QAction* select_self_intersecting_act = {};  // foom
+	QAction* select_invalid_act = {};  // foom
+	QAction* select_by_date_act = {};  // foom
+	QAction* select_by_property_act = {};  // foom
+	QAction* select_by_index_act = {};  // foom
+	QAction* select_next_act = {};  // foom
+	/// foom: Replaces the selection with the objects and reports their number.
+	int selectFound(const std::vector<Object*>& found);
 	QAction* dem_merge_contours_act = {};  // foom
 	QAction* dem_vegetation_height_act = {};  // foom
 	QAction* dem_features_act = {};  // foom

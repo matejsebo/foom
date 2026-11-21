@@ -39,6 +39,7 @@
 
 #include "global.h"
 #include "core/map.h"
+#include "core/selection_queries.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
 #include "core/objects/text_object.h"
@@ -135,6 +136,7 @@ private slots:
 	void replaceTextTest();
 	void topologyTest();
 	void mergeContoursTest();
+	void selectionQueriesTest();
 	void buildingsTest();
 	void smoothTest();
 	void rectangleBoxTest();
@@ -1240,6 +1242,166 @@ void OpsTest::mergeContoursTest()
 	params.tolerance = 0.05;
 	auto const strict = ops::mergeContourLines(map, { a, b, c }, params);
 	QVERIFY(strict.error.isEmpty() && strict.out.empty() && strict.consumed.empty());
+}
+
+
+void OpsTest::selectionQueriesTest()
+{
+	// the design notes, "Selection queries", Accept (1) to (5).
+	Map map;
+	auto* line_symbol = new LineSymbol();
+	map.addSymbol(line_symbol, 0);
+	auto* other_line = new LineSymbol();
+	map.addSymbol(other_line, 1);
+	auto* area_symbol = new AreaSymbol();
+	map.addSymbol(area_symbol, 2);
+	auto* point_symbol = new PointSymbol();
+	point_symbol->setRotatable(true);
+	map.addSymbol(point_symbol, 3);
+	auto* text_symbol = new TextSymbol();
+	map.addSymbol(text_symbol, 4);
+	auto const path = [&map](const Symbol* s, MapCoordVector coords) {
+		auto* object = new PathObject(s, coords);
+		map.addObject(object);
+		return object;
+	};
+	auto const contains = [](const std::vector<Object*>& found, const Object* object) {
+		return std::find(found.begin(), found.end(), object) != found.end();
+	};
+	auto const& part = *map.getCurrentPart();
+	
+	// Duplicates.
+	auto* a = path(line_symbol, { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0) });
+	auto* b = path(line_symbol, { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0) });
+	auto* c = path(line_symbol, { MapCoord(10.0, 0.0), MapCoord(0.0, 0.0) });
+	auto* d = path(other_line, { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0) });
+	auto* e = path(line_symbol, { MapCoord(0.0, 0.0), MapCoord(10.002, 0.0) });
+	auto* p1 = new PointObject(point_symbol);
+	p1->setPosition(MapCoord(5.0, 5.0));
+	map.addObject(p1);
+	auto* p2 = new PointObject(point_symbol);
+	p2->setPosition(MapCoord(5.0, 5.0));
+	map.addObject(p2);
+	auto duplicates = findDuplicates(part);
+	QCOMPARE(int(duplicates.size()), 3);
+	QVERIFY(contains(duplicates, b) && contains(duplicates, c) && contains(duplicates, p2));
+	QVERIFY(!contains(duplicates, a) && !contains(duplicates, d) && !contains(duplicates, e) && !contains(duplicates, p1));
+	
+	// Self-intersection.
+	auto* eight = path(line_symbol, { MapCoord(100.0, 0.0), MapCoord(110.0, 10.0), MapCoord(110.0, 0.0), MapCoord(100.0, 10.0) });
+	auto* square = path(area_symbol, { MapCoord(200.0, 0.0), MapCoord(210.0, 0.0), MapCoord(210.0, 10.0), MapCoord(200.0, 10.0) });
+	square->closeAllParts();
+	auto* repeated = path(line_symbol, { MapCoord(300.0, 0.0), MapCoord(305.0, 0.0), MapCoord(305.0, 0.0), MapCoord(310.0, 0.0) });
+	auto* holed = path(area_symbol, { MapCoord(400.0, 0.0), MapCoord(420.0, 0.0), MapCoord(420.0, 20.0), MapCoord(400.0, 20.0) });
+	holed->closeAllParts();
+	holed->addCoordinate(MapCoord(415.0, 5.0), true);
+	holed->addCoordinate(MapCoord(425.0, 5.0));
+	holed->addCoordinate(MapCoord(425.0, 15.0));
+	holed->addCoordinate(MapCoord(415.0, 15.0));
+	holed->closeAllParts();
+	auto const crossing = findSelfIntersecting(part);
+	QVERIFY(contains(crossing, eight));
+	QVERIFY(contains(crossing, holed));
+	QVERIFY(!contains(crossing, square) && !contains(crossing, repeated) && !contains(crossing, a));
+	
+	// Invalid geometry.
+	auto* single = path(line_symbol, { MapCoord(500.0, 0.0) });
+	auto* equal = path(line_symbol, { MapCoord(510.0, 0.0), MapCoord(510.0, 0.0) });
+	auto* thin = path(area_symbol, { MapCoord(520.0, 0.0), MapCoord(530.0, 0.0) });
+	MapCoord curve_start(545.0, 0.0);
+	curve_start.setCurveStart(true);
+	auto* broken = path(line_symbol, { MapCoord(540.0, 0.0), curve_start, MapCoord(550.0, 0.0) });
+	auto* empty_text = new TextObject(text_symbol);
+	empty_text->setAnchorPosition(MapCoord(560.0, 0.0));
+	map.addObject(empty_text);
+	auto const invalid = findInvalid(part);
+	for (auto const* object : std::initializer_list<const Object*>{ single, equal, thin, broken, empty_text })
+		QVERIFY(contains(invalid, object));
+	QVERIFY(!contains(invalid, a) && !contains(invalid, square));
+	
+	// Dates, on a part of their own.
+	Map dated;
+	auto* dated_symbol = new LineSymbol();
+	dated.addSymbol(dated_symbol, 0);
+	std::vector<PathObject*> stamped;
+	qint64 const created[] = { 1000, 2000, 3000 };
+	qint64 const modified[] = { 5000, 4000, 6000 };
+	for (int k = 0; k < 3; ++k)
+	{
+		auto* object = new PathObject(dated_symbol, MapCoordVector{ MapCoord(double(k), 0.0), MapCoord(double(k), 10.0) });
+		object->setIdentity(QUuid::createUuid(), created[k], modified[k]);
+		dated.addObject(object);
+		stamped.push_back(object);
+	}
+	auto const by_created = findByDate(*dated.getCurrentPart(), DateKind::Created, 1500, 3000);
+	QCOMPARE(int(by_created.size()), 2);
+	QVERIFY(contains(by_created, stamped[1]) && contains(by_created, stamped[2]));
+	auto const by_modified = findByDate(*dated.getCurrentPart(), DateKind::Modified, 0, 4500);
+	QCOMPARE(int(by_modified.size()), 1);
+	QVERIFY(contains(by_modified, stamped[1]));
+	
+	// Properties, on a part of their own.
+	Map measured;
+	auto* m_line = new LineSymbol();
+	measured.addSymbol(m_line, 0);
+	auto* m_line2 = new LineSymbol();
+	measured.addSymbol(m_line2, 1);
+	auto* m_area = new AreaSymbol();
+	measured.addSymbol(m_area, 2);
+	auto* m_point = new PointSymbol();
+	m_point->setRotatable(true);
+	measured.addSymbol(m_point, 3);
+	auto* m_text = new TextSymbol();
+	measured.addSymbol(m_text, 4);
+	auto* short_line = new PathObject(m_line, MapCoordVector{ MapCoord(0.0, 0.0), MapCoord(10.0, 0.0) });
+	measured.addObject(short_line);
+	auto* long_line = new PathObject(m_line2, MapCoordVector{ MapCoord(0.0, 10.0), MapCoord(20.0, 10.0) });
+	measured.addObject(long_line);
+	auto* big = new PathObject(m_area, MapCoordVector{ MapCoord(0.0, 20.0), MapCoord(10.0, 20.0), MapCoord(10.0, 30.0), MapCoord(0.0, 30.0) });
+	big->closeAllParts();
+	measured.addObject(big);
+	auto* small = new PathObject(m_area, MapCoordVector{ MapCoord(20.0, 20.0), MapCoord(25.0, 20.0), MapCoord(25.0, 25.0), MapCoord(20.0, 25.0) });
+	small->closeAllParts();
+	measured.addObject(small);
+	auto* turned = new PointObject(m_point);
+	turned->setRotation(0.5);
+	measured.addObject(turned);
+	auto* upright = new PointObject(m_point);
+	measured.addObject(upright);
+	auto* bach = new TextObject(m_text);
+	bach->setText(QStringLiteral("Bach"));
+	measured.addObject(bach);
+	auto* brook = new TextObject(m_text);
+	brook->setText(QStringLiteral("Brook"));
+	measured.addObject(brook);
+	auto const& mpart = *measured.getCurrentPart();
+	auto const query = [&mpart](PropertyQuery::Property property, PropertyQuery::Compare compare, double value, std::vector<const Symbol*> symbols = {}) {
+		PropertyQuery q;
+		q.property = property;
+		q.compare = compare;
+		q.value = value;
+		q.symbols = std::move(symbols);
+		return findByProperty(mpart, q);
+	};
+	auto found = query(PropertyQuery::Length, PropertyQuery::Greater, 15.0);
+	QVERIFY(contains(found, long_line) && !contains(found, short_line));
+	found = query(PropertyQuery::Vertices, PropertyQuery::Equal, 2.0);
+	QVERIFY(contains(found, long_line) && contains(found, short_line));
+	found = query(PropertyQuery::Area, PropertyQuery::GreaterEqual, 50.0);
+	QCOMPARE(int(found.size()), 1);
+	QVERIFY(contains(found, big));
+	found = query(PropertyQuery::Area, PropertyQuery::Less, 50.0);
+	QCOMPARE(int(found.size()), 1);
+	QVERIFY(contains(found, small));
+	found = query(PropertyQuery::Rotation, PropertyQuery::NotEqual, 0.0);
+	QCOMPARE(int(found.size()), 1);
+	QVERIFY(contains(found, turned));
+	found = query(PropertyQuery::TextLength, PropertyQuery::Less, 5.0);
+	QCOMPARE(int(found.size()), 1);
+	QVERIFY(contains(found, bach));
+	found = query(PropertyQuery::Length, PropertyQuery::Greater, 0.0, { m_line2 });
+	QCOMPARE(int(found.size()), 1);
+	QVERIFY(contains(found, long_line));
 }
 
 void OpsTest::buildingsTest()

@@ -109,6 +109,9 @@ private slots:
 	/** foom: Tests the merging of contour lines. */
 	void demMergeContours();
 	
+	/** foom: Tests the selection commands of the Select menu. */
+	void selectionCommands();
+	
 	/** foom: Tests the point cloud import command. */
 	void demPointCloud();
 	
