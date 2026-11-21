@@ -29,13 +29,16 @@
 #include <QtTest>
 #include <QBuffer>
 #include <QByteArray>
+#include <QColor>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
 #include <QIODevice>
 #include <QObject>
 #include <QPointF>
 #include <QProcess>
+#include <QSize>
 #include <QStandardPaths>
 #include <QString>
 #include <QStringList>
@@ -47,9 +50,11 @@
 #include "core/georeferencing.h"
 #include "core/latlon.h"
 #include "core/map.h"
+#include "core/map_color.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
+#include "core/symbols/area_symbol.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
@@ -440,6 +445,15 @@ private slots:
 	void filesTest();
 	void editorTest();
 	void schemaTest();
+	void gpxImportTest();
+	void kmlImportTest();
+	void geodataIntoExistingTest();
+	void trackTest();
+	void waypointTest();
+	void geodataRefusedTest();
+	void kmzTest();
+	void kmzFilesTest();
+	void kmzImportTest();
 };
 
 
@@ -1041,7 +1055,7 @@ void CourseInterchangeTest::editorTest()
 	auto* window = new MainWindow();
 	auto* editor = new MapEditorController(MapEditorController::MapEditor, map);
 	window->setController(editor);
-	for (auto const* id : { "course-export-iof", "course-export-gpx", "course-export-kml", "course-import-iof" })
+	for (auto const* id : { "course-export-iof", "course-export-gpx", "course-export-kml", "course-import-iof", "course-export-kmz", "course-import-gpx-kml" })
 		QVERIFY2(editor->getAction(id), id);
 	window->deleteLater();
 }
@@ -1085,6 +1099,543 @@ namespace {
 	auto Q_DECL_UNUSED qpa_selected = qputenv("QT_QPA_PLATFORM", "minimal");  // clazy:exclude=non-pod-global-static
 }
 #endif
+
+
+
+
+// foom: the design notes, "Interchange: GPX and KML in, and a KMZ with the map".
+
+namespace {
+
+QByteArray geodataOf(const Map& map, CourseFileKind kind, const QString& course = {})
+{
+	QBuffer buffer;
+	buffer.open(QIODevice::WriteOnly);
+	auto const report = kind == CourseFileKind::Gpx ? writeCoursesGpx(map, buffer, course) : writeCoursesKml(map, buffer, course);
+	return report.ok ? buffer.data() : QByteArray();
+}
+
+CourseGeodataImportReport importGeodata(Map& map, QByteArray bytes, CourseFileKind kind, const CourseGeodataImportOptions& options = {})
+{
+	QBuffer buffer(&bytes);
+	buffer.open(QIODevice::ReadOnly);
+	return kind == CourseFileKind::Gpx ? importCoursesGpx(map, buffer, options) : importCoursesKml(map, buffer, options);
+}
+
+/// A map with the symbols and the georeferencing of the cases, and nothing else.
+void fillGeoreferencedSymbols(Map& map, bool with_start = true)
+{
+	fillSymbols(map, with_start);
+	map.setGeoreferencing(utm32Georeferencing());
+}
+
+/// The map of the cases with its objects and no courses.
+void fillObjectsOnly(Map& map)
+{
+	fillInterchangeMap(map);
+	auto data = map.courseData();
+	data.courses.clear();
+	data.classes.clear();
+	changeCourseData(map, data);
+}
+
+/// A GPX file of the given waypoints and tracks.
+QByteArray gpxFile(const char* content)
+{
+	return QByteArray("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+	                  "<gpx xmlns=\"http://www.topografix.com/GPX/1/1\" version=\"1.1\" creator=\"test\">\n")
+	       + content + "\n</gpx>\n";
+}
+
+/// A GPX point at a place of the map, moved east by the given metres on the ground.
+QByteArray gpxPoint(const Map& map, const char* element, double x, double y, double east_m = 0.0, const char* inner = "")
+{
+	auto const place = map.getGeoreferencing().toGeographicCoords(MapCoordF(x + east_m * 1000.0 / map.getScaleDenominator(), y));
+	return QByteArray("<") + element + " lat=\"" + QByteArray::number(place.latitude(), 'f', 8)
+	       + "\" lon=\"" + QByteArray::number(place.longitude(), 'f', 8) + "\">" + inner + "</" + element + ">\n";
+}
+
+/// Gives the control symbol a magenta dot of 1 mm and adds an area of red from (0, -5) to (35, 15) mm.
+void addPictureSymbols(Map& map)
+{
+	auto* magenta = new MapColor(QStringLiteral("Magenta"), 0);
+	magenta->setRgb(MapColorRgb(1.0f, 0.0f, 1.0f));
+	magenta->setCmykFromRgb();
+	map.addColor(magenta, 0);
+	auto* red = new MapColor(QStringLiteral("Red"), 1);
+	red->setRgb(MapColorRgb(1.0f, 0.0f, 0.0f));
+	red->setCmykFromRgb();
+	map.addColor(red, 1);
+	for (int i = 0; i < map.getNumSymbols(); ++i)
+	{
+		auto* symbol = map.getSymbol(i);
+		if (symbol->getType() == Symbol::Point && symbol->courseRole() == Symbol::CourseControl)
+		{
+			symbol->asPoint()->setInnerRadius(1000);
+			symbol->asPoint()->setInnerColor(magenta);
+		}
+	}
+	auto* area = new AreaSymbol();
+	area->setNumberComponent(0, 401);
+	area->setColor(red);
+	map.addSymbol(area, map.getNumSymbols());
+	auto* path = new PathObject(area, { MapCoord(0.0, -5.0), MapCoord(35.0, -5.0), MapCoord(35.0, 15.0), MapCoord(0.0, 15.0) });
+	path->closeAllParts();
+	map.addObject(path);
+	map.updateAllObjects();
+}
+
+/// What the KMZ has: the document, and the picture of a single overlay with its box.
+struct KmzContent
+{
+	bool zip = false;
+	Node root;
+	QImage picture;
+	double north = 0.0, south = 0.0, east = 0.0, west = 0.0;
+
+	const Node* document() const { return root.first("Document"); }
+
+	std::vector<const Node*> folder(const char* name) const
+	{
+		std::vector<const Node*> result;
+		if (!document())
+			return result;
+		for (auto const* folder : document()->all("Folder"))
+		{
+			if (folder->textOf("name") == QLatin1String(name))
+				result.push_back(folder);
+		}
+		return result;
+	}
+
+	/// The colour of the picture at a place of the map.
+	QColor at(const Map& map, double x, double y) const
+	{
+		auto const place = map.getGeoreferencing().toGeographicCoords(MapCoordF(x, y));
+		auto const px = int((place.longitude() - west) / (east - west) * picture.width());
+		auto const py = int((north - place.latitude()) / (north - south) * picture.height());
+		if (px < 0 || py < 0 || px >= picture.width() || py >= picture.height())
+			return {};
+		return picture.pixelColor(px, py);
+	}
+};
+
+KmzContent readKmz(const QString& path)
+{
+	KmzContent content;
+	QFile file(path);
+	if (!file.open(QIODevice::ReadOnly))
+		return content;
+	content.zip = file.read(2) == "PK";
+	content.root = parse(readKmzEntry(path, QStringLiteral("doc.kml")));
+	auto const maps = content.folder("Map");
+	if (maps.size() == 1 && maps[0]->all("GroundOverlay").size() == 1)
+	{
+		auto const* overlay = maps[0]->first("GroundOverlay");
+		auto const* box = overlay->first("LatLonBox");
+		content.north = box->textOf("north").toDouble();
+		content.south = box->textOf("south").toDouble();
+		content.east = box->textOf("east").toDouble();
+		content.west = box->textOf("west").toDouble();
+		content.picture = QImage::fromData(readKmzEntry(path, overlay->first("Icon")->textOf("href")));
+	}
+	return content;
+}
+
+bool isRed(const QColor& color)
+{
+	return color.isValid() && color.red() > 200 && color.green() < 80 && color.blue() < 80;
+}
+
+bool isMagenta(const QColor& color)
+{
+	return color.isValid() && color.red() > 200 && color.green() < 80 && color.blue() > 200;
+}
+
+}  // namespace
+
+
+/// Accept (1) of "Interchange: GPX and KML in, and a KMZ with the map"
+void CourseInterchangeTest::gpxImportTest()
+{
+	Map source;
+	fillInterchangeMap(source);
+	auto const bytes = geodataOf(source, CourseFileKind::Gpx);
+	QVERIFY(!bytes.isEmpty());
+
+	Map map;
+	fillGeoreferencedSymbols(map);
+	auto const steps = map.undoManager().undoStepCount();
+	auto const report = importGeodata(map, bytes, CourseFileKind::Gpx);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.objects_added, 5);
+	QCOMPARE(report.objects_found, 0);
+	QCOMPARE(report.courses_added, 7);
+	QCOMPARE(report.relay_variants, 0);
+	QVERIFY(report.objects_not_made.isEmpty());
+	QVERIFY(report.tracks_not_courses.isEmpty());
+
+	auto const& data = map.courseData();
+	QCOMPARE(objectsOf(data), QStringLiteral("S1 31 32 33 F1"));
+	QCOMPARE(data.findObject(QStringLiteral("S1"))->kind, CourseObject::Start);
+	QCOMPARE(data.findObject(QStringLiteral("33"))->kind, CourseObject::Control);
+	QCOMPARE(data.findObject(QStringLiteral("F1"))->kind, CourseObject::Finish);
+	QVERIFY(near(placeOf(map, QStringLiteral("S1")), 0.0, 0.0));
+	QVERIFY(near(placeOf(map, QStringLiteral("31")), 10.0, 0.0));
+	QVERIFY(near(placeOf(map, QStringLiteral("33")), 20.0, 10.0));
+	QVERIFY(near(placeOf(map, QStringLiteral("F1")), 30.0, 0.0));
+	QCOMPARE(map.getNumObjects(), 5);
+
+	QCOMPARE(int(data.courses.size()), 7);
+	QCOMPARE(itemsOf(data, QStringLiteral("A")), QStringLiteral("S1 31 32 33 F1"));
+	QCOMPARE(itemsOf(data, QStringLiteral("B")), QStringLiteral("S1 32 F1"));
+	QCOMPARE(itemsOf(data, QStringLiteral("Short")), QStringLiteral("31"));
+	QCOMPARE(itemsOf(data, QStringLiteral("R_1A")), QStringLiteral("S1 31 F1"));
+	QCOMPARE(itemsOf(data, QStringLiteral("R_2B")), QStringLiteral("S1 32 F1"));
+	QCOMPARE(data.findCourse(QStringLiteral("A"))->items.front().type, CourseItem::Start);
+	QCOMPARE(data.findCourse(QStringLiteral("A"))->items.back().type, CourseItem::Finish);
+	QCOMPARE(data.findCourse(QStringLiteral("R_1A"))->type, Course::Normal);
+
+	QCOMPARE(map.undoManager().undoStepCount(), steps + 1);
+	QVERIFY(map.undoManager().undo());
+	QCOMPARE(map.getNumObjects(), 0);
+	QVERIFY(map.courseData().isEmpty());
+	QVERIFY(map.undoManager().redo());
+	QCOMPARE(itemsOf(map.courseData(), QStringLiteral("A")), QStringLiteral("S1 31 32 33 F1"));
+}
+
+
+/// Accept (2)
+void CourseInterchangeTest::kmlImportTest()
+{
+	Map source;
+	fillInterchangeMap(source);
+	auto const bytes = geodataOf(source, CourseFileKind::Kml);
+	QVERIFY(!bytes.isEmpty());
+	QVERIFY(!bytes.contains("<type>"));
+
+	Map map;
+	fillGeoreferencedSymbols(map);
+	auto const report = importGeodata(map, bytes, CourseFileKind::Kml);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.objects_added, 5);
+	QCOMPARE(report.courses_added, 7);
+	auto const& data = map.courseData();
+	QCOMPARE(objectsOf(data), QStringLiteral("S1 31 32 33 F1"));
+	QCOMPARE(data.findObject(QStringLiteral("S1"))->kind, CourseObject::Start);
+	QCOMPARE(data.findObject(QStringLiteral("31"))->kind, CourseObject::Control);
+	QCOMPARE(data.findObject(QStringLiteral("F1"))->kind, CourseObject::Finish);
+	QVERIFY(near(placeOf(map, QStringLiteral("33")), 20.0, 10.0));
+	QCOMPARE(itemsOf(data, QStringLiteral("A")), QStringLiteral("S1 31 32 33 F1"));
+	QCOMPARE(itemsOf(data, QStringLiteral("B")), QStringLiteral("S1 32 F1"));
+	QCOMPARE(itemsOf(data, QStringLiteral("Short")), QStringLiteral("31"));
+}
+
+
+/// Accept (3)
+void CourseInterchangeTest::geodataIntoExistingTest()
+{
+	Map map;
+	fillInterchangeMap(map);
+	auto const bytes = geodataOf(map, CourseFileKind::Gpx);
+	auto const before_objects = map.getNumObjects();
+	auto const before = map.courseData();
+	auto report = importGeodata(map, bytes, CourseFileKind::Gpx);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.objects_added, 0);
+	QCOMPARE(report.objects_found, 5);
+	QCOMPARE(report.courses_added, 0);
+	QCOMPARE(report.courses_existing, (QStringList{ QStringLiteral("A"), QStringLiteral("B"), QStringLiteral("Short") }));
+	QCOMPARE(report.relay_variants, 4);
+	QCOMPARE(map.getNumObjects(), before_objects);
+	QCOMPARE(int(map.courseData().courses.size()), int(before.courses.size()));
+
+	// The course objects alone.
+	Map objects_only;
+	fillGeoreferencedSymbols(objects_only);
+	CourseGeodataImportOptions options;
+	options.courses = false;
+	report = importGeodata(objects_only, bytes, CourseFileKind::Gpx, options);
+	QVERIFY(report.ok);
+	QCOMPARE(report.objects_added, 5);
+	QVERIFY(objects_only.courseData().courses.empty());
+
+	// The courses alone, of the objects which the map has.
+	Map courses_only;
+	fillObjectsOnly(courses_only);
+	auto const objects = courses_only.getNumObjects();
+	options = {};
+	options.objects = false;
+	report = importGeodata(courses_only, bytes, CourseFileKind::Gpx, options);
+	QVERIFY(report.ok);
+	QCOMPARE(report.objects_added, 0);
+	QCOMPARE(courses_only.getNumObjects(), objects);
+	QCOMPARE(report.courses_added, 7);
+	QCOMPARE(itemsOf(courses_only.courseData(), QStringLiteral("B")), QStringLiteral("S1 32 F1"));
+
+	// Without the objects, a course has nothing to start at.
+	Map nothing;
+	fillGeoreferencedSymbols(nothing);
+	report = importGeodata(nothing, bytes, CourseFileKind::Gpx, options);
+	QVERIFY(report.ok);
+	QCOMPARE(report.courses_added, 0);
+	QCOMPARE(report.tracks_not_courses.size(), 7);
+	QVERIFY(nothing.courseData().isEmpty());
+}
+
+
+/// Accept (4)
+void CourseInterchangeTest::trackTest()
+{
+	Map map;
+	fillObjectsOnly(map);
+	QByteArray tracks;
+	tracks += "<trk><name>Near</name><trkseg>\n";
+	tracks += gpxPoint(map, "trkpt", 0.0, 0.0);
+	tracks += gpxPoint(map, "trkpt", 5.0, 6.0);
+	tracks += gpxPoint(map, "trkpt", 20.0, 0.0, 0.5);
+	tracks += gpxPoint(map, "trkpt", 25.0, -6.0);
+	tracks += gpxPoint(map, "trkpt", 30.0, 0.0);
+	tracks += "</trkseg></trk>\n";
+	tracks += "<trk><name>Off</name><trkseg>\n";
+	tracks += gpxPoint(map, "trkpt", 0.0, 0.0);
+	tracks += gpxPoint(map, "trkpt", 10.0, 0.0);
+	tracks += gpxPoint(map, "trkpt", 30.0, 0.0, 2.0);
+	tracks += "</trkseg></trk>\n";
+	tracks += "<trk><trkseg>\n";
+	tracks += gpxPoint(map, "trkpt", 0.0, 0.0);
+	tracks += gpxPoint(map, "trkpt", 20.0, 10.0);
+	tracks += "</trkseg><trkseg>\n";
+	tracks += gpxPoint(map, "trkpt", 30.0, 0.0);
+	tracks += "</trkseg></trk>\n";
+	tracks += "<trk><name>Log</name><trkseg>\n";
+	tracks += gpxPoint(map, "trkpt", 3.0, 3.0);
+	tracks += gpxPoint(map, "trkpt", 4.0, 4.0);
+	tracks += gpxPoint(map, "trkpt", 5.0, 3.0);
+	tracks += "</trkseg></trk>\n";
+	tracks += "<rte><name>Planned</name>\n";
+	tracks += gpxPoint(map, "rtept", 0.0, 0.0);
+	tracks += gpxPoint(map, "rtept", 10.0, 0.0);
+	tracks += gpxPoint(map, "rtept", 30.0, 0.0);
+	tracks += "</rte>\n";
+
+	auto const report = importGeodata(map, gpxFile(tracks.constData()), CourseFileKind::Gpx);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.courses_added, 3);
+	QCOMPARE(report.tracks_not_courses, (QStringList{ QStringLiteral("Off"), QStringLiteral("Log") }));
+	auto const& data = map.courseData();
+	QCOMPARE(itemsOf(data, QStringLiteral("Near")), QStringLiteral("S1 32 F1"));
+	QCOMPARE(itemsOf(data, QStringLiteral("Track 3")), QStringLiteral("S1 33 F1"));
+	QCOMPARE(itemsOf(data, QStringLiteral("Planned")), QStringLiteral("S1 31 F1"));
+}
+
+
+/// Accept (5)
+void CourseInterchangeTest::waypointTest()
+{
+	Map map;
+	fillGeoreferencedSymbols(map, false);
+	QByteArray content;
+	content += gpxPoint(map, "wpt", 0.0, 0.0, 0.0, "<name>S2</name>");
+	content += gpxPoint(map, "wpt", 5.0, 5.0, 0.0, "<name>Water point</name>");
+	content += gpxPoint(map, "wpt", 10.0, 0.0, 0.0, "<name>45</name>");
+	content += gpxPoint(map, "wpt", 30.0, 0.0, 0.0, "<name>99</name><type>Finish</type>");
+	content += gpxPoint(map, "wpt", 40.0, 0.0, 0.0, "");
+	content += "<trk><name>From S2</name><trkseg>\n";
+	content += gpxPoint(map, "trkpt", 0.0, 0.0);
+	content += gpxPoint(map, "trkpt", 10.0, 0.0);
+	content += gpxPoint(map, "trkpt", 30.0, 0.0);
+	content += "</trkseg></trk>\n";
+	auto const report = importGeodata(map, gpxFile(content.constData()), CourseFileKind::Gpx);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.objects_added, 2);
+	QCOMPARE(report.objects_not_made, (QStringList{ QStringLiteral("S2"), QStringLiteral("Water point") }));
+	QCOMPARE(objectsOf(map.courseData()), QStringLiteral("45 99"));
+	QCOMPARE(map.courseData().findObject(QStringLiteral("99"))->kind, CourseObject::Finish);
+	QCOMPARE(map.courseData().findObject(QStringLiteral("45"))->kind, CourseObject::Control);
+	QCOMPARE(report.courses_added, 0);
+	QCOMPARE(report.tracks_not_courses, QStringList{ QStringLiteral("From S2") });
+}
+
+
+/// Accept (6)
+void CourseInterchangeTest::geodataRefusedTest()
+{
+	Map source;
+	fillInterchangeMap(source);
+	auto const gpx = geodataOf(source, CourseFileKind::Gpx);
+
+	Map local;
+	fillSymbols(local);
+	auto report = importGeodata(local, gpx, CourseFileKind::Gpx);
+	QVERIFY(!report.ok);
+	QVERIFY(!report.error.isEmpty());
+	QVERIFY(local.courseData().isEmpty());
+	QCOMPARE(local.getNumObjects(), 0);
+
+	Map map;
+	fillGeoreferencedSymbols(map);
+	auto const steps = map.undoManager().undoStepCount();
+	for (auto const kind : { CourseFileKind::Gpx, CourseFileKind::Kml })
+	{
+		QVERIFY(!importGeodata(map, "no xml at all", kind).ok);
+		QVERIFY(!importGeodata(map, courseDataFile(""), kind).ok);
+	}
+	QVERIFY(!importGeodata(map, geodataOf(source, CourseFileKind::Kml), CourseFileKind::Gpx).ok);
+	QVERIFY(!importGeodata(map, gpx, CourseFileKind::Kml).ok);
+	QVERIFY(map.courseData().isEmpty());
+	QCOMPARE(map.undoManager().undoStepCount(), steps);
+}
+
+
+/// Accept (7)
+void CourseInterchangeTest::kmzTest()
+{
+	Map map;
+	fillInterchangeMap(map);
+	addPictureSymbols(map);
+	QTemporaryDir folder;
+	QVERIFY(folder.isValid());
+	auto const dir = QDir(folder.path());
+
+	auto const tiled_path = dir.filePath(QStringLiteral("tiled.kmz"));
+	auto report = writeCoursesKmz(map, tiled_path);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.controls, 5);
+	QCOMPARE(report.courses, 7);
+	auto const tiled = readKmz(tiled_path);
+	QVERIFY(tiled.zip);
+	QCOMPARE(tiled.root.name, QStringLiteral("kml"));
+	QVERIFY(tiled.document());
+	QCOMPARE(tiled.document()->textOf("name"), QStringLiteral("Test event"));
+	auto const folders = tiled.document()->all("Folder");
+	QCOMPARE(int(folders.size()), 3);
+	QCOMPARE(folders[0]->textOf("name"), QStringLiteral("Map"));
+	QCOMPARE(folders[1]->textOf("name"), QStringLiteral("Course objects"));
+	QCOMPARE(folders[2]->textOf("name"), QStringLiteral("Courses"));
+	QCOMPARE(int(folders[1]->all("Placemark").size()), 5);
+	QCOMPARE(int(folders[2]->all("Placemark").size()), 7);
+	auto const overlays = folders[0]->all("GroundOverlay");
+	QVERIFY(!overlays.empty());
+	auto north = -90.0, south = 90.0, east = -180.0, west = 180.0;
+	for (auto const* overlay : overlays)
+	{
+		auto const href = overlay->first("Icon")->textOf("href");
+		auto const picture = QImage::fromData(readKmzEntry(tiled_path, href));
+		QVERIFY2(!picture.isNull(), qPrintable(href));
+		QCOMPARE(picture.size(), QSize(512, 512));
+		auto const* box = overlay->first("LatLonBox");
+		north = std::max(north, box->textOf("north").toDouble());
+		south = std::min(south, box->textOf("south").toDouble());
+		east = std::max(east, box->textOf("east").toDouble());
+		west = std::min(west, box->textOf("west").toDouble());
+	}
+	for (auto const* placemark : folders[1]->all("Placemark"))
+	{
+		auto const tuple = placemark->first("Point")->textOf("coordinates").split(QLatin1Char(','));
+		auto const lon = tuple[0].toDouble();
+		auto const lat = tuple[1].toDouble();
+		QVERIFY2(lon > west && lon < east && lat > south && lat < north, qPrintable(placemark->textOf("name")));
+	}
+
+	// One picture: the map with the course objects as it draws them.
+	CourseKmzOptions options;
+	options.tiles = false;
+	auto const single_path = dir.filePath(QStringLiteral("single.kmz"));
+	report = writeCoursesKmz(map, single_path, options);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	auto const single = readKmz(single_path);
+	QVERIFY(!single.picture.isNull());
+	QVERIFY(isRed(single.at(map, 5.0, 10.0)));
+	QVERIFY(isMagenta(single.at(map, 10.0, 0.0)));
+	QVERIFY(isMagenta(single.at(map, 20.0, 0.0)));
+
+	// The map of the course B.
+	options.course = QStringLiteral("B");
+	auto const b_path = dir.filePath(QStringLiteral("b.kmz"));
+	report = writeCoursesKmz(map, b_path, options);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	auto const of_b = readKmz(b_path);
+	QVERIFY(!of_b.picture.isNull());
+	QVERIFY(isRed(of_b.at(map, 10.0, 0.0)));
+	QVERIFY(isMagenta(of_b.at(map, 20.0, 0.0)));
+	QCOMPARE(int(of_b.folder("Course objects")[0]->all("Placemark").size()), 3);
+	QCOMPARE(int(of_b.folder("Courses")[0]->all("Placemark").size()), 1);
+	// The course symbols are shown again.
+	QVERIFY(!map.getSymbol(1)->isHidden());
+
+	// Without georeferencing.
+	Map local;
+	fillInterchangeMap(local, false);
+	auto const local_path = dir.filePath(QStringLiteral("local.kmz"));
+	report = writeCoursesKmz(local, local_path);
+	QVERIFY(!report.ok);
+	QVERIFY(!report.error.isEmpty());
+	QVERIFY(!QFileInfo::exists(local_path));
+	QCOMPARE(dir.entryList(QDir::Files | QDir::Hidden).size(), 3);
+}
+
+
+/// Accept (8)
+void CourseInterchangeTest::kmzFilesTest()
+{
+	Map map;
+	fillInterchangeMap(map);
+	QTemporaryDir folder;
+	QVERIFY(folder.isValid());
+	auto const dir = QDir(folder.path());
+	CourseKmzOptions options;
+	options.dpi = 100;
+	auto const report = writeCourseFiles(map, dir.filePath(QStringLiteral("event.kmz")), CourseFileKind::Kmz, true, options);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.files.size(), 4);
+	for (auto const* name : { "event.A.kmz", "event.B.kmz", "event.R.kmz", "event.Short.kmz" })
+		QVERIFY2(dir.exists(QString::fromLatin1(name)), name);
+	QVERIFY(!dir.exists(QStringLiteral("event.kmz")));
+	QCOMPARE(report.skipped_courses, QStringList{ QStringLiteral("Broken") });
+	auto const of_a = readKmz(dir.filePath(QStringLiteral("event.A.kmz")));
+	QCOMPARE(int(of_a.folder("Courses")[0]->all("Placemark").size()), 1);
+
+	auto const all = writeCourseFiles(map, dir.filePath(QStringLiteral("all.kmz")), CourseFileKind::Kmz, false, options);
+	QVERIFY2(all.ok, qPrintable(all.error));
+	QCOMPARE(all.files, QStringList{ dir.filePath(QStringLiteral("all.kmz")) });
+}
+
+
+/// Accept (9)
+void CourseInterchangeTest::kmzImportTest()
+{
+	Map source;
+	fillInterchangeMap(source);
+	QTemporaryDir folder;
+	QVERIFY(folder.isValid());
+	auto const path = QDir(folder.path()).filePath(QStringLiteral("event.kmz"));
+	CourseKmzOptions options;
+	options.dpi = 100;
+	QVERIFY(writeCoursesKmz(source, path, options).ok);
+
+	Map map;
+	fillGeoreferencedSymbols(map);
+	auto report = importCourseFile(map, path);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.objects_added, 5);
+	QCOMPARE(report.courses_added, 7);
+	QCOMPARE(objectsOf(map.courseData()), QStringLiteral("S1 31 32 33 F1"));
+	QCOMPARE(map.courseData().findObject(QStringLiteral("F1"))->kind, CourseObject::Finish);
+	QCOMPARE(itemsOf(map.courseData(), QStringLiteral("A")), QStringLiteral("S1 31 32 33 F1"));
+
+	// By the extension: GPX and KML files, and what is none of them.
+	auto const gpx_path = QDir(folder.path()).filePath(QStringLiteral("event.gpx"));
+	QVERIFY(writeCourseFiles(source, gpx_path, CourseFileKind::Gpx, false).ok);
+	Map second;
+	fillGeoreferencedSymbols(second);
+	report = importCourseFile(second, gpx_path);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.courses_added, 7);
+	report = importCourseFile(second, QDir(folder.path()).filePath(QStringLiteral("nothing.kmz")));
+	QVERIFY(!report.ok);
+	QVERIFY(!report.error.isEmpty());
+}
 
 
 QTEST_MAIN(CourseInterchangeTest)

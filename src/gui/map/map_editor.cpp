@@ -1434,6 +1434,8 @@ void MapEditorController::createActions()
 	course_export_iof_act = newAction("course-export-iof", tr("Export courses (IOF XML 3.0)..."), this, SLOT(exportCoursesIofClicked()), nullptr, tr("Write the course objects, the courses and the classes as course data of the IOF Data Standard 3.0."));
 	course_export_gpx_act = newAction("course-export-gpx", tr("Export courses (GPX)..."), this, SLOT(exportCoursesGpxClicked()), nullptr, tr("Write start, controls and finish as waypoints and the courses as tracks."));
 	course_export_kml_act = newAction("course-export-kml", tr("Export courses (KML)..."), this, SLOT(exportCoursesKmlClicked()), nullptr, tr("Write start, controls and finish as placemarks and the courses as lines."));
+	course_export_kmz_act = newAction("course-export-kmz", tr("Export courses (KMZ)..."), this, SLOT(exportCoursesKmzClicked()), nullptr, tr("Write the placemarks and lines of the courses together with a picture of the map, or of the map of the course."));
+	course_import_geodata_act = newAction("course-import-gpx-kml", tr("Import GPX or KML..."), this, SLOT(importGeodataCoursesClicked()), nullptr, tr("Take waypoints as course objects, and tracks which start and end at course objects as courses."));
 	course_import_iof_act = newAction("course-import-iof", tr("Import IOF XML..."), this, SLOT(importIofCoursesClicked()), nullptr, tr("Take course objects, courses and classes from course data of the IOF Data Standard 3.0."));
 	// foom: the design notes, "Relays: variations, variants and their allocation"
 	course_canvases_act = newAction("course-canvases", tr("Canvases..."), this, SLOT(courseCanvasesClicked()), nullptr, tr("Say for which courses which extent of the map is printed, at which scale and with which course symbols."));
@@ -1937,6 +1939,7 @@ void MapEditorController::createMenuAndToolbars()
 	courses_menu->addAction(course_export_iof_act);
 	courses_menu->addAction(course_export_gpx_act);
 	courses_menu->addAction(course_export_kml_act);
+	courses_menu->addAction(course_export_kmz_act);
 	courses_menu->addAction(course_relay_variations_act);
 	courses_menu->addAction(course_export_maps_act);
 	courses_menu->addAction(course_canvases_act);
@@ -1951,6 +1954,7 @@ void MapEditorController::createMenuAndToolbars()
 	courses_menu->addAction(course_routes_export_act);
 	courses_menu->addAction(course_routes_settings_act);
 	courses_menu->addAction(course_import_iof_act);
+	courses_menu->addAction(course_import_geodata_act);
 	
 	// Extend and activate general toolbar
 	QToolBar* main_toolbar = window->getGeneralToolBar();
@@ -5599,6 +5603,11 @@ static void exportCourses(MainWindow* window, Map* map, CourseFileKind kind)
 		filter = MapEditorController::tr("KML files (*.kml)");
 		suffix = QStringLiteral("kml");
 		break;
+	case CourseFileKind::Kmz:
+		title = MapEditorController::tr("Export courses (KMZ)");
+		filter = MapEditorController::tr("KMZ files (*.kmz)");
+		suffix = QStringLiteral("kmz");
+		break;
 	}
 	if (map->courseData().isEmpty())
 	{
@@ -5622,7 +5631,11 @@ static void exportCourses(MainWindow* window, Map* map, CourseFileKind kind)
 		per_course = answer == QMessageBox::Yes;
 	}
 	
+	if (kind == CourseFileKind::Kmz)
+		QApplication::setOverrideCursor(Qt::WaitCursor);
 	auto const report = writeCourseFiles(*map, path, kind, per_course);
+	if (kind == CourseFileKind::Kmz)
+		QApplication::restoreOverrideCursor();
 	if (!report.ok)
 	{
 		QMessageBox::warning(window, title, report.error);
@@ -5651,6 +5664,62 @@ void MapEditorController::exportCoursesGpxClicked()
 void MapEditorController::exportCoursesKmlClicked()
 {
 	exportCourses(window, map, CourseFileKind::Kml);
+}
+
+void MapEditorController::exportCoursesKmzClicked()
+{
+	exportCourses(window, map, CourseFileKind::Kmz);
+}
+
+// the design notes, "Interchange: GPX and KML in, and a KMZ with the map"
+void MapEditorController::importGeodataCoursesClicked()
+{
+	auto const title = tr("Import GPX or KML");
+	auto const filter = QString(tr("GPX, KML and KMZ files (*.gpx *.kml *.kmz)") + QLatin1String(";;") + tr("All files (*.*)"));
+	auto const path = QFileDialog::getOpenFileName(window, title, QFileInfo(window->currentPath()).path(), filter);
+	if (path.isEmpty())
+		return;
+
+	QDialog dialog(window, Qt::WindowSystemMenuHint | Qt::WindowTitleHint);
+	dialog.setWindowTitle(title);
+	auto* objects_check = new QCheckBox(tr("Course objects (start, controls, finish)"));
+	auto* courses_check = new QCheckBox(tr("Courses"));
+	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+	auto* layout = new QVBoxLayout(&dialog);
+	for (auto* check : { objects_check, courses_check })
+	{
+		check->setChecked(true);
+		layout->addWidget(check);
+	}
+	layout->addWidget(buttons);
+	connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+	connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+
+	CourseGeodataImportOptions options;
+	options.objects = objects_check->isChecked();
+	options.courses = courses_check->isChecked();
+	auto const report = importCourseFile(*map, path, options);
+	if (!report.ok)
+	{
+		QMessageBox::warning(window, title, report.error);
+		return;
+	}
+
+	auto const separator = QStringLiteral(", ");
+	QStringList lines;
+	lines << tr("Course objects made: %1; in the map already: %2.").arg(report.objects_added).arg(report.objects_found);
+	lines << tr("Courses added: %1.").arg(report.courses_added);
+	if (!report.objects_not_made.isEmpty())
+		lines << tr("Waypoints not made, for want of a code or of a symbol: %1.").arg(report.objects_not_made.join(separator));
+	if (!report.courses_existing.isEmpty())
+		lines << tr("Courses which the map has and which were not touched: %1.").arg(report.courses_existing.join(separator));
+	if (!report.tracks_not_courses.isEmpty())
+		lines << tr("Tracks which do not start and end at course objects, and are no courses: %1.").arg(report.tracks_not_courses.join(separator));
+	if (report.relay_variants > 0)
+		lines << tr("Variants of relays which the map has, not imported as courses: %1.").arg(report.relay_variants);
+	QMessageBox::information(window, title, lines.join(QLatin1Char('\n')));
 }
 
 void MapEditorController::importIofCoursesClicked()

@@ -662,8 +662,12 @@ public slots:
 	void exportCoursesIofClicked();
 	void exportCoursesGpxClicked();
 	void exportCoursesKmlClicked();
+	/** foom: Writes the courses as KMZ with a picture of the map, after asking for the file. */
+	void exportCoursesKmzClicked();
 	/** foom: Takes course objects, courses and classes from an IOF XML 3.0 file. */
 	void importIofCoursesClicked();
+	/** foom: Takes course objects and courses from a GPX, KML or KMZ file. */
+	void importGeodataCoursesClicked();
 	/** foom: Writes which team runs which variant of the relays, as a text file. */
 	void exportRelayVariationsClicked();
 	void exportCourseMapsClicked();
@@ -1396,7 +1400,9 @@ private:
 	QAction* course_export_iof_act = {};  // foom
 	QAction* course_export_gpx_act = {};  // foom
 	QAction* course_export_kml_act = {};  // foom
+	QAction* course_export_kmz_act = {};  // foom
 	QAction* course_import_iof_act = {};  // foom
+	QAction* course_import_geodata_act = {};  // foom
 	QAction* course_relay_variations_act = {};  // foom
 	QAction* course_export_maps_act = {};  // foom
 	QAction* course_canvases_act = {};  // foom
