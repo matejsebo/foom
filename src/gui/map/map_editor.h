@@ -91,6 +91,7 @@ class ExtentDialog;  // foom
 class IssueModel;  // foom
 struct LegibilityParams;  // foom
 struct LandformParams;  // foom
+struct HypsometricParams;  // foom
 struct GriddingParams;  // foom
 struct PointCloudProducts;  // foom
 struct PointPair;  // foom
@@ -761,6 +762,10 @@ public slots:
 	void elevationHillShadeClicked();
 	/** foom: Asks for the parameters, then writes and attaches a slope gradient raster (dem-slope). */
 	void elevationSlopeClicked();
+	/** foom: Asks for the ramp, then writes and attaches a hypsometric map (dem-hypsometric). */
+	void elevationHypsometricClicked();
+	/** foom: Writes the hypsometric map of the terrain grid beside the map; returns its path, empty on failure. */
+	QString writeHypsometricMap(const HypsometricParams& params, bool attach, QString* error);
 	/** foom: Asks for the minimum height and depth, then extracts knolls and small depressions (dem-features). */
 	void elevationFeaturesClicked();
 	/** foom: Extracts knolls and small depressions of the terrain model as one undo step; returns their number. */
@@ -1356,6 +1361,7 @@ private:
 	QAction* dem_contours_act = {};  // foom
 	QAction* dem_hillshade_act = {};  // foom
 	QAction* dem_slope_act = {};  // foom
+	QAction* dem_hypsometric_act = {};  // foom
 	QAction* dem_features_act = {};  // foom
 	QAction* dem_export_act = {};  // foom
 	/// foom: Saves the grid beside the map and makes it the kind's grid (an ElevationSet::Kind).

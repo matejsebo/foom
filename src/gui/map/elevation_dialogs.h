@@ -224,6 +224,27 @@ private:
 };
 
 
+/**
+ * The dem-hypsometric dialog: the ramps, the interval and white at elevation 0.
+ */
+class HypsometricDialog : public QDialog
+{
+Q_OBJECT
+public:
+	explicit HypsometricDialog(QWidget* parent);
+	~HypsometricDialog() override;
+	
+	HypsometricParams params() const;
+	bool attach() const;
+	
+private:
+	QComboBox* ramp_combo;
+	QDoubleSpinBox* interval_edit;
+	QCheckBox* zero_check;
+	QCheckBox* attach_check;
+};
+
+
 }  // namespace OpenOrienteering
 
 #endif

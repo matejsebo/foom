@@ -84,6 +84,33 @@ RasterProduct hillShade(const ElevationModel& grid, const HillShadeParams& param
 RasterProduct slopeRaster(const ElevationModel& grid, const SlopeParams& params);
 
 /**
+ * Hypsometric map parameters, see the design notes, "Hypsometric map".
+ */
+struct HypsometricParams
+{
+	/// The ramps, named from high to low.
+	enum Ramp
+	{
+		Greyscale,
+		RedGreenBlue,
+		RedYellowGreen,
+		RedYellowBlue,
+		BrownYellowGreen,
+		BrownYellow,
+		RedYellow,
+		GreyscaleInterval
+	};
+	
+	Ramp ramp = BrownYellowGreen;
+	double interval = 100.0;          ///< m, for GreyscaleInterval.
+	bool white_at_zero = false;       ///< Cells of height 0 white.
+};
+
+/// Colours the heights from the lowest to the highest cell through the ramp; RGB32, void cells black.
+RasterProduct hypsometricRaster(const ElevationModel& grid, const HypsometricParams& params);
+
+
+/**
  * A class of the vegetation height raster: heights from..to coloured from from_color to to_color.
  */
 struct HeightClass

@@ -56,6 +56,7 @@
 #include "core/extents.h"
 #include "elevation/elevation_model.h"
 #include "elevation/elevation_set.h"
+#include "elevation/raster_products.h"
 #include "elevation/landforms.h"
 #include "elevation/point_cloud.h"
 #include "gui/map/extent_dialog.h"
@@ -1369,6 +1370,29 @@ void ToolsTest::demGridCommands()
 	editor.editor->closeElevation();
 	QVERIFY(set.isEmpty());
 	QVERIFY(map.map->hasUnsavedChanges());
+}
+
+
+void ToolsTest::demHypsometric()
+{
+	// the design notes, "Hypsometric map", Accept (4).
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("dem-hypsometric"));
+	std::vector<float> values(20 * 10);
+	for (std::size_t k = 0; k < values.size(); ++k)
+		values[k] = float(100 + k % 20);
+	auto const grid_path = dir.filePath(QStringLiteral("hills.asc"));
+	map.map->elevationSet().setModel(ElevationSet::Terrain, std::make_unique<ElevationModel>(20, 10, QPointF(0.0, 10.0), 1.0, std::move(values)), grid_path);
+	auto const templates = map.map->getNumTemplates();
+	QString error;
+	auto const path = editor.editor->writeHypsometricMap(HypsometricParams{}, true, &error);
+	QVERIFY2(!path.isEmpty(), qPrintable(error));
+	QCOMPARE(path, dir.filePath(QStringLiteral("hills_hypsometric.tif")));
+	QVERIFY(QFileInfo(path).size() > 0);
+	QCOMPARE(map.map->getNumTemplates(), templates + 1);
 }
 
 

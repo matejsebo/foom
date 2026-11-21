@@ -377,4 +377,65 @@ RasterProduct vegetationHeightRaster(const ElevationModel& heights, const std::v
 }
 
 
+RasterProduct hypsometricRaster(const ElevationModel& grid, const HypsometricParams& params)
+{
+	// the design notes, "Hypsometric map".
+	auto const red = qRgb(255, 0, 0);
+	auto const yellow = qRgb(255, 255, 0);
+	auto const green = qRgb(0, 160, 0);
+	auto const blue = qRgb(0, 0, 255);
+	auto const brown = qRgb(153, 102, 51);
+	auto const black = qRgb(0, 0, 0);
+	auto const white = qRgb(255, 255, 255);
+	std::vector<QRgb> stops;   // from low to high
+	switch (params.ramp)
+	{
+	case HypsometricParams::RedGreenBlue:     stops = { blue, green, red }; break;
+	case HypsometricParams::RedYellowGreen:   stops = { green, yellow, red }; break;
+	case HypsometricParams::RedYellowBlue:    stops = { blue, yellow, red }; break;
+	case HypsometricParams::BrownYellowGreen: stops = { green, yellow, brown }; break;
+	case HypsometricParams::BrownYellow:      stops = { yellow, brown }; break;
+	case HypsometricParams::RedYellow:        stops = { yellow, red }; break;
+	case HypsometricParams::Greyscale:
+	case HypsometricParams::GreyscaleInterval:
+		stops = { black, white };
+		break;
+	}
+	auto const mix = [](QRgb a, QRgb b, double t) {
+		auto const channel = [t](int x, int y) { return int(std::lround(x + (y - x) * t)); };
+		return qRgb(channel(qRed(a), qRed(b)), channel(qGreen(a), qGreen(b)), channel(qBlue(a), qBlue(b)));
+	};
+	auto const colour = [&stops, &mix](double t) {
+		t = qBound(0.0, t, 1.0) * double(stops.size() - 1);
+		auto const k = std::min(std::size_t(t), stops.size() - 2);
+		return mix(stops[k], stops[k + 1], t - double(k));
+	};
+	auto const info = grid.info();
+	auto const range = info.maximum - info.minimum;
+	auto const interval = params.interval > 0.0 ? params.interval : 100.0;
+	
+	RasterProduct product;
+	product.image = QImage(grid.width(), grid.height(), QImage::Format_RGB32);
+	for (int row = 0; row < grid.height(); ++row)
+	{
+		auto* line = reinterpret_cast<QRgb*>(product.image.scanLine(row));
+		for (int col = 0; col < grid.width(); ++col)
+		{
+			auto const z = double(grid.value(col, row));
+			if (std::isnan(z))
+				line[col] = black;
+			else if (params.white_at_zero && z == 0.0)
+				line[col] = white;
+			else if (params.ramp == HypsometricParams::GreyscaleInterval)
+				line[col] = colour((z - std::floor(z / interval) * interval) / interval);
+			else
+				line[col] = colour(range > 0.0 ? (z - info.minimum) / range : 0.0);
+		}
+	}
+	product.extent = grid.extent();
+	product.crs_spec = grid.crsSpec();
+	return product;
+}
+
+
 }  // namespace OpenOrienteering

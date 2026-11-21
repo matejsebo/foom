@@ -618,6 +618,57 @@ private slots:
 		QCOMPARE(int(OpenOrienteering::slopeRaster(*steep, params).image.constScanLine(50)[50]), 0);
 	}
 
+	void hypsometricTest()
+	{
+		// the design notes, "Hypsometric map", Accept (1) to (3).
+		auto const rising = makeGrid(101, 3, 0.0, 3.0, 1.0, [](double x, double) { return 100.0 + (x - 0.5); });
+		auto const near = [](QRgb a, QRgb b) {
+			return std::abs(qRed(a) - qRed(b)) <= 1 && std::abs(qGreen(a) - qGreen(b)) <= 1 && std::abs(qBlue(a) - qBlue(b)) <= 1;
+		};
+		auto const pixel = [](const RasterProduct& p, int col) { return p.image.pixel(col, 1); };
+		HypsometricParams params;
+		QCOMPARE(params.ramp, HypsometricParams::BrownYellowGreen);
+		auto product = hypsometricRaster(*rising, params);
+		QVERIFY2(product.error.isEmpty(), qPrintable(product.error));
+		QCOMPARE(product.image.format(), QImage::Format_RGB32);
+		QCOMPARE(product.image.size(), QSize(101, 3));
+		QCOMPARE(product.extent, rising->extent());
+		QVERIFY(near(pixel(product, 0), qRgb(0, 160, 0)));
+		QVERIFY(near(pixel(product, 50), qRgb(255, 255, 0)));
+		QVERIFY(near(pixel(product, 100), qRgb(153, 102, 51)));
+		QVERIFY2(near(pixel(product, 25), qRgb(128, 208, 0)), qPrintable(QString::number(pixel(product, 25), 16)));
+	
+		params.ramp = HypsometricParams::Greyscale;
+		product = hypsometricRaster(*rising, params);
+		QVERIFY(near(pixel(product, 0), qRgb(0, 0, 0)));
+		QVERIFY(near(pixel(product, 50), qRgb(128, 128, 128)));
+		QVERIFY(near(pixel(product, 100), qRgb(255, 255, 255)));
+		params.ramp = HypsometricParams::RedGreenBlue;
+		product = hypsometricRaster(*rising, params);
+		QVERIFY(near(pixel(product, 0), qRgb(0, 0, 255)));
+		QVERIFY(near(pixel(product, 50), qRgb(0, 160, 0)));
+		QVERIFY(near(pixel(product, 100), qRgb(255, 0, 0)));
+	
+		params.ramp = HypsometricParams::GreyscaleInterval;
+		params.interval = 100.0;
+		product = hypsometricRaster(*rising, params);
+		QVERIFY(near(pixel(product, 50), qRgb(128, 128, 128)));
+		QCOMPARE(pixel(product, 0), qRgb(0, 0, 0));
+		QCOMPARE(pixel(product, 100), qRgb(0, 0, 0));
+		QVERIFY(qRed(pixel(product, 99)) >= 250);
+	
+		auto zero = makeGrid(3, 1, 0.0, 1.0, 1.0, [](double x, double) { return x < 1.0 ? 0.0 : 50.0; });
+		zero->setValue(2, 0, std::numeric_limits<float>::quiet_NaN());
+		params.ramp = HypsometricParams::BrownYellowGreen;
+		params.white_at_zero = true;
+		product = hypsometricRaster(*zero, params);
+		QCOMPARE(product.image.pixel(0, 0), qRgb(255, 255, 255));
+		QVERIFY(product.image.pixel(1, 0) != qRgb(255, 255, 255));
+		QCOMPARE(product.image.pixel(2, 0), qRgb(0, 0, 0));
+		params.white_at_zero = false;
+		QVERIFY(hypsometricRaster(*zero, params).image.pixel(0, 0) != qRgb(255, 255, 255));
+	}
+
 	void productTemplate()
 	{
 		QTemporaryDir dir;

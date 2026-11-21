@@ -97,6 +97,9 @@ private slots:
 	/** foom: Tests the grid commands of the Elevation menu. */
 	void demGridCommands();
 	
+	/** foom: Tests the hypsometric map command. */
+	void demHypsometric();
+	
 	/** foom: Tests the point cloud import command. */
 	void demPointCloud();
 	

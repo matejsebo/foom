@@ -1177,6 +1177,7 @@ void MapEditorController::createActions()
 	dem_contours_act = newAction("dem-contours", tr("Contours..."), this, SLOT(elevationContoursClicked()));  // foom
 	dem_hillshade_act = newAction("dem-hillshade", tr("Hill shading..."), this, SLOT(elevationHillShadeClicked()));  // foom
 	dem_slope_act = newAction("dem-slope", tr("Slope gradient..."), this, SLOT(elevationSlopeClicked()));  // foom
+	dem_hypsometric_act = newAction("dem-hypsometric", tr("Hypsometric map..."), this, SLOT(elevationHypsometricClicked()));  // foom
 	dem_features_act = newAction("dem-features", tr("Extract features..."), this, SLOT(elevationFeaturesClicked()));  // foom
 	dem_export_act = newAction("dem-export", tr("Export grid..."), this, SLOT(elevationExportClicked()));  // foom
 	dem_merge_act = newAction("dem-merge", tr("Merge elevation grids..."), this, SLOT(elevationMergeClicked()));  // foom
@@ -1801,6 +1802,7 @@ void MapEditorController::createMenuAndToolbars()
 	elevation_menu->addAction(dem_contours_act);
 	elevation_menu->addAction(dem_hillshade_act);
 	elevation_menu->addAction(dem_slope_act);
+	elevation_menu->addAction(dem_hypsometric_act);
 	elevation_menu->addAction(dem_features_act);
 	
 	QMenu* courses_menu = window->menuBar()->addMenu(tr("&Courses"));  // foom: the design notes, "Menu placement"
@@ -8140,6 +8142,54 @@ int MapEditorController::extractLandforms(const LandformParams& params)
 			window->showStatusBarMessage(tr("%1 knoll(s) and %2 small depression(s) extracted").arg(knolls).arg(count - knolls), 5000);
 	}
 	return count;
+}
+
+// foom: the design notes, "Hypsometric map".
+QString MapEditorController::writeHypsometricMap(const HypsometricParams& params, bool attach, QString* error)
+{
+	auto const* model = map->elevationSet().model(ElevationSet::Terrain, map->getGeoreferencing().getProjectedCRSSpec());
+	if (!model)
+	{
+		if (error)
+			*error = tr("The map has no terrain grid.");
+		return {};
+	}
+	auto const product = hypsometricRaster(*model, params);
+	auto const path = productPath(window ? window->currentPath() : QString{}, map->elevationSet().href(ElevationSet::Terrain), QStringLiteral("hypsometric"));
+	QString message = product.error;
+	if (message.isEmpty() && !writeGeoTiff(product, path, &message))
+		message = tr("Cannot write %1: %2").arg(path, message);
+	if (message.isEmpty() && attach && !attachProductTemplate(*map, path, &message))
+		message = tr("Cannot attach %1: %2").arg(path, message);
+	if (!message.isEmpty())
+	{
+		if (error)
+			*error = message;
+		return {};
+	}
+	return path;
+}
+
+void MapEditorController::elevationHypsometricClicked()
+{
+	if (!terrainModel(*map, window))
+		return;
+	HypsometricDialog dialog(window);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	QString error;
+	auto const path = writeHypsometricMap(dialog.params(), dialog.attach(), &error);
+	if (path.isEmpty())
+	{
+		QMessageBox::warning(window, tr("Hypsometric map"), error);
+		return;
+	}
+	if (dialog.attach())
+	{
+		hideAllTemplates(false);
+		showTemplateWindow(true);
+	}
+	window->showStatusBarMessage(tr("Hypsometric map written to %1").arg(path), 5000);
 }
 
 void MapEditorController::elevationSlopeClicked()

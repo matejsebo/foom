@@ -596,4 +596,59 @@ bool SlopeDialog::attach() const
 }
 
 
+HypsometricDialog::HypsometricDialog(QWidget* parent)
+: QDialog(parent)
+{
+	// the design notes, "Hypsometric map".
+	setWindowTitle(tr("Hypsometric map"));
+	HypsometricParams const defaults;
+	ramp_combo = new QComboBox();
+	ramp_combo->addItem(tr("Brown-yellow-green"), int(HypsometricParams::BrownYellowGreen));
+	ramp_combo->addItem(tr("Brown-yellow"), int(HypsometricParams::BrownYellow));
+	ramp_combo->addItem(tr("Red-yellow-green"), int(HypsometricParams::RedYellowGreen));
+	ramp_combo->addItem(tr("Red-yellow-blue"), int(HypsometricParams::RedYellowBlue));
+	ramp_combo->addItem(tr("Red-green-blue"), int(HypsometricParams::RedGreenBlue));
+	ramp_combo->addItem(tr("Red-yellow"), int(HypsometricParams::RedYellow));
+	ramp_combo->addItem(tr("Greyscale"), int(HypsometricParams::Greyscale));
+	ramp_combo->addItem(tr("Greyscale interval"), int(HypsometricParams::GreyscaleInterval));
+	ramp_combo->setCurrentIndex(ramp_combo->findData(int(defaults.ramp)));
+	interval_edit = new QDoubleSpinBox();
+	interval_edit->setDecimals(0);
+	interval_edit->setRange(1.0, 10000.0);
+	interval_edit->setSuffix(QStringLiteral(" m"));
+	interval_edit->setValue(defaults.interval);
+	auto const update = [this]() {
+		interval_edit->setEnabled(ramp_combo->currentData().toInt() == int(HypsometricParams::GreyscaleInterval));
+	};
+	connect(ramp_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, update);
+	update();
+	zero_check = new QCheckBox(tr("White at elevation 0"));
+	zero_check->setChecked(defaults.white_at_zero);
+	attach_check = new QCheckBox(tr("Attach as template"));
+	attach_check->setChecked(true);
+	
+	auto* layout = new QFormLayout();
+	layout->addRow(tr("Colours:"), ramp_combo);
+	layout->addRow(tr("Interval:"), interval_edit);
+	layout->addRow(zero_check);
+	layout->addRow(attach_check);
+	auto* main_layout = new QVBoxLayout(this);
+	main_layout->addLayout(layout);
+	main_layout->addWidget(makeButtons(this));
+}
+
+HypsometricDialog::~HypsometricDialog() = default;
+
+HypsometricParams HypsometricDialog::params() const
+{
+	HypsometricParams params;
+	params.ramp = HypsometricParams::Ramp(ramp_combo->currentData().toInt());
+	params.interval = interval_edit->value();
+	params.white_at_zero = zero_check->isChecked();
+	return params;
+}
+
+bool HypsometricDialog::attach() const { return attach_check->isChecked(); }
+
+
 }  // namespace OpenOrienteering
