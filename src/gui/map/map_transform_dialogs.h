@@ -20,14 +20,20 @@
 #ifndef OPENORIENTEERING_MAP_TRANSFORM_DIALOGS_H
 #define OPENORIENTEERING_MAP_TRANSFORM_DIALOGS_H
 
+#include <vector>
+
 #include <QDialog>
 #include <QObject>
+#include <QString>
 
 class QCheckBox;
 class QDoubleSpinBox;
 class QWidget;
 
 namespace OpenOrienteering {
+
+class CRSSelector;
+class Georeferencing;
 
 
 /**
@@ -75,6 +81,25 @@ private:
 	QCheckBox* horizontal_check;
 	QCheckBox* vertical_check;
 	QCheckBox* carry_check;
+};
+
+
+/**
+ * The map-reproject dialog: the target system, chosen as in the georeferencing dialog.
+ */
+class ReprojectDialog : public QDialog
+{
+Q_OBJECT
+public:
+	ReprojectDialog(const Georeferencing& georef, QWidget* parent);
+	~ReprojectDialog() override;
+	
+	QString crsId() const;
+	QString crsSpec() const;
+	std::vector<QString> crsParameters() const;
+	
+private:
+	CRSSelector* selector;
 };
 
 

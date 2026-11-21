@@ -651,6 +651,60 @@ private slots:
 		params.target = MapCoordF(120, 0);
 		QVERIFY(!localWarpMap(t.map, params));
 	}
+	
+	
+	void reprojectTest()
+	{
+		// the design notes, "Change of coordinate system", Accept (1) to (4).
+		TestMap t;
+		Georeferencing planar;
+		planar.setScaleDenominator(4000);
+		QVERIFY(planar.setProjectedCRS(QStringLiteral("EPSG"), QStringLiteral("EPSG:26954"), { QStringLiteral("26954") }));
+		planar.setMapRefPoint(MapCoord(0.0, 0.0));
+		planar.setProjectedRefPoint(QPointF(955000.0, 525000.0));
+		t.map.setGeoreferencing(planar);
+		auto const& before = t.map.getGeoreferencing();
+		auto const grivation = before.getGrivation();
+		
+		auto* a = new PathObject(t.line, MapCoordVector{ MapCoord(before.toMapCoordF(QPointF(955400.0, 525200.0))), MapCoord(before.toMapCoordF(QPointF(954000.0, 526000.0))) });
+		t.map.addObject(a);
+		auto* fixed_symbol = new PointSymbol();
+		fixed_symbol->setRotatable(false);
+		t.map.addSymbol(fixed_symbol, t.map.getNumSymbols());
+		auto* fixed = new PointObject(fixed_symbol);
+		fixed->setPosition(MapCoord(10.0, 10.0));
+		t.map.addObject(fixed);
+		auto const index = t.map.getCurrentPart()->findObjectIndex(a);
+		auto const coords_before = a->getRawCoordinateVector();
+		auto const extent_before = t.map.extents().front().rect_mm;
+		t.map.undoManager().clear();
+		
+		QVERIFY(reprojectMap(t.map, QStringLiteral("EPSG"), QStringLiteral("EPSG:26913"), { QStringLiteral("26913") }));
+		auto const& after = t.map.getGeoreferencing();
+		QCOMPARE(after.getProjectedCRSSpec(), QStringLiteral("EPSG:26913"));
+		auto const ref = after.getProjectedRefPoint();
+		QVERIFY2(std::abs(ref.x() - 497787.34) < 0.01 && std::abs(ref.y() - 4407329.66) < 0.01, qPrintable(QStringLiteral("%1 %2").arg(ref.x(), 0, 'f', 3).arg(ref.y(), 0, 'f', 3)));
+		QCOMPARE(after.getScaleDenominator(), 4000u);
+		QCOMPARE(after.getGrivation(), grivation);
+		
+		auto const& moved = a->getRawCoordinateVector();
+		QVERIFY(near(MapCoordF(moved[0]), after.toMapCoordF(QPointF(498188.27, 4407527.37)), 0.0025));
+		QVERIFY(near(MapCoordF(moved[1]), after.toMapCoordF(QPointF(496793.28, 4408334.74)), 0.0025));
+		
+		auto const turned = qRadiansToDegrees(t.rotated->getRotation() - 0.5);
+		QVERIFY2(turned < -0.25 && turned > -0.4, qPrintable(QString::number(turned)));
+		QCOMPARE(fixed->getRotation(), 0.0);
+		QVERIFY(t.map.extents().front().rect_mm != extent_before);
+		
+		QCOMPARE(t.map.undoManager().undoStepCount(), 1);
+		QVERIFY(t.map.undoManager().undo());
+		QCOMPARE(t.map.getGeoreferencing().getProjectedCRSSpec(), QStringLiteral("EPSG:26954"));
+		QCOMPARE(t.map.getGeoreferencing().getProjectedRefPoint(), QPointF(955000.0, 525000.0));
+		QVERIFY(t.map.getCurrentPart()->getObject(index)->getRawCoordinateVector() == coords_before);
+		QCOMPARE(t.map.extents().front().rect_mm, extent_before);
+		
+		QVERIFY(!reprojectMap(t.map, QStringLiteral("PROJ.4"), QStringLiteral("+proj=nonsense"), {}));
+	}
 };
 
 

@@ -32,6 +32,7 @@
 
 #include "core/extents.h"
 #include "core/map.h"
+#include "core/georeferencing.h"
 #include "core/map_coord.h"
 #include "course/course_storage.h"
 #include "templates/template.h"
@@ -183,6 +184,25 @@ void templatesFromXml(Map& map, const QByteArray& data)
 	}
 }
 
+
+QByteArray georeferencingToXml(const Georeferencing& georef)
+{
+	QByteArray data;
+	QXmlStreamWriter xml(&data);
+	georef.save(xml);
+	return data;
+}
+
+void georeferencingFromXml(Map& map, const QByteArray& data)
+{
+	QXmlStreamReader xml(data);
+	if (!xml.readNextStartElement())
+		return;
+	Georeferencing georef;
+	georef.load(xml, false);
+	map.setGeoreferencing(georef);
+}
+
 }  // namespace
 
 
@@ -205,7 +225,7 @@ MapDataUndoStep::~MapDataUndoStep() = default;
 
 bool MapDataUndoStep::isValid() const
 {
-	return data_section == Extents || data_section == Courses || data_section == Bookmarks || data_section == Templates;
+	return data_section == Extents || data_section == Courses || data_section == Bookmarks || data_section == Templates || data_section == Georef;
 }
 
 QByteArray MapDataUndoStep::currentXml(const Map& map, Section section)
@@ -220,6 +240,8 @@ QByteArray MapDataUndoStep::currentXml(const Map& map, Section section)
 		return bookmarksToXml(map.bookmarks());
 	case Templates:
 		return templatesToXml(map);
+	case Georef:
+		return georeferencingToXml(map.getGeoreferencing());
 	case UndefinedSection:
 		break;
 	}
@@ -242,6 +264,9 @@ UndoStep* MapDataUndoStep::undo()
 		break;
 	case Templates:
 		templatesFromXml(*map, data_xml);
+		break;
+	case Georef:
+		georeferencingFromXml(*map, data_xml);
 		break;
 	case UndefinedSection:
 		break;

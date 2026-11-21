@@ -23,8 +23,13 @@
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QLabel>
 #include <QString>
 #include <QVBoxLayout>
+
+#include "core/crs_template.h"
+#include "core/georeferencing.h"
+#include "gui/widgets/crs_selector.h"
 
 
 namespace OpenOrienteering {
@@ -106,6 +111,36 @@ double MapStretchDialog::factorY() const { return y_edit->value() / 100.0; }
 bool MapStretchDialog::mirrorHorizontally() const { return horizontal_check->isChecked(); }
 bool MapStretchDialog::mirrorVertically() const { return vertical_check->isChecked(); }
 bool MapStretchDialog::carry() const { return carry_check->isChecked(); }
+
+
+ReprojectDialog::ReprojectDialog(const Georeferencing& georef, QWidget* parent)
+: QDialog(parent)
+{
+	setWindowTitle(tr("Change coordinate system"));
+	auto* form = new QFormLayout();
+	form->addRow(tr("Change map from:"), new QLabel(georef.getProjectedCRSName() + QStringLiteral(" (") + georef.getProjectedCRSSpec() + QLatin1Char(')')));
+	selector = new CRSSelector(georef, nullptr);
+	form->addRow(tr("To:"), selector);
+	selector->setDialogLayout(form);
+	auto const& parameters = georef.getProjectedCRSParameters();
+	auto const* current = CRSTemplateRegistry().find(georef.getProjectedCRSId());
+	if (current && current->parameters().size() == parameters.size())
+		selector->setCurrentCRS(current, parameters);
+	else
+		selector->setCurrentCRS(CRSTemplateRegistry().find(QStringLiteral("PROJ.4")), { georef.getProjectedCRSSpec() });
+	finish(this, form);
+}
+
+ReprojectDialog::~ReprojectDialog() = default;
+
+QString ReprojectDialog::crsId() const
+{
+	auto const* crs = selector->currentCRSTemplate();
+	return crs ? crs->id() : QString{};
+}
+
+QString ReprojectDialog::crsSpec() const { return selector->currentCRSSpec(); }
+std::vector<QString> ReprojectDialog::crsParameters() const { return selector->parameters(); }
 
 
 }  // namespace OpenOrienteering

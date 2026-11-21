@@ -103,6 +103,9 @@ private slots:
 	/** foom: Tests the local transformation tool. */
 	void mapLocalWarpTool();
 	
+	/** foom: Tests the change of coordinate system command. */
+	void mapReproject();
+	
 	/** foom: Tests the map check command and the Issues window. */
 	void mapCheck();
 	

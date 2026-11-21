@@ -1444,6 +1444,25 @@ void ToolsTest::mapLocalWarpTool()
 }
 
 
+void ToolsTest::mapReproject()
+{
+	// the design notes, "Change of coordinate system", Accept (5).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("map-reproject"));
+	Georeferencing planar;
+	planar.setScaleDenominator(10000);
+	QVERIFY(planar.setProjectedCRS(QStringLiteral("EPSG"), QStringLiteral("EPSG:26954"), { QStringLiteral("26954") }));
+	planar.setMapRefPoint(MapCoord(0.0, 0.0));
+	planar.setProjectedRefPoint(QPointF(955000.0, 525000.0));
+	map.map->setGeoreferencing(planar);
+	auto const steps = map.map->undoManager().undoStepCount();
+	QVERIFY(editor.editor->reprojectMap(QStringLiteral("EPSG"), QStringLiteral("EPSG:26913"), { QStringLiteral("26913") }));
+	QCOMPARE(map.map->getGeoreferencing().getProjectedCRSSpec(), QStringLiteral("EPSG:26913"));
+	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 1);
+}
+
+
 void ToolsTest::mapCheck()
 {
 	// the design notes, "Map check", the editor part.

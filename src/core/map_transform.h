@@ -154,6 +154,17 @@ MapCoordF localWarpDisplacement(const LocalWarpParams& params, const MapCoordF& 
 /// Moves what lies within the radius, as one undo step; false when the target lies beyond the radius.
 bool localWarpMap(Map& map, const LocalWarpParams& params);
 
+/**
+ * Changes the map's projected coordinate reference system, keeping every object
+ * at its geographic position.
+ *
+ * The id, spec and params are those of Georeferencing::setProjectedCRS(). One undo step;
+ * false for a map without a projected system or an invalid target.
+ *
+ * See the design notes, "Change of coordinate system".
+ */
+bool reprojectMap(Map& map, const QString& id, const QString& spec, const std::vector<QString>& params = {});
+
 
 }  // namespace OpenOrienteering
 

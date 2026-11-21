@@ -776,6 +776,10 @@ public slots:
 	void mapRubbersheetClicked();
 	/** foom: Asks for the radius, then starts the local transformation tool (map-local-warp). */
 	void mapLocalWarpClicked();
+	/** foom: Asks for the target system and changes the map to it (map-reproject). */
+	void mapReprojectClicked();
+	/** foom: Changes the map's coordinate reference system; see the design notes. */
+	bool reprojectMap(const QString& id, const QString& spec, const std::vector<QString>& params);
 	/** foom: Starts the local transformation tool with the settings, without asking. */
 	void startLocalWarp(const LocalWarpParams& settings);
 	/** foom: One drag of the local transformation; see the design notes. */
@@ -1317,6 +1321,7 @@ private:
 	QAction* map_affine_act = {};  // foom
 	QAction* map_rubbersheet_act = {};  // foom
 	QAction* map_local_warp_act = {};  // foom
+	QAction* map_reproject_act = {};  // foom
 	QAction* dem_point_cloud_act = {};  // foom
 	QAction* dem_info_act = {};  // foom
 	QAction* dem_contours_act = {};  // foom

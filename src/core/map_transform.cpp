@@ -44,6 +44,7 @@
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
 #include "core/symbols/symbol.h"
+#include "util/util.h"
 #include "course/course_data.h"
 #include "templates/template.h"
 #include "undo/map_data_undo.h"
@@ -351,7 +352,10 @@ QStringList readLines(const QString& path, QString* error)
  */
 bool warpMap(Map& map, const std::function<bool (const MapCoordF&)>& inside,
              const std::function<MapCoordF (const MapCoordF&)>& displacement,
-             bool include_protected, bool include_layout)
+             bool include_protected, bool include_layout,
+             bool handles_follow_vertices = true,
+             const std::function<double (const MapCoordF&)>& rotation = {},
+             const std::vector<UndoStep*>& data_steps = {})
 {
 	auto const moved = [&displacement](const MapCoordF& c) { return c + displacement(c); };
 	
@@ -360,6 +364,8 @@ bool warpMap(Map& map, const std::function<bool (const MapCoordF&)>& inside,
 	auto const had_selection = map.getNumSelectedObjects() > 0;
 	map.clearObjectSelection(false);
 	auto undo_step = std::make_unique<CombinedUndoStep>(&map);
+	for (auto* step : data_steps)
+		undo_step->push(step);
 	auto const has_routes = !map.courseData().routes.isEmpty();
 	if (has_routes)
 		undo_step->push(new MapDataUndoStep(&map, MapDataUndoStep::Courses, MapDataUndoStep::currentXml(map, MapDataUndoStep::Courses)));
@@ -403,7 +409,7 @@ bool warpMap(Map& map, const std::function<bool (const MapCoordF&)>& inside,
 				std::vector<std::size_t> vertex(original.size());
 				for (std::size_t k = 0; k < original.size(); ++k)
 					vertex[k] = k;
-				for (std::size_t k = 0; k + 3 < original.size(); ++k)
+				for (std::size_t k = 0; handles_follow_vertices && k + 3 < original.size(); ++k)
 				{
 					if (original[k].isCurveStart())
 					{
@@ -431,6 +437,9 @@ bool warpMap(Map& map, const std::function<bool (const MapCoordF&)>& inside,
 				if (inside(position))
 					object->asPoint()->setPosition(MapCoord(moved(position)));
 			}
+			// Orientations turn by the local rotation, as Object::rotate() does.
+			if (rotation && symbol && (symbol->hasRotatableFillPattern() || symbol->isRotatable()) && !original.empty() && inside(MapCoordF(original.front())))
+				object->setRotation(object->getRotation() + rotation(MapCoordF(original.front())));
 		}
 		if (step)
 			undo_step->push(step);
@@ -527,6 +536,88 @@ bool localWarpMap(Map& map, const LocalWarpParams& params)
 	               [&params](const MapCoordF& c) { return std::hypot(c.x() - params.center.x(), c.y() - params.center.y()) < params.radius; },
 	               [&params](const MapCoordF& c) { return localWarpDisplacement(params, c); },
 	               params.include_protected, params.include_layout);
+}
+
+
+bool reprojectMap(Map& map, const QString& id, const QString& spec, const std::vector<QString>& params)
+{
+	// the design notes, "Change of coordinate system".
+	Georeferencing const old_georef(map.getGeoreferencing());
+	if (old_georef.getState() != Georeferencing::Geospatial)
+		return false;
+	Georeferencing next(old_georef);
+	if (!next.setProjectedCRS(id, spec, params) || next.getState() != Georeferencing::Geospatial)
+		return false;
+	bool ok = false;
+	auto const reference = next.toProjectedCoords(old_georef.getGeographicRefPoint(), &ok);
+	if (!ok)
+		return false;
+	next.setProjectedRefPoint(reference, false, false);
+	next.setGrivation(old_georef.getGrivation());
+	
+	// Where the new georeferencing puts the old geographic position.
+	auto const mapping = [&old_georef, &next](const MapCoordF& p) {
+		bool ok_old = false, ok_new = false;
+		auto const lat_lon = old_georef.toGeographicCoords(p, &ok_old);
+		auto const q = next.toMapCoordF(lat_lon, &ok_new);
+		return ok_old && ok_new ? q : p;
+	};
+	auto const displacement = [&mapping](const MapCoordF& p) { return mapping(p) - p; };
+	auto const rotation = [&mapping](const MapCoordF& p) {
+		auto const a = mapping(p);
+		auto const b = mapping(MapCoordF(p.x() + 1, p.y()));
+		return std::atan2(-(b.y() - a.y()), b.x() - a.x());
+	};
+	
+	std::vector<UndoStep*> data_steps;
+	for (auto section : { MapDataUndoStep::Georef, MapDataUndoStep::Extents, MapDataUndoStep::Bookmarks, MapDataUndoStep::Templates })
+		data_steps.push_back(new MapDataUndoStep(&map, section, MapDataUndoStep::currentXml(map, section)));
+	
+	// The objects, all of them.
+	warpMap(map, [](const MapCoordF&) { return true; }, displacement, true, true, false, rotation, data_steps);
+	
+	auto extents = map.extents();
+	for (auto& extent : extents)
+	{
+		QRectF box;
+		for (auto const& corner : { extent.rect_mm.topLeft(), extent.rect_mm.topRight(), extent.rect_mm.bottomLeft(), extent.rect_mm.bottomRight() })
+			rectIncludeSafe(box, QPointF(mapping(MapCoordF(corner))));
+		extent.rect_mm = box;
+	}
+	map.setExtents(extents);
+	auto bookmarks = map.bookmarks();
+	for (auto& bookmark : bookmarks)
+		bookmark.center = MapCoord(mapping(MapCoordF(bookmark.center)));
+	map.setBookmarks(bookmarks);
+	
+	// Templates which are not georeferenced, by the affine approximation at the map's centre.
+	auto const centre = MapCoordF(map.calculateExtent().center());
+	auto const fit = fitPointPairs({ { centre, mapping(centre) },
+	                                 { MapCoordF(centre.x() + 100, centre.y()), mapping(MapCoordF(centre.x() + 100, centre.y())) },
+	                                 { MapCoordF(centre.x(), centre.y() + 100), mapping(MapCoordF(centre.x(), centre.y() + 100)) } });
+	if (fit.ok)
+	{
+		for (int i = 0; i < map.getNumTemplates(); ++i)
+		{
+			auto* temp = map.getTemplate(i);
+			if (temp->isTemplateGeoreferenced())
+				continue;
+			map.setTemplateAreaDirty(i);
+			transformTemplate(*temp, fit.transform);
+			map.setTemplateAreaDirty(i);
+		}
+		for (int i = 0; i < map.getNumClosedTemplates(); ++i)
+		{
+			auto* temp = map.getClosedTemplate(i);
+			if (!temp->isTemplateGeoreferenced())
+				transformTemplate(*temp, fit.transform);
+		}
+	}
+	
+	map.setGeoreferencing(next);
+	map.setOtherDirty();
+	map.updateAllMapWidgets();
+	return true;
 }
 
 
