@@ -34,6 +34,7 @@
 #include <QtGlobal>
 #include <QtMath>
 #include <QChar>
+#include <QColor>  // foom
 #include <QCollator>
 #include <QJsonValue>
 #include <QLatin1Char>
@@ -45,6 +46,7 @@
 #include "core/georeferencing.h"
 #include "core/latlon.h"
 #include "core/map.h"
+#include "core/map_color.h"  // foom
 #include "core/map_part.h"
 #include "core/map_printer.h"
 #include "core/symbols/area_symbol.h"
@@ -888,7 +890,44 @@ bool buildQrCode(const Context& c, const QJsonObject& params, const MapCoordF& a
 		coords.back().setClosePoint(true);
 		coords.back().setHolePoint(true);
 	}
-	build.objects.push_back(new PathObject(areaSymbol(c, params, build), coords));
+	auto const* modules_symbol = areaSymbol(c, params, build);
+	
+	// foom, third change: a white background over the symbol and its quiet zone,
+	// in a colour directly below the lowest colour of the modules.
+	if (params.value(QLatin1String("background")).toBool(true))
+	{
+		auto lowest = -1;
+		for (int i = 0; i < c.map.getNumColors(); ++i)
+		{
+			if (modules_symbol->containsColor(c.map.getColor(i)))
+				lowest = i;
+		}
+		auto const position = lowest < 0 ? c.map.getNumColors() : lowest + 1;
+		const MapColor* white = nullptr;
+		if (position < c.map.getNumColors())
+		{
+			auto const* below = c.map.getColor(position);
+			if (static_cast<const QColor&>(*below).rgb() == QColor(Qt::white).rgb() && below->getCmyk().isWhite())
+				white = below;
+		}
+		if (!white)
+		{
+			auto* color = new MapColor(tr("White"), position);
+			color->setCmyk({ 0.0f, 0.0f, 0.0f, 0.0f });
+			color->setRgbFromCmyk();
+			build.colors.emplace_back(color, position);
+			white = color;
+		}
+		auto* symbol = new AreaSymbol();
+		symbol->setName(tr("QR code background"));
+		symbol->setColor(white);
+		symbol->setPrivate(true);
+		build.symbols.push_back(symbol);
+		auto const side = (code.size + 2 * quiet_zone) * module;
+		build.objects.push_back(makeRectangle(symbol, QRectF(anchor.x(), anchor.y(), side, side)));
+	}
+	
+	build.objects.push_back(new PathObject(modules_symbol, coords));
 	return true;
 }
 

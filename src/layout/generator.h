@@ -24,6 +24,7 @@
 #include <vector>
 
 #include <QJsonObject>
+#include <QRectF>
 #include <QString>
 #include <QStringList>
 
@@ -81,6 +82,18 @@ QJsonObject defaultGeneratorParams(const QString& id, const Map& map);
  * The automatic length of a scale bar in metres: the largest of 1, 2 and 5
  * times a power of ten which is at most 60 mm on paper.
  */
+/**
+ * Returns true for the generators whose anchor the user chooses, by a click
+ * in the editor and by the parameter "at" in the runner.
+ */
+bool generatorIsPlaced(const QString& id);
+
+/**
+ * Builds the group without adding it to the map and returns its extent with
+ * the anchor at the origin, or an empty rectangle and the message.
+ */
+QRectF generatorPreview(const Map& map, const QString& id, const QJsonObject& params, QString* error);
+
 double scaleBarAutoLength(unsigned int scale_denominator);
 
 /** The default spacing of north lines on the ground, in metres. */

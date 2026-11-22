@@ -71,6 +71,9 @@ private slots:
 	
 	/** foom: Tests shapes of a given size. */
 	void sizedShapeTool();
+
+	/** foom: Tests placing a generated group by a click. */
+	void generatorPlaceTool();
 	
 	/** foom: Tests freehand smoothing. */
 	void freehandSmoothing();

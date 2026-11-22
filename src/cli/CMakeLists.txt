@@ -21,6 +21,7 @@
 # A console program (no WIN32 flag), so that its output reaches the terminal on Windows.
 
 set(foom_cli_SRCS
+  generator_steps.cpp
   job.cpp
   main.cpp
   steps.cpp

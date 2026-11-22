@@ -34,7 +34,10 @@
 #include <QEvent>
 #include <QFileInfo>
 #include <QImage>
+#include <QJsonArray>  // foom
+#include <QMessageBox>  // foom
 #include <QMouseEvent>
+#include <QTimer>  // foom
 #include <QPoint>
 #include <QPointF>
 #include <QKeySequence>
@@ -51,6 +54,9 @@
 #include "core/map_color.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
+#include "layout/generator.h"  // foom
+#include "layout/layout_part.h"  // foom
+#include "tools/generator_place_tool.h"  // foom
 #include "core/map_printer.h"
 #include "core/map_transform.h"
 #include "core/symbol_tools.h"
@@ -740,6 +746,72 @@ void ToolsTest::sizedShapeTool()
 	QVERIFY2(std::abs(centre.x() - 10.0) < 0.2 && std::abs(centre.y() - 10.0) < 0.2, qPrintable(QStringLiteral("%1 %2").arg(centre.x()).arg(centre.y())));
 	QVERIFY(map.map->undoManager().undo());
 	QCOMPARE(map.map->getNumObjects(), objects_before);
+	editor.editor->setTool(nullptr);
+}
+
+void ToolsTest::generatorPlaceTool()
+{
+	// the design notes, "Generators", third change, Accept (2) and (3).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* widget = editor.map_widget;
+	auto const scale_bar = QStringLiteral("gen-scale-bar");
+	// A message box of the generator would wait for a click: close it, and fail with its text.
+	QString message;
+	QTimer watchdog;
+	QObject::connect(&watchdog, &QTimer::timeout, [&message] {
+		if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+		{
+			message = box->text();
+			box->reject();
+		}
+	});
+	watchdog.start(200);
+	auto const parts_before = map.map->getNumParts();
+	auto const objects_before = map.map->getNumObjects();
+	auto const steps_before = map.map->undoManager().undoStepCount();
+	
+	QVERIFY(editor.editor->placeGenerator(scale_bar, defaultGeneratorParams(scale_bar, *map.map)));
+	QVERIFY(qobject_cast<GeneratorPlaceTool*>(editor.editor->getTool()));
+	QCOMPARE(map.map->getNumObjects(), objects_before);
+	QTest::mouseMove(widget, widget->mapToViewport(MapCoord(15.0, 25.0)).toPoint());
+	QTest::mouseClick(widget, Qt::LeftButton, {}, widget->mapToViewport(MapCoord(10.0, 20.0)).toPoint());
+	QVERIFY(!qobject_cast<GeneratorPlaceTool*>(editor.editor->getTool()));
+	QCOMPARE(map.map->getNumParts(), parts_before + 1);
+	auto const layout = layoutPartIndex(*map.map);
+	QVERIFY(layout >= 0);
+	QCOMPARE(int(map.map->getCurrentPartIndex()), layout);
+	auto const* part = map.map->getPart(std::size_t(layout));
+	QVERIFY(part->getNumObjects() > 6);
+	QCOMPARE(map.map->getNumSelectedObjects(), part->getNumObjects());
+	auto const* frame = part->getObject(0);
+	auto const corner = MapCoordF(frame->getRawCoordinateVector().front());
+	QVERIFY2(std::abs(corner.x() - 10.0) < 0.2 && std::abs(corner.y() - 20.0) < 0.2, qPrintable(QStringLiteral("%1 %2").arg(corner.x()).arg(corner.y())));
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(map.map->getNumParts(), parts_before);
+	QCOMPARE(map.map->getNumObjects(), objects_before);
+	
+	// Esc changes nothing.
+	auto const steps = map.map->undoManager().undoStepCount();
+	QVERIFY(editor.editor->placeGenerator(scale_bar, defaultGeneratorParams(scale_bar, *map.map)));
+	QVERIFY(qobject_cast<GeneratorPlaceTool*>(editor.editor->getTool()));
+	QTest::keyClick(widget, Qt::Key_Escape);
+	QVERIFY(!qobject_cast<GeneratorPlaceTool*>(editor.editor->getTool()));
+	QCOMPARE(map.map->getNumObjects(), objects_before);
+	QCOMPARE(map.map->undoManager().undoStepCount(), steps);
+	Q_UNUSED(steps_before)
+	
+	// North lines have no anchor: they are added at once.
+	auto const north_lines = QStringLiteral("gen-north-lines");
+	auto north_params = defaultGeneratorParams(north_lines, *map.map);
+	// The test map's line is tiny: an outline of 100 mm, lines 20 mm apart on paper.
+	north_params.insert(QStringLiteral("spacing_m"), 0.02 * map.map->getScaleDenominator());
+	north_params.insert(QStringLiteral("clip"), QStringLiteral("selection"));
+	north_params.insert(QStringLiteral("outline"), QJsonArray{ QJsonArray{ 0, 0 }, QJsonArray{ 100, 0 }, QJsonArray{ 100, 100 }, QJsonArray{ 0, 100 } });
+	auto const placed = editor.editor->placeGenerator(north_lines, north_params);
+	QVERIFY2(placed, qPrintable(message));
+	QVERIFY(!qobject_cast<GeneratorPlaceTool*>(editor.editor->getTool()));
+	QVERIFY(map.map->getNumObjects() > objects_before);
 	editor.editor->setTool(nullptr);
 }
 

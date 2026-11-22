@@ -18,6 +18,7 @@
  */
 
 
+#include <algorithm>  // foom
 #include <cmath>
 #include <cstddef>
 #include <memory>
@@ -39,6 +40,7 @@
 #include "core/map_color.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
+#include "core/symbol_tree.h"
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
 #include "core/symbols/area_symbol.h"
@@ -138,6 +140,37 @@ QStringList labels(const std::vector<Object*>& objects)
 	{
 		if (object->getType() == Object::Text && object->getSymbol()->isPrivate())
 			result.append(object->asText()->getText());
+	}
+	return result;
+}
+
+
+/// The texts of the legend's rows, from the top: headings and labels.
+QStringList rowTexts(const std::vector<Object*>& objects)
+{
+	std::vector<const TextObject*> rows;
+	for (auto const* object : objects)
+	{
+		if (object->getType() == Object::Text && object->getSymbol()->isPrivate())
+			rows.push_back(object->asText());
+	}
+	std::stable_sort(rows.begin(), rows.end(), [](const TextObject* a, const TextObject* b) {
+		return a->getAnchorCoordF().y() < b->getAnchorCoordF().y();
+	});
+	QStringList result;
+	for (auto const* row : rows)
+		result.append(row->getText());
+	return result;
+}
+
+/// The headings of a legend: the texts in a bold private symbol.
+std::vector<const TextObject*> headings(const std::vector<Object*>& objects)
+{
+	std::vector<const TextObject*> result;
+	for (auto const* object : objects)
+	{
+		if (object->getType() == Object::Text && object->getSymbol()->isPrivate() && object->getSymbol()->asText()->isBold())
+			result.push_back(object->asText());
 	}
 	return result;
 }
@@ -477,6 +510,97 @@ private slots:
 		QCOMPARE(columns[0], 12);
 		QCOMPARE(columns[1], 12);
 		QCOMPARE(columns[2], 6);
+	}
+	
+	/// Third change, Accept (4)
+	void legendHeadingsTest()
+	{
+		Map map;
+		auto* black = addBlack(map);
+		auto* point = addPointSymbol(map, QStringLiteral("Point"), 1, black);
+		auto* line = addSymbol<LineSymbol>(map, QStringLiteral("Line"), 2, black);
+		line->setLineWidth(0.3);
+		auto* area = addSymbol<AreaSymbol>(map, QStringLiteral("Area"), 3, black);
+		addSymbol<TextSymbol>(map, QStringLiteral("Text"), 4, black);
+		QCOMPARE(defaultGeneratorParams(legend, map).value(QLatin1String("group_headings")).toBool(), false);
+		
+		auto const lines = addSymbolGroup(map, QStringLiteral("Lines"));
+		addToSymbolGroup(map, lines, { line });
+		auto const other = addSymbolGroup(map, QStringLiteral("Other"));
+		addToSymbolGroup(map, other, { area, line });
+		auto const points = addSymbolGroup(map, QStringLiteral("Points"), other);
+		addToSymbolGroup(map, points, { point });
+		addSymbolGroup(map, QStringLiteral("Empty"));
+		auto params = defaultGeneratorParams(legend, map);
+		QCOMPARE(params.value(QLatin1String("group_headings")).toBool(), true);
+		
+		QString error;
+		auto group = runGenerator(map, legend, params, MapCoordF(0, 0), &error);
+		QVERIFY2(group != 0, qPrintable(error));
+		auto objects = groupObjects(map, group);
+		QCOMPARE(rowTexts(objects), (QStringList{ QStringLiteral("Lines"), QStringLiteral("Line"), QStringLiteral("Other"), QStringLiteral("Point"), QStringLiteral("Area"), QStringLiteral("Text") }));
+		auto const heading_rows = headings(objects);
+		QCOMPARE(heading_rows.size(), std::size_t(2));
+		QCOMPARE(heading_rows.front()->getSymbol(), heading_rows.back()->getSymbol());
+		QVERIFY(heading_rows.front()->getSymbol()->isPrivate());
+		QCOMPARE(labels(objects).size(), 6);
+		
+		params.insert(QStringLiteral("group_headings"), false);
+		group = runGenerator(map, legend, params, MapCoordF(100, 0), &error);
+		QVERIFY2(group != 0, qPrintable(error));
+		objects = groupObjects(map, group);
+		QCOMPARE(rowTexts(objects), (QStringList{ QStringLiteral("Point"), QStringLiteral("Line"), QStringLiteral("Area"), QStringLiteral("Text") }));
+		QVERIFY(headings(objects).empty());
+	}
+	
+	/// Third change, Accept (5)
+	void legendHeadingColumnsTest()
+	{
+		Map map;
+		auto* black = addBlack(map);
+		for (int i = 1; i <= 10; ++i)
+		{
+			auto* symbol = addSymbol<LineSymbol>(map, QStringLiteral("Line %1").arg(i), i, black);
+			symbol->setLineWidth(0.3);
+			addToSymbolGroup(map, addSymbolGroup(map, QStringLiteral("Group %1").arg(i)), { symbol });
+		}
+		auto params = defaultGeneratorParams(legend, map);
+		params.insert(QStringLiteral("icon_height"), 7);
+		params.insert(QStringLiteral("line_spacing"), 1);
+		for (int height = 20; height <= 40; ++height)
+		{
+			params.insert(QStringLiteral("max_column_height"), height);
+			QString error;
+			auto const group = runGenerator(map, legend, params, MapCoordF(10, 20), &error);
+			QVERIFY2(group != 0, qPrintable(error));
+			auto const objects = groupObjects(map, group);
+			
+			// Rows by column: the left edge, and from the top.
+			struct Row { double x; double y; bool heading; };
+			std::vector<Row> rows;
+			for (auto const* heading : headings(objects))
+			{
+				auto const centre = heading->getAnchorCoordF();
+				rows.push_back({ centre.x() - 0.0005 * heading->getBoxSize().nativeX(), centre.y(), true });
+			}
+			for (auto const* sample : paths(objects))
+				rows.push_back({ MapCoordF(coord(sample, 0)).x(), MapCoordF(coord(sample, 0)).y(), false });
+			QCOMPARE(rows.size(), std::size_t(20));
+			std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) {
+				if (std::abs(a.x - b.x) > 0.001)
+					return a.x < b.x;
+				return a.y < b.y;
+			});
+			for (std::size_t i = 0; i < rows.size(); ++i)
+			{
+				if (!rows[i].heading)
+					continue;
+				QVERIFY2(i + 1 < rows.size(), qPrintable(QString::number(height)));
+				QVERIFY2(!rows[i + 1].heading, qPrintable(QString::number(height)));
+				QVERIFY2(std::abs(rows[i + 1].x - rows[i].x) < 0.001, qPrintable(QStringLiteral("%1: heading at x %2, next row at x %3").arg(height).arg(rows[i].x).arg(rows[i + 1].x)));
+				QVERIFY(rows[i + 1].y > rows[i].y);
+			}
+		}
 	}
 };
 
