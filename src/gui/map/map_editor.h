@@ -792,6 +792,8 @@ public slots:
 	void pasteWktClicked();
 	/** foom: Asks for a file and exports the print area as SVG (export-svg). */
 	void exportSvgClicked();
+	/** foom: Asks for the table, the file and whether only listed symbols go (export-dxf-crt). */
+	void exportDxfCrtClicked();
 	/** foom: Asks for the boundary and a file and exports that part of the map (export-part). */
 	void exportPartClicked();
 	/** foom: Asks which objects and a file and exports them (export-objects). */
@@ -832,6 +834,10 @@ public slots:
 	bool pasteWkt(const QString& text, bool projected);
 	/** foom: Writes the print area as SVG; see the design notes, "SVG export". */
 	bool exportSvg(const QString& path);
+	/** foom: Writes DXF through a cross-reference table; see the design notes, "DXF export through a cross-reference table". */
+	bool exportDxfWithCrt(const QString& dxf, const QString& crt, bool listed_only);
+	/** foom: Shows the plate of the colour in the main view, or the normal view for -1; see the design notes, "Spot colour view". */
+	void showSpotColourView(int colour_index);
 	/** foom: Writes the objects of the current part cropped to the selected paths or to rect as a new map file. */
 	bool exportPart(const QString& path, bool use_rectangle, const QRectF& rect);
 	/** foom: Writes the selection, or the objects of the symbols selected in the symbol pane, as a new map file. */
@@ -1573,6 +1579,12 @@ private:
 	QAction* copy_wkt_act = {};  // foom
 	QAction* paste_wkt_act = {};  // foom
 	QAction* export_svg_act = {};  // foom
+	QAction* export_dxf_crt_act = {};  // foom
+	QMenu* spot_colour_view_menu = {};  // foom
+	/** foom: Adds the submenu of the spot colour view. */
+	void addSpotColourViewMenu(QMenu* view_menu);
+	/** foom: Fills the submenu with the map's spot colours. */
+	void updateSpotColourViewMenu();
 	QAction* export_part_act = {};  // foom
 	QAction* export_objects_act = {};  // foom
 	QAction* object_info_act = {};  // foom

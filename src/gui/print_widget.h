@@ -312,6 +312,10 @@ private:
 	QCheckBox* show_sketch_check = nullptr;  // foom
 	QCheckBox* overprinting_check;
 	QCheckBox* world_file_check;
+	QLabel* raster_colours_label = {};  // foom: the design notes, fourth change
+	QComboBox* raster_colours_combo = {};  // foom
+	QLabel* raster_tiles_label = {};  // foom
+	QSpinBox* raster_tiles_edit = {};  // foom
 	QCheckBox* transparent_background_check;
 	QCheckBox* different_scale_check;
 	QSpinBox* different_scale_edit;

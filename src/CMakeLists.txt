@@ -202,6 +202,8 @@ set(Mapper_Common_SRCS
   core/colour_swatch.cpp
   core/colour_usage.cpp
   core/crt_rules.cpp
+  core/dxf_crt.cpp  # foom
+  core/raster_export.cpp  # foom
   core/map_import_policy.cpp
   core/extent_printing.cpp
   core/extents.cpp

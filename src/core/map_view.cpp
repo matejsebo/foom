@@ -33,6 +33,7 @@
 #include <QXmlStreamReader>
 
 #include "core/map.h"
+#include "core/map_color.h"  // foom
 #include "core/map_coord.h"
 #include "gui/util_gui.h"
 #include "templates/template.h" // IWYU pragma: keep
@@ -90,6 +91,19 @@ MapView::MapView(QObject* parent, Map* map)
 	connect(map, &Map::templateAboutToBeAdded, this, &MapView::onAboutToAddTemplate);
 	connect(map, &Map::templateAdded, this, &MapView::onTemplateAdded);
 	connect(map, &Map::templateDeleted, this, &MapView::onTemplateDeleted, Qt::QueuedConnection);
+	// foom: the design notes, "Spot colour view"
+	connect(map, &Map::colorDeleted, this, [this](int, const MapColor* color) {
+		if (color == spot_colour_view)
+			setSpotColourView(nullptr);
+	});
+	connect(map, &Map::colorChanged, this, [this](int, const MapColor* color) {
+		if (color == spot_colour_view && color->getSpotColorMethod() != MapColor::SpotColor)
+			setSpotColourView(nullptr);
+	});
+	connect(map, &Map::spotColorPresenceChanged, this, [this](bool has_spot_colors) {
+		if (!has_spot_colors)
+			setSpotColourView(nullptr);
+	});
 }
 
 MapView::MapView(Map* map)
@@ -488,10 +502,24 @@ void MapView::setGridVisible(bool visible)
 
 void MapView::setOverprintingSimulationEnabled(bool enabled)
 {
+	if (enabled)
+		setSpotColourView(nullptr);  // foom
 	if (overprinting_simulation_enabled != enabled)
 	{
 		overprinting_simulation_enabled = enabled;
 		emit visibilityChanged(VisibilityFeature::OverprintingEnabled, enabled);
+	}
+}
+
+// foom: the design notes, "Spot colour view"
+void MapView::setSpotColourView(const MapColor* color)
+{
+	if (color)
+		setOverprintingSimulationEnabled(false);
+	if (spot_colour_view != color)
+	{
+		spot_colour_view = color;
+		emit visibilityChanged(VisibilityFeature::OverprintingEnabled, color != nullptr);
 	}
 }
 

@@ -458,6 +458,15 @@ protected:
 
 	void setupGeoreferencing(GDALDriverH po_driver);
 	void setupQuirks(GDALDriverH po_driver);
+	
+	/** foom: Applies the DXF cross-reference table, if any, and drops unlisted symbols when asked. */
+	void setupDxfCrt(std::vector<const Symbol*>& symbols);
+	
+	/** foom: Writes the table of what was exported, when asked. */
+	void writeDxfCrtOfExport(const std::vector<const Symbol*>& symbols);
+	
+	/** foom: The value of the symbol field: the table's layer, or the symbol's name. */
+	QByteArray layerName(const Symbol* symbol) const;
 
 private:
 	const char* id;
@@ -468,6 +477,8 @@ private:
 	ogr::unique_transformation transformation;
 	
 	const char* symbol_field;
+	QHash<const Symbol*, QByteArray> crt_layers;   // foom
+	QHash<const Symbol*, int> crt_colours;         // foom
 
 	OgrQuirks quirks;
 };

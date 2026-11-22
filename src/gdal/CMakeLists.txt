@@ -30,6 +30,8 @@ set(MAPPER_GDAL_HEADERS
 	
 set(MAPPER_GDAL_SOURCES
   cmyk_tiff.cpp
+  dxf_colours.cpp  # foom
+  gif_writer.cpp  # foom
   gdal_file.cpp
   gdal_image_reader.cpp
   gdal_manager.cpp

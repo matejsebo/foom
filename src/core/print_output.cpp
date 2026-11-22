@@ -445,4 +445,35 @@ bool saveSpotPlates(Map& map, const QRectF& area, double dpi, double scale_adjus
 }
 
 
+// foom: the design notes, "Spot colour view"
+void drawSpotColourView(QPainter* painter, Map& map, const RenderConfig& config, const MapColor* plate)
+{
+	if (plate && plate->getSpotColorMethod() == MapColor::SpotColor)
+		map.drawColorSeparation(painter, config, plate, true);
+	else
+		map.draw(painter, config);
+}
+
+QImage renderSpotColourView(Map& map, const QRectF& area, double dpi, const MapColor* plate)
+{
+	auto const scale = dpi / 25.4;  // pixels per mm of the map
+	auto const width = qRound(area.width() * scale);
+	auto const height = qRound(area.height() * scale);
+	if (width < 1 || height < 1)
+		return {};
+	QImage image(width, height, QImage::Format_RGB32);
+	if (image.isNull())
+		return image;
+	image.fill(QColor(Qt::white));
+	QPainter painter(&image);
+	painter.setRenderHint(QPainter::Antialiasing);
+	painter.scale(scale, scale);
+	painter.translate(-area.topLeft());
+	RenderConfig config = { map, area, scale, RenderConfig::Screen | RenderConfig::HelperSymbols, 1.0 };
+	drawSpotColourView(&painter, map, config, plate);
+	painter.end();
+	return image;
+}
+
+
 }  // namespace OpenOrienteering

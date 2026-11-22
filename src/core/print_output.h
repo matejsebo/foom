@@ -36,6 +36,7 @@ namespace OpenOrienteering {
 class Map;
 class MapColor;
 class MapView;
+class RenderConfig;
 
 
 /**
@@ -131,6 +132,18 @@ using PlateWriter = std::function<bool (const QString& file, const QImage& image
  */
 bool saveSpotPlates(Map& map, const QRectF& area, double dpi, double scale_adjustment, const QString& path, PlateForm form, QStringList* files, QString* error,
                     bool with_templates = false, const MapView* view = nullptr, const PlateWriter& writer = {});
+
+
+/**
+ * Draws the spot colour view of one plate: what the separation prints for the
+ * colour, in the colour itself, onto what the painter holds (white paper).
+ *
+ * See the design notes, "Spot colour view".
+ */
+void drawSpotColourView(QPainter* painter, Map& map, const RenderConfig& config, const MapColor* plate);
+
+/** The spot colour view of the area as an RGB image on white. */
+QImage renderSpotColourView(Map& map, const QRectF& area, double dpi, const MapColor* plate);
 
 
 }  // namespace OpenOrienteering

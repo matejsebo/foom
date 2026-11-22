@@ -57,6 +57,7 @@
 #include "core/georeferencing.h"
 #include "core/latlon.h"
 #include "core/map.h"
+#include "core/print_output.h"  // foom: spot colour view
 #include "core/renderables/renderable.h"
 #include "core/symbols/symbol.h"  // IWYU pragma: keep
 #include "gui/touch_cursor.h"
@@ -1406,7 +1407,9 @@ void MapWidget::updateMapCache(bool use_background)
 	painter.translate(width() / 2.0, height() / 2.0);
 	painter.setWorldTransform(view->worldTransform(), true);
 #ifndef Q_OS_ANDROID
-	if (view->isOverprintingSimulationEnabled())
+	if (view->spotColourView())
+		drawSpotColourView(&painter, *map, config, view->spotColourView());  // foom: the design notes, "Spot colour view"
+	else if (view->isOverprintingSimulationEnabled())
 		map->drawOverprintingSimulation(&painter, config);
 	else
 #endif
