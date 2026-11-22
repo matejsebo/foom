@@ -37,6 +37,7 @@
 #include <QRectF>
 #include <QSignalSpy>
 #include <QTableView>
+#include <QTableWidget>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -569,6 +570,124 @@ private slots:
 		QCOMPARE(endX(*mine, 'c'), 40.0);
 		QCOMPARE(find(*mine, 'c')->getSymbol(), symbolNumbered(*mine, 2));
 		QCOMPARE(symbolNumbered(*mine, 2)->asLine()->getLineWidth(), 300);
+	}
+	
+	/// Accept (18)
+	void symbolDefinitionTest()
+	{
+		loadThree();
+		// They widen symbol 2 and change nothing else.
+		const_cast<Symbol*>(symbolNumbered(*theirs, 2))->asLine()->setLineWidth(0.9);
+		auto plan = compareMaps(base.get(), *mine, *theirs);
+		QVERIFY(plan.rows.empty());
+		QCOMPARE(plan.symbols.size(), std::size_t(1));
+		QCOMPARE(plan.symbols[0].status, MergeSymbolRow::Differs);
+		QCOMPARE(plan.symbols[0].action, MergeSymbolRow::KeepMine);
+		
+		// Keep mine is the default and changes nothing.
+		auto const before = save(*mine);
+		MergeResult result;
+		QString error;
+		QVERIFY2(applyMerge(*mine, *theirs, plan, &result, &error), qPrintable(error));
+		QCOMPARE(result.definitions, 0);
+		QCOMPARE(save(*mine), before);
+		
+		// Keep theirs: their definition, my number and place, my colour.
+		auto const position = mine->findSymbolIndex(symbolNumbered(*mine, 2));
+		auto const symbols = mine->getNumSymbols();
+		auto const colors = mine->getNumColors();
+		auto const undo_steps = mine->undoManager().undoStepCount();
+		plan.resolveDefinitions(MergeSymbolRow::KeepTheirs);
+		QCOMPARE(plan.symbols[0].action, MergeSymbolRow::KeepTheirs);
+		QVERIFY2(applyMerge(*mine, *theirs, plan, &result, &error), qPrintable(error));
+		QCOMPARE(result.definitions, 1);
+		QCOMPARE(result.symbols, 0);
+		QCOMPARE(mine->getNumSymbols(), symbols);
+		QCOMPARE(mine->getNumColors(), colors);
+		auto const* taken = symbolNumbered(*mine, 2);
+		QCOMPARE(mine->findSymbolIndex(taken), position);
+		QVERIFY(taken != symbolNumbered(*theirs, 2));
+		QCOMPARE(taken->asLine()->getLineWidth(), 900);
+		QCOMPARE(taken->asLine()->getColor(), mine->getColor(0));
+		QCOMPARE(find(*mine, 'c')->getSymbol(), taken);
+		QVERIFY(taken->equals(symbolNumbered(*theirs, 2)));
+		// No object changed, so there is no undo step.
+		QCOMPARE(mine->undoManager().undoStepCount(), undo_steps);
+		QVERIFY(compareMaps(base.get(), *mine, *theirs).symbols.empty());
+		
+		// With an incoming object of that symbol: the object uses the taken
+		// definition, and the definition stays after the undo.
+		loadThree();
+		const_cast<Symbol*>(symbolNumbered(*theirs, 2))->asLine()->setLineWidth(0.9);
+		change(*theirs, 'c', 40, 3000);
+		plan = compareMaps(base.get(), *mine, *theirs);
+		plan.resolveDefinitions(MergeSymbolRow::KeepTheirs);
+		QVERIFY2(applyMerge(*mine, *theirs, plan, &result, &error), qPrintable(error));
+		QCOMPARE(result.replaced, 1);
+		QCOMPARE(endX(*mine, 'c'), 40.0);
+		QCOMPARE(find(*mine, 'c')->getSymbol(), symbolNumbered(*mine, 2));
+		QCOMPARE(symbolNumbered(*mine, 2)->asLine()->getLineWidth(), 900);
+		QVERIFY(mine->undoManager().undo());
+		QCOMPARE(endX(*mine, 'c'), 20.0);
+		QCOMPARE(find(*mine, 'c')->getSymbol(), symbolNumbered(*mine, 2));
+		QCOMPARE(symbolNumbered(*mine, 2)->asLine()->getLineWidth(), 900);
+		
+		// A new symbol whose colour has the name of one of mine takes mine,
+		// although the two colours differ.
+		loadThree();
+		auto* their_black = theirs->getMapColor(0);
+		their_black->setCmyk({ 0.0f, 0.0f, 0.0f, 0.5f });
+		addLine(*theirs, QStringLiteral("New line"), 9, their_black);
+		addObject(*theirs, 'e', 9, -1, 3000);
+		plan = compareMaps(base.get(), *mine, *theirs);
+		QVERIFY2(applyMerge(*mine, *theirs, plan, &result, &error), qPrintable(error));
+		QCOMPARE(result.symbols, 1);
+		QCOMPARE(mine->getNumColors(), colors);
+		QCOMPARE(symbolNumbered(*mine, 9)->asLine()->getColor(), mine->getColor(0));
+		QCOMPARE(find(*mine, 'e')->getSymbol(), symbolNumbered(*mine, 9));
+	}
+	
+	/// Accept (19)
+	void definitionDecisionsTest()
+	{
+		loadThree();
+		const_cast<Symbol*>(symbolNumbered(*theirs, 2))->asLine()->setLineWidth(0.9);
+		auto const* red = addColor(*theirs, QStringLiteral("Red"), 1.0f);
+		addLine(*theirs, QStringLiteral("New line"), 9, red);
+		addObject(*theirs, 'e', 9, -1, 3000);
+		
+		MergeDialog dialog(*mine, *theirs, compareMaps(base.get(), *mine, *theirs));
+		auto* definitions = dialog.findChild<QTableWidget*>(QStringLiteral("definitions"));
+		QVERIFY(definitions);
+		QVERIFY(!definitions->isHidden());
+		QCOMPARE(definitions->rowCount(), 2);
+		QCOMPARE(definitions->columnCount(), 3);
+		QCOMPARE(definitions->item(0, 0)->text(), QStringLiteral("Symbol 2 Other"));
+		QCOMPARE(definitions->item(1, 0)->text(), QStringLiteral("Symbol 9 New line"));
+		// Only a definition which differs can be taken.
+		auto* differs = definitions->item(0, 2);
+		QVERIFY(differs->flags() & Qt::ItemIsUserCheckable);
+		QCOMPARE(differs->checkState(), Qt::Unchecked);
+		QVERIFY(!(definitions->item(1, 2)->flags() & Qt::ItemIsUserCheckable));
+		differs->setCheckState(Qt::Checked);
+		QCOMPARE(dialog.plan().symbols[0].action, MergeSymbolRow::KeepTheirs);
+		QCOMPARE(dialog.plan().symbols[1].action, MergeSymbolRow::KeepMine);
+		
+		// The decision is kept when the merge is paused.
+		auto const path = file("definitions.json");
+		QString error;
+		QVERIFY2(saveDecisions(path, dialog.plan(), &error), qPrintable(error));
+		auto fresh = compareMaps(base.get(), *mine, *theirs);
+		QCOMPARE(fresh.symbols[0].action, MergeSymbolRow::KeepMine);
+		loadDecisions(path, fresh);
+		QCOMPARE(fresh.symbols[0].action, MergeSymbolRow::KeepTheirs);
+		MergeDialog resumed(*mine, *theirs, fresh);
+		QCOMPARE(resumed.findChild<QTableWidget*>(QStringLiteral("definitions"))->item(0, 2)->checkState(), Qt::Checked);
+		
+		// Without definitions to list, the table is hidden.
+		loadThree();
+		MergeDialog empty(*mine, *theirs, compareMaps(base.get(), *mine, *theirs));
+		QVERIFY(empty.findChild<QTableWidget*>(QStringLiteral("definitions"))->isHidden());
 	}
 	
 	/// Accept (9)

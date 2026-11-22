@@ -8195,8 +8195,9 @@ void MapEditorController::mergeFromFileClicked()
 	auto plan = compareMaps(input.base.get(), *map, *input.theirs);
 	auto const decisions_path = decisionsFilePath(map_path, input.copy.id);
 	loadDecisions(decisions_path, plan);
+	auto const differs = !plan.rows.empty() || !plan.symbols.empty();
 	
-	if (!plan.rows.empty())
+	if (differs)
 	{
 		MergeDialog dialog(*map, *input.theirs, plan, window);
 		connect(&dialog, &MergeDialog::showExtent, this, [this](const QRectF& extent) {
@@ -8231,7 +8232,7 @@ void MapEditorController::mergeFromFileClicked()
 	}
 	if (!refreshBase(map_path, filename, input.copy, &error))
 		QMessageBox::warning(window, tr("Merge changes"), error);
-	else if (plan.rows.empty())
+	else if (!differs)
 		QMessageBox::information(window, tr("Merge changes"), tr("The copy holds nothing which differs from this map."));
 	else
 		window->showStatusBarMessage(tr("Changes merged."), 4000);

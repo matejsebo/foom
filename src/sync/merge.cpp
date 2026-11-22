@@ -28,7 +28,6 @@
 
 #include <QtGlobal>
 #include <QBuffer>
-#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QHash>
 #include <QIODevice>
@@ -37,6 +36,7 @@
 #include <QXmlStreamWriter>
 
 #include "core/map.h"
+#include "core/map_color.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
 #include "core/objects/image_object.h"
@@ -51,11 +51,6 @@
 namespace OpenOrienteering {
 
 namespace {
-
-QString tr(const char* text)
-{
-	return QCoreApplication::translate("OpenOrienteering::Merge", text);
-}
 
 /** What stands for the symbol in the hash: its number, or the definition of a private symbol. */
 QByteArray symbolKey(const Object& object)
@@ -138,6 +133,163 @@ const Symbol* ownSymbol(const Map& map, const Symbol* theirs)
 	}
 	return nullptr;
 }
+
+/** Their symbol with the number which has a counterpart of another definition in my map. */
+const Symbol* differingSymbol(const Map& mine, const Map& theirs, const QString& number)
+{
+	for (int i = 0; i < theirs.getNumPublicSymbols(); ++i)
+	{
+		auto const* symbol = theirs.getSymbol(i);
+		if (symbol->getNumberAsString() != number)
+			continue;
+		auto const* own = ownSymbol(mine, symbol);
+		if (own && !own->equals(symbol))
+			return symbol;
+	}
+	return nullptr;
+}
+
+bool sameCmykAndSpot(const MapColor& a, const MapColor& b)
+{
+	return a.getCmyk() == b.getCmyk()
+	       && a.getSpotColorMethod() == b.getSpotColorMethod()
+	       && (a.getSpotColorMethod() != MapColor::SpotColor
+	           || a.getSpotColorName().compare(b.getSpotColorName(), Qt::CaseInsensitive) == 0);
+}
+
+bool hasColorNamed(const Map& map, const QString& name)
+{
+	for (int i = 0; i < map.getNumColors(); ++i)
+	{
+		if (map.getColor(i)->getName().compare(name, Qt::CaseInsensitive) == 0)
+			return true;
+	}
+	return false;
+}
+
+/**
+ * My colour which stands for theirs: the one of the same name, else one with
+ * the same CMYK and spot colour whose name they do not have (a colour which
+ * one side renamed).
+ */
+MapColor* matchingColor(Map& mine, const Map& theirs, const MapColor& color)
+{
+	for (int i = 0; i < mine.getNumColors(); ++i)
+	{
+		if (mine.getColor(i)->getName().compare(color.getName(), Qt::CaseInsensitive) == 0)
+			return mine.getMapColor(i);
+	}
+	for (int i = 0; i < mine.getNumColors(); ++i)
+	{
+		auto const* own = mine.getColor(i);
+		if (sameCmykAndSpot(*own, color) && !hasColorNamed(theirs, own->getName()))
+			return mine.getMapColor(i);
+	}
+	return nullptr;
+}
+
+
+/**
+ * Brings symbols and colours of theirs into my map. Colours are matched to
+ * mine by matchingColor(); a colour which I lack is appended below mine.
+ */
+class Adopter
+{
+public:
+	Adopter(Map& mine, const Map& theirs) : mine(mine), theirs(theirs) {}
+	
+	/** My colour for theirs, added when I lack it. */
+	const MapColor* color(const MapColor* other)
+	{
+		if (!other || other->getPriority() < 0)
+			return other;  // one of the reserved colours, which all maps share
+		if (colors.contains(other))
+			return colors.value(other);
+		auto* own = matchingColor(mine, theirs, *other);
+		if (!own)
+		{
+			own = other->duplicate();
+			if (other->getSpotColorMethod() == MapColor::CustomColor)
+				own->setSpotColorComposition(components(*other));
+			mine.addColor(own, mine.getNumColors());
+			++added_colors;
+		}
+		colors[other] = own;
+		return own;
+	}
+	
+	/** Their spot colour composition in terms of my colours. */
+	SpotColorComponents components(const MapColor& other)
+	{
+		auto result = other.getComponents();
+		for (auto& component : result)
+			component.spot_color = color(component.spot_color);
+		return result;
+	}
+	
+	/**
+	 * A new symbol of mine with their definition, not yet in my map. Their
+	 * shared symbols which it contains are mine by number, or are imported.
+	 */
+	Symbol* definition(const Symbol& other)
+	{
+		auto* copy = duplicate(other).release();
+		MapColorMap color_map;
+		for (int i = 0; i < theirs.getNumColors(); ++i)
+		{
+			auto const* their_color = theirs.getColor(i);
+			if (other.containsColor(their_color))
+				color_map[their_color] = color(their_color);
+		}
+		copy->replaceColors(color_map);
+		for (int i = 0; i < theirs.getNumPublicSymbols(); ++i)
+		{
+			auto const* part = theirs.getSymbol(i);
+			if (part != &other && copy->containsSymbol(part))
+				copy->symbolChangedEvent(part, symbol(part));
+		}
+		return copy;
+	}
+	
+	/** My symbol for theirs: mine by number and type, else theirs imported. */
+	const Symbol* symbol(const Symbol* other)
+	{
+		if (symbols.contains(other))
+			return symbols.value(other);
+		if (theirs.findSymbolIndex(other) < 0)
+			return other;  // one of the undefined symbols, which all maps share
+		const Symbol* own = other->isPrivate() ? nullptr : ownSymbol(mine, other);
+		if (!own)
+		{
+			auto* imported = definition(*other);
+			mine.addSymbol(imported, mine.getNumSymbols());
+			++imported_symbols;
+			own = imported;
+		}
+		symbols.insert(other, own);
+		return own;
+	}
+	
+	/** Gives my symbol of the same number their definition, in its place. */
+	const Symbol* take(const Symbol& other)
+	{
+		auto const* own = ownSymbol(mine, &other);
+		auto* taken = definition(other);
+		mine.setSymbol(taken, mine.findSymbolIndex(own));
+		symbols.insert(&other, taken);
+		return taken;
+	}
+	
+	int added_colors = 0;
+	int imported_symbols = 0;
+	
+private:
+	Map& mine;
+	const Map& theirs;
+	QHash<const MapColor*, MapColor*> colors;
+	QHash<const Symbol*, const Symbol*> symbols;
+};
+
 
 MergeRow::Side sideOf(bool in_base, bool present, const QByteArray& base_state, const QByteArray& state)
 {
@@ -259,6 +411,15 @@ void MergePlan::acceptPrefilled()
 		row.resolved = true;
 }
 
+void MergePlan::resolveDefinitions(MergeSymbolRow::Action action)
+{
+	for (auto& row : symbols)
+	{
+		if (row.status == MergeSymbolRow::Differs)
+			row.action = action;
+	}
+}
+
 
 MergePlan compareMaps(const Map* base, const Map& mine, const Map& theirs)
 {
@@ -345,12 +506,8 @@ MergePlan compareMaps(const Map* base, const Map& mine, const Map& theirs)
 
 bool applyMerge(Map& mine, const Map& theirs, const MergePlan& plan, MergeResult* result, QString* error)
 {
+	Q_UNUSED(error)  // Nothing below can fail at present.
 	MergeResult counts;
-	auto const fail = [error](const QString& message) {
-		if (error)
-			*error = message;
-		return false;
-	};
 	
 	auto const mine_index = indexOf(mine);
 	auto const their_index = indexOf(theirs);
@@ -407,31 +564,35 @@ bool applyMerge(Map& mine, const Map& theirs, const MergePlan& plan, MergeResult
 			break;
 		}
 	}
-	if (deletions.empty() && replacements.empty() && additions.empty())
+	auto const takes = [](const MergeSymbolRow& row) {
+		return row.status == MergeSymbolRow::Differs && row.action == MergeSymbolRow::KeepTheirs;
+	};
+	if (deletions.empty() && replacements.empty() && additions.empty()
+	    && std::none_of(begin(plan.symbols), end(plan.symbols), takes))
 	{
 		if (result)
 			*result = counts;
 		return true;
 	}
 	
-	// Symbols: mine by number, else theirs, imported with its colours.
+	// Their definitions first, so that the objects below use them. Then
+	// the symbols which the objects need: mine by number, else theirs.
+	Adopter adopter(mine, theirs);
+	for (auto const& row : plan.symbols)
+	{
+		if (!takes(row))
+			continue;
+		if (auto const* other = differingSymbol(mine, theirs, row.number))
+		{
+			adopter.take(*other);
+			++counts.definitions;
+		}
+	}
 	QHash<const Symbol*, const Symbol*> symbols;
-	std::vector<bool> filter(std::size_t(theirs.getNumSymbols()), false);
-	std::vector<const Symbol*> to_import;
 	auto const need = [&](const Object* object) {
 		auto const* symbol = object->getSymbol();
-		if (!symbol || symbols.contains(symbol))
-			return;
-		auto const position = theirs.findSymbolIndex(symbol);
-		const Symbol* own = position < 0 ? symbol  // one of the undefined symbols, which all maps share
-		                    : symbol->isPrivate() ? nullptr
-		                    : ownSymbol(mine, symbol);
-		if (!own)
-		{
-			filter[std::size_t(position)] = true;
-			to_import.push_back(symbol);
-		}
-		symbols.insert(symbol, own);
+		if (symbol && !symbols.contains(symbol))
+			symbols.insert(symbol, adopter.symbol(symbol));
 	};
 	for (auto const& entry : replacements)
 	{
@@ -440,17 +601,13 @@ bool applyMerge(Map& mine, const Map& theirs, const MergePlan& plan, MergeResult
 	}
 	for (auto const& addition : additions)
 		need(addition.other);
-	if (!to_import.empty())
+	counts.symbols = adopter.imported_symbols;
+	counts.colors = adopter.added_colors;
+	if (deletions.empty() && replacements.empty() && additions.empty())
 	{
-		auto const imported = mine.importMap(theirs, Map::MinimalSymbolImport, &filter);
-		for (auto const* symbol : to_import)
-		{
-			auto const* own = imported.value(symbol);
-			if (!own)
-				return fail(tr("The symbol %1 could not be imported.").arg(symbol->getNumberAsString()));
-			symbols.insert(symbol, own);
-		}
-		counts.symbols = int(to_import.size());
+		if (result)
+			*result = counts;
+		return true;
 	}
 	
 	auto undo = std::make_unique<CombinedUndoStep>(&mine);

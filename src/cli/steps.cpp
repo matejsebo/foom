@@ -1197,11 +1197,14 @@ void StepRunner::validate(const Step& step, bool& map_open)
 	else if (name == QLatin1String("merge-from-file"))
 	{
 		p.requireMap(map_open);
-		p.checkKnown({ "path", "conflicts" });
+		p.checkKnown({ "path", "conflicts", "definitions" });
 		p.requireString("path");
 		auto const conflicts = p.optionalString("conflicts", QStringLiteral("fail"));
 		if (!QStringList{ QStringLiteral("fail"), QStringLiteral("mine"), QStringLiteral("theirs"), QStringLiteral("both"), QStringLiteral("prefilled") }.contains(conflicts))
 			p.fail(QString::fromLatin1("unknown conflicts \"%1\": expected \"fail\", \"mine\", \"theirs\", \"both\" or \"prefilled\"").arg(conflicts));
+		auto const definitions = p.optionalString("definitions", QStringLiteral("mine"));
+		if (definitions != QLatin1String("mine") && definitions != QLatin1String("theirs"))
+			p.fail(QString::fromLatin1("unknown definitions \"%1\": expected \"mine\" or \"theirs\"").arg(definitions));
 	}
 	else if (name == QLatin1String("field-copy-close"))
 	{
@@ -2055,6 +2058,8 @@ StepResult StepRunner::mergeFromFile(const Step& step)
 		return failure(error);
 	auto plan = compareMaps(input.base.get(), *map, *input.theirs);
 	auto const conflict_count = plan.count(MergeRow::Conflict);
+	if (p.optionalString("definitions", QStringLiteral("mine")) == QLatin1String("theirs"))
+		plan.resolveDefinitions(MergeSymbolRow::KeepTheirs);
 	if (conflicts == QLatin1String("mine"))
 		plan.resolveConflicts(MergeRow::KeepMine);
 	else if (conflicts == QLatin1String("theirs"))
@@ -2089,10 +2094,12 @@ StepResult StepRunner::mergeFromFile(const Step& step)
 	result.details.insert(QLatin1String("deleted"), merged.deleted);
 	result.details.insert(QLatin1String("symbols"), merged.symbols);
 	result.details.insert(QLatin1String("parts"), merged.parts);
+	result.details.insert(QLatin1String("colors"), merged.colors);
+	result.details.insert(QLatin1String("definitions"), merged.definitions);
 	std::vector<QString> warnings;
 	for (auto const& symbol : plan.symbols)
 	{
-		if (symbol.status == MergeSymbolRow::Differs)
+		if (symbol.status == MergeSymbolRow::Differs && symbol.action == MergeSymbolRow::KeepMine)
 			warnings.push_back(QString::fromLatin1("symbol %1 %2 differs in the copy; the map's definition is kept").arg(symbol.number, symbol.name));
 	}
 	addWarnings(result, warnings);

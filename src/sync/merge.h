@@ -75,9 +75,13 @@ struct MergeSymbolRow
 {
 	enum Status { New, Differs };
 	
+	/** For a definition which differs: whose is used after the merge. */
+	enum Action { KeepMine, KeepTheirs };
+	
 	QString number;
 	QString name;
 	Status status = New;
+	Action action = KeepMine;
 };
 
 struct MergePlan
@@ -95,6 +99,9 @@ struct MergePlan
 	
 	/** Marks every conflict resolved with the action it has. */
 	void acceptPrefilled();
+	
+	/** Gives every definition which differs the action. */
+	void resolveDefinitions(MergeSymbolRow::Action action);
 };
 
 /**
@@ -112,6 +119,8 @@ struct MergeResult
 	int deleted = 0;
 	int symbols = 0;  ///< Symbols imported.
 	int parts = 0;    ///< Parts added.
+	int colors = 0;   ///< Colours added.
+	int definitions = 0;  ///< Symbols and colours of mine which took their definition.
 	
 	int changes() const { return added + replaced + deleted; }
 };
@@ -119,6 +128,12 @@ struct MergeResult
 /**
  * Carries out the actions of the plan's rows in my map, as one undo step.
  * A plan which changes nothing adds no undo step.
+ *
+ * Symbols and colours come first: a symbol which I lack and an object needs
+ * is imported, and a symbol whose row says "keep theirs" takes their
+ * definition under my number and in my place. Their colours are matched to
+ * mine by name, then by CMYK and spot colour; a colour which I lack is
+ * appended below my colours. Neither is part of the undo step.
  */
 bool applyMerge(Map& mine, const Map& theirs, const MergePlan& plan, MergeResult* result, QString* error);
 

@@ -39,6 +39,8 @@
 #include <QPushButton>
 #include <QStringList>
 #include <QTableView>
+#include <QTableWidget>
+#include <QTableWidgetItem>
 #include <QVBoxLayout>
 
 #include "core/map.h"
@@ -283,6 +285,15 @@ void MergeModel::rejectIncoming()
 }
 
 
+void MergeModel::setSymbolAction(int index, MergeSymbolRow::Action action)
+{
+	if (index < 0 || index >= int(merge_plan.symbols.size()))
+		return;
+	merge_plan.symbols[std::size_t(index)].action = action;
+	emit decisionsChanged();
+}
+
+
 // ### MergeFilterModel ###
 
 MergeFilterModel::MergeFilterModel(QObject* parent)
@@ -377,18 +388,37 @@ MergeDialog::MergeDialog(const Map& mine, const Map& theirs, const MergePlan& pl
 	decide_layout->addWidget(accept_button);
 	decide_layout->addWidget(reject_button);
 	
-	QStringList notes;
-	for (auto const& symbol : plan.symbols)
+	// The symbols which are new or differ. A definition which differs can be taken.
+	definitions = new QTableWidget(0, 3);
+	definitions->setObjectName(QStringLiteral("definitions"));
+	definitions->setHorizontalHeaderLabels({ tr("Symbols and colours"), tr("Status"), tr("Use theirs") });
+	definitions->setSelectionMode(QAbstractItemView::NoSelection);
+	definitions->setEditTriggers(QAbstractItemView::NoEditTriggers);
+	definitions->verticalHeader()->hide();
+	definitions->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+	definitions->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+	for (std::size_t i = 0; i < plan.symbols.size(); ++i)
 	{
-		QString name = symbol.number;
+		auto const& symbol = plan.symbols[i];
+		QString name = tr("Symbol %1").arg(symbol.number);
 		name += QLatin1Char(' ');
 		name += symbol.name;
-		notes.append(symbol.status == MergeSymbolRow::New
-		             ? tr("Symbol %1 is new and will be imported when an object needs it.").arg(name)
-		             : tr("Symbol %1 differs in the copy. This map's definition is kept.").arg(name));
+		auto const differs = symbol.status == MergeSymbolRow::Differs;
+		auto const row = definitions->rowCount();
+		definitions->insertRow(row);
+		definitions->setItem(row, 0, new QTableWidgetItem(name.trimmed()));
+		definitions->setItem(row, 1, new QTableWidgetItem(differs ? tr("Differs") : tr("New, imported when an object needs it")));
+		auto* take = new QTableWidgetItem();
+		take->setData(Qt::UserRole, int(i));
+		take->setFlags(differs ? Qt::ItemIsEnabled | Qt::ItemIsUserCheckable : Qt::ItemFlags{});
+		if (differs)
+			take->setCheckState(symbol.action == MergeSymbolRow::KeepTheirs ? Qt::Checked : Qt::Unchecked);
+		definitions->setItem(row, 2, take);
 	}
-	notes.append(tr("Templates, extents, bookmarks, guides, course data and groups are not merged."));
-	auto* notes_label = new QLabel(notes.join(QLatin1Char('\n')));
+	definitions->setVisible(definitions->rowCount() > 0);
+	definitions->setMaximumHeight(160);
+	
+	auto* notes_label = new QLabel(tr("Templates, extents, bookmarks, guides, course data and groups are not merged."));
 	notes_label->setObjectName(QStringLiteral("notes"));
 	notes_label->setWordWrap(true);
 	
@@ -404,6 +434,7 @@ MergeDialog::MergeDialog(const Map& mine, const Map& theirs, const MergePlan& pl
 	layout->addLayout(filter_layout);
 	layout->addWidget(view, 1);
 	layout->addLayout(decide_layout);
+	layout->addWidget(definitions);
 	layout->addWidget(notes_label);
 	layout->addWidget(buttons);
 	setLayout(layout);
@@ -422,6 +453,7 @@ MergeDialog::MergeDialog(const Map& mine, const Map& theirs, const MergePlan& pl
 	connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
 	connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 	connect(pause_button, &QPushButton::clicked, this, [this]() { done(Paused); });
+	connect(definitions, &QTableWidget::itemChanged, this, &MergeDialog::definitionChanged);
 	
 	updateState();
 }
@@ -448,6 +480,14 @@ void MergeDialog::updateState()
 	                       .arg(current.unresolved()));
 	apply_button->setEnabled(current.unresolved() == 0);
 	filter_model->invalidate();
+}
+
+void MergeDialog::definitionChanged(QTableWidgetItem* item)
+{
+	if (!item || item->column() != 2 || !(item->flags() & Qt::ItemIsUserCheckable))
+		return;
+	auto const action = item->checkState() == Qt::Checked ? MergeSymbolRow::KeepTheirs : MergeSymbolRow::KeepMine;
+	model->setSymbolAction(item->data(Qt::UserRole).toInt(), action);
 }
 
 void MergeDialog::currentRowChanged(const QModelIndex& current)

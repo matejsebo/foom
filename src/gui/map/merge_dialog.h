@@ -38,6 +38,8 @@ class QComboBox;
 class QLabel;
 class QPushButton;
 class QTableView;
+class QTableWidget;
+class QTableWidgetItem;
 class QWidget;
 
 namespace OpenOrienteering {
@@ -83,6 +85,9 @@ public:
 	
 	/** Gives every incoming row "keep mine". */
 	void rejectIncoming();
+	
+	/** Chooses whose definition a symbol which differs keeps. */
+	void setSymbolAction(int index, MergeSymbolRow::Action action);
 	
 signals:
 	void decisionsChanged();
@@ -147,10 +152,12 @@ private:
 	void decide(MergeRow::Action action);
 	void updateState();
 	void currentRowChanged(const QModelIndex& current);
+	void definitionChanged(QTableWidgetItem* item);
 	
 	MergeModel* model;
 	MergeFilterModel* filter_model;
 	QTableView* view;
+	QTableWidget* definitions;
 	QComboBox* filter_combo;
 	QLabel* summary_label;
 	QPushButton* apply_button;
