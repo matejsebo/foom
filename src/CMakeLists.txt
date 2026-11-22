@@ -118,6 +118,7 @@ set(Mapper_Common_SRCS
   course/course_map.cpp  # foom
   course/course_map_files.cpp  # foom
   course/course_parts.cpp  # foom
+  course/course_preview.cpp  # foom
   course/course_punch.cpp  # foom
   course/course_relay.cpp  # foom
   course/course_relay_edit.cpp  # foom

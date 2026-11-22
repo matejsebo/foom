@@ -188,6 +188,7 @@
 #include "gui/map/course_bulk_dialog.h"  // foom
 #include "gui/map/course_canvases_dialog.h"  // foom
 #include "gui/map/course_maps_dialog.h"  // foom
+#include "course/course_preview.h"  // foom
 #ifdef QT_PRINTSUPPORT_LIB
 #  include <QPrintDialog>  // foom
 #  include <QPrinter>  // foom
@@ -443,6 +444,7 @@ MapEditorController::MapEditorController(OperatingMode mode, Map* map, MapView* 
 
 MapEditorController::~MapEditorController()
 {
+	course_map_preview.reset();  // foom: puts back what the preview hides, while the map is there
 	paste_act = nullptr;
 	delete current_tool;
 	delete override_tool;
@@ -768,6 +770,9 @@ bool MapEditorController::exportTo(const QString& path, const FileFormat& format
 {
 	if (!map || editing_in_progress)
 		return false;
+	// foom: the file has the symbols as they are, not as the preview of a course map hides them
+	if (course_map_preview)
+		coursePreviewClicked(false);
 	
 	auto exporter = format.makeExporter(path, map, main_view);
 	if (!exporter)
@@ -1464,6 +1469,7 @@ void MapEditorController::createActions()
 	course_routes_export_act = newAction("course-routes-export", tr("Export routes..."), this, SLOT(exportCourseRoutesClicked()), nullptr, tr("Write the lengths and the times of the routes of all courses as a text file."));
 	course_routes_settings_act = newAction("course-routes-settings", tr("Route settings..."), this, SLOT(routeSettingsClicked()), nullptr, tr("The base pace of the route analysis, whether it uses runnability and elevation, and the runnability of the symbols."));
 	course_export_maps_act = newAction("course-export-maps", tr("Export course maps..."), this, SLOT(exportCourseMapsClicked()), nullptr, tr("Write a PDF or map file with the map of every course, of every part of a course with a map exchange, and of every variant or runner of a relay."));
+	course_preview_act = newCheckAction("course-preview", tr("Preview course map"), this, SLOT(coursePreviewClicked(bool)), nullptr, tr("Show the course which is chosen in the course dock alone, as its course map shows it."));  // foom
 	course_print_maps_act = newAction("course-print-maps", tr("Print course maps..."), this, SLOT(printCourseMapsClicked()), "print.png", tr("Print the map of every course, of every part of a course with a map exchange, and of every variant or runner of a relay."));  // foom
 	course_relay_variations_act = newAction("course-relay-variations", tr("Export relay variations..."), this, SLOT(exportRelayVariationsClicked()), nullptr, tr("Write which team runs which variant of the relays, as a text file."));
 	// foom: the rangefinder; the design notes, "Rangefinder dock: detail"
@@ -1961,6 +1967,7 @@ void MapEditorController::createMenuAndToolbars()
 	courses_menu->addAction(course_export_kml_act);
 	courses_menu->addAction(course_export_kmz_act);
 	courses_menu->addAction(course_relay_variations_act);
+	courses_menu->addAction(course_preview_act);  // foom
 	courses_menu->addAction(course_export_maps_act);
 	courses_menu->addAction(course_print_maps_act);  // foom
 	courses_menu->addAction(course_canvases_act);
@@ -6162,6 +6169,53 @@ void MapEditorController::exportCourseMapsClicked()
 }
 
 
+// foom: the design notes, "The preview of a course map"
+void MapEditorController::coursePreviewClicked(bool checked)
+{
+	if (course_preview_act && course_preview_act->isChecked() != checked)
+		course_preview_act->setChecked(checked);
+	if (!checked)
+	{
+		if (course_map_preview)
+		{
+			course_map_preview.reset();
+			map->updateAllMapWidgets();
+		}
+		return;
+	}
+	// The preview follows the course dock, which opens with it.
+	if (!mobile_mode && course_dock_act && (!course_dock_widget || course_dock_widget->isHidden()))
+	{
+		course_dock_act->setChecked(true);
+		courseDockClicked(true);
+	}
+	if (!course_map_preview)
+		course_map_preview = std::make_unique<CourseMapPreview>(*map, main_view);
+	connect(map, &Map::courseDataChanged, this, &MapEditorController::updateCourseMapPreview, Qt::UniqueConnection);
+	if (course_widget)
+		connect(course_widget, &CourseWidget::currentCourseChanged, this, &MapEditorController::updateCourseMapPreview, Qt::UniqueConnection);
+	if (auto* dock = qobject_cast<QDockWidget*>(course_dock_widget.data()))
+		connect(dock, &QDockWidget::visibilityChanged, this, &MapEditorController::updateCourseMapPreview, Qt::UniqueConnection);
+	updateCourseMapPreview();
+}
+
+
+void MapEditorController::updateCourseMapPreview()
+{
+	if (!course_map_preview)
+		return;
+	// The course of the course dock while the dock is shown; else the map as it is.
+	auto const shown = course_widget && course_dock_widget && !course_dock_widget->isHidden();
+	auto const course = shown ? course_widget->currentCourse() : QString{};
+	auto const changed = shown ? course_map_preview->setSide(course_widget->previewData(), course, course_widget->previewPart())
+	                           : course_map_preview->setSide(map->courseData(), QString{}, -1);
+	if (changed)
+		map->updateAllMapWidgets();
+	else
+		map_widget->update();
+}
+
+
 // foom: the design notes, "Printing the course maps"
 void MapEditorController::printCourseMapsClicked()
 {
@@ -6213,9 +6267,12 @@ void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget
 	auto const preview_data = course_widget->previewData();
 	// A course with a map exchange or flip by the part which is chosen there.
 	auto const part = course_widget->previewPart();
-	auto const drawing = drawCourse(*map, preview_data, course, part);
-	auto const descriptions = drawCourseDescriptions(*map, preview_data, course, part);
-	if (!drawing.drawn && !descriptions.drawn)
+	// foom: the design notes, "The preview of a course map": the course as its map shows it.
+	auto const previewed = course_map_preview && course_map_preview->course() == course;
+	auto const drawing = previewed ? CourseDrawing{} : drawCourse(*map, preview_data, course, part);
+	auto const descriptions = previewed ? CourseDescriptionDrawing{} : drawCourseDescriptions(*map, preview_data, course, part);
+	auto const course_map = previewed ? course_map_preview->draw() : CourseMapDrawing{};
+	if (!drawing.drawn && !descriptions.drawn && !course_map.drawn)
 		return;
 	
 	const MapView* map_view = widget->getMapView();
@@ -6227,6 +6284,7 @@ void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget
 	// The descriptions first: their white ground lies below the course.
 	paintCourseDescriptions(painter, map, descriptions, viewed_rect, map_view->calculateFinalZoomFactor());
 	paintCourseDrawing(painter, map, drawing, viewed_rect, map_view->calculateFinalZoomFactor());
+	paintCourseMap(painter, map, course_map, viewed_rect, map_view->calculateFinalZoomFactor());
 	// The routes which the map keeps, for the course, the part and the variant which are chosen.
 	if (show_course_routes && !preview_data.routes.isEmpty())
 		paintCourseRoutes(painter, storedCourseRoutes(*map, preview_data, course, part));

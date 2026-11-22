@@ -74,6 +74,7 @@
 #include "course/course_canvas.h"
 #include "course/course_data.h"
 #include "course/course_map.h"
+#include "course/course_preview.h"
 #include "course/course_relay.h"
 #include "course/course_storage.h"
 #include "fileformats/file_import_export.h"
@@ -337,6 +338,7 @@ private slots:
 	void dialogTest();
 	void mapFilesTest();
 	void printTest();
+	void previewTest();
 };
 
 
@@ -1015,6 +1017,74 @@ void CourseMapTest::printTest()
 	QVERIFY(buttons->button(QDialogButtonBox::Ok)->isEnabled());
 	QVERIFY(dialog.options().map_format.isEmpty());
 	QCOMPARE(dialog.windowTitle(), CourseMapsDialog::tr("Print course maps"));
+}
+
+
+/// The preview of a course map, Accept (10)
+void CourseMapTest::previewTest()
+{
+	Map map;
+	fillMap(map);
+	map.getSymbol(8)->setHidden(true);  // the plain symbol 101
+	map.setHasUnsavedChanges(false);
+	auto data = map.courseData();
+	auto const course_symbols = QStringList{ QStringLiteral("701"), QStringLiteral("703"), QStringLiteral("706"),
+	                                         QStringLiteral("720"), QStringLiteral("721"), QStringLiteral("722.1"), QStringLiteral("101") };
+	{
+		CourseMapPreview preview(map);
+		QCOMPARE(hiddenSymbols(map), QStringList{ QStringLiteral("101") });
+		QVERIFY(!preview.draw().drawn);
+
+		// The second part of X alone, as its map shows it.
+		QVERIFY(preview.setSide(data, QStringLiteral("X"), 1));
+		QCOMPARE(hiddenSymbols(map), course_symbols);
+		auto drawing = preview.draw();
+		QVERIFY(drawing.drawn);
+		QCOMPARE(drawing.items.join(QLatin1Char(' ')), QStringLiteral("S2 33 34 F1"));
+		QCOMPARE(drawing.texts, QStringList{ QStringLiteral("X (2)") });
+		for (auto const& object : drawing.objects)
+			QVERIFY(!object->getSymbol()->isHidden());
+		// The same again changes nothing which is hidden; another course neither.
+		QVERIFY(!preview.setSide(data, QStringLiteral("X"), 1));
+		QVERIFY(!preview.setSide(data, QStringLiteral("Plain"), -1));
+		QCOMPARE(preview.course(), QStringLiteral("Plain"));
+		QCOMPARE(preview.draw().items.join(QLatin1Char(' ')), QStringLiteral("S1 31 32 33 F1"));
+
+		// No course, or one which is not there: the map as it is.
+		QVERIFY(preview.setSide(data, QString{}, -1));
+		QCOMPARE(hiddenSymbols(map), QStringList{ QStringLiteral("101") });
+		QVERIFY(!preview.setSide(data, QStringLiteral("Nobody"), -1));
+		QVERIFY(preview.course().isEmpty());
+		QVERIFY(!preview.draw().drawn);
+
+		// With the canvases active, what the canvas hides is hidden too and not drawn.
+		CourseCanvas canvas;
+		canvas.name = QStringLiteral("A");
+		canvas.hidden_symbols = QStringList{ QStringLiteral("704.000") };
+		CanvasCourse entry;
+		entry.course = QStringLiteral("Plain");
+		canvas.courses.push_back(entry);
+		data.canvases.canvases = { canvas };
+		QVERIFY(preview.setSide(data, QStringLiteral("Plain"), -1));
+		QVERIFY(!preview.canvas());
+		QVERIFY(!hiddenSymbols(map).contains(QStringLiteral("704")));
+		data.canvases.active = true;
+		QVERIFY(preview.setSide(data, QStringLiteral("Plain"), -1));
+		QVERIFY(preview.canvas());
+		QCOMPARE(preview.canvas()->name, QStringLiteral("A"));
+		QCOMPARE(preview.canvasSymbols(), QStringList{ QStringLiteral("704.000") });
+		QVERIFY(hiddenSymbols(map).contains(QStringLiteral("704")));
+		drawing = preview.draw();
+		for (auto const& object : drawing.objects)
+			QVERIFY(object->getSymbol()->getNumberComponent(0) != 704);
+		// A course which no canvas has: the course symbols alone.
+		QVERIFY(preview.setSide(data, QStringLiteral("X"), -1));
+		QVERIFY(!preview.canvas());
+		QCOMPARE(hiddenSymbols(map), course_symbols);
+	}
+	// Afterwards as before.
+	QCOMPARE(hiddenSymbols(map), QStringList{ QStringLiteral("101") });
+	QVERIFY(!map.hasUnsavedChanges());
 }
 
 

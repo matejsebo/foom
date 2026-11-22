@@ -115,6 +115,7 @@ class MapView;
 class MapWidget;
 class PaintOnTemplateFeature;
 class CourseWidget;  // foom
+class CourseMapPreview;  // foom
 class RangefinderWidget;  // foom
 class PrintWidget;
 class ReopenTemplateDialog;
@@ -690,6 +691,8 @@ public slots:
 	void analyseAllCourseRoutesClicked();
 	void showCourseRoutesClicked();
 	void hideCourseRoutesClicked();
+	void coursePreviewClicked(bool checked);  // foom
+	void updateCourseMapPreview();  // foom
 	void deleteCourseRoutesClicked();
 	void exportCourseRoutesClicked();
 	void routeViaPointsClicked();
@@ -1442,6 +1445,9 @@ private:
 	bool show_course_routes = false;
 	QPointer<QWidget> course_dock_widget;  // foom
 	QPointer<CourseWidget> course_widget;  // foom
+	/** foom: the design notes, "The preview of a course map". */
+	QAction* course_preview_act = {};
+	std::unique_ptr<CourseMapPreview> course_map_preview;
 	QAction* rangefinder_act = {};  // foom
 	QAction* rangefinder_reference_act = {};  // foom
 	QPointer<RangefinderWidget> rangefinder_widget;  // foom
