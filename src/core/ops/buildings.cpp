@@ -506,6 +506,124 @@ void scaleAbout(Ring& ring, const QPointF& centre, double factor)
 		p = centre + (p - centre) * factor;
 }
 
+/** The area of the part of the ring inside the axis-parallel box (Sutherland-Hodgman). */
+double clippedArea(const Ring& ring, double x0, double x1, double y0, double y1)
+{
+	auto clipped = ring;
+	auto const clip = [&clipped](auto inside, auto cut) {
+		Ring out;
+		for (std::size_t i = 0; i < clipped.size(); ++i)
+		{
+			auto const& a = clipped[i];
+			auto const& b = clipped[(i + 1) % clipped.size()];
+			auto const a_in = inside(a);
+			auto const b_in = inside(b);
+			if (a_in)
+				out.push_back(a);
+			if (a_in != b_in)
+				out.push_back(cut(a, b));
+		}
+		clipped = std::move(out);
+	};
+	auto const at_x = [](double x) {
+		return [x](const QPointF& a, const QPointF& b) { auto const t = (x - a.x()) / (b.x() - a.x()); return QPointF(x, a.y() + t * (b.y() - a.y())); };
+	};
+	auto const at_y = [](double y) {
+		return [y](const QPointF& a, const QPointF& b) { auto const t = (y - a.y()) / (b.y() - a.y()); return QPointF(a.x() + t * (b.x() - a.x()), y); };
+	};
+	clip([x0](const QPointF& p) { return p.x() >= x0; }, at_x(x0));
+	clip([x1](const QPointF& p) { return p.x() <= x1; }, at_x(x1));
+	clip([y0](const QPointF& p) { return p.y() >= y0; }, at_y(y0));
+	clip([y1](const QPointF& p) { return p.y() <= y1; }, at_y(y1));
+	return clipped.size() < 3 ? 0.0 : std::abs(ringArea(clipped));
+}
+
+/**
+ * The L-shaped generalization of the ring: its minimum rectangle with the
+ * rectangular notch at one corner which leaves the smallest symmetric
+ * difference to the ring, six corners in order; the rectangle itself when
+ * no notch makes the difference smaller. Notch sizes are taken from the
+ * ring's vertices in the rectangle's frame.
+ */
+Ring cornerRectangle(const Ring& ring)
+{
+	auto const rectangle = minimumRectangle(ring);
+	if (rectangle.size() != 4)
+		return {};
+	auto const origin = rectangle[0];
+	auto const u = rectangle[1] - rectangle[0];
+	auto const v = rectangle[3] - rectangle[0];
+	auto const lu = length(u);
+	auto const lv = length(v);
+	if (!(lu > 0.0) || !(lv > 0.0))
+		return rectangle;
+	auto const eu = u / lu;
+	auto const ev = v / lv;
+	Ring local;
+	local.reserve(ring.size());
+	std::vector<double> xs, ys;
+	constexpr double margin = 0.01;  // mm: notches thinner than this are noise
+	for (auto const& p : ring)
+	{
+		auto const d = p - origin;
+		local.emplace_back(d.x() * eu.x() + d.y() * eu.y(), d.x() * ev.x() + d.y() * ev.y());
+		if (local.back().x() > margin && local.back().x() < lu - margin)
+			xs.push_back(local.back().x());
+		if (local.back().y() > margin && local.back().y() < lv - margin)
+			ys.push_back(local.back().y());
+	}
+	auto const area = std::abs(ringArea(local));
+	auto best_error = lu * lv - area;  // the rectangle without a notch
+	auto best_corner = -1;
+	auto best_x = 0.0, best_y = 0.0;
+	// Corners in order: (0,0), (lu,0), (lu,lv), (0,lv).
+	QPointF const corners[4] = { { 0.0, 0.0 }, { lu, 0.0 }, { lu, lv }, { 0.0, lv } };
+	for (int c = 0; c < 4; ++c)
+	{
+		for (auto const x : xs)
+		{
+			auto const x0 = corners[c].x() > 0.0 ? x : 0.0;
+			auto const x1 = corners[c].x() > 0.0 ? lu : x;
+			for (auto const y : ys)
+			{
+				auto const y0 = corners[c].y() > 0.0 ? y : 0.0;
+				auto const y1 = corners[c].y() > 0.0 ? lv : y;
+				auto const notch = (x1 - x0) * (y1 - y0);
+				auto const error = lu * lv - area - notch + 2.0 * clippedArea(local, x0, x1, y0, y1);
+				if (error < best_error - 0.001)
+				{
+					best_error = error;
+					best_corner = c;
+					best_x = x;
+					best_y = y;
+				}
+			}
+		}
+	}
+	if (best_corner < 0)
+		return rectangle;
+	Ring shape;
+	for (int c = 0; c < 4; ++c)
+	{
+		auto const& corner = corners[c];
+		if (c != best_corner)
+		{
+			shape.push_back(corner);
+			continue;
+		}
+		// Coming from the previous corner, corners 0 and 2 lie at the end of an
+		// edge along y, corners 1 and 3 at the end of an edge along x.
+		QPointF const inner(best_x, best_y);
+		if (c % 2 == 0)
+			shape.insert(shape.end(), { QPointF(corner.x(), best_y), inner, QPointF(best_x, corner.y()) });
+		else
+			shape.insert(shape.end(), { QPointF(best_x, corner.y()), inner, QPointF(corner.x(), best_y) });
+	}
+	for (auto& p : shape)
+		p = origin + eu * p.x() + ev * p.y();
+	return shape;
+}
+
 QPointF ringMean(const Ring& ring)
 {
 	QPointF mean;
@@ -650,6 +768,24 @@ OpResult buildingRectangles(const Map& /*map*/, const std::vector<const Object*>
 	if (buildings.empty())
 	{
 		result.error = QStringLiteral("Select closed line or area objects.");
+		return result;
+	}
+	
+	if (params.mode == RectangleParams::Corner)
+	{
+		for (auto const& building : buildings)
+		{
+			auto shape = cornerRectangle(building.ring);
+			if (shape.size() < 4)
+				continue;
+			auto const area = std::abs(ringArea(shape));
+			if (area > 0.0)
+				scaleAbout(shape, ringCentroid(shape), std::sqrt(params.area_factor * std::abs(ringArea(building.ring)) / area));
+			if (sameRing(shape, building.ring))
+				continue;
+			result.out.push_back(replacementFromRing(*building.path, shape, {}));
+			result.consumed.push_back(building.path);
+		}
 		return result;
 	}
 	

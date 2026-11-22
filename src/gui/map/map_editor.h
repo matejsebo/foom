@@ -862,6 +862,8 @@ public slots:
 	int selectDuplicates();
 	int selectSelfIntersecting();
 	int selectInvalid();
+	/** foom: Selects the line texts whose path is too short for their text; returns their number. */
+	int selectLineTextTooShort();
 	int selectByDate(int kind, qint64 from, qint64 to);
 	int selectByProperty(const PropertyQuery& query);
 	int selectByIndex(int number);
@@ -964,6 +966,8 @@ public slots:
 	void showIssuesWindow(bool show);
 	/** foom: Applies the fix of the issue shown in the row and checks again; returns false when nothing changed. */
 	bool fixIssueRow(int row);
+	/** foom: Gives the objects of the symbol issue in the row the active symbol and checks again; returns false when it does not fit. */
+	bool assignSymbolToIssueRow(int row);
 	/** foom: Applies the fixes of every shown issue and checks again; returns how many changed something. */
 	int fixShownIssues();
 	/** foom: Selects the objects of an activated issue and shows them. */
@@ -1525,6 +1529,7 @@ private:
 	QAction* dem_hypsometric_act = {};  // foom
 	QAction* dem_profile_act = {};  // foom
 	QAction* select_duplicates_act = {};  // foom
+	QAction* select_line_text_too_short_act = {};  // foom
 	QAction* select_self_intersecting_act = {};  // foom
 	QAction* select_invalid_act = {};  // foom
 	QAction* select_by_date_act = {};  // foom

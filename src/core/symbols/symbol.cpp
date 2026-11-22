@@ -94,6 +94,7 @@ Symbol::Symbol(const Symbol& proto)
 , course_mode { proto.course_mode }
 , course_type { proto.course_type }
 , description_columns { proto.description_columns }
+, minimum_gap { proto.minimum_gap }  // foom
 {
 	// nothing else
 }
@@ -166,6 +167,7 @@ bool Symbol::equals(const Symbol* other, Qt::CaseSensitivity case_sensitivity) c
 	       && course_mode == other->course_mode
 	       && course_type == other->course_type
 	       && description_columns == other->description_columns
+	       && minimum_gap == other->minimum_gap  // foom
 	       && name.compare(other->name, case_sensitivity) == 0
 	       && description.compare(other->description, case_sensitivity) == 0
 	       && equalsImpl(other, case_sensitivity);
@@ -330,6 +332,8 @@ void Symbol::save(QXmlStreamWriter& xml, const Map& map) const
 			symbol_element.writeAttribute(QLatin1String("course_type"), int(course_type));
 		if (description_columns)
 			symbol_element.writeAttribute(QLatin1String("description_columns"), int(description_columns));
+		if (minimum_gap > 0)  // the design notes, "Legibility"
+			symbol_element.writeAttribute(QLatin1String("minimum_gap"), minimum_gap);
 	}
 	if (!description.isEmpty())
 		xml.writeTextElement(QLatin1String("description"), description);
@@ -416,6 +420,7 @@ std::unique_ptr<Symbol> Symbol::load(QXmlStreamReader& xml, const Map& map, Symb
 	symbol->setCourseFields(symbol_element.attribute<int>(QLatin1String("course_mode")),
 	                        symbol_element.attribute<int>(QLatin1String("course_type")),
 	                        symbol_element.attribute<int>(QLatin1String("description_columns")));  // foom
+	symbol->setMinimumGap(symbol_element.attribute<int>(QLatin1String("minimum_gap")));  // foom
 	
 	while (xml.readNextStartElement())
 	{

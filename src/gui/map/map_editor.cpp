@@ -1334,6 +1334,7 @@ void MapEditorController::createActions()
 	select_duplicates_act = newAction("select-duplicates", tr("Select duplicate objects"), this, SLOT(selectDuplicates()));  // foom
 	select_self_intersecting_act = newAction("select-self-intersecting", tr("Select self-intersecting objects"), this, SLOT(selectSelfIntersecting()));  // foom
 	select_invalid_act = newAction("select-invalid", tr("Select objects with invalid geometry"), this, SLOT(selectInvalid()));  // foom
+	select_line_text_too_short_act = newAction("select-line-text-too-short", tr("Select line text objects with too short a line"), this, SLOT(selectLineTextTooShort()));  // foom
 	select_by_date_act = newAction("select-by-date", tr("Select objects by date..."), this, SLOT(selectByDateClicked()));  // foom
 	select_by_property_act = newAction("select-by-property", tr("Select objects by property..."), this, SLOT(selectByPropertyClicked()));  // foom
 	select_by_index_act = newAction("select-by-index", tr("Select object by index..."), this, SLOT(selectByIndexClicked()));  // foom
@@ -1628,6 +1629,7 @@ void MapEditorController::createMenuAndToolbars()
 	edit_menu->addAction(select_duplicates_act);  // foom
 	edit_menu->addAction(select_self_intersecting_act);  // foom
 	edit_menu->addAction(select_invalid_act);  // foom
+	edit_menu->addAction(select_line_text_too_short_act);  // foom: the design notes
 	edit_menu->addAction(selection_save_act);  // foom
 	edit_menu->addAction(selection_load_act);  // foom
 	edit_menu->addAction(selection_delete_act);  // foom
@@ -4644,7 +4646,7 @@ void MapEditorController::removeDuplicateVertices()
 // foom
 void MapEditorController::smoothClicked()
 {
-	SmoothDialog dialog(window);
+	SmoothDialog dialog(window, !map->elevationSet().href(ElevationSet::Terrain).isEmpty());
 	if (dialog.exec() == QDialog::Accepted)
 		smoothPaths(dialog.params());
 }
@@ -4655,6 +4657,23 @@ void MapEditorController::smoothPaths(const ops::SmoothParams& params)
 	// the design notes, "Smooth".
 	auto const& selection = map->selectedObjects();
 	std::vector<const Object*> in(begin(selection), end(selection));
+	if (params.contour && !params.height_at)
+	{
+		// The contour option: heights from the terrain grid, see the design notes, "Smooth".
+		auto const& georef = map->getGeoreferencing();
+		auto const* terrain = map->elevationSet().model(ElevationSet::Terrain, georef.getProjectedCRSSpec());
+		if (!terrain)
+		{
+			QMessageBox::warning(window, tr("Smooth"), tr("The contour option needs a terrain grid, which cannot be loaded."));
+			return;
+		}
+		auto with_heights = params;
+		with_heights.height_at = [terrain, &georef](const QPointF& map_pos) {
+			return terrain->at(georef.toProjectedCoords(MapCoordF(map_pos.x(), map_pos.y())));
+		};
+		applyOpResult(ops::smoothPaths(*map, in, with_heights));
+		return;
+	}
 	applyOpResult(ops::smoothPaths(*map, in, params));
 }
 
@@ -4767,6 +4786,12 @@ int MapEditorController::selectSelfIntersecting()
 int MapEditorController::selectInvalid()
 {
 	return selectFound(findInvalid(*map->getCurrentPart()));
+}
+
+int MapEditorController::selectLineTextTooShort()
+{
+	// the design notes, "Selecting line text whose line is too short".
+	return selectFound(findLineTextTooShort(*map->getCurrentPart()));
 }
 
 int MapEditorController::selectByDate(int kind, qint64 from, qint64 to)
@@ -5367,6 +5392,17 @@ bool MapEditorController::fixIssueRow(int row)
 	auto const fixed = fixIssue(*map, issue_model->issueAt(row));
 	checkAgain();
 	return fixed;
+}
+
+// foom: the design notes, "Map check", the assign-symbol fix.
+bool MapEditorController::assignSymbolToIssueRow(int row)
+{
+	if (row < 0 || row >= issue_model->rowCount())
+		return false;
+	auto const assigned = assignSymbol(*map, issue_model->issueAt(row), activeSymbol());
+	if (assigned)
+		checkAgain();
+	return assigned;
 }
 
 // foom

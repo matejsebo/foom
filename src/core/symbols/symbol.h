@@ -558,6 +558,17 @@ public:
 	 */
 	void setPrivate(bool value) { is_private = value; }
 	
+	/**
+	 * foom: The smallest gap (in 0.001 mm) the legibility scan accepts between
+	 * an object of this symbol and another object; 0 means the scan's own gap.
+	 * 
+	 * See the design notes, "Legibility".
+	 */
+	int minimumGap() const { return minimum_gap; }
+	
+	/** foom: Sets the minimum gap in 0.001 mm; negative values count as 0. */
+	void setMinimumGap(int gap) { minimum_gap = gap > 0 ? gap : 0; }
+	
 	
 	/**
 	 * Returns if objects with this symbol can be rotated in arbitrary directions.
@@ -718,6 +729,7 @@ private:
 	quint8 course_mode = 0;          ///< foom \see courseMode()
 	quint8 course_type = 0;          ///< foom \see courseType()
 	quint8 description_columns = 0;  ///< foom \see descriptionColumns()
+	int minimum_gap = 0;             ///< foom \see minimumGap()
 };
 
 

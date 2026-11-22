@@ -31,7 +31,9 @@
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
 #include "core/path_coord.h"
+#include "core/symbols/path_text_layout.h"
 #include "core/symbols/symbol.h"
+#include "core/symbols/text_symbol.h"
 
 
 namespace OpenOrienteering {
@@ -297,6 +299,19 @@ std::vector<Object*> findSelfIntersecting(const MapPart& part)
 std::vector<Object*> findInvalid(const MapPart& part)
 {
 	return collect(part, [](const Object* object) { return invalid(object); });
+}
+
+
+std::vector<Object*> findLineTextTooShort(const MapPart& part)
+{
+	return collect(part, [](const Object* object) {
+		if (object->getType() != Object::Text || !object->getSymbol() || object->getSymbol()->getType() != Symbol::Text)
+			return false;
+		auto const* text = object->asText();
+		if (!text->followsPath() || text->getRawCoordinateVector().size() < 2 || text->getText().trimmed().isEmpty())
+			return false;
+		return static_cast<const TextSymbol*>(text->getSymbol())->layoutPathText(text).overflow;
+	});
 }
 
 

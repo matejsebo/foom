@@ -22,6 +22,7 @@
 #include <cmath>
 #include <cstddef>
 #include <initializer_list>
+#include <limits>
 #include <memory>
 #include <type_traits>
 #include <utility>
@@ -163,6 +164,7 @@ private slots:
 	void symbolUpdateTest();
 	void buildingsTest();
 	void smoothTest();
+	void smoothContourTest();
 	void toCurveTest();
 	void stairwayTest();
 	void frameTest();
@@ -2218,6 +2220,55 @@ void OpsTest::buildingsTest()
 	}
 	QCOMPARE(series.out[0]->uuid(), square_a->uuid());
 	QCOMPARE(series.out[1]->derivedFrom(), square_a->uuid());
+
+	// Rectangles: L-shaped, each object (the design notes, "Generalize buildings", Accept (L-shaped)).
+	rectangle.mode = ops::RectangleParams::Corner;
+	rectangle.area_factor = 1.0;
+	auto* exact_ell = ring({ MapCoord(0.0, 300.0), MapCoord(10.0, 300.0), MapCoord(10.0, 304.0), MapCoord(4.0, 304.0), MapCoord(4.0, 310.0), MapCoord(0.0, 310.0) });
+	auto unchanged_ell = ops::buildingRectangles(map, { exact_ell }, rectangle);
+	QVERIFY(unchanged_ell.error.isEmpty());
+	QVERIFY(unchanged_ell.out.empty());  // already an L
+	auto* ell = ring({ MapCoord(0.0, 300.0), MapCoord(5.0, 300.0), MapCoord(10.0, 300.0), MapCoord(10.0, 304.0), MapCoord(4.0, 304.0), MapCoord(4.0, 310.0), MapCoord(0.0, 310.0) });
+	auto shaped = ops::buildingRectangles(map, { ell }, rectangle);
+	QVERIFY2(shaped.error.isEmpty(), shaped.error.toLatin1());
+	QCOMPARE(shaped.out.size(), std::size_t(1));
+	QCOMPARE(shaped.consumed, (std::vector<const Object*>{ ell }));
+	QCOMPARE(shaped.out.front()->uuid(), ell->uuid());
+	corners = vertices(shaped.out.front().get());
+	QCOMPARE(corners.size(), std::size_t(6));
+	for (auto const& coord : vertices(exact_ell))
+		QVERIFY2(has_vertex(corners, coord.x(), coord.y()), qPrintable(QString::number(coord.x()) + QLatin1Char(' ') + QString::number(coord.y())));
+	QVERIFY(shaped.out.front()->asPath()->parts().front().isClosed());
+	// The notch at another corner, and the shape turned by 30 degrees.
+	auto* turned_ell = ring({ rotate(0.0, 0.0), rotate(10.0, 0.0), rotate(10.0, 10.0), rotate(6.0, 10.0), rotate(6.0, 3.0), rotate(0.0, 3.0) });
+	auto turned = ops::buildingRectangles(map, { turned_ell }, rectangle);
+	QCOMPARE(turned.out.size(), std::size_t(1));
+	corners = vertices(turned.out.front().get());
+	QCOMPARE(corners.size(), std::size_t(6));
+	for (auto const& coord : vertices(turned_ell))
+		QVERIFY(has_vertex(corners, coord.x(), coord.y()));
+	// A noisy L becomes a clean one of the same area, its inner corner near (4, 404).
+	auto* noisy = ring({ MapCoord(0.0, 400.0), MapCoord(10.0, 400.0), MapCoord(10.0, 404.1), MapCoord(4.0, 403.9), MapCoord(4.0, 410.0), MapCoord(0.0, 410.0) });
+	auto cleaned = ops::buildingRectangles(map, { noisy }, rectangle);
+	QCOMPARE(cleaned.out.size(), std::size_t(1));
+	corners = vertices(cleaned.out.front().get());
+	QCOMPARE(corners.size(), std::size_t(6));
+	QVERIFY(near(area(corners), area(vertices(noisy)), 0.05));
+	QVERIFY(std::any_of(corners.begin(), corners.end(), [](const QPointF& p) { return std::abs(p.x() - 4.0) < 0.15 && std::abs(p.y() - 404.0) < 0.15; }));
+	for (std::size_t i = 0; i < 6; ++i)
+	{
+		auto const a = corners[(i + 5) % 6] - corners[i];
+		auto const b = corners[(i + 1) % 6] - corners[i];
+		QVERIFY(std::abs(a.x() * b.x() + a.y() * b.y()) < 0.01 * std::hypot(a.x(), a.y()) * std::hypot(b.x(), b.y()));  // right angles
+	}
+	// A rectangle stays a rectangle; the area factor scales the area.
+	auto boxed_corner = ops::buildingRectangles(map, { rotated_box }, rectangle);
+	QCOMPARE(boxed_corner.out.size(), std::size_t(1));
+	QCOMPARE(vertices(boxed_corner.out.front().get()).size(), std::size_t(4));
+	rectangle.area_factor = 2.0;
+	auto doubled_ell = ops::buildingRectangles(map, { ell }, rectangle);
+	QVERIFY(near(area(vertices(doubled_ell.out.front().get())), 128.0, 0.05));
+	QCOMPARE(vertices(doubled_ell.out.front().get()).size(), std::size_t(6));
 }
 
 void OpsTest::smoothTest()
@@ -2319,6 +2370,97 @@ void OpsTest::smoothTest()
 	QVERIFY(!ops::smoothPaths(map, { point }, params).error.isEmpty());
 }
 
+
+void OpsTest::smoothContourTest()
+{
+	// the design notes, "Smooth", Accept (the contour option).
+	Map map;
+	auto* symbol = new LineSymbol();
+	map.addSymbol(symbol, 0);
+	auto const line = [&map, symbol](const MapCoordVector& coords) {
+		auto* object = new PathObject(symbol, coords);
+		map.addObject(object);
+		return object;
+	};
+	auto const vertices = [](const Object* object) {
+		std::vector<QPointF> out;
+		auto const& coords = object->asPath()->getRawCoordinateVector();
+		for (std::size_t i = 0; i < coords.size(); ++i)
+		{
+			out.emplace_back(coords[i].x(), coords[i].y());
+			if (coords[i].isCurveStart())
+				i += 2;
+		}
+		return out;
+	};
+	// The ground rises 1 m per mm of y and has a ridge 0.08 mm high at x = 5,
+	// so the contour of height 0 runs along y = 0 with a spike up to (5, 0.08).
+	auto const spike = [](double x) { return 0.08 * std::max(0.0, 1.0 - std::abs(x - 5.0)); };
+	auto const ground = [spike](const QPointF& p) { return p.y() - spike(p.x()); };
+	auto* contour = line({ MapCoord(0.0, 0.0), MapCoord(4.0, 0.0), MapCoord(5.0, 0.08), MapCoord(6.0, 0.0), MapCoord(10.0, 0.0) });
+
+	ops::SmoothParams params;
+	params.tolerance = 0.1;
+	auto plain = ops::smoothPaths(map, { contour }, params);
+	QCOMPARE(plain.out.size(), std::size_t(1));
+	QCOMPARE(plain.out.front()->asPath()->getCoordinateCount(), MapCoordVector::size_type(2));
+
+	// Without a grid the option is an error.
+	params.contour = true;
+	QVERIFY(!ops::smoothPaths(map, { contour }, params).error.isEmpty());
+
+	// With the grid the spike stays, and no point of the result is off the contour by more than 3 cm.
+	params.height_at = ground;
+	auto kept = ops::smoothPaths(map, { contour }, params);
+	QVERIFY2(kept.error.isEmpty(), kept.error.toLatin1());
+	QCOMPARE(kept.out.size(), std::size_t(1));
+	QCOMPARE(kept.out.front()->uuid(), contour->uuid());
+	auto const kept_vertices = vertices(kept.out.front().get());
+	QVERIFY(std::any_of(kept_vertices.begin(), kept_vertices.end(), [](const QPointF& p) {
+		return std::abs(p.x() - 5.0) < 0.002 && std::abs(p.y() - 0.08) < 0.002;
+	}));
+	auto const* kept_path = kept.out.front()->asPath();
+	kept_path->update();
+	auto worst = 0.0;
+	for (auto const& part : kept_path->parts())
+	{
+		for (auto const& coord : part.path_coords)
+			worst = std::max(worst, std::abs(ground(QPointF(coord.pos.x(), coord.pos.y()))));
+	}
+	QVERIFY2(worst <= 0.03 + 1e-6, QByteArray::number(worst));
+
+	// A looser height tolerance lets the spike go.
+	params.height_tolerance_m = 0.1;
+	auto loose = ops::smoothPaths(map, { contour }, params);
+	QCOMPARE(loose.out.front()->asPath()->getCoordinateCount(), MapCoordVector::size_type(2));
+	params.height_tolerance_m = 0.03;
+
+	// The "ele" tag sets the line's height: a line a metre below its tag may
+	// move downhill, which brings it nearer to its height, so the spike goes.
+	contour->setTag(QStringLiteral("ele"), QStringLiteral("-1"));
+	auto tagged = ops::smoothPaths(map, { contour }, params);
+	QCOMPARE(tagged.out.front()->asPath()->getCoordinateCount(), MapCoordVector::size_type(2));
+	contour->setTag(QStringLiteral("ele"), QStringLiteral("0"));
+	auto tagged_zero = ops::smoothPaths(map, { contour }, params);
+	QVERIFY(tagged_zero.out.front()->asPath()->getCoordinateCount() > 2);
+
+	// A zigzag across an even slope smooths as without the option: the
+	// straight line is nearer to its height (the median, 0) than the zigzag.
+	MapCoordVector zigzag;
+	for (int i = 0; i <= 10; ++i)
+		zigzag.emplace_back(double(i), 20.0 + ((i == 0 || i == 10) ? 0.0 : (i % 2 ? 0.05 : -0.05)));
+	auto* zig = line(zigzag);
+	params.height_at = [](const QPointF& p) { return p.y() - 20.0; };
+	auto zig_smoothed = ops::smoothPaths(map, { zig }, params);
+	QCOMPARE(zig_smoothed.out.size(), std::size_t(1));
+	QCOMPARE(zig_smoothed.out.front()->asPath()->getCoordinateCount(), MapCoordVector::size_type(2));
+
+	// Outside the grid nothing is tested.
+	params.height_at = [](const QPointF&) { return std::numeric_limits<double>::quiet_NaN(); };
+	contour->setTag(QStringLiteral("ele"), QString{});
+	auto outside = ops::smoothPaths(map, { contour }, params);
+	QCOMPARE(outside.out.front()->asPath()->getCoordinateCount(), MapCoordVector::size_type(2));
+}
 
 void OpsTest::toCurveTest()
 {

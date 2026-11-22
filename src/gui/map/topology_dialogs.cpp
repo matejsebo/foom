@@ -196,7 +196,7 @@ ops::IntersectionParams IntersectionDialog::params() const
 }
 
 
-SmoothDialog::SmoothDialog(QWidget* parent)
+SmoothDialog::SmoothDialog(QWidget* parent, bool has_terrain)
 : QDialog(parent)
 {
 	setWindowTitle(tr("Smooth"));
@@ -218,6 +218,22 @@ SmoothDialog::SmoothDialog(QWidget* parent)
 	connect(corners_check, &QCheckBox::toggled, angle_edit, &QWidget::setEnabled);
 	inflections_check = new QCheckBox(tr("Keep where the curvature changes direction"));
 	inflections_check->setChecked(defaults.keep_inflections);
+	// the design notes, "Smooth", the contour option.
+	contour_check = new QCheckBox(tr("Contour lines: keep the height within"));
+	contour_check->setObjectName(QStringLiteral("contour_check"));
+	contour_check->setChecked(false);
+	contour_check->setEnabled(has_terrain);
+	if (!has_terrain)
+		contour_check->setToolTip(tr("Needs a terrain grid (Elevation menu)."));
+	height_edit = new QDoubleSpinBox();
+	height_edit->setObjectName(QStringLiteral("height_edit"));
+	height_edit->setDecimals(0);
+	height_edit->setRange(0.0, 1000.0);
+	height_edit->setSingleStep(1.0);
+	height_edit->setSuffix(QStringLiteral(" cm"));
+	height_edit->setValue(100.0 * defaults.height_tolerance_m);
+	height_edit->setEnabled(false);
+	connect(contour_check, &QCheckBox::toggled, height_edit, &QWidget::setEnabled);
 
 	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
 	connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
@@ -230,6 +246,11 @@ SmoothDialog::SmoothDialog(QWidget* parent)
 	layout->addRow(tr("Tolerance:"), tolerance_edit);
 	layout->addRow(corner_row);
 	layout->addRow(inflections_check);
+	auto* contour_row = new QHBoxLayout();
+	contour_row->addWidget(contour_check);
+	contour_row->addWidget(height_edit);
+	contour_row->addStretch();
+	layout->addRow(contour_row);
 	auto* main_layout = new QVBoxLayout(this);
 	main_layout->addLayout(layout);
 	main_layout->addWidget(buttons);
@@ -244,6 +265,8 @@ ops::SmoothParams SmoothDialog::params() const
 	params.keep_corners = corners_check->isChecked();
 	params.corner_angle_deg = angle_edit->value();
 	params.keep_inflections = inflections_check->isChecked();
+	params.contour = contour_check->isEnabled() && contour_check->isChecked();
+	params.height_tolerance_m = 0.01 * height_edit->value();
 	return params;
 }
 
@@ -332,9 +355,11 @@ GeneralizeBuildingsDialog::GeneralizeBuildingsDialog(QWidget* parent)
 
 	rectangle_button = new QRadioButton(tr("Replace by rectangles"));
 	mode_combo = new QComboBox();
+	mode_combo->setObjectName(QStringLiteral("rectangle_mode_combo"));
 	mode_combo->addItem(tr("Each object by its own rectangle"), int(ops::RectangleParams::Each));
 	mode_combo->addItem(tr("All objects by one rectangle"), int(ops::RectangleParams::All));
 	mode_combo->addItem(tr("All objects by a series of rectangles"), int(ops::RectangleParams::Series));
+	mode_combo->addItem(tr("Each object by an L-shaped rectangle"), int(ops::RectangleParams::Corner));  // the design notes
 	count_edit = new QSpinBox();
 	count_edit->setRange(1, 50);
 	count_edit->setValue(2);

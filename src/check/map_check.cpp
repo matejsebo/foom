@@ -116,6 +116,50 @@ std::unique_ptr<PathObject> replacement(const PathObject& path, MapCoordVector c
 	return output;
 }
 
+/**
+ * Returns the objects of the issue which are still in the map, all from the
+ * part of the first one, and sets the index of that part (-1 when none).
+ */
+std::vector<const Object*> issueObjects(const Map& map, const Issue& issue, int& part_index)
+{
+	part_index = -1;
+	std::vector<const Object*> objects;
+	for (auto const& uuid : issue.objects)
+	{
+		auto const* object = map.findObject(uuid);
+		if (!object)
+			continue;
+		if (part_index < 0)
+		{
+			for (int p = 0; p < map.getNumParts() && part_index < 0; ++p)
+			{
+				if (map.getPart(p)->contains(const_cast<Object*>(object)))
+					part_index = p;
+			}
+			if (part_index < 0)
+				continue;
+		}
+		else if (!map.getPart(part_index)->contains(const_cast<Object*>(object)))
+		{
+			continue;
+		}
+		objects.push_back(object);
+	}
+	return objects;
+}
+
+/** Applies the result as one undo step in the part, which becomes current only meanwhile. */
+bool applyInPart(Map& map, int part_index, ops::OpResult&& result)
+{
+	if (part_index < 0)
+		return false;
+	auto const previous_part = map.getCurrentPartIndex();
+	map.setCurrentPartIndex(std::size_t(part_index));
+	auto const applied = ops::applyOp(map, std::move(result));
+	map.setCurrentPartIndex(previous_part);
+	return applied;
+}
+
 void checkObjects(const Map& map, const MapPart& part, std::vector<Issue>& issues)
 {
 	std::set<const Object*> in_duplicate_group;
@@ -138,7 +182,7 @@ void checkObjects(const Map& map, const MapPart& part, std::vector<Issue>& issue
 		case Object::Text:
 			if (object->asText()->getText().trimmed().isEmpty())
 				issues.push_back(objectIssue(rule::text_empty, Issue::Warning, *object, tr("The text object is empty.")));
-			else if (object->asText()->followsPath())
+			else if (object->asText()->followsPath() && object->getRawCoordinateVector().size() >= 2)  // a single anchor is drawn as ordinary text
 			{
 				auto const layout = static_cast<const TextSymbol*>(symbol)->layoutPathText(object->asText());
 				if (layout.overflow)
@@ -284,21 +328,9 @@ bool fixIssue(Map& map, const Issue& issue)
 		return false;  // template-missing, and anything without a fix
 	
 	// Object rules: find the objects and the part they live in.
-	std::vector<const Object*> objects;
-	for (auto const& uuid : issue.objects)
-	{
-		if (auto const* object = map.findObject(uuid))
-			objects.push_back(object);
-	}
+	int part_index = -1;
+	auto const objects = issueObjects(map, issue, part_index);
 	if (objects.empty())
-		return false;
-	auto part_index = -1;
-	for (int p = 0; p < map.getNumParts() && part_index < 0; ++p)
-	{
-		if (map.getPart(p)->contains(const_cast<Object*>(objects.front())))
-			part_index = p;
-	}
-	if (part_index < 0)
 		return false;
 	
 	ops::OpResult result;
@@ -337,12 +369,52 @@ bool fixIssue(Map& map, const Issue& issue)
 	}
 	if (result.out.empty() && result.consumed.empty())
 		return false;
-	
-	auto const previous_part = map.getCurrentPartIndex();
-	map.setCurrentPartIndex(std::size_t(part_index));
-	auto const applied = ops::applyOp(map, std::move(result));
-	map.setCurrentPartIndex(previous_part);
-	return applied;
+	return applyInPart(map, part_index, std::move(result));
+}
+
+std::vector<const Symbol*> assignableSymbols(const Map& map, const Issue& issue)
+{
+	std::vector<const Symbol*> symbols;
+	if (issue.rule != rule::symbol_wrong_type && issue.rule != rule::symbol_undefined)
+		return symbols;
+	int part_index = -1;
+	auto const objects = issueObjects(map, issue, part_index);
+	if (objects.empty())
+		return symbols;
+	for (int i = 0; i < map.getNumSymbols(); ++i)
+	{
+		auto const* symbol = map.getSymbol(i);
+		if (symbol->isPrivate())
+			continue;
+		auto const fits = std::all_of(objects.begin(), objects.end(), [symbol](const Object* object) {
+			return symbol->isTypeCompatibleTo(object);
+		});
+		if (fits)
+			symbols.push_back(symbol);
+	}
+	return symbols;
+}
+
+bool assignSymbol(Map& map, const Issue& issue, const Symbol* symbol)
+{
+	// the design notes, "Map check", the assign-symbol fix.
+	if (!symbol)
+		return false;
+	auto const offered = assignableSymbols(map, issue);
+	if (std::find(offered.begin(), offered.end(), symbol) == offered.end())
+		return false;
+	int part_index = -1;
+	auto const objects = issueObjects(map, issue, part_index);
+	ops::OpResult result;
+	for (auto const* object : objects)
+	{
+		auto output = std::unique_ptr<Object>(object->duplicate());
+		if (!output->setSymbol(symbol, true))
+			return false;
+		result.out.push_back(std::move(output));
+		result.consumed.push_back(object);
+	}
+	return applyInPart(map, part_index, std::move(result));
 }
 
 

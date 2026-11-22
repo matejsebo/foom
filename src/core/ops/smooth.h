@@ -21,9 +21,12 @@
 #ifndef OPENORIENTEERING_OPS_SMOOTH_H
 #define OPENORIENTEERING_OPS_SMOOTH_H
 
+#include <functional>
 #include <vector>
 
 #include "core/ops/op.h"
+
+class QPointF;
 
 namespace OpenOrienteering {
 
@@ -44,6 +47,16 @@ struct SmoothParams : public OpParams
 	double corner_angle_deg = 30.0;
 	/** Keep vertices where the curvature changes direction. */
 	bool keep_inflections = false;
+	/**
+	 * The contour option: keep the smoothed line within height_tolerance_m
+	 * of its own height (its "ele" tag, else the median of the grid heights
+	 * at its vertices), measured against the original line nearby.
+	 * See the design notes, "Smooth".
+	 */
+	bool contour = false;
+	double height_tolerance_m = 0.03;
+	/** The terrain height in metres at a map position (mm), NaN where unknown; needed by the contour option. */
+	std::function<double (const QPointF&)> height_at;
 };
 
 /**

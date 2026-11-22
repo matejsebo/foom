@@ -28,6 +28,7 @@
 namespace OpenOrienteering {
 
 class Map;
+class Symbol;
 
 namespace rule {
 
@@ -62,6 +63,22 @@ std::vector<Issue> checkMap(const Map& map);
  * gone.
  */
 bool fixIssue(Map& map, const Issue& issue);
+
+/**
+ * Returns the map's symbols which fit every object of the issue, in the
+ * map's order, for the rules symbol-wrong-type and symbol-undefined; empty
+ * for other rules and when the objects are gone. Private symbols are left out.
+ */
+std::vector<const Symbol*> assignableSymbols(const Map& map, const Issue& issue);
+
+/**
+ * Gives the objects of a symbol-wrong-type or symbol-undefined issue the
+ * symbol, as one undo step; the objects keep their identity and geometry.
+ *
+ * Returns false when the rule is another, the symbol is not one of
+ * assignableSymbols(), or the objects are gone.
+ */
+bool assignSymbol(Map& map, const Issue& issue, const Symbol* symbol);
 
 
 }  // namespace OpenOrienteering

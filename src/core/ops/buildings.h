@@ -80,7 +80,8 @@ OpResult simplifyBuildings(const Map& map, const std::vector<const Object*>& in,
  */
 struct RectangleParams : public OpParams
 {
-	enum Mode { Each, All, Series };
+	/** Corner: each object by an L-shaped rectangle, see the design notes, "Generalize buildings". */
+	enum Mode { Each, All, Series, Corner };
 	Mode mode = Each;
 	/** For Series: how many rectangles. */
 	int count = 2;

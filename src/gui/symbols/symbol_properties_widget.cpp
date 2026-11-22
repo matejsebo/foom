@@ -25,6 +25,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QFlags>
 #include <QGridLayout>
 #include <QIntValidator>
@@ -78,6 +79,15 @@ SymbolPropertiesWidget::SymbolPropertiesWidget(Symbol* symbol, SymbolSettingDial
 	auto description_label = new QLabel(tr("Description:"));
 	description_edit = new QTextEdit();
 	helper_symbol_check = new QCheckBox(tr("Helper symbol (not shown in finished map)"));
+	// foom: the design notes, "Legibility", the minimum gap per symbol.
+	auto minimum_gap_label = new QLabel(tr("Minimum gap to other objects:"));
+	minimum_gap_edit = new QDoubleSpinBox();
+	minimum_gap_edit->setObjectName(QStringLiteral("minimum_gap_edit"));
+	minimum_gap_edit->setDecimals(2);
+	minimum_gap_edit->setRange(0.0, 50.0);
+	minimum_gap_edit->setSingleStep(0.05);
+	minimum_gap_edit->setSuffix(QStringLiteral(" mm"));
+	minimum_gap_edit->setSpecialValueText(tr("as in the legibility check"));
 	
 	icon_widget = new IconPropertiesWidget(symbol, dialog);  // before reset()
 	
@@ -90,6 +100,10 @@ SymbolPropertiesWidget::SymbolPropertiesWidget(Symbol* symbol, SymbolSettingDial
 	connect(name_edit, &QLineEdit::textEdited, this, &SymbolPropertiesWidget::nameChanged);
 	connect(description_edit, &QTextEdit::textChanged, this, &SymbolPropertiesWidget::descriptionChanged);
 	connect(helper_symbol_check, &QAbstractButton::clicked, this, &SymbolPropertiesWidget::helperSymbolChanged);
+	connect(minimum_gap_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double value) {
+		this->symbol->setMinimumGap(qRound(1000.0 * value));
+		emit propertiesModified();
+	});  // foom
 	connect(this, &SymbolPropertiesWidget::propertiesModified, dialog, [dialog]() { dialog->setSymbolModified(true); });
 	
 	int row = 0, col = 0;
@@ -126,6 +140,10 @@ SymbolPropertiesWidget::SymbolPropertiesWidget(Symbol* symbol, SymbolSettingDial
 	
 	row++; col = 0;
 	layout->addWidget(helper_symbol_check, row, col, 1, num_col);
+	
+	row++; col = 0;  // foom
+	layout->addWidget(minimum_gap_label, row, col++);
+	layout->addWidget(minimum_gap_edit, row, col++, 1, num_col-1);
 	
 	addPropertiesGroup(tr("General"), generalTab);
 	
@@ -344,6 +362,10 @@ void SymbolPropertiesWidget::reset(Symbol* symbol)
 	}
 	updateTextEdits();
 	helper_symbol_check->setChecked(symbol->isHelperSymbol());
+	{
+		QSignalBlocker block_gap(minimum_gap_edit);  // foom
+		minimum_gap_edit->setValue(0.001 * symbol->minimumGap());
+	}
 	
 	icon_widget->reset(symbol);
 }

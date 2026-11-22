@@ -42,6 +42,7 @@
 #include <QTemporaryDir>
 
 #include "global.h"
+#include "check/map_check.h"
 #include "core/map.h"
 #include "core/map_color.h"
 #include "core/map_coord.h"
@@ -50,6 +51,7 @@
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
 #include "core/ops/line_text.h"
+#include "core/selection_queries.h"
 #include "core/symbols/path_text_layout.h"
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/text_symbol.h"
@@ -84,6 +86,7 @@ private slots:
 	void lengthenOp();
 	void lengthenEditor();
 	void lengthenDialog();
+	void selectTooShort();
 
 private:
 	static TextSymbol* makeSymbol(Map& map, bool follows_path, int alignment);
@@ -531,6 +534,64 @@ void LineTextTest::lengthenDialog()
 	QVERIFY2(dialog.width() >= needed, qPrintable(QString::fromLatin1("%1 < %2").arg(dialog.width()).arg(needed)));
 }
 
+
+void LineTextTest::selectTooShort()
+{
+	// the design notes, "Selecting line text whose line is too short", Accept.
+	auto* map = new Map();
+	addBlack(*map);
+	auto* along = makeSymbol(*map, true, 0);
+	auto* hidden = makeSymbol(*map, true, 0);
+	hidden->setHidden(true);
+	auto* plain = makeSymbol(*map, false, 0);
+	auto const text = QStringLiteral("Path text 123");
+	auto* too_short = makePathText(along, text, { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0) });
+	map->addObject(too_short);
+	auto* long_enough = makePathText(along, text, { MapCoord(0.0, 20.0), MapCoord(80.0, 20.0) });
+	map->addObject(long_enough);
+	map->addObject(makePathText(hidden, text, { MapCoord(0.0, 40.0), MapCoord(10.0, 40.0) }));
+	auto* ordinary = new TextObject(plain);
+	ordinary->setText(text);
+	ordinary->setAnchorPosition(MapCoord(0.0, 60.0));
+	map->addObject(ordinary);
+	auto* empty = makePathText(along, QString{}, { MapCoord(0.0, 80.0), MapCoord(1.0, 80.0) });
+	map->addObject(empty);
+	// A line text which once followed a path but has a single anchor now.
+	auto* single = new TextObject(along);
+	single->setText(text);
+	single->setAnchorPosition(MapCoord(0.0, 100.0));
+	map->addObject(single);
+
+	auto const found = findLineTextTooShort(*map->getCurrentPart());
+	QCOMPARE(found.size(), std::size_t(1));
+	QCOMPARE(found.front(), static_cast<Object*>(too_short));
+	// The map check reports the same line text, and not the one with a single anchor.
+	auto overflowing = 0;
+	for (auto const& issue : checkMap(*map))
+	{
+		if (issue.rule == rule::text_path_overflow)
+		{
+			++overflowing;
+			QVERIFY(!issue.objects.contains(single->uuid()));
+		}
+	}
+	QCOMPARE(overflowing, 2);  // the too short one and the one of the hidden symbol
+
+	// In the editor: the action, and the selection it makes.
+	Editor editor(map);
+	QVERIFY(editor.editor->getAction("select-line-text-too-short"));
+	map->clearObjectSelection(true);
+	QCOMPARE(editor.editor->selectLineTextTooShort(), 1);
+	QCOMPARE(map->getNumSelectedObjects(), 1);
+	QVERIFY(map->isObjectSelected(too_short));
+
+	// Lengthened far enough, it is no longer found.
+	ops::LengthenLineTextParams params;
+	params.distance = 60.0;
+	editor.editor->lengthenLineText(params);
+	QCOMPARE(editor.editor->selectLineTextTooShort(), 0);
+	QCOMPARE(map->getNumSelectedObjects(), 0);
+}
 
 QTEST_MAIN(LineTextTest)
 #include "line_text_t.moc"  // IWYU pragma: keep

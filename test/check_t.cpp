@@ -18,6 +18,7 @@
  */
 
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <vector>
@@ -74,7 +75,9 @@ private slots:
 	void initTestCase();
 	void issueModelTest();
 	void mapCheckTest();
+	void mapCheckAssignTest();
 	void legibilityTest();
+	void legibilitySymbolGapTest();
 	void colourGroupTest();
 };
 
@@ -278,6 +281,86 @@ const Issue* findObjectIssue(const std::vector<Issue>& issues, const char* rule,
 
 }  // namespace
 
+void CheckTest::mapCheckAssignTest()
+{
+	// the design notes, "Map check", Accept (assign symbol).
+	Map map;
+	auto* black = new MapColor(QStringLiteral("black"), 0);
+	map.addColor(black, 0);
+	auto* line_symbol = new LineSymbol();
+	line_symbol->setColor(black);
+	line_symbol->setLineWidth(1);
+	map.addSymbol(line_symbol, 0);
+	auto* area_symbol = new AreaSymbol();
+	area_symbol->setColor(black);
+	map.addSymbol(area_symbol, 1);
+	auto* point_symbol = new PointSymbol();
+	map.addSymbol(point_symbol, 2);
+	auto* text_symbol = new TextSymbol();
+	map.addSymbol(text_symbol, 3);
+
+	auto* wrong = new PathObject(point_symbol, { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0) });
+	map.addObject(wrong);
+	auto* lost = new PathObject(Map::getUndefinedLine(), { MapCoord(0.0, 10.0), MapCoord(10.0, 10.0) });
+	map.addObject(lost);
+	auto* blank = new TextObject(text_symbol);
+	blank->setText(QString{});
+	blank->setAnchorPosition(MapCoord(50.0, 0.0));
+	map.addObject(blank);
+	auto* part = map.getCurrentPart();
+	auto const num_objects = part->getNumObjects();
+
+	auto const issues = checkMap(map);
+	auto const* wrong_issue = findObjectIssue(issues, rule::symbol_wrong_type, wrong);
+	auto const* lost_issue = findObjectIssue(issues, rule::symbol_undefined, lost);
+	auto const* blank_issue = findObjectIssue(issues, rule::text_empty, blank);
+	QVERIFY(wrong_issue && lost_issue && blank_issue);
+
+	// The symbols offered fit the object's type: lines and areas for a path.
+	auto const offered = assignableSymbols(map, *wrong_issue);
+	QCOMPARE(offered.size(), std::size_t(2));
+	QVERIFY(std::find(offered.begin(), offered.end(), line_symbol) != offered.end());
+	QVERIFY(std::find(offered.begin(), offered.end(), area_symbol) != offered.end());
+	QCOMPARE(assignableSymbols(map, *lost_issue).size(), std::size_t(2));
+	QVERIFY(assignableSymbols(map, *blank_issue).empty());  // not a symbol rule
+
+	// A symbol that does not fit, or another rule, changes nothing.
+	auto const undo_steps = map.undoManager().undoStepCount();
+	QVERIFY(!assignSymbol(map, *wrong_issue, point_symbol));
+	QVERIFY(!assignSymbol(map, *wrong_issue, text_symbol));
+	QVERIFY(!assignSymbol(map, *wrong_issue, nullptr));
+	QVERIFY(!assignSymbol(map, *blank_issue, text_symbol));
+	QCOMPARE(map.undoManager().undoStepCount(), undo_steps);
+
+	// Assigning keeps the object, its identity and its coordinates; one undo step each.
+	auto const wrong_uuid = wrong->uuid();
+	auto const lost_uuid = lost->uuid();
+	QVERIFY(assignSymbol(map, *wrong_issue, line_symbol));
+	QCOMPARE(map.undoManager().undoStepCount(), undo_steps + 1);
+	auto const* assigned = map.findObject(wrong_uuid);
+	QVERIFY(assigned);
+	QCOMPARE(assigned->getSymbol(), static_cast<const Symbol*>(line_symbol));
+	QCOMPARE(assigned->getRawCoordinateVector().size(), std::size_t(2));
+	QCOMPARE(part->getNumObjects(), num_objects);
+	QVERIFY(assignSymbol(map, *lost_issue, area_symbol));
+	QCOMPARE(map.undoManager().undoStepCount(), undo_steps + 2);
+	QCOMPARE(map.findObject(lost_uuid)->getSymbol(), static_cast<const Symbol*>(area_symbol));
+
+	auto const again = checkMap(map);
+	QCOMPARE(countRule(again, rule::symbol_wrong_type), 0);
+	QCOMPARE(countRule(again, rule::symbol_undefined), 0);
+
+	// Undo brings the wrong symbol back.
+	map.undoManager().undo(nullptr);
+	map.undoManager().undo(nullptr);
+	QCOMPARE(map.findObject(wrong_uuid)->getSymbol(), static_cast<const Symbol*>(point_symbol));
+	QCOMPARE(countRule(checkMap(map), rule::symbol_wrong_type), 1);
+
+	// Objects that are gone: nothing to do.
+	map.deleteObject(const_cast<Object*>(map.findObject(wrong_uuid)));
+	QVERIFY(!assignSymbol(map, *wrong_issue, line_symbol));
+}
+
 void CheckTest::legibilityTest()
 {
 	// the design notes, "Legibility", Accept.
@@ -404,6 +487,96 @@ void CheckTest::legibilityTest()
 
 	map.setScaleDenominator(10000);
 	QCOMPARE(defaultGap(map), 0.23);
+}
+
+void CheckTest::legibilitySymbolGapTest()
+{
+	// the design notes, "Legibility", Accept (the minimum gap per symbol).
+	Map map;
+	map.setScaleDenominator(15000);
+	auto* black = new MapColor(QStringLiteral("Black"), 0);
+	black->setCmyk(MapColorCmyk(0.0f, 0.0f, 0.0f, 1.0f));
+	map.addColor(black, 0);
+	auto const line_symbol = [&map, black](int number, int minimum_gap) {
+		auto* symbol = new LineSymbol();
+		symbol->setColor(black);
+		symbol->setLineWidth(0.5);
+		symbol->setNumberComponent(0, number);
+		symbol->setMinimumGap(minimum_gap);
+		map.addSymbol(symbol, map.getNumSymbols());
+		return symbol;
+	};
+	auto* plain = line_symbol(501, 0);
+	auto* roomy = line_symbol(502, 2000);
+	auto* tight = line_symbol(503, 50);
+	QCOMPARE(plain->minimumGap(), 0);
+	QCOMPARE(roomy->minimumGap(), 2000);
+	plain->setMinimumGap(-5);
+	QCOMPARE(plain->minimumGap(), 0);
+
+	// Two plain lines 0.8 mm apart: gap 0.3, above the scan's 0.15.
+	addLine(map, plain, MapCoord(0.0, 0.0), MapCoord(10.0, 0.0));
+	addLine(map, plain, MapCoord(0.0, 0.8), MapCoord(10.0, 0.8));
+	// A plain and a roomy line 2 mm apart: gap 1.5, below the roomy symbol's 2.
+	auto* near_plain = addLine(map, plain, MapCoord(0.0, 100.0), MapCoord(10.0, 100.0));
+	auto* near_roomy = addLine(map, roomy, MapCoord(0.0, 102.0), MapCoord(10.0, 102.0));
+	// Two roomy lines 3 mm apart: gap 2.5, enough.
+	addLine(map, roomy, MapCoord(0.0, 200.0), MapCoord(10.0, 200.0));
+	addLine(map, roomy, MapCoord(0.0, 203.0), MapCoord(10.0, 203.0));
+	// Two tight lines 0.6 mm apart: gap 0.1, enough for their 0.05.
+	addLine(map, tight, MapCoord(0.0, 300.0), MapCoord(10.0, 300.0));
+	addLine(map, tight, MapCoord(0.0, 300.6), MapCoord(10.0, 300.6));
+	// A tight and a plain line 0.6 mm apart: the plain line's 0.15 counts, the larger.
+	auto* mixed_tight = addLine(map, tight, MapCoord(0.0, 400.0), MapCoord(10.0, 400.0));
+	addLine(map, plain, MapCoord(0.0, 400.6), MapCoord(10.0, 400.6));
+
+	LegibilityParams params;
+	params.gap_mm = 0.15;
+	auto const issues = checkLegibility(map, params);
+	QCOMPARE(countRule(issues, rule::gap), 2);
+	auto const* roomy_issue = findObjectIssue(issues, rule::gap, near_roomy);
+	QVERIFY(roomy_issue);
+	QVERIFY(roomy_issue->objects.contains(near_plain->uuid()));
+	QVERIFY(std::abs(roomy_issue->measured - 1.5) < 1e-6);
+	QCOMPARE(roomy_issue->limit, 2.0);
+	auto const* mixed_issue = findObjectIssue(issues, rule::gap, mixed_tight);
+	QVERIFY(mixed_issue);
+	QCOMPARE(mixed_issue->limit, 0.15);
+
+	// Without the symbols' gaps the scan's own gap applies to every pair.
+	roomy->setMinimumGap(0);
+	tight->setMinimumGap(0);
+	auto const plain_issues = checkLegibility(map, params);
+	QCOMPARE(countRule(plain_issues, rule::gap), 2);  // the tight pair and the mixed pair
+	QVERIFY(!findObjectIssue(plain_issues, rule::gap, near_roomy));
+	roomy->setMinimumGap(2000);
+
+	// Copies and equality.
+	auto copy = Symbol::duplicate(*roomy);
+	QCOMPARE(copy->minimumGap(), 2000);
+	QVERIFY(copy->equals(roomy));
+	copy->setMinimumGap(1000);
+	QVERIFY(!copy->equals(roomy));
+
+	// Saving and loading keeps the gap, and writes none for a symbol without one.
+	XMLFileFormat format;
+	QBuffer buffer;
+	QVERIFY(buffer.open(QIODevice::ReadWrite));
+	auto exporter = format.makeExporter({}, &map, nullptr);
+	exporter->setDevice(&buffer);
+	QVERIFY(exporter->doExport());
+	auto const data = QString::fromUtf8(buffer.data());
+	QCOMPARE(data.count(QLatin1String(" minimum_gap=")), 1);
+	QVERIFY(data.contains(QLatin1String(" minimum_gap=\"2000\"")));
+	QVERIFY(buffer.seek(0));
+	Map reloaded;
+	auto importer = format.makeImporter({}, &reloaded, nullptr);
+	importer->setDevice(&buffer);
+	QVERIFY(importer->doImport());
+	QCOMPARE(reloaded.getNumSymbols(), 3);
+	QCOMPARE(reloaded.getSymbol(0)->minimumGap(), 0);
+	QCOMPARE(reloaded.getSymbol(1)->minimumGap(), 2000);
+	QCOMPARE(reloaded.getSymbol(2)->minimumGap(), 0);
 }
 
 void CheckTest::colourGroupTest()
