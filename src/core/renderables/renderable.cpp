@@ -28,6 +28,7 @@
 #include <QBrush>
 #include <QColor>
 #include <QImage>
+#include <QPaintEngine>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPen>
@@ -235,6 +236,35 @@ MapRenderables::MapRenderables(Map* map)
 	; // nothing
 }
 
+namespace {
+
+/**
+ * foom: Sets the composition mode for a colour's blend mode, where the paint
+ * engine supports it. the design notes, "Raster plates and CMYK raster"
+ */
+void setBlendMode(QPainter* painter, MapColor::BlendMode blend_mode)
+{
+	auto mode = QPainter::CompositionMode_SourceOver;
+	switch (blend_mode)
+	{
+	case MapColor::BlendMultiply:
+		mode = QPainter::CompositionMode_Multiply;
+		break;
+	case MapColor::BlendDarken:
+		mode = QPainter::CompositionMode_Darken;
+		break;
+	case MapColor::BlendNormal:
+		break;
+	}
+	if (painter->compositionMode() == mode)
+		return;
+	auto const* engine = painter->paintEngine();
+	if (mode == QPainter::CompositionMode_SourceOver || (engine && engine->hasFeature(QPaintEngine::BlendModes)))
+		painter->setCompositionMode(mode);
+}
+
+}  // namespace
+
 void MapRenderables::draw(QPainter *painter, const RenderConfig &config) const
 {
 	// TODO: improve performance by using some spatial acceleration structure?
@@ -296,6 +326,8 @@ void MapRenderables::draw(QPainter *painter, const RenderConfig &config) const
 					color.setAlphaF(map_color->getOpacity());
 				if (!state.activate(painter, current_clip, config, color, initial_clip))
 				    continue;
+				if (config.blend_modes)
+					setBlendMode(painter, state.color_priority >= 0 ? map_color->getBlendMode() : MapColor::BlendNormal);  // foom
 				
 				for (const auto* renderable : renderables.second)
 				{

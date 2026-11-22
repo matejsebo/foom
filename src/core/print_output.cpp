@@ -82,6 +82,7 @@ QImage renderInk(const Map& map, const QRectF& area, double dpi, double scale_ad
 		painter.scale(scale, scale);
 		painter.translate(-area.topLeft());
 		RenderConfig config = { map, area, scale, RenderConfig::NoOptions, 1.0 };
+		config.blend_modes = true;
 		draw(painter, config);
 	}
 	auto ink = image.convertToFormat(QImage::Format_Grayscale8);
@@ -380,7 +381,7 @@ QString plateFileName(const QString& path, const QString& plate_name)
 }
 
 bool saveSpotPlates(Map& map, const QRectF& area, double dpi, double scale_adjustment, const QString& path, PlateForm form, QStringList* files, QString* error,
-                    bool with_templates, const MapView* view)
+                    bool with_templates, const MapView* view, const PlateWriter& writer)
 {
 	auto const plates = renderSpotPlates(map, area, dpi, scale_adjustment, with_templates, view);
 	if (plates.empty())
@@ -421,13 +422,21 @@ bool saveSpotPlates(Map& map, const QRectF& area, double dpi, double scale_adjus
 			return false;
 		
 		auto const file = plateFileName(path, plate.name);
-		QImageWriter writer(file);
-		if (writer.supportsOption(QImageIOHandler::CompressionRatio) && QFileInfo(file).suffix().startsWith(QLatin1String("tif"), Qt::CaseInsensitive))
-			writer.setCompression(1);  // LZW
-		if (!writer.write(image))
+		if (writer)
 		{
-			setError(error, tr("Cannot write %1: %2").arg(file, writer.errorString()));
-			return false;
+			if (!writer(file, image, error))
+				return false;
+		}
+		else
+		{
+			QImageWriter image_writer(file);
+			if (image_writer.supportsOption(QImageIOHandler::CompressionRatio) && QFileInfo(file).suffix().startsWith(QLatin1String("tif"), Qt::CaseInsensitive))
+				image_writer.setCompression(1);  // LZW
+			if (!image_writer.write(image))
+			{
+				setError(error, tr("Cannot write %1: %2").arg(file, image_writer.errorString()));
+				return false;
+			}
 		}
 		if (files)
 			files->append(file);

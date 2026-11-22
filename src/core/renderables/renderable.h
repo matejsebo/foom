@@ -100,6 +100,8 @@ public:
 	
 	int     process_channel = -1;  ///< foom: 0 to 3 to draw the cyan, magenta, yellow or black plate in grey.
 	
+	bool    blend_modes = false;   ///< foom: draw colours with their blend modes (output, not the screen).
+	
 	/**
 	 * A convenience method for testing flags in the options value.
 	 * 

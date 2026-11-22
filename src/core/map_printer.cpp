@@ -1142,6 +1142,7 @@ void MapPrinter::drawPage(
 		setExactClipRect(map_painter, page_region_used);
 		
 		RenderConfig config = { map, page_region_used, units_per_mm * scale_adjustment, render_options, 1.0 };
+		config.blend_modes = true;  // foom: the design notes, "Raster plates and CMYK raster"
 		
 		if (rasterModeSelected() && options.simulate_overprinting)
 		{

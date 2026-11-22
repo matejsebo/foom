@@ -696,12 +696,13 @@ MapPrinterOptions::MapPrinterMode parseMode(const Params& p, MapPrinterOptions::
 	p.fail(QString::fromLatin1("unknown mode \"%1\": expected \"vector\", \"raster\" or \"separations\"").arg(name));
 }
 
-/** What `plates`, `depth` and `halftone` ask for. */
+/** What `plates`, `depth`, `halftone` and `compression` ask for. */
 struct PlateRequest
 {
 	enum Kind { None, Cmyk, Spot };
 	Kind kind = None;
 	PlateForm form = PlateForm::Grey;
+	bool fax = false;  ///< CCITT group 4 instead of LZW
 };
 
 PlateRequest parsePlates(const Params& p, const QString& format)
@@ -709,7 +710,7 @@ PlateRequest parsePlates(const Params& p, const QString& format)
 	PlateRequest request;
 	if (!p.has("plates"))
 	{
-		for (auto parameter : { "depth", "halftone" })
+		for (auto parameter : { "depth", "halftone", "compression" })
 		{
 			if (p.has(parameter))
 				p.fail(QString::fromLatin1("parameter \"%1\" needs \"plates\": \"spot\"").arg(QLatin1String(parameter)));
@@ -726,7 +727,7 @@ PlateRequest parsePlates(const Params& p, const QString& format)
 #ifndef MAPPER_USE_GDAL
 		p.fail(QLatin1String("\"plates\": \"cmyk\" needs a build with GDAL"));
 #endif
-		for (auto parameter : { "depth", "halftone" })
+		for (auto parameter : { "depth", "halftone", "compression" })
 		{
 			if (p.has(parameter))
 				p.fail(QString::fromLatin1("parameter \"%1\" needs \"plates\": \"spot\"").arg(QLatin1String(parameter)));
@@ -746,6 +747,23 @@ PlateRequest parsePlates(const Params& p, const QString& format)
 		if (halftone && depth != 1)
 			p.fail(QLatin1String("\"halftone\" needs \"depth\": 1"));
 		request.form = depth == 8 ? PlateForm::Grey : halftone ? PlateForm::Halftone : PlateForm::LineArt;
+		// foom: the design notes, "Raster plates and CMYK raster"
+		auto const compression = p.optionalString("compression", QStringLiteral("lzw"));
+		if (compression == QLatin1String("fax"))
+		{
+			request.fax = true;
+			if (depth != 1)
+				p.fail(QLatin1String("\"compression\": \"fax\" needs \"depth\": 1"));
+			if (format.compare(QLatin1String("tif"), Qt::CaseInsensitive) != 0 && format.compare(QLatin1String("tiff"), Qt::CaseInsensitive) != 0)
+				p.fail(QLatin1String("\"compression\": \"fax\" is written as TIFF only"));
+#ifndef MAPPER_USE_GDAL
+			p.fail(QLatin1String("\"compression\": \"fax\" needs a build with GDAL"));
+#endif
+		}
+		else if (compression != QLatin1String("lzw"))
+		{
+			p.fail(QString::fromLatin1("unknown compression \"%1\": expected \"lzw\" or \"fax\"").arg(compression));
+		}
 	}
 	else
 	{
@@ -1119,7 +1137,7 @@ void StepRunner::validate(const Step& step, bool& map_open)
 	{
 		p.requireMap(map_open);
 		p.checkKnown({ "format", "path", "extent", "scale", "dpi", "mode", "course",
-		               "plates", "depth", "halftone", "templates", "grid", "overprinting", "paper", "orientation", "overlap" });
+		               "plates", "depth", "halftone", "compression", "templates", "grid", "overprinting", "paper", "orientation", "overlap" });
 		auto const path = p.requireString("path");
 		p.unsupported("course", "the course data are written by the step \"export-courses\", the maps of the courses by \"export-course-maps\"");  // foom
 		auto const target = resolveExportFormat(p, path, p.optionalString("format"));
@@ -1138,7 +1156,7 @@ void StepRunner::validate(const Step& step, bool& map_open)
 		case ExportTarget::Pdf:
 			if (target.kind == ExportTarget::Pdf)
 			{
-				for (auto parameter : { "plates", "depth", "halftone" })
+				for (auto parameter : { "plates", "depth", "halftone", "compression" })
 				{
 					if (p.has(parameter))
 						p.fail(QString::fromLatin1("parameter \"%1\" applies to image export only").arg(QLatin1String(parameter)));
@@ -1155,7 +1173,7 @@ void StepRunner::validate(const Step& step, bool& map_open)
 			parseExtent(p);
 			break;
 		case ExportTarget::Registry:
-			for (auto parameter : { "extent", "scale", "dpi", "mode", "plates", "depth", "halftone", "templates", "grid", "overprinting", "paper", "orientation", "overlap" })
+			for (auto parameter : { "extent", "scale", "dpi", "mode", "plates", "depth", "halftone", "compression", "templates", "grid", "overprinting", "paper", "orientation", "overlap" })
 			{
 				if (p.has(parameter))
 					p.fail(QString::fromLatin1("parameter \"%1\" applies to image and PDF export only, not to \"%2\"").arg(QLatin1String(parameter), target.format));
@@ -1593,16 +1611,30 @@ StepResult StepRunner::exportImage(const Step& step, const QString& path, const 
 		auto const resolution = printer.getOptions().resolution;
 		QStringList files;
 		QString error;
+#ifdef MAPPER_USE_GDAL
+		// foom: TIFF through GDAL, with the georeference. the design notes, "Raster plates and CMYK raster"
+		auto const georeference = plateGeoreference(*map, area, resolution, printer.getScaleAdjustment());
+		PlateWriter writer;
+		if (format.startsWith(QLatin1String("tif"), Qt::CaseInsensitive))
+		{
+			auto const compression = plates.fax ? PlateCompression::Fax : PlateCompression::Lzw;
+			writer = [resolution, compression, &georeference](const QString& file, const QImage& image, QString* error) {
+				return writePlateTiff(file, image, resolution, compression, &georeference, error);
+			};
+		}
+#else
+		PlateWriter writer;
+#endif
 		if (plates.kind == PlateRequest::Spot)
 		{
 			if (!saveSpotPlates(*map, area, resolution, printer.getScaleAdjustment(), path, plates.form, &files, &error,
-			                    printer.getOptions().show_templates))  // foom: templates on their plates
+			                    printer.getOptions().show_templates, nullptr, writer))  // foom: templates on their plates
 				return failure(error);
 		}
 		else
 		{
 #ifdef MAPPER_USE_GDAL
-			if (!writeCmykTiff(path, renderProcessPlates(*map, area, resolution, printer.getScaleAdjustment()), resolution, &error))
+			if (!writeCmykTiff(path, renderProcessPlates(*map, area, resolution, printer.getScaleAdjustment()), resolution, &error, &georeference))
 				return failure(error);
 			files.append(path);
 #else

@@ -21,6 +21,7 @@
 #ifndef FOOM_PRINT_OUTPUT_H
 #define FOOM_PRINT_OUTPUT_H
 
+#include <functional>
 #include <vector>
 
 #include <QImage>
@@ -118,12 +119,18 @@ QString plateFileName(const QString& path, const QString& plate_name);
 enum class PlateForm { Grey, LineArt, Halftone };
 
 /**
+ * Writes one plate image to a file; returns false with a message.
+ * saveSpotPlates() uses Qt's image writers when none is given.
+ */
+using PlateWriter = std::function<bool (const QString& file, const QImage& image, QString* error)>;
+
+/**
  * Writes one image per spot colour beside the path.
  * Returns false with a message when the map has no spot colour or a file cannot be written,
  * and, before any file is written, when a colour's screen is too fine for the resolution.
  */
 bool saveSpotPlates(Map& map, const QRectF& area, double dpi, double scale_adjustment, const QString& path, PlateForm form, QStringList* files, QString* error,
-                    bool with_templates = false, const MapView* view = nullptr);
+                    bool with_templates = false, const MapView* view = nullptr, const PlateWriter& writer = {});
 
 
 }  // namespace OpenOrienteering
