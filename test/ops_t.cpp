@@ -2220,6 +2220,55 @@ void OpsTest::buildingsTest()
 	}
 	QCOMPARE(series.out[0]->uuid(), square_a->uuid());
 	QCOMPARE(series.out[1]->derivedFrom(), square_a->uuid());
+
+	// Rectangles: L-shaped, each object (the design notes, "Generalize buildings", Accept (L-shaped)).
+	rectangle.mode = ops::RectangleParams::Corner;
+	rectangle.area_factor = 1.0;
+	auto* exact_ell = ring({ MapCoord(0.0, 300.0), MapCoord(10.0, 300.0), MapCoord(10.0, 304.0), MapCoord(4.0, 304.0), MapCoord(4.0, 310.0), MapCoord(0.0, 310.0) });
+	auto unchanged_ell = ops::buildingRectangles(map, { exact_ell }, rectangle);
+	QVERIFY(unchanged_ell.error.isEmpty());
+	QVERIFY(unchanged_ell.out.empty());  // already an L
+	auto* ell = ring({ MapCoord(0.0, 300.0), MapCoord(5.0, 300.0), MapCoord(10.0, 300.0), MapCoord(10.0, 304.0), MapCoord(4.0, 304.0), MapCoord(4.0, 310.0), MapCoord(0.0, 310.0) });
+	auto shaped = ops::buildingRectangles(map, { ell }, rectangle);
+	QVERIFY2(shaped.error.isEmpty(), shaped.error.toLatin1());
+	QCOMPARE(shaped.out.size(), std::size_t(1));
+	QCOMPARE(shaped.consumed, (std::vector<const Object*>{ ell }));
+	QCOMPARE(shaped.out.front()->uuid(), ell->uuid());
+	corners = vertices(shaped.out.front().get());
+	QCOMPARE(corners.size(), std::size_t(6));
+	for (auto const& coord : vertices(exact_ell))
+		QVERIFY2(has_vertex(corners, coord.x(), coord.y()), qPrintable(QString::number(coord.x()) + QLatin1Char(' ') + QString::number(coord.y())));
+	QVERIFY(shaped.out.front()->asPath()->parts().front().isClosed());
+	// The notch at another corner, and the shape turned by 30 degrees.
+	auto* turned_ell = ring({ rotate(0.0, 0.0), rotate(10.0, 0.0), rotate(10.0, 10.0), rotate(6.0, 10.0), rotate(6.0, 3.0), rotate(0.0, 3.0) });
+	auto turned = ops::buildingRectangles(map, { turned_ell }, rectangle);
+	QCOMPARE(turned.out.size(), std::size_t(1));
+	corners = vertices(turned.out.front().get());
+	QCOMPARE(corners.size(), std::size_t(6));
+	for (auto const& coord : vertices(turned_ell))
+		QVERIFY(has_vertex(corners, coord.x(), coord.y()));
+	// A noisy L becomes a clean one of the same area, its inner corner near (4, 404).
+	auto* noisy = ring({ MapCoord(0.0, 400.0), MapCoord(10.0, 400.0), MapCoord(10.0, 404.1), MapCoord(4.0, 403.9), MapCoord(4.0, 410.0), MapCoord(0.0, 410.0) });
+	auto cleaned = ops::buildingRectangles(map, { noisy }, rectangle);
+	QCOMPARE(cleaned.out.size(), std::size_t(1));
+	corners = vertices(cleaned.out.front().get());
+	QCOMPARE(corners.size(), std::size_t(6));
+	QVERIFY(near(area(corners), area(vertices(noisy)), 0.05));
+	QVERIFY(std::any_of(corners.begin(), corners.end(), [](const QPointF& p) { return std::abs(p.x() - 4.0) < 0.15 && std::abs(p.y() - 404.0) < 0.15; }));
+	for (std::size_t i = 0; i < 6; ++i)
+	{
+		auto const a = corners[(i + 5) % 6] - corners[i];
+		auto const b = corners[(i + 1) % 6] - corners[i];
+		QVERIFY(std::abs(a.x() * b.x() + a.y() * b.y()) < 0.01 * std::hypot(a.x(), a.y()) * std::hypot(b.x(), b.y()));  // right angles
+	}
+	// A rectangle stays a rectangle; the area factor scales the area.
+	auto boxed_corner = ops::buildingRectangles(map, { rotated_box }, rectangle);
+	QCOMPARE(boxed_corner.out.size(), std::size_t(1));
+	QCOMPARE(vertices(boxed_corner.out.front().get()).size(), std::size_t(4));
+	rectangle.area_factor = 2.0;
+	auto doubled_ell = ops::buildingRectangles(map, { ell }, rectangle);
+	QVERIFY(near(area(vertices(doubled_ell.out.front().get())), 128.0, 0.05));
+	QCOMPARE(vertices(doubled_ell.out.front().get()).size(), std::size_t(6));
 }
 
 void OpsTest::smoothTest()

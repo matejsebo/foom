@@ -355,9 +355,11 @@ GeneralizeBuildingsDialog::GeneralizeBuildingsDialog(QWidget* parent)
 
 	rectangle_button = new QRadioButton(tr("Replace by rectangles"));
 	mode_combo = new QComboBox();
+	mode_combo->setObjectName(QStringLiteral("rectangle_mode_combo"));
 	mode_combo->addItem(tr("Each object by its own rectangle"), int(ops::RectangleParams::Each));
 	mode_combo->addItem(tr("All objects by one rectangle"), int(ops::RectangleParams::All));
 	mode_combo->addItem(tr("All objects by a series of rectangles"), int(ops::RectangleParams::Series));
+	mode_combo->addItem(tr("Each object by an L-shaped rectangle"), int(ops::RectangleParams::Corner));  // the design notes
 	count_edit = new QSpinBox();
 	count_edit->setRange(1, 50);
 	count_edit->setValue(2);

@@ -3166,6 +3166,12 @@ void ToolsTest::buildings()
 	GeneralizeBuildingsDialog generalize(editor.window);
 	QVERIFY(generalize.simplify());
 	QCOMPARE(generalize.rectangleParams().area_factor, 1.0);
+	auto* mode_combo = generalize.findChild<QComboBox*>(QStringLiteral("rectangle_mode_combo"));
+	QVERIFY(mode_combo);
+	auto const corner_index = mode_combo->findData(int(ops::RectangleParams::Corner));
+	QVERIFY(corner_index >= 0);
+	mode_combo->setCurrentIndex(corner_index);
+	QCOMPARE(generalize.rectangleParams().mode, ops::RectangleParams::Corner);
 	ops::RectangleParams rectangle;
 	rectangle.area_factor = 2.0;
 	editor.editor->buildingRectangles(rectangle);
