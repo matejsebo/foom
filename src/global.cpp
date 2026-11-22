@@ -28,6 +28,9 @@
 #include "fileformats/xml_file_format.h"
 #include "fileformats/ocd_file_format.h"
 #include "gdal/ogr_file_format.h"
+#ifdef FOOM_WITH_POPPLER
+#include "pdf/pdf_import.h"
+#endif
 
 
 namespace OpenOrienteering {
@@ -39,6 +42,10 @@ void doStaticInitializations()
 #ifndef MAPPER_BIG_ENDIAN
 	for (auto&& format : OcdFileFormat::makeAll())
 		FileFormats.registerFormat(format.release());
+#endif
+#ifdef FOOM_WITH_POPPLER
+	// foom: before OGR, whose PDF driver reads only structured geospatial PDF
+	FileFormats.registerFormat(new PdfFileFormat());
 #endif
 #ifdef MAPPER_USE_GDAL
 	FileFormats.registerFormat(new OgrFileImportFormat());

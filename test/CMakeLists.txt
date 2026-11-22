@@ -226,6 +226,11 @@ target_link_libraries(symbol_t PRIVATE MapperTestUtils)
 add_system_test(path_text_t)
 target_link_libraries(path_text_t PRIVATE MapperTestUtils)
 add_system_test(line_text_t)  # foom: the design notes, Text on a path: editor, tool, lengthen
+if(TARGET mapper-pdf)
+	add_system_test(pdf_import_t)  # foom: the design notes, PDF import
+	target_compile_definitions(pdf_import_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
+	add_dependencies(pdf_import_t foom-cli)
+endif()
 if (Mapper_USE_GDAL)
 	add_system_test(tile_template_t)  # foom: tile service templates, needs the GDAL WMS driver
 	target_include_directories(tile_template_t SYSTEM PRIVATE ${GDAL_INCLUDE_DIRS})

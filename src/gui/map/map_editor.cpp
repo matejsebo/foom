@@ -316,6 +316,10 @@
 #include "undo/undo_manager.h"
 #include "util/backports.h" // IWYU pragma: keep
 
+#ifdef FOOM_WITH_POPPLER
+#include "pdf/pdf_import.h"  // foom
+#include "pdf/pdf_import_dialog.h"  // foom
+#endif
 #ifdef MAPPER_USE_GDAL
 #include "gdal/ogr_template.h"
 #include "gdal/geodata_import.h"  // foom
@@ -8330,6 +8334,32 @@ void MapEditorController::importClicked()
 	auto* map_format = FileFormats.findFormatForFilename(filename, &FileFormat::supportsFileImport);
 	if (map_format)
 		format_id = map_format->id();
+	
+#ifdef FOOM_WITH_POPPLER
+	// foom: the design notes, "PDF import"
+	if (qstrcmp(format_id, "PDF") == 0)
+	{
+		auto const center = main_view->center();
+		PdfImportDialog dialog(filename, *map, QPointF(center.x(), center.y()), window);
+		if (dialog.pageSizes().empty())
+		{
+			QMessageBox::warning(window, tr("Error"), dialog.error());
+			return;
+		}
+		if (dialog.exec() != QDialog::Accepted)
+			return;
+		auto const result = importPdf(*map, filename, dialog.options());
+		if (!result.ok)
+		{
+			QMessageBox::warning(window, tr("Error"), result.error);
+			return;
+		}
+		if (!result.warnings.isEmpty())
+			MainWindow::showMessageBox(window, tr("Warning"), tr("The import generated warnings."), std::vector<QString>(result.warnings.begin(), result.warnings.end()));
+		window->showStatusBarMessage(tr("Imported %n object(s).", nullptr, result.objects), 4000);
+		return;
+	}
+#endif
 	
 	if (qstrcmp(format_id, "OGR") == 0)
 	{

@@ -97,11 +97,16 @@
 #  include "gdal/import_rule_choice.h"  // foom
 #  include "gdal/new_map.h"  // foom
 #endif
+#ifdef FOOM_WITH_POPPLER
+#  include "pdf/pdf_import.h"  // foom
+#endif
 
 
 namespace OpenOrienteering {
 
 namespace Cli {
+
+static StepResult importPdfStep(Map& map, const Job& job, const Step& step);  // foom
 
 namespace {
 
@@ -1162,6 +1167,22 @@ void StepRunner::validate(const Step& step, bool& map_open)
 		if (p.has("clip"))
 			p.numberArray(p.value("clip"), 4, QLatin1String("\"clip\""));
 	}
+	else if (name == QLatin1String("import-pdf"))  // foom: the design notes, "PDF import"
+	{
+		p.requireMap(map_open);
+		p.checkKnown({ "path", "page", "scale", "centre", "text" });
+		p.requireString("path");
+		if (p.has("page"))
+			p.requirePositiveInt("page");
+		if (p.has("scale"))
+			p.requirePositiveInt("scale");
+		if (p.has("centre"))
+			p.numberArray(p.value("centre"), 2, QLatin1String("\"centre\""));
+		p.optionalBool("text", true);
+#ifndef FOOM_WITH_POPPLER
+		p.fail(QLatin1String("step \"import-pdf\" needs Poppler"));
+#endif
+	}
 	else if (name == QLatin1String("new-map"))  // foom
 	{
 		p.checkKnown({ "box", "symbol_set", "scale", "crs", "declination", "rotate_to_magnetic", "osm", "osm_config", "endpoint", "crt", "tile_service", "elevation", "elevation_cell", "path" });
@@ -1423,6 +1444,8 @@ StepResult StepRunner::run(const Step& step)
 		return open(step);
 	if (name == QLatin1String("import"))
 		return import(step);
+	if (name == QLatin1String("import-pdf"))  // foom
+		return importPdfStep(*map, job, step);
 	if (name == QLatin1String("new-map"))
 		return newMap(step);
 	if (name == QLatin1String("apply-crt"))
@@ -1489,6 +1512,47 @@ StepResult StepRunner::open(const Step& step)
 	result.details.insert(QLatin1String("scale"), int(map->getScaleDenominator()));
 	addWarnings(result, importer->warnings());
 	return result;
+}
+
+
+// foom: the design notes, "PDF import"
+static StepResult importPdfStep(Map& map, const Job& job, const Step& step)
+{
+#ifdef FOOM_WITH_POPPLER
+	Params p(step);
+	auto const path = job.resolvePath(p.requireString("path"));
+	PdfImportOptions options;
+	if (p.has("page"))
+		options.page = int(p.requirePositiveInt("page"));
+	if (p.has("scale"))
+		options.pdf_scale = int(p.requirePositiveInt("scale"));
+	if (p.has("centre"))
+	{
+		auto const centre = p.numberArray(p.value("centre"), 2, QLatin1String("\"centre\""));
+		options.centre = { centre[0], centre[1] };
+	}
+	options.text = p.optionalBool("text", true);
+	auto const imported = importPdf(map, path, options);
+	if (!imported.ok)
+		return failure(imported.error);
+	StepResult result;
+	result.details.insert(QLatin1String("path"), path);
+	result.details.insert(QLatin1String("objects"), imported.objects);
+	result.details.insert(QLatin1String("areas"), imported.areas);
+	result.details.insert(QLatin1String("lines"), imported.lines);
+	result.details.insert(QLatin1String("texts"), imported.texts);
+	result.details.insert(QLatin1String("images"), imported.images);
+	result.details.insert(QLatin1String("shadings"), imported.shadings);
+	result.details.insert(QLatin1String("patterns"), imported.patterns);
+	for (auto const& warning : imported.warnings)
+		appendWarning(result, warning);
+	return result;
+#else
+	Q_UNUSED(map)
+	Q_UNUSED(job)
+	Q_UNUSED(step)
+	return failure(QLatin1String("step \"import-pdf\" needs Poppler"));
+#endif
 }
 
 
