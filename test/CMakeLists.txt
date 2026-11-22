@@ -270,6 +270,10 @@ if(TARGET mapper-elevation)
 	target_link_libraries(runner_elevation_t PRIVATE mapper-elevation)
 	target_compile_definitions(runner_elevation_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
 	add_dependencies(runner_elevation_t foom-cli)
+	add_system_test(elevation_wizard_t)  # foom: the design notes, Wizard
+	target_link_libraries(elevation_wizard_t PRIVATE mapper-elevation)
+	target_compile_definitions(elevation_wizard_t PRIVATE "FOOM_FIXTURES_DIR=\"${FOOM_FIXTURES_DIR}\"" "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
+	add_dependencies(elevation_wizard_t foom-cli)
 endif()
 add_system_test(map_part_role_t)  # foom: the design notes, Map part roles
 add_system_test(private_symbol_t)  # foom: the design notes, Private symbols

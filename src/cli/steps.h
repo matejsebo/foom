@@ -97,6 +97,7 @@ private:
 	StepResult exportCoursesStep(const Step& step);  // foom
 	StepResult importCoursesStep(const Step& step);  // foom
 	StepResult hillShadeStep(const Step& step);  // foom
+	StepResult elevationWizardStep(const Step& step);  // foom
 	StepResult fieldCopyCreate(const Step& step);  // foom
 	StepResult mergeFromFile(const Step& step);  // foom
 	StepResult fieldCopyClose(const Step& step);  // foom

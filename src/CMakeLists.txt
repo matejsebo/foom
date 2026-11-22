@@ -288,6 +288,7 @@ set(Mapper_Common_SRCS
   gui/map/crop_dialog.cpp
   gui/map/extent_dialog.cpp
   gui/map/elevation_dialogs.cpp
+  gui/map/elevation_wizard_dialog.cpp
   gui/map/map_transform_dialogs.cpp
   gui/map/legibility_dialog.cpp
   gui/map/topology_dialogs.cpp
