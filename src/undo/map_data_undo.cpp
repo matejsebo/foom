@@ -31,6 +31,7 @@
 #include "core/bookmarks.h"
 
 #include "core/extents.h"
+#include "core/guides.h"  // foom
 #include "core/map.h"
 #include "core/georeferencing.h"
 #include "core/map_coord.h"
@@ -225,7 +226,7 @@ MapDataUndoStep::~MapDataUndoStep() = default;
 
 bool MapDataUndoStep::isValid() const
 {
-	return data_section == Extents || data_section == Courses || data_section == Bookmarks || data_section == Templates || data_section == Georef;
+	return data_section == Extents || data_section == Courses || data_section == Bookmarks || data_section == Templates || data_section == Georef || data_section == Guides;
 }
 
 QByteArray MapDataUndoStep::currentXml(const Map& map, Section section)
@@ -242,6 +243,8 @@ QByteArray MapDataUndoStep::currentXml(const Map& map, Section section)
 		return templatesToXml(map);
 	case Georef:
 		return georeferencingToXml(map.getGeoreferencing());
+	case Guides:
+		return guidesToXml(map.guides());
 	case UndefinedSection:
 		break;
 	}
@@ -267,6 +270,9 @@ UndoStep* MapDataUndoStep::undo()
 		break;
 	case Georef:
 		georeferencingFromXml(*map, data_xml);
+		break;
+	case Guides:
+		map->setGuides(guidesFromXml(data_xml));
 		break;
 	case UndefinedSection:
 		break;

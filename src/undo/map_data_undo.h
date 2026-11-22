@@ -49,7 +49,8 @@ public:
 		Courses = 2,  ///< the course data, see the design notes
 		Bookmarks = 3,  ///< see the design notes
 		Templates = 4,  ///< the templates' placements, see the design notes
-		Georef = 5      ///< the map's georeferencing, ditto
+		Georef = 5,     ///< the map's georeferencing, ditto
+		Guides = 16     ///< foom: the guides, see the design notes (16 leaves room for other sections)
 	};
 	
 	/** Creates a step which restores the section to the given serialisation. */

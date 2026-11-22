@@ -202,6 +202,8 @@ set(Mapper_Common_SRCS
   core/crt_rules.cpp
   core/extent_printing.cpp
   core/extents.cpp
+  core/guides.cpp  # foom
+  core/open_backup.cpp  # foom
   core/lasso_query.cpp
   core/status_sets.cpp
   core/symbol_compare.cpp
@@ -300,6 +302,7 @@ set(Mapper_Common_SRCS
   gui/map/move_parallel_dialog.cpp
   gui/map/numeric_entry_bar.cpp
   gui/map/view_history.cpp
+  gui/map/view_aids.cpp  # foom
   gui/map/numeric_transform_dialogs.cpp
   gui/map/map_find_feature.cpp
   gui/map/map_information_dialog.cpp
@@ -345,6 +348,8 @@ set(Mapper_Common_SRCS
   gui/widgets/settings_page.cpp
   gui/widgets/shortcut_settings.cpp
   gui/widgets/shortcuts_settings_page.cpp
+  gui/widgets/backup_settings_page.cpp  # foom
+  gui/settings_transfer.cpp  # foom
   gui/widgets/symbol_dropdown.cpp
   gui/widgets/symbol_render_widget.cpp
   gui/widgets/symbol_tooltip.cpp

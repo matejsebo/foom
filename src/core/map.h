@@ -47,6 +47,7 @@
 #include <QUuid>
 
 #include "core/bookmarks.h"  // foom
+#include "core/guides.h"  // foom
 #include "core/saved_selections.h"  // foom
 #include "core/status_sets.h"  // foom
 #include "core/symbol_tree.h"  // foom
@@ -987,6 +988,12 @@ public:
 	/** foom: Appends a bookmark. */
 	void addBookmark(const Bookmark& bookmark) { map_bookmarks.push_back(bookmark); }
 	
+	/** foom: Returns the guides. See the design notes, "Rulers, guides". */
+	const Guides& guides() const { return map_guides; }
+	
+	/** foom: Replaces the guides. */
+	void setGuides(Guides guides) { map_guides = std::move(guides); emit guidesChanged(); }
+	
 	/** foom: Returns the saved selections. See the design notes, "Saved selections". */
 	const std::vector<SavedSelection>& savedSelections() const { return map_saved_selections; }
 	
@@ -1594,6 +1601,9 @@ signals:
 	/** foom: Emitted when the course data were replaced. */
 	void courseDataChanged();
 	
+	/** foom: Emitted when the guides were replaced. */
+	void guidesChanged();
+	
 	/**
 	 * foom: Emitted when course objects went with their map objects and courses lost items by that:
 	 * the codes of these objects and the names of the courses. See syncCourseObjects().
@@ -1802,6 +1812,7 @@ private:
 	PartVector parts;
 	QHash<QUuid, Object*> objects_by_uuid;  ///< foom: the objects in the parts
 	QHash<int, QString> object_group_names;  ///< foom: see the design notes, "Groups"
+	Guides map_guides;  ///< foom: see the design notes
 	std::vector<Bookmark> map_bookmarks;  ///< foom: view state, see the design notes
 	std::vector<SavedSelection> map_saved_selections;  ///< foom: see the design notes, "Saved selections"
 	std::vector<StatusSet> map_status_sets;  ///< foom: see the design notes, "Status sets"

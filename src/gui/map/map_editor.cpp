@@ -192,6 +192,7 @@
 #include "gui/map/move_parallel_dialog.h"
 #include "gui/map/numeric_entry_bar.h"
 #include "gui/map/bookmark_dialog.h"
+#include "gui/map/view_aids.h"  // foom
 #include "gui/map/course_bulk_dialog.h"  // foom
 #include "gui/map/course_canvases_dialog.h"  // foom
 #include "gui/map/course_maps_dialog.h"  // foom
@@ -960,6 +961,7 @@ void MapEditorController::attach(MainWindow* window)
 	map_widget->setMapView(main_view);
 	map_widget->setZoomDisplay(zoom_display_function);
 	recordView();  // foom: the opening view is the first entry of the view history
+	view_aids = new ViewAids(this, map, map_widget);  // foom
 	map_widget->setOverlay([this](QPainter* painter, MapWidget* widget) { drawActiveExtent(painter, widget); drawTemplateAttributions(painter, widget); drawRangefinder(painter, widget); drawCoursePreview(painter, widget); });  // foom
 	
 	// Create menu and toolbar together, so actions can be inserted into one or both
@@ -986,7 +988,7 @@ void MapEditorController::attach(MainWindow* window)
 		else
 		{
 			map_widget->setCursorposLabel(statusbar_cursorpos_label);
-			window->setCentralWidget(map_widget);
+			window->setCentralWidget(view_aids->wrapMapWidget());  // foom: with the rulers
 			
 			createMenuAndToolbars();
 			restoreWindowState();
@@ -1209,6 +1211,12 @@ void MapEditorController::createActions()
 	custom_zoom_act = newAction("setzoom", tr("Set custom zoom factor..."), this, SLOT(setCustomZoomFactorClicked()), nullptr, QString{}, "view_menu.html");
 	view_back_act = newAction("view-back", tr("Back"), this, SLOT(viewBack()));  // foom
 	view_forward_act = newAction("view-forward", tr("Forward"), this, SLOT(viewForward()));  // foom
+	newCheckAction("view-rulers", tr("Rulers"), view_aids, SLOT(setRulersVisible(bool)));  // foom
+	newCheckAction("guides-show", tr("Show guides"), view_aids, SLOT(setGuidesVisible(bool)));  // foom
+	newCheckAction("guides-lock", tr("Lock guides"), view_aids, SLOT(setGuidesLocked(bool)));  // foom
+	newAction("guides-clear", tr("Clear guides"), view_aids, SLOT(clearGuides()));  // foom
+	newAction("find-selected", tr("Find selected"), view_aids, SLOT(findSelected()));  // foom
+	newAction("view-move-to", tr("Move to coordinates..."), view_aids, SLOT(moveToClicked()));  // foom
 	bookmark_add_act = newAction("bookmark-add", tr("Add bookmark..."), this, SLOT(bookmarkAddClicked()));  // foom
 	find_replace_text_act = newAction("find-replace-text", tr("Find and replace text..."), this, SLOT(findReplaceTextClicked()));  // foom
 	extent_define_act = newAction("extent-define", tr("Define extent..."), this, SLOT(extentDefineClicked()));  // foom
@@ -1700,6 +1708,7 @@ void MapEditorController::createMenuAndToolbars()
 	active_extent_menu = view_menu->addMenu(tr("Active extent"));  // foom
 	connect(active_extent_menu, &QMenu::aboutToShow, this, &MapEditorController::updateExtentMenus);
 	updateExtentMenus();
+	view_aids->addToViewMenu(view_menu);  // foom: rulers and guides
 	view_menu->addSeparator();
 	view_menu->addAction(show_grid_act);
 	view_menu->addAction(hatch_areas_view_act);
