@@ -28,9 +28,15 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QColor>
+#include <QComboBox>
 #include <QContextMenuEvent>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDoubleSpinBox>
 #include <QEvent>
+#include <QFormLayout>
 #include <QGridLayout>
+#include <QLabel>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
@@ -39,6 +45,8 @@
 #include <QVariant>
 
 #include "settings.h"
+#include "core/georeferencing.h"
+#include "core/latlon.h"
 #include "core/map.h"
 #include "core/map_part.h"
 #include "core/map_view.h"
@@ -239,7 +247,7 @@ QWidget* ViewAids::wrapMapWidget()
 void ViewAids::addToViewMenu(QMenu* menu)
 {
 	menu->addSeparator();
-	for (auto const* id : { "find-selected", "view-rulers" })
+	for (auto const* id : { "view-move-to", "find-selected", "view-rulers" })
 	{
 		if (auto* action = editor->getAction(id))
 			menu->addAction(action);
@@ -574,6 +582,122 @@ void ViewAids::findSelected()
 	}
 
 	find_index = int((std::size_t(find_index) + 1) % selected.size());
+}
+
+
+// ### Move to coordinates ###
+
+MapCoordF ViewAids::toMapCoordinates(CoordinateKind kind, double first, double second, bool* ok) const
+{
+	auto converted = true;
+	MapCoordF result;
+	auto const& georef = map->getGeoreferencing();
+	switch (kind)
+	{
+	case MapCoordinates:
+		result = MapCoordF(first, -second);
+		break;
+	case ProjectedCoordinates:
+		result = georef.toMapCoordF(QPointF(first, second));
+		break;
+	case GeographicCoordinates:
+		if (georef.getState() != Georeferencing::Geospatial)
+			converted = false;
+		else
+			result = georef.toMapCoordF(LatLon(first, second), &converted);
+		break;
+	}
+	if (!std::isfinite(result.x()) || !std::isfinite(result.y()))
+		converted = false;
+	if (ok)
+		*ok = converted;
+	return result;
+}
+
+void ViewAids::moveTo(const MapCoordF& position)
+{
+	map_widget->getMapView()->setCenter(MapCoord(position));
+}
+
+void ViewAids::moveToClicked()
+{
+	QDialog dialog(map_widget->window());
+	dialog.setWindowTitle(tr("Move to coordinates"));
+	auto* layout = new QFormLayout(&dialog);
+	auto* kind_box = new QComboBox();
+	kind_box->addItem(tr("Map coordinates"), int(MapCoordinates));
+	kind_box->addItem(tr("Projected coordinates"), int(ProjectedCoordinates));
+	if (map->getGeoreferencing().getState() == Georeferencing::Geospatial)
+		kind_box->addItem(tr("Geographic coordinates"), int(GeographicCoordinates));
+	layout->addRow(tr("Coordinates:"), kind_box);
+
+	auto* first_label = new QLabel();
+	auto* second_label = new QLabel();
+	auto* first_box = new QDoubleSpinBox();
+	auto* second_box = new QDoubleSpinBox();
+	for (auto* box : { first_box, second_box })
+	{
+		box->setRange(-1e9, 1e9);
+		box->setAccelerated(true);
+	}
+	layout->addRow(first_label, first_box);
+	layout->addRow(second_label, second_box);
+
+	auto const centre = MapCoordF(map_widget->getMapView()->center());
+	auto const update = [this, kind_box, first_label, second_label, first_box, second_box, centre]() {
+		auto const kind = CoordinateKind(kind_box->currentData().toInt());
+		auto const set_format = [first_box, second_box](int decimals, const QString& suffix) {
+			for (auto* box : { first_box, second_box })
+			{
+				box->setDecimals(decimals);
+				box->setSuffix(suffix);
+			}
+		};
+		switch (kind)
+		{
+		case MapCoordinates:
+			first_label->setText(tr("X:"));
+			second_label->setText(tr("Y:"));
+			set_format(2, tr(" mm"));
+			first_box->setValue(centre.x());
+			second_box->setValue(-centre.y());
+			break;
+		case ProjectedCoordinates:
+			{
+				first_label->setText(tr("Easting:"));
+				second_label->setText(tr("Northing:"));
+				set_format(2, tr(" m"));
+				auto const projected = map->getGeoreferencing().toProjectedCoords(centre);
+				first_box->setValue(projected.x());
+				second_box->setValue(projected.y());
+				break;
+			}
+		case GeographicCoordinates:
+			{
+				first_label->setText(tr("Latitude:"));
+				second_label->setText(tr("Longitude:"));
+				set_format(7, QString(QChar(0x00b0)));
+				auto const latlon = map->getGeoreferencing().toGeographicCoords(centre);
+				first_box->setValue(latlon.latitude());
+				second_box->setValue(latlon.longitude());
+				break;
+			}
+		}
+	};
+	update();
+	connect(kind_box, qOverload<int>(&QComboBox::currentIndexChanged), &dialog, update);
+
+	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+	layout->addRow(buttons);
+	connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+	connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+
+	bool ok = false;
+	auto const position = toMapCoordinates(CoordinateKind(kind_box->currentData().toInt()), first_box->value(), second_box->value(), &ok);
+	if (ok)
+		moveTo(position);
 }
 
 

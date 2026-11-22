@@ -77,9 +77,11 @@ std::vector<RulerTick> rulerTicks(double value_at_zero, double units_per_pixel, 
 
 
 /**
- * The view aids of a map editor: rulers and guides, find selected.
+ * The view aids of a map editor: rulers and guides, find selected and move to
+ * coordinates.
  * 
- * See the design notes, "Rulers and guides" and "find-selected".
+ * See the design notes, "Rulers and guides", "find-selected"
+ * and "view-move-to".
  */
 class ViewAids : public QObject
 {
@@ -89,6 +91,14 @@ public:
 	{
 		PaperMillimetres = 0,  ///< mm on paper: map coordinates
 		GroundMetres = 1       ///< metres on the ground, at the map scale
+	};
+	
+	/** The kinds of coordinates which move to accepts. */
+	enum CoordinateKind
+	{
+		MapCoordinates = 0,        ///< mm on the map, x right and y up as shown in the status bar
+		ProjectedCoordinates = 1,  ///< easting and northing in metres
+		GeographicCoordinates = 2  ///< latitude and longitude in degrees
 	};
 	
 	ViewAids(MapEditorController* editor, Map* map, MapWidget* map_widget);
@@ -157,6 +167,16 @@ public:
 	/** The index of the next object which find selected brings into view. */
 	int findSelectedIndex() const { return find_index; }
 	
+	/**
+	 * Returns the map coordinates of a typed position, or sets ok to false when
+	 * it cannot be converted (no georeferencing for geographic coordinates).
+	 * Map coordinates are taken as the status bar shows them: y up.
+	 */
+	MapCoordF toMapCoordinates(CoordinateKind kind, double first, double second, bool* ok) const;
+	
+	/** Centres the view at the map position, keeping the zoom. */
+	void moveTo(const MapCoordF& position);
+	
 	bool eventFilter(QObject* watched, QEvent* event) override;
 	
 public slots:
@@ -174,6 +194,9 @@ public slots:
 	 * of the selection, and begin again after the last.
 	 */
 	void findSelected();
+	
+	/** Asks for coordinates and moves the view there. */
+	void moveToClicked();
 	
 	/** Called when the selection changes: find selected starts again. */
 	void selectionChanged();

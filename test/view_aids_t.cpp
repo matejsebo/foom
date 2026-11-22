@@ -34,7 +34,9 @@
 #include <QTemporaryDir>
 
 #include "global.h"
+#include "core/georeferencing.h"
 #include "core/guides.h"
+#include "core/latlon.h"
 #include "core/map.h"
 #include "core/map_coord.h"
 #include "core/map_view.h"
@@ -461,6 +463,58 @@ private slots:
 		auto const zoom = view->getZoom();
 		action->trigger();
 		QCOMPARE(view->getZoom(), zoom);
+	}
+
+
+	// ### Move to coordinates ###
+
+	void moveToCoordinates()
+	{
+		auto* map_ptr = new Map();
+		auto& map = *map_ptr;
+		Editor editor(map_ptr);
+		auto* aids = editor.aids;
+		auto* action = editor.editor->getAction("view-move-to");
+		QVERIFY(action);
+		QVERIFY(menuContains(editor.viewMenu(), action));
+		auto* view = editor.map_widget->getMapView();
+
+		// Map coordinates as the status bar shows them: y up.
+		bool ok = false;
+		auto position = aids->toMapCoordinates(ViewAids::MapCoordinates, 12, 5, &ok);
+		QVERIFY(ok);
+		QCOMPARE(position, MapCoordF(12, -5));
+		view->setZoom(2.0);
+		aids->moveTo(position);
+		QCOMPARE(view->center(), MapCoord(12, -5));
+		QCOMPARE(view->getZoom(), 2.0);
+
+		// A local georeferencing takes projected coordinates, but not geographic ones.
+		aids->toMapCoordinates(ViewAids::ProjectedCoordinates, 0, 0, &ok);
+		QVERIFY(ok);
+		aids->toMapCoordinates(ViewAids::GeographicCoordinates, 47, 8, &ok);
+		QVERIFY(!ok);
+
+		// UTM 13 at 1:10000, (500000, 5000000) at the map origin: 100 m east and 50 m north are (10, -5) mm.
+		Georeferencing georef;
+		georef.setScaleDenominator(10000);
+		georef.setProjectedCRS(QStringLiteral("UTM 13"), QStringLiteral("+proj=utm +zone=13 +datum=WGS84"));
+		georef.setProjectedRefPoint(QPointF(500000.0, 5000000.0), false, false);
+		georef.setMapRefPoint(MapCoord(0, 0));
+		georef.setGrivation(0.0);
+		georef.setCombinedScaleFactor(1.0);
+		map.setGeoreferencing(georef);
+		position = aids->toMapCoordinates(ViewAids::ProjectedCoordinates, 500100, 5000050, &ok);
+		QVERIFY(ok);
+		QVERIFY(std::abs(position.x() - 10) < 1e-6);
+		QVERIFY(std::abs(position.y() + 5) < 1e-6);
+
+		// Geographic coordinates of a map point lead back to it.
+		auto const latlon = map.getGeoreferencing().toGeographicCoords(MapCoordF(10, -5));
+		position = aids->toMapCoordinates(ViewAids::GeographicCoordinates, latlon.latitude(), latlon.longitude(), &ok);
+		QVERIFY(ok);
+		QVERIFY(std::abs(position.x() - 10) < 1e-3);
+		QVERIFY(std::abs(position.y() + 5) < 1e-3);
 	}
 
 private:
