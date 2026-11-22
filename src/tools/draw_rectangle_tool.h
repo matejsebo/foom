@@ -123,6 +123,13 @@ protected:
 	
 	void updateStatusText();
 	
+	/**
+	 * foom: Returns whether the legibility readout and the clearance halo
+	 * are shown while drawing: true unless this is a helper tool.
+	 * See the design notes, "Legibility".
+	 */
+	virtual bool showsLegibilityFeedback() const;
+	
 	QPoint click_pos;
 	MapCoordF click_pos_map;
 	QPoint cur_pos;

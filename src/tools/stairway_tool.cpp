@@ -78,5 +78,12 @@ void StairwayTool::finishDrawing()
 	DrawRectangleTool::finishDrawing();
 }
 
+bool StairwayTool::showsLegibilityFeedback() const
+{
+	// the design notes, "Legibility": the footprint becomes no
+	// object, so its length, area and outline say nothing about the treads.
+	return false;
+}
+
 
 }  // namespace OpenOrienteering

@@ -81,6 +81,13 @@
 #include "gui/map/topology_dialogs.h"
 #include "core/ops/rectangle_box.h"
 #include "tools/legibility_feedback.h"
+#include <QPainter>  // foom
+#include <QRegularExpression>  // foom
+#include "tools/draw_circle_tool.h"  // foom
+#include "tools/draw_freehand_tool.h"  // foom
+#include "tools/draw_rectangle_tool.h"  // foom
+#include "tools/rectangle_box_tool.h"  // foom
+#include "tools/stairway_tool.h"  // foom
 #include "settings.h"
 #include "core/georeferencing.h"
 #include "core/map_view.h"
@@ -2632,6 +2639,152 @@ void ToolsTest::drawingFeedback()
 	QVERIFY(!legibilityHaloEnabled());
 	settings.setSettingInCache(Settings::MapEditor_LegibilityHalo, true);
 	QVERIFY(legibilityHaloEnabled());
+
+	settings.setSettingInCache(Settings::MapEditor_LegibilityMinimumCheck, old_check);
+	settings.setSettingInCache(Settings::MapEditor_LegibilityHalo, old_halo);
+	settings.setSettingInCache(Settings::MapEditor_LegibilityHaloMM, old_halo_mm);
+}
+
+void ToolsTest::drawingFeedbackShapes()
+{
+	// the design notes, "Legibility", the other drawing tools, Accept.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto& settings = Settings::getInstance();
+	auto const old_check = settings.getSetting(Settings::MapEditor_LegibilityMinimumCheck);
+	auto const old_halo = settings.getSetting(Settings::MapEditor_LegibilityHalo);
+	auto const old_halo_mm = settings.getSetting(Settings::MapEditor_LegibilityHaloMM);
+	settings.setSettingInCache(Settings::MapEditor_LegibilityMinimumCheck, true);
+	settings.setSettingInCache(Settings::MapEditor_LegibilityHalo, true);
+	settings.setSettingInCache(Settings::MapEditor_LegibilityHaloMM, 2.0);
+
+	map.line_symbol->setMinimumLength(40000);
+	auto* area_symbol = new AreaSymbol();
+	area_symbol->setMinimumArea(100000);
+	map.map->addSymbol(area_symbol, 1);
+	auto const* status = editor.window->statusBar()->findChild<QLabel*>();
+	QVERIFY(status);
+
+	auto* widget = editor.map_widget;
+	auto const viewport = [widget](double x, double y) { return widget->mapToViewport(MapCoord(x, y)).toPoint(); };
+	auto const move = [widget](const QPoint& pos, Qt::MouseButtons buttons) {
+		QMouseEvent event(QEvent::MouseMove, pos, widget->mapToGlobal(pos), Qt::NoButton, buttons, Qt::NoModifier);
+		QApplication::sendEvent(widget, &event);
+	};
+	// The measured value of the readout with the given label, or -1.
+	auto const measured = [status](const char* label) {
+		QRegularExpression const pattern(QLatin1String("<b>") + QLatin1String(label) + QLatin1String(R"(</b> ([0-9.]+) / ([0-9.]+) mm)"));
+		auto const match = pattern.match(status->text());
+		return match.hasMatch() ? match.captured(1).toDouble() : -1.0;
+	};
+	// The pixel the active tool paints at (x, y) into a white image.
+	auto const paintedAt = [&](double x, double y) {
+		QImage image(widget->size(), QImage::Format_ARGB32_Premultiplied);
+		image.fill(Qt::white);
+		QPainter painter(&image);
+		editor.editor->getTool()->draw(&painter, widget);
+		painter.end();
+		auto const pos = viewport(x, y);
+		return image.rect().contains(pos) ? image.pixel(pos) : qRgb(0, 0, 0);
+	};
+	auto const isHalo = [](QRgb pixel) {
+		return pixel != qRgb(255, 255, 255) && qBlue(pixel) > qRed(pixel) + 20;
+	};
+	auto const startRectangle = [&](double far_y) {
+		QTest::mouseClick(widget, Qt::LeftButton, {}, viewport(0.0, 0.0));
+		move(viewport(10.0, 0.0), Qt::NoButton);
+		QTest::mouseClick(widget, Qt::LeftButton, {}, viewport(10.0, 0.0));
+		move(viewport(10.0, far_y), Qt::NoButton);
+	};
+
+	// (1) Rectangle tool, line symbol.
+	editor.editor->getSymbolWidget()->selectSingleSymbol(map.line_symbol);
+	editor.editor->setTool(new DrawRectangleTool(editor.editor, nullptr, false));
+	startRectangle(5.0);
+	QVERIFY2(std::abs(measured("Length:") - 30.0) < 1.0, qPrintable(status->text()));
+	QVERIFY(status->text().contains(QLatin1String("/ 40.00 mm")));
+	QVERIFY(status->text().contains(QLatin1String("red")));
+	QVERIFY(status->text().contains(QLatin1String("short")));
+	QVERIFY2(isHalo(paintedAt(5.0, -1.0)), qPrintable(QString::number(paintedAt(5.0, -1.0), 16)));
+	settings.setSettingInCache(Settings::MapEditor_LegibilityHalo, false);
+	QCOMPARE(paintedAt(5.0, -1.0), qRgb(255, 255, 255));
+	settings.setSettingInCache(Settings::MapEditor_LegibilityHalo, true);
+	QTest::keyClick(widget, Qt::Key_Return);
+	QVERIFY2(!status->text().contains(QLatin1String("Length:")), qPrintable(status->text()));
+	editor.editor->setTool(nullptr);
+
+	// (2) Rectangle tool, area symbol.
+	editor.editor->getSymbolWidget()->selectSingleSymbol(area_symbol);
+	editor.editor->setTool(new DrawRectangleTool(editor.editor, nullptr, false));
+	startRectangle(5.0);
+	QVERIFY2(std::abs(measured("Area:") - 50.0) < 3.0, qPrintable(status->text()));
+	QVERIFY(status->text().contains(QString::fromUtf8("/ 100.00 mm²")));
+	QVERIFY(status->text().contains(QLatin1String("red")));
+	QTest::keyClick(widget, Qt::Key_Escape);
+	editor.editor->setTool(nullptr);
+
+	// (3) Circle tool, dragged.
+	editor.editor->getSymbolWidget()->selectSingleSymbol(map.line_symbol);
+	editor.editor->setTool(new DrawCircleTool(editor.editor, nullptr, false));
+	QTest::mousePress(widget, Qt::LeftButton, {}, viewport(0.0, 0.0));
+	move(viewport(10.0, 0.0), Qt::LeftButton);
+	QVERIFY2(std::abs(measured("Length:") - 31.4) < 1.0, qPrintable(status->text()));
+	QVERIFY(status->text().contains(QLatin1String("/ 40.00 mm")));
+	QVERIFY(status->text().contains(QLatin1String("red")));
+	QVERIFY(isHalo(paintedAt(5.0, 6.0)));
+	QVERIFY(isHalo(paintedAt(5.0, -6.0)));
+	QTest::mouseRelease(widget, Qt::LeftButton, {}, viewport(10.0, 0.0));
+	QVERIFY2(!status->text().contains(QLatin1String("Length:")), qPrintable(status->text()));
+	editor.editor->setTool(nullptr);
+
+	editor.editor->getSymbolWidget()->selectSingleSymbol(area_symbol);
+	editor.editor->setTool(new DrawCircleTool(editor.editor, nullptr, false));
+	QTest::mousePress(widget, Qt::LeftButton, {}, viewport(0.0, 0.0));
+	move(viewport(10.0, 0.0), Qt::LeftButton);
+	QVERIFY2(std::abs(measured("Area:") - 78.5) < 3.0, qPrintable(status->text()));
+	QVERIFY(status->text().contains(QString::fromUtf8("/ 100.00 mm²")));
+	QVERIFY(status->text().contains(QLatin1String("red")));
+	QTest::mouseRelease(widget, Qt::LeftButton, {}, viewport(10.0, 0.0));
+	editor.editor->setTool(nullptr);
+
+	// (4) Freehand tool.
+	editor.editor->getSymbolWidget()->selectSingleSymbol(map.line_symbol);
+	editor.editor->setTool(new DrawFreehandTool(editor.editor, nullptr, false));
+	QTest::mousePress(widget, Qt::LeftButton, {}, viewport(0.0, 0.0));
+	move(viewport(5.0, 0.0), Qt::LeftButton);
+	move(viewport(10.0, 0.0), Qt::LeftButton);
+	QVERIFY2(std::abs(measured("Length:") - 10.0) < 1.0, qPrintable(status->text()));
+	QVERIFY(status->text().contains(QLatin1String("/ 40.00 mm")));
+	QVERIFY(status->text().contains(QLatin1String("red")));
+	QVERIFY(status->text().contains(QLatin1String("short")));
+	QVERIFY(isHalo(paintedAt(5.0, 1.0)));
+	map.line_symbol->setMinimumLength(5000);
+	move(viewport(11.0, 0.0), Qt::LeftButton);
+	QVERIFY2(status->text().contains(QLatin1String("/ 5.00 mm")), qPrintable(status->text()));
+	QVERIFY(!status->text().contains(QLatin1String("red")));
+	map.line_symbol->setMinimumLength(40000);
+	QTest::mouseRelease(widget, Qt::LeftButton, {}, viewport(11.0, 0.0));
+	QVERIFY2(!status->text().contains(QLatin1String("Length:")), qPrintable(status->text()));
+	editor.editor->setTool(nullptr);
+
+	// (5) Stairway tool: neither readout nor halo.
+	editor.editor->drawStairway(1.0);
+	QVERIFY(dynamic_cast<StairwayTool*>(editor.editor->getTool()));
+	startRectangle(4.0);
+	QVERIFY2(!status->text().contains(QLatin1String("Length:")), qPrintable(status->text()));
+	QCOMPARE(paintedAt(5.0, -1.0), qRgb(255, 255, 255));
+	QTest::keyClick(widget, Qt::Key_Escape);
+	editor.editor->setTool(nullptr);
+
+	// (6) Rectangle box tool: both.
+	ops::RectangleBoxParams params;
+	editor.editor->drawRectangleBox(params);
+	QVERIFY(dynamic_cast<RectangleBoxTool*>(editor.editor->getTool()));
+	startRectangle(5.0);
+	QVERIFY2(std::abs(measured("Length:") - 30.0) < 1.0, qPrintable(status->text()));
+	QVERIFY(isHalo(paintedAt(5.0, -1.0)));
+	QTest::keyClick(widget, Qt::Key_Escape);
+	editor.editor->setTool(nullptr);
 
 	settings.setSettingInCache(Settings::MapEditor_LegibilityMinimumCheck, old_check);
 	settings.setSettingInCache(Settings::MapEditor_LegibilityHalo, old_halo);

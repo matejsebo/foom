@@ -46,6 +46,7 @@ public:
 
 protected:
 	void finishDrawing() override;
+	bool showsLegibilityFeedback() const override;  // foom: the footprint is no object
 
 private:
 	double tread_mm;
