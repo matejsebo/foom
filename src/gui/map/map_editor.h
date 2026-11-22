@@ -788,6 +788,12 @@ public slots:
 	bool setTemplateEmbedded(Template* temp, bool embedded, QString* error = nullptr);
 	/** foom: Relinks the templates from the old folder to the new one; returns how many were relinked. */
 	int relinkTemplates(const QString& old_folder, const QString& new_folder);
+	/** foom: Sets block out of a template (the design notes, "Block out, dim and colour infrared"). */
+	void setTemplateBlockOut(Template* temp, bool block_out);
+	/** foom: Sets the dim of a raster template; false with a message for other templates. */
+	bool setTemplateDim(Template* temp, double dim, QString* error = nullptr);
+	/** foom: Reads a four-band GDAL raster template as colour infrared or not; false with a message for other templates. */
+	bool setTemplateInfrared(Template* temp, bool infrared, QString* error = nullptr);
 	/** foom: Asks for the axis, then mirrors the selected objects. */
 	void mirrorClicked();
 	/** foom: Asks for the count and interpolates between the two selected paths (interpolate). */
@@ -1068,6 +1074,8 @@ public slots:
 	void showIssuesWindow(bool show);
 	/** foom: Applies the fix of the issue shown in the row and checks again; returns false when nothing changed. */
 	bool fixIssueRow(int row);
+	/** foom: Relinks the missing template of the row's template-missing issue to the file, then checks again. */
+	bool relinkIssueRow(int row, const QString& path);
 	/** foom: Gives the objects of the symbol issue in the row the active symbol and checks again; returns false when it does not fit. */
 	bool assignSymbolToIssueRow(int row);
 	/** foom: Applies the fixes of every shown issue and checks again; returns how many changed something. */

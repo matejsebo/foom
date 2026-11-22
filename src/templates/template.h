@@ -578,6 +578,21 @@ public:
 	/** foom: Gives the template a spot colour plate, or none; marks the templates changed. */
 	void setSeparationColor(const MapColor* color);
 	
+	/** foom: Whether the template knocks out the map colours (the design notes, "Block out, dim and colour infrared"). */
+	inline bool isBlockOut() const {return is_block_out;}
+	/** foom: Sets block out; marks the templates changed and repaints the template. */
+	void setBlockOut(bool value);
+	
+	/** foom: The dim, from 0 to 1, which raster templates are drawn with. */
+	inline double dim() const {return template_dim;}
+	/** foom: Sets the dim, clamped to 0 to 1; marks the templates changed and repaints the template. */
+	void setDim(double value);
+	
+	/** foom: Whether a four-band raster is read as colour infrared. */
+	inline bool isInfrared() const {return is_infrared;}
+	/** foom: Sets colour infrared; marks the templates changed and reads a loaded template again where it uses the flag. */
+	void setInfrared(bool value);
+	
 	inline bool hasUnsavedChanges() const {return has_unsaved_changes;}
 	void setHasUnsavedChanges(bool value);
 	
@@ -745,6 +760,12 @@ protected:
 	 */
 	virtual void unloadTemplateFileImpl() = 0;
 	
+	/**
+	 * foom: Called after the infrared flag changed. Templates which read their
+	 * file differently with it read it again. The default does nothing.
+	 */
+	virtual void infraredChanged();
+	
 	
 	/** 
 	 * Hook for drawing on the template.
@@ -827,6 +848,11 @@ protected:
 	
 	/// foom: The spot colour of the template's plate, or none.
 	const MapColor* separation_color = nullptr;
+	
+	/// foom: Block out, dim and colour infrared.
+	bool is_block_out = false;
+	double template_dim = 0.0;
+	bool is_infrared = false;
 	
 	// Transformation matrices calculated from cur_trans
 	Matrix map_to_template;

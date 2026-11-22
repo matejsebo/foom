@@ -21,13 +21,18 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <memory>
 #include <vector>
 
 #include <QtGlobal>
 #include <QtTest>
 #include <QBuffer>
 #include <QByteArray>
+#include <QColor>
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QImage>
 #include <QIODevice>
 #include <QLatin1String>
 #include <QList>
@@ -35,18 +40,21 @@
 #include <QSignalSpy>
 #include <QRectF>
 #include <QString>
+#include <QTemporaryDir>
 #include <QUuid>
 #include <QVariant>
 
 #include "global.h"
 #include "check/issue.h"
 #include "check/legibility.h"
+#include "check/legibility_results.h"
 #include "check/map_check.h"
 #include "core/color_group.h"
 #include "core/map.h"
 #include "core/map_color.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
+#include "core/saved_selections.h"
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
 #include "core/symbols/area_symbol.h"
@@ -55,6 +63,8 @@
 #include "core/symbols/text_symbol.h"
 #include "fileformats/file_import_export.h"
 #include "fileformats/xml_file_format.h"
+#include "templates/template.h"
+#include "templates/template_image.h"
 #include "undo/undo_manager.h"
 
 using namespace OpenOrienteering;
@@ -79,6 +89,8 @@ private slots:
 	void legibilityTest();
 	void legibilitySymbolGapTest();
 	void colourGroupTest();
+	void legibilityResultsTest();  // foom
+	void mapCheckRelinkTest();  // foom
 };
 
 
@@ -640,6 +652,229 @@ void CheckTest::colourGroupTest()
 	plain_exporter->setDevice(&plain_buffer);
 	QVERIFY(plain_exporter->doExport());
 	QVERIFY(!QString::fromUtf8(plain_buffer.data()).contains(QLatin1String(" group=")));
+}
+
+
+namespace {
+
+const SavedSelection* savedSelectionNamed(const Map& map, const char* name)
+{
+	for (auto const& selection : map.savedSelections())
+	{
+		if (selection.name == QLatin1String(name))
+			return &selection;
+	}
+	return nullptr;
+}
+
+int partWithRole(const Map& map, MapPart::Role role)
+{
+	for (int p = 0; p < map.getNumParts(); ++p)
+	{
+		if (map.getPart(p)->role() == role)
+			return p;
+	}
+	return -1;
+}
+
+void moveFirstVertex(PathObject* path, const MapCoord& coord)
+{
+	path->setCoordinate(0, coord);
+	path->setOutputDirty();
+	path->update();
+}
+
+}  // namespace
+
+
+void CheckTest::legibilityResultsTest()
+{
+	// the design notes, "Legibility", Accept (the results as selections and markers).
+	Map map;
+	map.setScaleDenominator(15000);
+	auto* black = new MapColor(QStringLiteral("Black"), 0);
+	black->setCmyk(MapColorCmyk(0.0f, 0.0f, 0.0f, 1.0f));
+	map.addColor(black, 0);
+	auto* symbol = new LineSymbol();
+	symbol->setColor(black);
+	symbol->setLineWidth(0.5);
+	symbol->setMinimumLength(2000);
+	symbol->setNumberComponent(0, 501);
+	map.addSymbol(symbol, 0);
+	auto* a = addLine(map, symbol, MapCoord(0.0, 0.0), MapCoord(10.0, 0.0));
+	auto* b = addLine(map, symbol, MapCoord(5.0, 0.6), MapCoord(5.0, 10.0));
+	auto* c = addLine(map, symbol, MapCoord(20.0, 0.0), MapCoord(21.0, 0.0));
+	map.setSavedSelections({ SavedSelection{ QStringLiteral("north"), { a->uuid() } } });
+
+	LegibilityParams params;
+	params.gap_mm = 0.15;
+
+	// (1)
+	auto issues = checkLegibility(map, params);
+	QCOMPARE(int(issues.size()), 2);
+	auto const gap = std::find_if(begin(issues), end(issues), [](auto const& issue) { return issue.rule == rule::gap; });
+	QVERIFY(gap != end(issues));
+	QCOMPARE(gap->points.size(), 2);
+	// The points follow the order of the objects.
+	auto const a_first = gap->objects[0] == a->uuid();
+	auto const& on_a = gap->points[a_first ? 0 : 1];
+	auto const& on_b = gap->points[a_first ? 1 : 0];
+	QVERIFY(std::abs(on_a.x() - 5.0) < 1e-6 && std::abs(on_a.y() - 0.0) < 1e-6);
+	QVERIFY(std::abs(on_b.x() - 5.0) < 1e-6 && std::abs(on_b.y() - 0.6) < 1e-6);
+
+	// (2)
+	auto const num_colors = map.getNumColors();
+	auto const num_symbols = map.getNumSymbols();
+	auto const undo_steps = map.undoManager().undoStepCount();
+	recordLegibilityResults(map, params, issues);
+	auto const* gaps = savedSelectionNamed(map, "Legibility: gaps");
+	QVERIFY(gaps);
+	QCOMPARE(gaps->uuids.size(), std::size_t(2));
+	QVERIFY(std::count(begin(gaps->uuids), end(gaps->uuids), a->uuid()) == 1);
+	QVERIFY(std::count(begin(gaps->uuids), end(gaps->uuids), b->uuid()) == 1);
+	auto const* short_lines = savedSelectionNamed(map, "Legibility: short lines");
+	QVERIFY(short_lines);
+	QCOMPARE(short_lines->uuids, (std::vector<QUuid>{ c->uuid() }));
+	QVERIFY(!savedSelectionNamed(map, "Legibility: small areas"));
+	QVERIFY(savedSelectionNamed(map, "north"));
+	QCOMPARE(map.getNumColors(), num_colors + 1);
+	QCOMPARE(map.getColor(0)->getName(), QStringLiteral("Legibility conflict"));
+	QCOMPARE(QColor(map.getColor(0)->getRgb()), QColor(255, 0, 0));
+	QCOMPARE(map.getNumSymbols(), num_symbols + 2);
+	auto const* dot = map.getSymbol(num_symbols);
+	auto const* marker_line = map.getSymbol(num_symbols + 1);
+	QCOMPARE(dot->getType(), Symbol::Point);
+	QCOMPARE(dot->getName(), QStringLiteral("Legibility conflict (dot)"));
+	QCOMPARE(marker_line->getType(), Symbol::Line);
+	QCOMPARE(marker_line->getName(), QStringLiteral("Legibility conflict (line)"));
+	QCOMPARE(dot->getNumberComponent(0), 502);
+	QCOMPARE(dot->getNumberComponent(1), 1);
+	QCOMPARE(marker_line->getNumberComponent(0), 502);
+	QCOMPARE(marker_line->getNumberComponent(1), 2);
+	QCOMPARE(map.getNumParts(), 2);
+	auto const markers_index = partWithRole(map, MapPart::Role::Issues);
+	QCOMPARE(markers_index, 1);
+	auto const* markers = map.getPart(std::size_t(markers_index));
+	QCOMPARE(markers->getName(), QStringLiteral("Legibility markers"));
+	QCOMPARE(map.getCurrentPartIndex(), 0);
+	auto const markers_ok = [&]() {
+		if (markers->getNumObjects() != 2)
+			return false;
+		auto const first_is_dot = markers->getObject(0)->getSymbol() == dot;
+		auto const* point = markers->getObject(first_is_dot ? 0 : 1);
+		auto const* line = markers->getObject(first_is_dot ? 1 : 0);
+		if (point->getSymbol() != dot || line->getSymbol() != marker_line)
+			return false;
+		auto const& p = point->getRawCoordinateVector();
+		auto const& l = line->getRawCoordinateVector();
+		return p.size() == 1 && std::abs(p[0].x() - 5.0) < 1e-3 && std::abs(p[0].y() - 0.3) < 1e-3
+		       && l.size() == 2 && std::abs(l[0].x() - 5.0) < 1e-3 && std::abs(l[1].x() - 5.0) < 1e-3
+		       && std::abs(std::min(l[0].y(), l[1].y())) < 1e-3 && std::abs(std::max(l[0].y(), l[1].y()) - 0.6) < 1e-3;
+	};
+	QVERIFY(markers_ok());
+	QCOMPARE(map.undoManager().undoStepCount(), undo_steps + 1);
+
+	// (3)
+	issues = checkLegibility(map, params);
+	QCOMPARE(int(issues.size()), 2);
+	recordLegibilityResults(map, params, issues);
+	QVERIFY(markers_ok());
+	QCOMPARE(map.getNumParts(), 2);
+	QCOMPARE(map.getNumSymbols(), num_symbols + 2);
+	QCOMPARE(map.getNumColors(), num_colors + 1);
+
+	// (4)
+	moveFirstVertex(b, MapCoord(5.0, 2.0));
+	issues = checkLegibility(map, params);
+	QCOMPARE(int(issues.size()), 1);
+	recordLegibilityResults(map, params, issues);
+	QVERIFY(!savedSelectionNamed(map, "Legibility: gaps"));
+	QVERIFY(savedSelectionNamed(map, "Legibility: short lines"));
+	QCOMPARE(markers->getNumObjects(), 0);
+	QCOMPARE(map.getNumSymbols(), num_symbols + 2);
+
+	// (6)
+	QVERIFY(map.undoManager().undo());
+	QCOMPARE(markers->getNumObjects(), 2);
+
+	// (5)
+	moveFirstVertex(b, MapCoord(5.0, 0.6));
+	issues = checkLegibility(map, params);
+	recordLegibilityResults(map, params, issues);
+	QVERIFY(markers_ok());
+	auto only_length = params;
+	only_length.gap = false;
+	only_length.minimum_area = false;
+	moveFirstVertex(b, MapCoord(5.0, 2.0));
+	issues = checkLegibility(map, only_length);
+	QCOMPARE(int(issues.size()), 1);
+	recordLegibilityResults(map, only_length, issues);
+	QVERIFY(markers_ok());
+	QVERIFY(savedSelectionNamed(map, "Legibility: gaps"));
+
+	// (7)
+	QVERIFY(savedSelectionNamed(map, "north"));
+}
+
+void CheckTest::mapCheckRelinkTest()
+{
+	// the design notes, "Map check", Accept (relink).
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	QDir root(dir.path());
+	QVERIFY(root.mkpath(QStringLiteral("work")));
+	QVERIFY(root.mkpath(QStringLiteral("new")));
+	QImage image(4, 4, QImage::Format_RGB32);
+	image.fill(Qt::green);
+	QVERIFY(image.save(root.absoluteFilePath(QStringLiteral("new/a.png")), "PNG"));
+	{
+		QFile text(root.absoluteFilePath(QStringLiteral("new/b.png")));
+		QVERIFY(text.open(QIODevice::WriteOnly));
+		text.write("not an image");
+	}
+	auto const old_path = root.absoluteFilePath(QStringLiteral("old/a.png"));
+	auto const map_path = root.absoluteFilePath(QStringLiteral("work/map.xmap"));
+	{
+		Map map;
+		map.addTemplate(-1, std::make_unique<TemplateImage>(old_path, &map));
+		XMLFileFormat format;
+		auto exporter = format.makeExporter(map_path, &map, nullptr);
+		QVERIFY(exporter && exporter->doExport());
+	}
+	Map map;
+	{
+		XMLFileFormat format;
+		auto importer = format.makeImporter(map_path, &map, nullptr);
+		QVERIFY(importer && importer->doImport());
+	}
+	QCOMPARE(map.getNumTemplates(), 1);
+	auto const missing = [&map]() {
+		auto const issues = checkMap(map);
+		auto const found = std::find_if(begin(issues), end(issues), [](auto const& issue) { return issue.rule == rule::template_missing; });
+		return found == end(issues) ? Issue{} : *found;
+	};
+	auto const issue = missing();
+	QCOMPARE(issue.rule, QByteArray(rule::template_missing));
+	QCOMPARE(QFileInfo(issue.subject).fileName(), QStringLiteral("a.png"));
+
+	map.setHasUnsavedChanges(false);
+	QVERIFY(!relinkIssueTemplate(map, issue, root.absoluteFilePath(QStringLiteral("new/b.png"))));
+	QCOMPARE(map.getTemplate(0)->getTemplateState(), Template::Invalid);
+	QCOMPARE(map.getTemplate(0)->getTemplatePath(), issue.subject);
+	QVERIFY(!map.hasUnsavedChanges());
+
+	Issue other;
+	other.rule = rule::text_empty;
+	QVERIFY(!relinkIssueTemplate(map, other, root.absoluteFilePath(QStringLiteral("new/a.png"))));
+
+	QVERIFY(relinkIssueTemplate(map, issue, root.absoluteFilePath(QStringLiteral("new/a.png"))));
+	QCOMPARE(map.getTemplate(0)->getTemplateState(), Template::Loaded);
+	QCOMPARE(QFileInfo(map.getTemplate(0)->getTemplatePath()).canonicalFilePath(), QFileInfo(root.absoluteFilePath(QStringLiteral("new/a.png"))).canonicalFilePath());
+	QVERIFY(map.hasUnsavedChanges());
+	QCOMPARE(missing().rule, QByteArray());
+
+	// The template is no longer missing, so the issue has no template.
+	QVERIFY(!relinkIssueTemplate(map, issue, root.absoluteFilePath(QStringLiteral("new/a.png"))));
 }
 
 

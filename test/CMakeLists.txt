@@ -333,6 +333,12 @@ add_dependencies(template_separation_t foom-cli)
 add_system_test(template_embed_t)  # foom: the design notes, Embedded raster templates
 add_system_test(template_favourite_t)  # foom: the design notes, Favourite templates
 add_system_test(template_relink_t)  # foom: the design notes, Relink by folder
+add_system_test(template_effects_t)  # foom: the design notes, Block out, dim and colour infrared
+if (Mapper_USE_GDAL)
+	target_compile_definitions(template_effects_t PRIVATE MAPPER_TEST_GDAL)
+	target_include_directories(template_effects_t SYSTEM PRIVATE ${GDAL_INCLUDE_DIRS})
+	target_link_libraries(template_effects_t PRIVATE ${GDAL_LIBRARIES})
+endif()
 add_system_test(runner_courses_t)  # foom: the design notes, Headless runner: export-courses and import-courses
 target_compile_definitions(runner_courses_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
 add_dependencies(runner_courses_t foom-cli)
@@ -356,6 +362,11 @@ add_system_test(ocd_guide_t)  # foom: the design notes, OCD string type 26
 add_system_test(ocd2018_t)
 add_system_test(template_t)
 add_system_test(tools_t)
+if (Mapper_USE_GDAL)  # foom: the design notes, Block out, dim and colour infrared
+	target_compile_definitions(tools_t PRIVATE MAPPER_TEST_GDAL)
+	target_include_directories(tools_t SYSTEM PRIVATE ${GDAL_INCLUDE_DIRS})
+	target_link_libraries(tools_t PRIVATE ${GDAL_LIBRARIES})
+endif()
 add_system_test(view_aids_t)  # foom: the design notes, view aids
 add_system_test(settings_backup_t)  # foom: the design notes, backup on open and settings transfer
 add_system_test(track_t)  # Could be unit test, but needs Georeferencing

@@ -899,7 +899,25 @@ void Map::drawGrid(QPainter* painter, const QRectF& bounding_box)
 
 void Map::drawTemplates(QPainter* painter, const QRectF& bounding_box, int first_template, int last_template, const MapView* view, bool on_screen) const
 {
+	// foom: the design notes, "Block out, dim and colour infrared":
+	// a block-out template below the map is drawn at the start of the pass above the map.
+	auto const above_pass = first_template >= getFirstFrontTemplate();
+	std::vector<int> order;
+	if (above_pass)
+	{
+		for (int i = 0; i < getFirstFrontTemplate(); ++i)
+		{
+			if (getTemplate(i)->isBlockOut())
+				order.push_back(i);
+		}
+	}
 	for (int i = first_template; i <= last_template; ++i)
+	{
+		if (above_pass || i >= getFirstFrontTemplate() || !getTemplate(i)->isBlockOut())
+			order.push_back(i);
+	}
+	
+	for (int i : order)
 	{
 		const Template* temp = getTemplate(i);
 		if (temp->getTemplateState() != Template::Loaded)
@@ -2024,7 +2042,7 @@ void Map::deleteTemplate(int pos)
 
 void Map::setTemplateAreaDirty(Template* temp, const QRectF& area, int pixel_border)
 {
-	bool front_cache = findTemplateIndex(temp) >= getFirstFrontTemplate();	// TODO: is there a better way to find out if that is a front or back template?
+	bool front_cache = findTemplateIndex(temp) >= getFirstFrontTemplate() || temp->isBlockOut();	// TODO: is there a better way to find out if that is a front or back template?
 	
 	for (MapWidget* widget : widgets)
 	{

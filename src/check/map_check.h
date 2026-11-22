@@ -23,6 +23,8 @@
 
 #include <vector>
 
+#include <QString>
+
 #include "check/issue.h"
 
 namespace OpenOrienteering {
@@ -63,6 +65,15 @@ std::vector<Issue> checkMap(const Map& map);
  * gone.
  */
 bool fixIssue(Map& map, const Issue& issue);
+
+/**
+ * The fix of template-missing: gives the missing template whose path is the
+ * issue's subject the file at the path, and loads it.
+ *
+ * Returns false when the rule is another, no missing template has that path,
+ * or the file cannot be loaded; the template is then unchanged.
+ */
+bool relinkIssueTemplate(Map& map, const Issue& issue, const QString& path);
 
 /**
  * Returns the map's symbols which fit every object of the issue, in the

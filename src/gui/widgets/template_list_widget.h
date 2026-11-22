@@ -61,6 +61,17 @@ class TemplateListWidget : public QWidget
 public:
 	static std::unique_ptr<Template> showOpenTemplateDialog(QWidget* dialog_parent, MapEditorController& controller);
 	
+	/**
+	 * foom: Whether opening the template offers colour infrared: a GDAL raster
+	 * of four bands which is not read so yet.
+	 *
+	 * See the design notes, "Block out, dim and colour infrared".
+	 */
+	static bool infraredOffered(const Template* temp);
+	
+	/** foom: Asks whether to read the template as colour infrared, when infraredOffered(). */
+	static void offerInfrared(QWidget* dialog_parent, Template* temp);
+	
 	~TemplateListWidget() override;
 	
 	TemplateListWidget(Map& map, MapView& main_view, MapEditorController& controller, QWidget* parent = nullptr);
@@ -164,6 +175,9 @@ private:
 	QAction* favourite_action = nullptr;  // foom
 	QAction* embed_action = nullptr;  // foom
 	QAction* separation_action = nullptr;  // foom
+	QAction* block_out_action = nullptr;  // foom
+	QAction* dim_action = nullptr;  // foom
+	QAction* infrared_action = nullptr;  // foom
 	QAction* vectorize_action;
 	
 	// Buttons

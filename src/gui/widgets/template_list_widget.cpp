@@ -90,6 +90,9 @@
 #include "gui/map/map_widget.h"
 #include "gui/widgets/segmented_button_layout.h"
 #include "templates/template.h"
+#ifdef MAPPER_USE_GDAL
+#  include "gdal/gdal_template.h"  // foom
+#endif
 #include "templates/template_adjust.h"
 #include "templates/template_image.h"
 #include "templates/template_map.h"
@@ -324,6 +327,32 @@ TemplateListWidget::TemplateListWidget(Map& map, MapView& main_view, MapEditorCo
 		if (!this->controller.setTemplateSeparation(temp, colors[std::size_t(names.indexOf(chosen))], &error))
 			QMessageBox::warning(this, tr("Error"), error);
 	});
+	// foom: the design notes, "Block out, dim and colour infrared"
+	block_out_action = edit_menu->addAction(tr("Block out"), this, [this](bool checked) {
+		if (auto* temp = currentTemplate())
+			this->controller.setTemplateBlockOut(temp, checked);
+	});
+	block_out_action->setCheckable(true);
+	dim_action = edit_menu->addAction(tr("Dim..."), this, [this]() {
+		auto* temp = currentTemplate();
+		if (!temp)
+			return;
+		bool ok = false;
+		auto const percent = QInputDialog::getInt(this, tr("Dim"), tr("Dim the template by (percent):"), qRound(temp->dim() * 100), 0, 100, 5, &ok);
+		if (!ok)
+			return;
+		QString error;
+		if (!this->controller.setTemplateDim(temp, percent / 100.0, &error))
+			QMessageBox::warning(this, tr("Error"), error);
+	});
+	infrared_action = edit_menu->addAction(tr("Colour infrared"), this, [this](bool checked) {
+		auto* temp = currentTemplate();
+		QString error;
+		if (temp && !this->controller.setTemplateInfrared(temp, checked, &error))
+			QMessageBox::warning(this, tr("Error"), error);
+		infrared_action->setChecked(temp && temp->isInfrared());
+	});
+	infrared_action->setCheckable(true);
 	position_action = edit_menu->addAction(tr("Positioning..."));
 	position_action->setCheckable(true);
 	edit_menu->addSeparator();
@@ -551,6 +580,11 @@ void TemplateListWidget::updateButtons()
 		embed_action->setChecked(image_template && image_template->isEmbedded());
 		embed_action->setEnabled(image_template && (image_template->isEmbedded() || image_template->getTemplateState() == Template::Loaded));
 		separation_action->setEnabled(temp && temp->isRasterGraphics() && map.hasSpotColors());  // foom
+		block_out_action->setChecked(temp && temp->isBlockOut());  // foom
+		block_out_action->setEnabled(bool(temp));  // foom
+		dim_action->setEnabled(bool(image_template));  // foom
+		infrared_action->setChecked(temp && temp->isInfrared());  // foom
+		infrared_action->setEnabled(temp && (temp->isInfrared() || infraredOffered(temp)));  // foom
 		move_by_hand_action->setEnabled(custom_enabled);
 		adjust_button->setEnabled(custom_enabled);
 		position_action->setEnabled(custom_enabled);
@@ -720,7 +754,34 @@ std::unique_ptr<Template> TemplateListWidget::showOpenTemplateDialog(QWidget* di
 		QMessageBox::warning(dialog_parent, tr("Error"), error_template.arg(path, error));
 	}
 	
+	if (new_temp)
+		offerInfrared(dialog_parent, new_temp.get());  // foom
+	
 	return new_temp;
+}
+
+// foom: the design notes, "Block out, dim and colour infrared"
+bool TemplateListWidget::infraredOffered(const Template* temp)
+{
+#ifdef MAPPER_USE_GDAL
+	return dynamic_cast<const GdalTemplate*>(temp) && !temp->isInfrared()
+	       && GdalTemplate::hasInfraredBands(temp->getTemplatePath());
+#else
+	Q_UNUSED(temp)
+	return false;
+#endif
+}
+
+// foom: the design notes, "Block out, dim and colour infrared"
+void TemplateListWidget::offerInfrared(QWidget* dialog_parent, Template* temp)
+{
+	if (!infraredOffered(temp))
+		return;
+	auto const answer = QMessageBox::question(dialog_parent, tr("Colour infrared"),
+	                                          tr("The image has four bands. Load it as colour infrared (near infrared, red and green shown as red, green and blue)?"),
+	                                          QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+	if (answer == QMessageBox::Yes)
+		temp->setInfrared(true);
 }
 
 

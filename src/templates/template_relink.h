@@ -59,6 +59,16 @@ QString missingTemplatesFolder(const Map& map);
 TemplateRelinkReport relinkTemplates(Map& map, const QString& old_folder, const QString& new_folder);
 
 /**
+ * Gives the template at the index the file at new_path and loads it; a
+ * placeholder is first made the template of its type. Returns false, and
+ * puts the template back on its old path and state, when it cannot be
+ * loaded. Marks the templates changed when it worked.
+ *
+ * See the design notes, "Map check", relink.
+ */
+bool relinkTemplateFile(Map& map, int index, const QString& new_path);
+
+/**
  * The folder in which to start choosing the new folder: the nearest folder
  * above the old one which exists, else the folder of the map file.
  */

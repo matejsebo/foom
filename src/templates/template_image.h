@@ -218,6 +218,12 @@ protected:
 
 	QImage image;
 	
+	/// foom: The image as drawn with the dim and block out, and what it was made from.
+	mutable QImage effect_image;
+	mutable qint64 effect_key = 0;
+	mutable double effect_dim = 0.0;
+	mutable bool effect_block_out = false;
+	
 	std::vector< DrawOnImageUndoStep > undo_steps;
 	/// Current index in undo_steps, where 0 means before the first item.
 	int undo_index = 0;

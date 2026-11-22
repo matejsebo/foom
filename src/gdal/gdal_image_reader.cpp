@@ -197,10 +197,59 @@ GDALColorInterp GdalImageReader::getColorInterpretationWithType(int index, GDALD
 	       : GCI_Undefined;
 }
 
+std::vector<int> GdalImageReader::infraredBands() const
+{
+	// foom: the design notes, "Block out, dim and colour infrared".
+	if (!dataset || raster_count < 4)
+		return {};
+	auto const is_byte = [this](int band) {
+		return GDALGetRasterDataType(GDALGetRasterBand(dataset, band)) == GDT_Byte;
+	};
+	auto red = findRasterBand(GCI_RedBand, GDT_Byte);
+	auto green = findRasterBand(GCI_GreenBand, GDT_Byte);
+	auto blue = findRasterBand(GCI_BlueBand, GDT_Byte);
+	if (!red && !green && !blue)
+	{
+		red = 1;
+		green = 2;
+		blue = 3;
+		if (!is_byte(1) || !is_byte(2) || !is_byte(3))
+			return {};
+	}
+	else if (!red || !green || !blue)
+	{
+		return {};
+	}
+	for (int band = 1; band <= raster_count; ++band)
+	{
+		if (band == red || band == green || band == blue || !is_byte(band))
+			continue;
+		if (GDALGetRasterColorInterpretation(GDALGetRasterBand(dataset, band)) == GCI_AlphaBand)
+			continue;
+		return { red, green, blue, band };
+	}
+	return {};
+}
+
 GdalImageReader::RasterInfo GdalImageReader::readRasterInfo() const
 {
 	RasterInfo raster;
 	raster.size = { GDALGetRasterXSize(dataset), GDALGetRasterYSize(dataset) };
+
+	if (infrared)  // foom
+	{
+		auto const bands = infraredBands();
+		if (bands.size() == 4)
+		{
+			// In the memory of Format_RGB32: blue, green, red.
+			raster.bands.push_back(bands[1]);  // green as blue
+			raster.bands.push_back(bands[0]);  // red as green
+			raster.bands.push_back(bands[3]);  // near infrared as red
+			raster.pixel_space = 4;
+			raster.image_format = QImage::Format_RGB32;
+			return raster;
+		}
+	}
 	
 	qDebug("GdalTemplate raster bands: %s", rasterBandsAsText().constData());
 	

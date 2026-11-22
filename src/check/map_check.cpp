@@ -49,6 +49,7 @@
 #include "core/symbols/text_symbol.h"
 #include "core/virtual_path.h"
 #include "templates/template.h"
+#include "templates/template_relink.h"
 
 
 namespace OpenOrienteering {
@@ -253,7 +254,9 @@ std::vector<Issue> checkMap(const Map& map)
 	std::vector<Issue> issues;
 	for (int p = 0; p < map.getNumParts(); ++p)
 	{
-		if (map.getPart(p)->role() != MapPart::Role::Layout)  // the design notes
+		auto const role = map.getPart(p)->role();
+		// the design notes; the markers: the design notes, "Legibility"
+		if (role != MapPart::Role::Layout && role != MapPart::Role::Issues)
 			checkObjects(map, *map.getPart(p), issues);
 	}
 	
@@ -298,6 +301,20 @@ std::vector<Issue> checkMap(const Map& map)
 		issues.push_back(issue);
 	}
 	return issues;
+}
+
+bool relinkIssueTemplate(Map& map, const Issue& issue, const QString& path)
+{
+	// the design notes, "Map check", relink.
+	if (issue.rule != rule::template_missing)
+		return false;
+	for (int i = 0; i < map.getNumTemplates(); ++i)
+	{
+		auto const* temp = map.getTemplate(i);
+		if (temp->getTemplateState() == Template::Invalid && temp->getTemplatePath() == issue.subject)
+			return relinkTemplateFile(map, i, path);
+	}
+	return false;
 }
 
 bool fixIssue(Map& map, const Issue& issue)

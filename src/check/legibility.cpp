@@ -248,7 +248,7 @@ bool sharesVertex(const Outline& a, const Outline& b)
  * below the bound; returns the bound when there is none. Zero means the
  * outlines touch or cross.
  */
-double outlineDistance(const Outline& a, const Outline& b, double bound, MapCoordF& where)
+double outlineDistance(const Outline& a, const Outline& b, double bound, MapCoordF& where, MapCoordF& on_a, MapCoordF& on_b)
 {
 	auto best = bound;
 	MapCoordF pa, pb;
@@ -277,6 +277,8 @@ double outlineDistance(const Outline& a, const Outline& b, double bound, MapCoor
 			{
 				best = d;
 				where = MapCoordF((pa.x() + pb.x()) / 2, (pa.y() + pb.y()) / 2);
+				on_a = pa;  // foom: for the line marker
+				on_b = pb;
 				if (best <= 0.0)
 					return 0.0;
 			}
@@ -438,8 +440,8 @@ void checkPart(const MapPart& part, const LegibilityParams& params, std::vector<
 				continue;
 			if (sharesVertex(a, b))
 				continue;
-			MapCoordF where;
-			auto const distance = outlineDistance(a, b, bound, where);
+			MapCoordF where, on_a, on_b;
+			auto const distance = outlineDistance(a, b, bound, where, on_a, on_b);
 			if (distance >= bound)
 				continue;
 			auto const reduced = distance - a.half_width - b.half_width;
@@ -467,6 +469,7 @@ void checkPart(const MapPart& part, const LegibilityParams& params, std::vector<
 			issue.objects.append(a.object->uuid());
 			issue.objects.append(b.object->uuid());
 			issue.where = where;
+			issue.points = { on_a, on_b };
 			issue.measured = reduced;
 			issue.limit = limit;
 			issue.message = tr("%1 mm between objects of symbols %2 and %3; the minimum is %4 mm.").arg(mm(reduced), a.symbol->getNumberAsString(), b.symbol->getNumberAsString(), mm(limit));
@@ -546,7 +549,9 @@ std::vector<Issue> checkLegibility(const Map& map, const LegibilityParams& param
 	std::vector<Issue> issues;
 	for (int p = 0; p < map.getNumParts(); ++p)
 	{
-		if (map.getPart(p)->role() != MapPart::Role::Layout)  // the design notes
+		auto const role = map.getPart(p)->role();
+		// the design notes; the markers: the design notes, "Legibility"
+		if (role != MapPart::Role::Layout && role != MapPart::Role::Issues)
 			checkPart(*map.getPart(p), params, issues);
 	}
 	return issues;
