@@ -24,8 +24,10 @@
 
 #include <QtGlobal>
 #include <QtTest>
+#include <QBuffer>
 #include <QByteArray>
 #include <QDir>
+#include <QIODevice>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -33,6 +35,9 @@
 #include "core/colour_swatch.h"
 #include "core/map.h"
 #include "core/map_color.h"
+#include "fileformats/file_format.h"
+#include "fileformats/file_import_export.h"
+#include "fileformats/xml_file_format.h"
 
 using namespace OpenOrienteering;
 
@@ -65,6 +70,8 @@ private slots:
 	void swatchSemicolonForm();
 	void swatchTabForm();
 	void swatchApply();
+	void blendModeFile();
+	void blendModeCopy();
 };
 
 
@@ -166,6 +173,82 @@ void ColourToolsTest::swatchApply()
 	QVERIFY(near(all.getColor(3)->getCmyk(), 0, 0.27f, 0.79f, 0));
 	QVERIFY(!all_report.text().isEmpty());
 }
+
+namespace {
+
+QByteArray saveXml(Map& map, bool foom)
+{
+	XMLFileFormat format;
+	QBuffer buffer;
+	buffer.open(QIODevice::ReadWrite);
+	auto exporter = format.makeExporter({}, &map, nullptr);
+	exporter->setOption(QStringLiteral("foom"), foom);
+	exporter->setDevice(&buffer);
+	if (!exporter->doExport())
+		return {};
+	return buffer.data();
+}
+
+bool loadXml(Map& map, QByteArray data)
+{
+	XMLFileFormat format;
+	QBuffer buffer(&data);
+	buffer.open(QIODevice::ReadOnly);
+	auto importer = format.makeImporter({}, &map, nullptr);
+	importer->setDevice(&buffer);
+	return importer->doImport();
+}
+
+}  // namespace
+
+// Blend mode, Accept (1)
+void ColourToolsTest::blendModeFile()
+{
+	Map map;
+	addColor(map, QStringLiteral("Multiply"), MapColorCmyk(1, 0, 0, 0))->setBlendMode(MapColor::BlendMultiply);
+	addColor(map, QStringLiteral("Darken"), MapColorCmyk(0, 1, 0, 0))->setBlendMode(MapColor::BlendDarken);
+	addColor(map, QStringLiteral("Normal"), MapColorCmyk(0, 0, 1, 0));
+	
+	auto const data = saveXml(map, true);
+	QCOMPARE(data.count(" blend="), 2);
+	QVERIFY(data.contains(" blend=\"multiply\""));
+	QVERIFY(data.contains(" blend=\"darken\""));
+	Map loaded;
+	QVERIFY(loadXml(loaded, data));
+	QCOMPARE(loaded.getNumColors(), 3);
+	QCOMPARE(loaded.getColor(0)->getBlendMode(), MapColor::BlendMultiply);
+	QCOMPARE(loaded.getColor(1)->getBlendMode(), MapColor::BlendDarken);
+	QCOMPARE(loaded.getColor(2)->getBlendMode(), MapColor::BlendNormal);
+	
+	auto const plain = saveXml(map, false);
+	QVERIFY(!plain.isEmpty());
+	QVERIFY(!plain.contains(" blend="));
+	Map plain_loaded;
+	QVERIFY(loadXml(plain_loaded, plain));
+	QCOMPARE(plain_loaded.getColor(0)->getBlendMode(), MapColor::BlendNormal);
+	
+	auto unknown = data;
+	unknown.replace(" blend=\"darken\"", " blend=\"screen\"");
+	Map unknown_loaded;
+	QVERIFY(loadXml(unknown_loaded, unknown));
+	QCOMPARE(unknown_loaded.getColor(1)->getBlendMode(), MapColor::BlendNormal);
+}
+
+// Blend mode, Accept (2)
+void ColourToolsTest::blendModeCopy()
+{
+	MapColor color(QStringLiteral("Blue"), 0);
+	color.setBlendMode(MapColor::BlendMultiply);
+	MapColor copy = color;
+	QCOMPARE(copy.getBlendMode(), MapColor::BlendMultiply);
+	auto* duplicate = color.duplicate();
+	QCOMPARE(duplicate->getBlendMode(), MapColor::BlendMultiply);
+	QVERIFY(duplicate->equals(color));
+	delete duplicate;
+	copy.setBlendMode(MapColor::BlendDarken);
+	QVERIFY(!copy.equals(color));
+}
+
 
 QTEST_MAIN(ColourToolsTest)
 #include "colour_tools_t.moc"  // IWYU pragma: keep

@@ -202,6 +202,7 @@ namespace literal
 	static const QLatin1String object_groups("groups");  // foom
 	static const QLatin1String object_group("group");  // foom
 	static const QLatin1String color_group("group");  // foom
+	static const QLatin1String blend("blend");  // foom
 	static const QLatin1String bookmarks("bookmarks");  // foom
 	static const QLatin1String bookmark("bookmark");  // foom
 	static const QLatin1String bookmark_x("x");  // foom
@@ -446,6 +447,8 @@ void XMLFileExporter::exportColors()
 		color_element.writeAttribute(literal::opacity, color->getOpacity(), 3);
 		if (XMLFileFormat::foom_revision > 0 && color->getColourGroup() != ColourGroup::Undefined)  // foom
 			color_element.writeAttribute(literal::color_group, colourGroupKey(color->getColourGroup()));
+		if (XMLFileFormat::foom_revision > 0 && color->getBlendMode() != MapColor::BlendNormal)  // foom
+			color_element.writeAttribute(literal::blend, QLatin1String(color->getBlendMode() == MapColor::BlendMultiply ? "multiply" : "darken"));
 		
 		if (color->getSpotColorMethod() != MapColor::UndefinedMethod)
 		{
@@ -1077,6 +1080,12 @@ void XMLFileImporter::importColors()
 				color->setOpacity(color_element.attribute<float>(literal::opacity));
 			if (color_element.hasAttribute(literal::color_group))  // foom
 				color->setColourGroup(colourGroupFromKey(color_element.attribute<QString>(literal::color_group)));
+			if (color_element.hasAttribute(literal::blend))  // foom
+			{
+				auto const blend = color_element.attribute<QString>(literal::blend);
+				color->setBlendMode(blend == QLatin1String("multiply") ? MapColor::BlendMultiply
+				                    : blend == QLatin1String("darken") ? MapColor::BlendDarken : MapColor::BlendNormal);
+			}
 			
 			MapColorCmyk cmyk;
 			cmyk.c = color_element.attribute<float>(literal::c);

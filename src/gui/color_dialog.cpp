@@ -329,6 +329,15 @@ ColorDialog::ColorDialog(const Map& map, const MapColor& source_color, QWidget* 
 	layout->addWidget(new QLabel(tr("Color group")), row, col, 1, 2); col+=2;
 	layout->addWidget(colour_group_combo, row, col, 1, 3);
 	row++; col = 0;
+	// foom: the design notes, "Blend mode"
+	blend_mode_combo = new QComboBox();
+	blend_mode_combo->addItem(tr("Normal"), int(MapColor::BlendNormal));
+	blend_mode_combo->addItem(tr("Multiply"), int(MapColor::BlendMultiply));
+	blend_mode_combo->addItem(tr("Darken"), int(MapColor::BlendDarken));
+	blend_mode_combo->setToolTip(tr("Applied in raster output and the CMYK plates; the screen and vector PDF draw the color normally."));
+	layout->addWidget(new QLabel(tr("Blend mode")), row, col, 1, 2); col+=2;
+	layout->addWidget(blend_mode_combo, row, col, 1, 3);
+	row++; col = 0;
 	layout->addWidget(properties_widget, row, col, 1, 5);
 	row++;
 	layout->addWidget(button_box, row, col, 1, 5);
@@ -342,6 +351,7 @@ ColorDialog::ColorDialog(const Map& map, const MapColor& source_color, QWidget* 
 	connect(name_edit_button, &QPushButton::clicked, this, &ColorDialog::editClicked);
 	connect(mc_name_edit, &QLineEdit::textChanged, this, &ColorDialog::mapColorNameChanged);
 	connect(colour_group_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ColorDialog::colourGroupChanged);  // foom
+	connect(blend_mode_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ColorDialog::blendModeChanged);  // foom
 	
 	connect(spot_color_options, QOverload<int>::of(&QButtonGroup::buttonClicked), this, &ColorDialog::spotColorTypeChanged);
 	connect(sc_name_edit, &QLineEdit::textChanged, this, &ColorDialog::spotColorNameChanged);
@@ -407,6 +417,7 @@ void ColorDialog::updateWidgets()
 	// foom
 	colour_group_combo->setItemText(0, tr("Automatic (%1)").arg(colourGroupName(guessColourGroup(color))));
 	colour_group_combo->setCurrentIndex(qMax(0, colour_group_combo->findData(int(color.getColourGroup()))));
+	blend_mode_combo->setCurrentIndex(qMax(0, blend_mode_combo->findData(int(color.getBlendMode()))));
 	
 	if (color.getSpotColorMethod() == MapColor::SpotColor)
 	{
@@ -808,6 +819,16 @@ void ColorDialog::colourGroupChanged(int index)
 		return;
 	
 	color.setColourGroup(ColourGroup(colour_group_combo->itemData(index).toInt()));
+	setColorModified();
+}
+
+// foom
+void ColorDialog::blendModeChanged(int index)
+{
+	if (!react_to_changes)
+		return;
+	
+	color.setBlendMode(MapColor::BlendMode(blend_mode_combo->itemData(index).toInt()));
 	setColorModified();
 }
 

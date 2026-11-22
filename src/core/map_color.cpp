@@ -118,6 +118,8 @@ MapColor* MapColor::duplicate() const
 	copy->screen_angle = screen_angle;
 	copy->screen_frequency = screen_frequency;
 	copy->components = components;
+	copy->colour_group = colour_group;  // foom
+	copy->blend_mode = blend_mode;  // foom
 	return copy;
 }
 
@@ -186,7 +188,8 @@ bool MapColor::equals(const MapColor& other, bool compare_priority) const
 	              || (std::abs(screen_angle - other.screen_angle) < 0.05
 	                  && std::abs(screen_frequency - other.screen_frequency) < 0.05))) ||
 	         (spot_color_method == CustomColor && componentsEqual(other, compare_priority)) ) &&
-	       (qAbs(opacity - other.opacity) < 1e-03);
+	       (qAbs(opacity - other.opacity) < 1e-03) &&
+	       blend_mode == other.blend_mode;  // foom
 }
 
 
