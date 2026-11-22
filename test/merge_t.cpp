@@ -56,9 +56,11 @@
 #include <QProcessEnvironment>
 #include <QString>
 #include <QTemporaryDir>
+#include <QTransform>
 #include <QUuid>
 
 #include "global.h"
+#include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_color.h"
 #include "core/map_coord.h"
@@ -224,6 +226,18 @@ QByteArray bytes(const QString& path)
 	if (!file.open(QIODevice::ReadOnly))
 		return {};
 	return file.readAll();
+}
+
+Georeferencing utm14(int scale, const MapCoord& map_ref)
+{
+	Georeferencing georef;
+	georef.setScaleDenominator(scale);
+	georef.setProjectedCRS(QStringLiteral("UTM 14"), QStringLiteral("+proj=utm +zone=14 +datum=WGS84"));
+	georef.setProjectedRefPoint(QPointF(500000.0, 5300000.0), false, false);
+	georef.setMapRefPoint(map_ref);
+	georef.setGrivation(0.0);
+	georef.setCombinedScaleFactor(1.0);
+	return georef;
 }
 
 MergeRow::Status statusOf(const MergePlan& plan, char letter)
@@ -1116,6 +1130,74 @@ private slots:
 		// Without a selection, that choice is not offered.
 		FieldCopyDialog without(QRectF(0.0, 0.0, 50.0, 40.0), QRectF());
 		QVERIFY(!without.findChild<QRadioButton*>(QStringLiteral("extent-selection"))->isEnabled());
+	}
+
+	/// Accept (25)
+	void otherFrameTest()
+	{
+		auto const map_path = file("frame.foom");
+		auto const copy_path = file("frame-field.foom");
+		Map map;
+		setupBase(map);
+		map.setGeoreferencing(utm14(10000, MapCoord(0.0, 0.0)));
+		QVERIFY(saveTo(map, map_path));
+		QString error;
+		QVERIFY(!createFieldCopy(map, map_path, copy_path, &error).isEmpty());
+		
+		// In the field the copy went to 1:15000, with another reference point:
+		// every object stays where it is on the ground.
+		{
+			Map copy;
+			QVERIFY(copy.loadFrom(copy_path));
+			copy.setScaleDenominator(15000);
+			copy.setGeoreferencing(utm14(15000, MapCoord(10.0, 0.0)));
+			auto const to_field = QTransform::fromTranslate(10.0, 0.0).scale(2.0 / 3.0, 2.0 / 3.0);
+			for (int i = 0; i < copy.getPart(0)->getNumObjects(); ++i)
+				copy.getPart(0)->getObject(i)->transform(to_field);
+			// They make a longer: 40 mm at 1:10000.
+			change(copy, 'a', 10.0 + 40.0 * 2.0 / 3.0, 3000);
+			QVERIFY(saveTo(copy, copy_path));
+		}
+		
+		// Not without asking.
+		MergeInput input;
+		QVERIFY(!loadForMerge(map, map_path, copy_path, input, &error));
+		QVERIFY(input.other_frame);
+		QVERIFY(!error.isEmpty());
+		
+		error.clear();
+		QVERIFY2(loadForMerge(map, map_path, copy_path, input, &error, true), qPrintable(error));
+		QVERIFY(input.transformed);
+		QVERIFY(input.base);
+		auto const plan = compareMaps(input.base.get(), map, *input.theirs);
+		QCOMPARE(plan.rows.size(), std::size_t(1));
+		QCOMPARE(statusOf(plan, 'a'), MergeRow::Incoming);
+		QVERIFY(qAbs(endX(*input.theirs, 'a') - 40.0) < 0.01);
+		QVERIFY(qAbs(find(*input.theirs, 'b')->asPath()->getCoordinate(1).y() - 5.0) < 0.001);
+		
+		MergeResult result;
+		QVERIFY2(applyMerge(map, *input.theirs, plan, &result, &error), qPrintable(error));
+		QCOMPARE(result.replaced, 1);
+		QVERIFY(qAbs(endX(map, 'a') - 40.0) < 0.01);
+		QCOMPARE(map.getScaleDenominator(), 10000u);
+		
+		// Another scale without a geospatial georeferencing is refused.
+		Map local;
+		setupBase(local);
+		auto const local_path = file("local.foom");
+		auto const local_copy = file("local-field.foom");
+		QVERIFY(saveTo(local, local_path));
+		QVERIFY(!createFieldCopy(local, local_path, local_copy, &error).isEmpty());
+		{
+			Map copy;
+			QVERIFY(copy.loadFrom(local_copy));
+			copy.setScaleDenominator(15000);
+			QVERIFY(saveTo(copy, local_copy));
+		}
+		error.clear();
+		QVERIFY(!loadForMerge(local, local_path, local_copy, input, &error, true));
+		QVERIFY(!input.other_frame);
+		QVERIFY(!error.isEmpty());
 	}
 
 	/// Accept (13), (14), (15)

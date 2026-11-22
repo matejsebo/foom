@@ -8194,9 +8194,14 @@ void MapEditorController::mergeFromFileClicked()
 	
 	QString error;
 	MergeInput input;
-	if (!loadForMerge(*map, map_path, filename, input, &error))
+	auto loaded = loadForMerge(*map, map_path, filename, input, &error);
+	if (!loaded && input.other_frame
+	    && QMessageBox::question(window, tr("Merge changes"), error + QLatin1String("\n\n") + tr("Transform the objects of the copy?")) == QMessageBox::Yes)
+		loaded = loadForMerge(*map, map_path, filename, input, &error, true);
+	if (!loaded)
 	{
-		QMessageBox::warning(window, tr("Merge changes"), error);
+		if (!input.other_frame)
+			QMessageBox::warning(window, tr("Merge changes"), error);
 		return;
 	}
 	auto plan = compareMaps(input.base.get(), *map, *input.theirs);

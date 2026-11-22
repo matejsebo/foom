@@ -46,6 +46,13 @@ class Object;
  */
 QByteArray contentHash(const Object& object);
 
+/**
+ * True when the two objects have the same content, except that their
+ * coordinates and pattern origins may differ by up to the tolerance (in mm)
+ * and their rotations by up to a thousandth of a radian.
+ */
+bool sameContent(const Object& a, const Object& b, double tolerance);
+
 
 /** One object which differs between my map and theirs. */
 struct MergeRow

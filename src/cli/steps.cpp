@@ -1206,7 +1206,8 @@ void StepRunner::validate(const Step& step, bool& map_open)
 	else if (name == QLatin1String("merge-from-file"))
 	{
 		p.requireMap(map_open);
-		p.checkKnown({ "path", "conflicts", "definitions" });
+		p.checkKnown({ "path", "conflicts", "definitions", "transform" });
+		p.optionalBool("transform", false);
 		p.requireString("path");
 		auto const conflicts = p.optionalString("conflicts", QStringLiteral("fail"));
 		if (!QStringList{ QStringLiteral("fail"), QStringLiteral("mine"), QStringLiteral("theirs"), QStringLiteral("both"), QStringLiteral("prefilled") }.contains(conflicts))
@@ -2072,8 +2073,8 @@ StepResult StepRunner::mergeFromFile(const Step& step)
 	
 	QString error;
 	MergeInput input;
-	if (!loadForMerge(*map, map_path, path, input, &error))
-		return failure(error);
+	if (!loadForMerge(*map, map_path, path, input, &error, p.optionalBool("transform", false)))
+		return failure(input.other_frame ? error + QLatin1String(" Set \"transform\" to true to do so.") : error);
 	auto plan = compareMaps(input.base.get(), *map, *input.theirs);
 	auto const conflict_count = plan.count(MergeRow::Conflict);
 	if (p.optionalString("definitions", QStringLiteral("mine")) == QLatin1String("theirs"))
@@ -2104,6 +2105,7 @@ StepResult StepRunner::mergeFromFile(const Step& step)
 	result.details.insert(QLatin1String("path"), path);
 	result.details.insert(QLatin1String("id"), input.copy.id);
 	result.details.insert(QLatin1String("two_way"), plan.two_way);
+	result.details.insert(QLatin1String("transformed"), input.transformed);
 	result.details.insert(QLatin1String("incoming"), plan.count(MergeRow::Incoming));
 	result.details.insert(QLatin1String("outgoing"), plan.count(MergeRow::Outgoing));
 	result.details.insert(QLatin1String("conflicts"), conflict_count);

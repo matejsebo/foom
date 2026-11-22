@@ -378,10 +378,8 @@ bool touched(MergeRow::Side side)
 	return side == MergeRow::Changed || side == MergeRow::Added || side == MergeRow::Deleted;
 }
 
-}  // namespace
-
-
-QByteArray contentHash(const Object& object)
+/** The canonical bytes of the hash; without coordinates, pattern origin and rotation unless geometry is true. */
+QByteArray contentBytes(const Object& object, bool geometry)
 {
 	QByteArray bytes;
 	appendField(bytes, symbolKey(object));
@@ -390,19 +388,24 @@ QByteArray contentHash(const Object& object)
 	QByteArray coords;
 	for (auto const& coord : object.getRawCoordinateVector())
 	{
-		coords += QByteArray::number(coord.nativeX());
-		coords += ',';
-		coords += QByteArray::number(coord.nativeY());
-		coords += ',';
+		if (geometry)
+		{
+			coords += QByteArray::number(coord.nativeX());
+			coords += ',';
+			coords += QByteArray::number(coord.nativeY());
+			coords += ',';
+		}
 		coords += QByteArray::number(int(coord.flags()));
 		coords += ';';
 	}
 	appendField(bytes, coords);
-	appendField(bytes, QByteArray::number(qRound64(object.getRotation() * 10000)));
+	if (geometry)
+		appendField(bytes, QByteArray::number(qRound64(object.getRotation() * 10000)));
 	
 	switch (object.getType())
 	{
 	case Object::Path:
+		if (geometry)
 		{
 			auto const origin = object.asPath()->getPatternOrigin();
 			QByteArray field = QByteArray::number(origin.nativeX());
@@ -445,8 +448,36 @@ QByteArray contentHash(const Object& object)
 	tags.sort();
 	for (auto const& tag : qAsConst(tags))
 		appendField(bytes, tag.toUtf8());
-	
-	return QCryptographicHash::hash(bytes, QCryptographicHash::Sha1);
+	return bytes;
+}
+
+}  // namespace
+
+
+QByteArray contentHash(const Object& object)
+{
+	return QCryptographicHash::hash(contentBytes(object, true), QCryptographicHash::Sha1);
+}
+
+bool sameContent(const Object& a, const Object& b, double tolerance)
+{
+	if (a.getType() != b.getType())
+		return false;
+	auto const& coords_a = a.getRawCoordinateVector();
+	auto const& coords_b = b.getRawCoordinateVector();
+	if (coords_a.size() != coords_b.size() || qAbs(a.getRotation() - b.getRotation()) > 0.001)
+		return false;
+	auto const near = [tolerance](const MapCoord& p, const MapCoord& q) {
+		return qAbs(p.x() - q.x()) <= tolerance && qAbs(p.y() - q.y()) <= tolerance;
+	};
+	for (std::size_t i = 0; i < coords_a.size(); ++i)
+	{
+		if (!near(coords_a[i], coords_b[i]))
+			return false;
+	}
+	if (a.getType() == Object::Path && !near(a.asPath()->getPatternOrigin(), b.asPath()->getPatternOrigin()))
+		return false;
+	return contentBytes(a, false) == contentBytes(b, false);
 }
 
 

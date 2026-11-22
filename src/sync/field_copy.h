@@ -91,6 +91,8 @@ struct MergeInput
 	SyncCopy copy;                ///< The record of the working map.
 	std::unique_ptr<Map> theirs;
 	std::unique_ptr<Map> base;    ///< Null when the base file is missing or unreadable.
+	bool other_frame = false;     ///< Refused because the copy has another georeferencing, which may be transformed.
+	bool transformed = false;     ///< The copy's objects were transformed into the frame of the working map.
 };
 
 /**
@@ -100,6 +102,17 @@ struct MergeInput
  * copies, or when scale or georeferencing differ.
  */
 bool loadForMerge(const Map& mine, const QString& map_path, const QString& copy_path, MergeInput& input, QString* error);
+
+/**
+ * Reads the returned copy and its base, as above. When the copy has another
+ * georeferencing and transform is true, its objects are transformed into
+ * the frame of the working map (and so are those of the base, when its
+ * frame differs too). An object which then lies within 0.01 mm of its state
+ * in the base, or in the working map, is given exactly that state, so that
+ * rounding does not count as a change. Another scale is refused unless
+ * both maps have a geospatial georeferencing.
+ */
+bool loadForMerge(const Map& mine, const QString& map_path, const QString& copy_path, MergeInput& input, QString* error, bool transform);
 
 /**
  * Makes the returned copy the new base, by copying its file. To be called

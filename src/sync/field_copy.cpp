@@ -37,6 +37,7 @@
 #include <QIODevice>
 #include <QImage>
 #include <QPainter>
+#include <QTransform>
 #include <QLatin1Char>
 #include <QLatin1String>
 #include <QPointF>
@@ -47,6 +48,9 @@
 #include "core/map_coord.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
+#include "core/symbols/symbol.h"
+#include "sync/merge.h"
+#include "util/transformation.h"
 #include "fileformats/file_import_export.h"
 #include "fileformats/xml_file_format.h"
 #include "templates/template.h"
@@ -90,6 +94,71 @@ bool sameFrame(const Map& mine, const Map& theirs)
 	       && QPointF(a.getProjectedRefPoint() - b.getProjectedRefPoint()).manhattanLength() < 0.001
 	       && qAbs(a.getGrivation() - b.getGrivation()) < 0.005
 	       && qAbs(a.getDeclination() - b.getDeclination()) < 0.005;
+}
+
+bool geospatial(const Map& map)
+{
+	return map.getGeoreferencing().getState() == Georeferencing::Geospatial;
+}
+
+/** The transformation from the frame of other into that of target, as in TemplateMap::calculateTransformation(). */
+bool frameTransform(const Map& target, const Map& other, QTransform& transform)
+{
+	auto const& georef = other.getGeoreferencing();
+	auto const origin = MapCoordF { georef.getMapRefPoint() };
+	bool ok0, ok1, ok2;
+	PassPointList passpoints;
+	passpoints.resize(3);
+	passpoints[0].src_coords = origin;
+	passpoints[0].dest_coords = target.getGeoreferencing().toMapCoordF(&georef, passpoints[0].src_coords, &ok0);
+	passpoints[1].src_coords = origin + MapCoordF { 128.0, 0.0 };
+	passpoints[1].dest_coords = target.getGeoreferencing().toMapCoordF(&georef, passpoints[1].src_coords, &ok1);
+	passpoints[2].src_coords = origin + MapCoordF { 0.0, 128.0 };
+	passpoints[2].dest_coords = target.getGeoreferencing().toMapCoordF(&georef, passpoints[2].src_coords, &ok2);
+	return ok0 && ok1 && ok2 && passpoints.estimateNonIsometricSimilarityTransform(&transform);
+}
+
+/** Transforms every object, and turns the rotation of those which have one. */
+void transformObjects(Map& map, const QTransform& transform)
+{
+	for (int p = 0; p < map.getNumParts(); ++p)
+	{
+		auto* part = map.getPart(std::size_t(p));
+		for (int i = 0; i < part->getNumObjects(); ++i)
+		{
+			auto* object = part->getObject(i);
+			auto const rotation = object->getRotation();
+			object->transform(transform);
+			auto const* symbol = object->getSymbol();
+			if (symbol && (symbol->isRotatable() || symbol->hasRotatableFillPattern()))
+			{
+				// A rotation by r turns (1, 0) into (cos r, -sin r).
+				auto const direction = transform.map(QPointF(std::cos(rotation), -std::sin(rotation))) - transform.map(QPointF(0.0, 0.0));
+				object->setRotation(std::atan2(-direction.y(), direction.x()));
+			}
+		}
+	}
+}
+
+/** Gives every object which is the same as in the reference within 0.01 mm the reference's state. */
+void snapTo(Map& map, const Map& reference)
+{
+	for (int p = 0; p < map.getNumParts(); ++p)
+	{
+		auto* part = map.getPart(std::size_t(p));
+		for (int i = 0; i < part->getNumObjects(); ++i)
+		{
+			auto* object = part->getObject(i);
+			auto const* own = reference.findObject(object->uuid());
+			if (!own || !sameContent(*object, *own, 0.01))
+				continue;
+			auto* symbol = object->getSymbol();
+			auto const group = object->group();
+			object->copyFrom(*own);
+			object->setSymbol(symbol, true);
+			object->setGroup(group);
+		}
+	}
 }
 
 /** Writes the map to the copy's file with the options applied. The map itself is left as it is. */
@@ -302,6 +371,11 @@ bool closeFieldCopy(Map& map, const QString& map_path, const QString& id, QStrin
 
 bool loadForMerge(const Map& mine, const QString& map_path, const QString& copy_path, MergeInput& input, QString* error)
 {
+	return loadForMerge(mine, map_path, copy_path, input, error, false);
+}
+
+bool loadForMerge(const Map& mine, const QString& map_path, const QString& copy_path, MergeInput& input, QString* error, bool transform)
+{
 	input = {};
 	auto theirs = std::make_unique<Map>();
 	if (!theirs->loadFrom(copy_path))
@@ -315,7 +389,20 @@ bool loadForMerge(const Map& mine, const QString& map_path, const QString& copy_
 	if (found == open_copies.end())
 		return fail(error, tr("%1 is not a field copy of this map: the sync ids do not match.").arg(copy_path));
 	if (!sameFrame(mine, *theirs))
-		return fail(error, tr("The copy has another scale or georeferencing than this map."));
+	{
+		if (mine.getScaleDenominator() != theirs->getScaleDenominator() && !(geospatial(mine) && geospatial(*theirs)))
+			return fail(error, tr("The copy has another scale than this map. Its objects can be placed in this map only when both maps are georeferenced."));
+		if (!transform)
+		{
+			input.other_frame = true;
+			return fail(error, tr("The copy has another georeferencing than this map. Its objects can be transformed into the frame of this map for the merge."));
+		}
+		QTransform to_mine;
+		if (!frameTransform(mine, *theirs, to_mine))
+			return fail(error, tr("The objects of the copy cannot be transformed into the frame of this map."));
+		transformObjects(*theirs, to_mine);
+		input.transformed = true;
+	}
 	
 	input.copy = *found;
 	input.theirs = std::move(theirs);
@@ -324,8 +411,22 @@ bool loadForMerge(const Map& mine, const QString& map_path, const QString& copy_
 	{
 		auto base = std::make_unique<Map>();
 		if (base->loadFrom(base_path))
-			input.base = std::move(base);
+		{
+			QTransform to_mine;
+			if (sameFrame(mine, *base))
+			{
+				input.base = std::move(base);
+			}
+			else if (frameTransform(mine, *base, to_mine))
+			{
+				transformObjects(*base, to_mine);
+				snapTo(*base, mine);
+				input.base = std::move(base);
+			}
+		}
 	}
+	if (input.transformed)
+		snapTo(*input.theirs, input.base ? *input.base : mine);
 	return true;
 }
 
