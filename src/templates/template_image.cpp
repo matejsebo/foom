@@ -294,6 +294,26 @@ bool TemplateImage::unembed(QString* error)
 				*error = tr("The file %1 cannot be written.").arg(template_path);
 			return false;
 		}
+		
+		// The world file goes back too, when the transform came from one, or
+		// from a format which cannot hold it (GDAL names the format then).
+		auto const& source = embedded_transform.source;
+		auto const own_georef = embedded_format == "tif" || embedded_format == "tiff";
+		auto const world_path = WorldFile::pathForImage(template_path);
+		if (!source.isEmpty() && (source == "World file" || !own_georef) && !QFileInfo::exists(world_path))
+		{
+			WorldFile const world_file(embedded_transform.pixel_to_world);
+			QSaveFile world(world_path);
+			auto ok = world.open(QIODevice::WriteOnly | QIODevice::Text);
+			for (auto value : world_file.parameters)
+				ok = ok && world.write(QByteArray::number(value, 'g', 15) + '\n') > 0;
+			if (!ok || !world.commit())
+			{
+				if (error)
+					*error = tr("The file %1 cannot be written.").arg(world_path);
+				return false;
+			}
+		}
 	}
 	embedded_data.clear();
 	embedded_format.clear();
