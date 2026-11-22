@@ -654,6 +654,8 @@ public slots:
 	void deleteFromCoursesClicked();
 	/** foom: Gives the controls new codes. */
 	void renumberControlsClicked();
+	/** foom: Gives the controls the ids of their punching units. */
+	void punchIdsClicked();
 	/** foom: Shows the statistics of the courses and of the event. */
 	void courseStatisticsClicked();
 	/** foom: Runs the consistency check of the courses and shows the issues; returns their number. */
@@ -1391,6 +1393,7 @@ private:
 	QAction* course_insert_act = {};  // foom
 	QAction* course_delete_act = {};  // foom
 	QAction* course_renumber_act = {};  // foom
+	QAction* course_punch_ids_act = {};  // foom
 	QAction* course_statistics_act = {};  // foom
 	QAction* course_check_act = {};  // foom
 	QAction* course_export_iof_act = {};  // foom
