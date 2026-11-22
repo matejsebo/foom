@@ -276,6 +276,7 @@ add_system_test(course_symbols_t)  # foom: the design notes, FOOM's course symbo
 add_system_test(course_compose_t)  # foom: the design notes, Composing a course and the bulk commands
 add_system_test(course_report_t)  # foom: the design notes, Statistics and the consistency check
 add_system_test(course_interchange_t)  # foom: the design notes, Interchange: IOF XML, GPX and KML
+add_system_test(background_extents_t)  # foom: the design notes, Canvases: load extent from background map
 add_system_test(course_relay_t)  # foom: the design notes, Relays: variations, variants and their allocation
 add_system_test(course_parts_t)  # foom: the design notes, The parts of a course: map exchange and flip
 add_system_test(course_canvas_t)  # foom: the design notes, Canvases: the model, the files and the export
