@@ -346,6 +346,8 @@ private slots:
 	void canvasExportTest();
 	void dialogTest();
 	void mapFilesTest();
+	void mapFilesOverridesTest();
+	void hiderTest();
 	void printTest();
 	void oneFileTest();
 	void printOptionsTest();
@@ -1071,6 +1073,87 @@ void CourseMapTest::mapFilesTest()
 	QVERIFY(!report.ok);
 	QVERIFY(!report.error.isEmpty());
 	QCOMPARE(courseMapFileName(QStringLiteral("m"), QStringLiteral("A/B"), QStringLiteral("ocd")), QStringLiteral("m.A_B.ocd"));
+}
+
+
+/// Seen on 2026-11-22: course maps written as OCD files carried the numbers
+/// and lines of every course, the objects of the hidden part of the overrides.
+void CourseMapTest::mapFilesOverridesTest()
+{
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	Map map;
+	fillMap(map);
+	// Objects of overrides, as OCD files keep them for every course: a number and a line.
+	auto const overrides = std::size_t(map.findPartIndex(ensureCourseOverridesPart(map)));
+	const Symbol* number = nullptr;
+	const Symbol* line = nullptr;
+	for (int i = 0; i < map.getNumSymbols(); ++i)
+	{
+		auto const* symbol = map.getSymbol(i);
+		if (symbol->getNumberComponent(0) == 704)
+			number = symbol;
+		else if (symbol->getNumberComponent(0) == 705)
+			line = symbol;
+	}
+	QVERIFY(number && line);
+	auto const current = map.getCurrentPartIndex();
+	map.setCurrentPartIndex(overrides);
+	drawText(map, number, 70.0, 70.0, "99");
+	auto* leg = new PathObject(line, { MapCoord(60, 60), MapCoord(80, 60) });
+	push(map, leg);
+	map.setCurrentPartIndex(current);
+	QCOMPARE(map.getPart(overrides)->getNumObjects(), 2);
+	
+	CourseMapExportOptions options;
+	options.folder = QDir(dir.path()).absoluteFilePath(QStringLiteral("files"));
+	options.base_name = QStringLiteral("m");
+	options.courses = QStringList{ QStringLiteral("Plain") };
+	for (auto const* format : { "XML", "OCD2018" })
+	{
+		options.map_format = QString::fromLatin1(format);
+		auto const report = exportCourseMaps(map, options);
+		QVERIFY2(report.ok, qPrintable(report.error));
+		QCOMPARE(report.files.size(), 1);
+		Map plain;
+		QVERIFY(plain.loadFrom(report.files[0]));
+		QVERIFY(!textsOf(plain, 704).contains(QStringLiteral("99")));
+		QCOMPARE(textsOf(plain, 704).size(), 3);
+		QCOMPARE(int(objectsOf(plain, 705).size()), 4);
+	}
+	// The map keeps its overrides.
+	QCOMPARE(map.getPart(overrides)->getNumObjects(), 2);
+	
+	// Several courses in one file.
+	options.courses = QStringList{ QStringLiteral("Plain"), QStringLiteral("X") };
+	options.map_format = QStringLiteral("XML");
+	options.placing = CourseMapPlacing::Beside;
+	auto const report = exportCourseMaps(map, options);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	Map both;
+	QVERIFY(both.loadFrom(report.files.back()));
+	QVERIFY(!textsOf(both, 704).contains(QStringLiteral("99")));
+}
+
+
+/// Seen on 2026-11-22: after printing course maps, the symbol pane showed the
+/// course symbols crossed out, as it had drawn them while they were hidden.
+void CourseMapTest::hiderTest()
+{
+	Map map;
+	fillMap(map);
+	QSignalSpy icons(&map, &Map::symbolIconChanged);
+	int count = 0;
+	{
+		const CourseSymbolsHider hider(map);
+		count = hider.count();
+		QVERIFY(count > 0);
+		QVERIFY(!hiddenSymbols(map).isEmpty());
+	}
+	QVERIFY(hiddenSymbols(map).isEmpty());
+	QCOMPARE(icons.count(), count);
+	for (auto const& arguments : icons)
+		QVERIFY(arguments.at(0).toInt() >= 0);
 }
 
 

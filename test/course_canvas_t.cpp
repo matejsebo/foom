@@ -551,9 +551,10 @@ void CourseCanvasTest::xmlScriptTest()
 
 	// Written as Save as XML writes it: in Windows-1252, with the rectangle behind the name of the extent.
 	auto const bytes = canvasesToXmlScript(sampleCanvases(), { whole });
-	QVERIFY(bytes.startsWith("<?xml version=\"1.0\"?>\r\n<OcadScript>\r\n<CsCanvas>\r\n"));
-	QVERIFY(bytes.contains("Forest Orienteering Map B\xfcrenflue.ocd"));
-	QVERIFY(!bytes.contains("B\xc3\xbcrenflue"));
+	// UTF-8 with a BOM and the encoding declared, as the format has it (a byte 0xFC makes the file unreadable).
+	QVERIFY(bytes.startsWith("\xef\xbb\xbf<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<OcadScript>\r\n<CsCanvas>\r\n"));
+	QVERIFY(bytes.contains("Forest Orienteering Map B\xc3\xbcrenflue.ocd"));
+	QVERIFY(!bytes.contains("B\xfcrenflue"));
 	QVERIFY(bytes.contains("<ExportRectangleName pageStatus=\"psSingle\">Whole</ExportRectangleName>\r\n"
 	                       "<ExportRectangleFrontside>\r\n<L>-142.03</L>\r\n<B>-291.03</B>\r\n<R>255.37</R>\r\n<T>77.26</T>\r\n</ExportRectangleFrontside>\r\n"));
 	QVERIFY(bytes.endsWith("</CsCanvas>\r\n</OcadScript>\r\n"));

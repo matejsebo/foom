@@ -135,7 +135,8 @@ bool canvasesFromXmlScript(const QByteArray& bytes, CourseCanvases& canvases, st
 /**
  * Writes a canvas XML file: the text of the parameter string
  * 1093 with, behind the name of the extent of every canvas which is among
- * the extents, its rectangle in mm of the map with y upwards; in Windows-1252.
+ * the extents, its rectangle in mm of the map with y upwards; in UTF-8 with
+ * a byte order mark and the encoding in the declaration, as the format has it.
  */
 QByteArray canvasesToXmlScript(const CourseCanvases& canvases, const std::vector<Extent>& extents);
 

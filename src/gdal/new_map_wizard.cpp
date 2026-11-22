@@ -595,8 +595,8 @@ public:
 		cell_spin->setSuffix(QLatin1String(" m"));
 		layout->addRow(trWizard("Cell size for a point cloud:"), cell_spin);
 		connect(elevation_browse, &QPushButton::clicked, this, [this]() {
-			auto const filter = trWizard("Elevation grids and point clouds") + QLatin1String(" (*.tif *.tiff *.asc *.xyz *.hgt *.ocdDem *.img *.vrt *.dem *.las *.laz);;")
-			                    + trWizard("All files") + QLatin1String(" (*.*)");
+			QString const filter = trWizard("Elevation grids and point clouds") + QLatin1String(" (*.tif *.tiff *.asc *.xyz *.hgt *.ocdDem *.img *.vrt *.dem *.las *.laz);;")
+			                       + trWizard("All files") + QLatin1String(" (*.*)");
 			auto const path = QFileDialog::getOpenFileName(this, trWizard("Open elevation data"), elevation_edit->text(), filter);
 			if (!path.isEmpty())
 				elevation_edit->setText(QDir::toNativeSeparators(path));

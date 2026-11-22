@@ -77,12 +77,32 @@ DrawLineTextTool::DrawLineTextTool(MapEditorController* editor, QAction* tool_ac
 {
 	connect(this, &DrawLineAndAreaTool::dirtyRectChanged, this, &DrawLineTextTool::pathDirtyRectChanged);
 	connect(this, &DrawLineAndAreaTool::pathFinished, this, &DrawLineTextTool::startText);
+	if (auto* widget = editor->getMainWidget())
+		widget->installEventFilter(this);
 }
 
 DrawLineTextTool::~DrawLineTextTool()
 {
+	// The filter goes with this object; the map widget may be gone already.
 	if (text_editor)
 		finishText();
+}
+
+bool DrawLineTextTool::eventFilter(QObject* watched, QEvent* event)
+{
+	// Upstream's shortcuts of single letters (M: Measure) would fire while the path is
+	// drawn; the letter is taken by the map widget instead, where the path tool ignores it.
+	if (event->type() == QEvent::ShortcutOverride && !text_editor && editingInProgress())
+	{
+		auto const* key = static_cast<QKeyEvent*>(event);
+		auto const modifiers = key->modifiers() & ~(Qt::ShiftModifier | Qt::KeypadModifier);
+		if (modifiers == Qt::NoModifier && !key->text().isEmpty() && key->text().at(0).isPrint())
+		{
+			event->accept();
+			return true;
+		}
+	}
+	return DrawPathTool::eventFilter(watched, event);
 }
 
 

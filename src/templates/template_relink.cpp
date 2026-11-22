@@ -173,6 +173,10 @@ bool relinkTemplateFile(Map& map, int index, const QString& new_path)
 QString relinkStartFolder(const QString& old_folder, const QString& map_path)
 {
 	auto folder = normalPath(old_folder);
+	// foom: a relative path is relative to the map, not to the program's working folder
+	// (seen on 2026-11-22: the chooser opened in the folder FOOM was started from).
+	if (!folder.isEmpty() && QFileInfo(folder).isRelative())
+		folder = map_path.isEmpty() ? QString() : normalPath(QDir(QFileInfo(map_path).absolutePath()).absoluteFilePath(folder));
 	while (!folder.isEmpty())
 	{
 		if (QFileInfo(folder).isDir())

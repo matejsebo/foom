@@ -57,6 +57,8 @@ MapImportDialog::MapImportDialog(const Map& imported, const Map& map, QWidget* p
 	for (int i = 0; i < imported.getNumSymbols(); ++i)
 	{
 		auto const number = imported.getSymbol(i)->getNumberAsString();
+		if (clashes.contains(number))  // foom: each number once
+			continue;
 		for (int j = 0; j < map.getNumSymbols(); ++j)
 		{
 			if (map.getSymbol(j)->getNumberAsString() == number)

@@ -22,6 +22,7 @@
 #include <QAbstractButton>
 #include <QDialogButtonBox>
 #include <QFont>
+#include <QFontMetrics>
 #include <QFormLayout>
 #include <QGridLayout>
 #include <QLabel>
@@ -59,12 +60,27 @@ InsertGlyphDialog::InsertGlyphDialog(const QFont& font, QWidget* parent)
 	code_edit = new QLineEdit();
 	code_edit->setPlaceholderText(tr("e.g. 00E9"));
 	
+	// foom: only the family and style of the symbol's font, whose size is in map units
+	// (seen on 2026-11-22: buttons centimetres high, the dialog over the screen's edge).
+	auto const scaled = [this, &font](double factor) {
+		auto result = this->font();
+		result.setFamily(font.family());
+		result.setWeight(font.weight());
+		result.setItalic(font.italic());
+		if (result.pointSizeF() > 0)
+			result.setPointSizeF(result.pointSizeF() * factor);
+		else
+			result.setPixelSize(qRound(result.pixelSize() * factor));
+		return result;
+	};
+	auto const button_font = scaled(1.25);
+	
 	preview = new QLabel();
-	auto preview_font = font;
-	preview_font.setPointSize(36);
+	preview->setObjectName(QStringLiteral("preview"));
+	auto const preview_font = scaled(4.0);
 	preview->setFont(preview_font);
 	preview->setAlignment(Qt::AlignCenter);
-	preview->setMinimumSize(80, 80);
+	preview->setMinimumSize(QFontMetrics(preview_font).height() * 3 / 2, QFontMetrics(preview_font).height() * 3 / 2);
 	
 	message = new QLabel();
 	message->setWordWrap(true);
@@ -76,7 +92,7 @@ InsertGlyphDialog::InsertGlyphDialog(const QFont& font, QWidget* parent)
 	{
 		auto* button = new QToolButton();
 		button->setText(specials.mid(i, 1));
-		button->setFont(font);
+		button->setFont(button_font);
 		button->setAutoRaise(true);
 		auto const code = QString::number(specials.at(i).unicode(), 16).toUpper().rightJustified(4, QLatin1Char('0'));
 		button->setToolTip(QStringLiteral("U+") + code);

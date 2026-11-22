@@ -291,7 +291,7 @@ void MapServiceDialog::addService()
 // foom
 void MapServiceDialog::openDescriptor()
 {
-	auto const filter = tr("Map service descriptors") + QLatin1String(" (*") + MapService::descriptorSuffix() + QLatin1String(")");
+	QString const filter = tr("Map service descriptors") + QLatin1String(" (*") + MapService::descriptorSuffix() + QLatin1String(")");
 	auto const path = FileDialog::getOpenFileName(this, tr("Open map service"), {}, filter);
 	if (path.isEmpty())
 		return;
@@ -313,8 +313,8 @@ void MapServiceDialog::saveDescriptor()
 {
 	auto const service = fieldsToService();
 	auto const suffix = MapService::descriptorSuffix();
-	auto const filter = tr("Map service descriptors") + QLatin1String(" (*") + suffix + QLatin1String(")");
-	auto const start = QString(service.name).replace(QRegExp(QStringLiteral("[^A-Za-z0-9_-]+")), QStringLiteral("_")) + suffix;
+	QString const filter = tr("Map service descriptors") + QLatin1String(" (*") + suffix + QLatin1String(")");
+	QString const start = QString(service.name).replace(QRegExp(QStringLiteral("[^A-Za-z0-9_-]+")), QStringLiteral("_")) + suffix;
 	auto path = FileDialog::getSaveFileName(this, tr("Save map service"), start, filter);
 	if (path.isEmpty())
 		return;
@@ -678,8 +678,8 @@ void MapServiceDialog::downloadClicked()
 	resolution_edit->setValue(std::max(0.01, std::round(view_px * 100.0) / 100.0));
 	auto* path_edit = new QLineEdit();
 	auto const map_path = controller->getWindow() ? controller->getWindow()->currentPath() : QString{};
-	auto const base_name = (map_path.isEmpty() ? QDir::homePath() + QLatin1String("/map") : map_path.section(QLatin1Char('.'), 0, -2))
-	                       + QLatin1Char('-') + QString(service.name).replace(QRegExp(QStringLiteral("[^A-Za-z0-9_-]+")), QStringLiteral("_")) + QLatin1String(".tif");
+	QString const base_name = (map_path.isEmpty() ? QDir::homePath() + QLatin1String("/map") : map_path.section(QLatin1Char('.'), 0, -2))
+	                          + QLatin1Char('-') + QString(service.name).replace(QRegExp(QStringLiteral("[^A-Za-z0-9_-]+")), QStringLiteral("_")) + QLatin1String(".tif");
 	path_edit->setText(QDir::toNativeSeparators(base_name));
 	auto* browse = new QPushButton(tr("Browse..."));
 	connect(browse, &QPushButton::clicked, &dialog, [&dialog, path_edit]() {

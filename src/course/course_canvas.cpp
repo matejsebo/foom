@@ -441,9 +441,11 @@ QString canvasesToOcdXml(const CourseCanvases& canvases)
 
 QByteArray canvasesToXmlScript(const CourseCanvases& canvases, const std::vector<Extent>& extents)
 {
-	auto const text = writeOcdCanvases(canvases, &extents);
-	auto* codec = QTextCodec::codecForName("Windows-1252");
-	return codec ? codec->fromUnicode(text) : text.toLatin1();
+	// foom: UTF-8 with a BOM and the encoding declared, as the format has it;
+	// a byte of Windows-1252 in it makes the file unreadable.
+	auto text = writeOcdCanvases(canvases, &extents);
+	text.replace(0, int(qstrlen("<?xml version=\"1.0\"?>")), QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
+	return QByteArray("\xef\xbb\xbf") + text.toUtf8();
 }
 
 

@@ -256,6 +256,11 @@ void RoutePerimeterTest::courseTest()
 	QCOMPARE(routes.missing, 0);
 	auto const* kept = store.find(QStringLiteral("31"), QStringLiteral("F1"));
 	QVERIFY(kept && !kept->found);
+	// The message says so itself (seen on 2026-11-22: only under its details).
+	auto const message = courseRoutesMessage(routes, QStringLiteral("A"));
+	QVERIFY(message.startsWith(QLatin1String("The fastest routes of the course A take ")));
+	QVERIFY2(message.contains(QLatin1String("\n1 leg(s) lie out of the perimeter.")), qPrintable(message));
+	QVERIFY(!message.contains(QLatin1String("have no route")));
 
 	// The whole map: no leg is out.
 	auto plain = map.courseData();
@@ -266,6 +271,7 @@ void RoutePerimeterTest::courseTest()
 	auto const all = analyseCourseRoutes(map, plain, QStringLiteral("A"), -1, whole_search, whole_store);
 	QCOMPARE(all.outside, 0);
 	QVERIFY(all.legs[1].route.found);
+	QVERIFY(!courseRoutesMessage(all, QStringLiteral("A")).contains(QLatin1String("perimeter")));
 }
 
 

@@ -175,6 +175,7 @@ public:
 	int count() const { return int(hidden.size()); }
 	
 private:
+	Map& map;  ///< foom: told of the symbols again shown, for the symbol pane
 	std::vector<Symbol*> hidden;
 };
 

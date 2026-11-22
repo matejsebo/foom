@@ -103,6 +103,12 @@ signals:
 	
 protected:
 	void reject() override;
+	/** foom: Escape ends the tool and leaves the dialog open (spec 04, seventh change). */
+	void keyPressEvent(QKeyEvent* event) override;
+	
+signals:
+	/** Escape in the dialog. */
+	void escapePressed();
 	
 private:
 	QSpinBox* radius_edit;

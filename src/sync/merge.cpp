@@ -43,6 +43,7 @@
 #include "core/objects/image_object.h"
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
+#include "core/symbols/combined_symbol.h"
 #include "core/symbols/symbol.h"
 #include "core/sync_record.h"
 #include "undo/map_part_undo.h"
@@ -190,12 +191,26 @@ MapColorMap matchedColors(const Map& mine, const Map& theirs)
 
 /**
  * True when their symbol has my symbol's definition, apart from the
- * definitions of the colours: those are compared on their own.
+ * definitions of the colours: those are compared on their own. The public
+ * parts of a combined symbol are compared on their own too, as symbols of
+ * their own; seen on 2026-11-22: unchanged combined symbols were listed.
  */
-bool sameDefinition(const Symbol& own, const Symbol& other, const MapColorMap& colors)
+bool sameDefinition(const Map& mine, const Symbol& own, const Symbol& other, const MapColorMap& colors)
 {
 	auto const copy = duplicate(other);
 	copy->replaceColors(colors);
+	if (copy->getType() == Symbol::Combined)
+	{
+		auto* combined = copy->asCombined();
+		for (int i = 0; i < combined->getNumParts(); ++i)
+		{
+			auto const* part = combined->getPart(i);
+			if (!part || combined->isPartPrivate(i))
+				continue;
+			if (auto const* own_part = ownSymbol(mine, part))
+				combined->setPart(i, own_part, false);
+		}
+	}
 	return own.equals(copy.get());
 }
 
@@ -209,7 +224,7 @@ const Symbol* differingSymbol(const Map& mine, const Map& theirs, const QString&
 		if (symbol->getNumberAsString() != number)
 			continue;
 		auto const* own = ownSymbol(mine, symbol);
-		if (own && !sameDefinition(*own, *symbol, colors))
+		if (own && !sameDefinition(mine, *own, *symbol, colors))
 			return symbol;
 	}
 	return nullptr;
@@ -623,7 +638,7 @@ MergePlan compareMaps(const Map* base, const Map& mine, const Map& theirs)
 	{
 		auto const* symbol = theirs.getSymbol(i);
 		auto const* own = ownSymbol(mine, symbol);
-		if (own ? sameDefinition(*own, *symbol, colors) : !their_symbols.contains(symbol))
+		if (own ? sameDefinition(mine, *own, *symbol, colors) : !their_symbols.contains(symbol))
 			continue;
 		listed.push_back(symbol);
 		MergeSymbolRow row;

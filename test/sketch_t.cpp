@@ -609,6 +609,63 @@ private slots:
 		QVERIFY(map.undoManager().undo());
 		QCOMPARE(part->getNumObjects(), 3);
 	}
+
+	/// Seen on 2026-11-22: strokes were not drawn on a map with the
+	/// overprinting simulation on (the example map forest sample.omap), whose separations
+	/// leave out the sketch colours, which are no spot colours.
+	void overprintingSimulationTest()
+	{
+		Map map;
+		map.setScaleDenominator(10000);
+		auto* green = addGreenField(map);
+		green->setSpotColorName(QStringLiteral("GREEN"));
+		strokeAlong(map, 5, 35, 0, 2);
+
+		QImage image(200, 100, QImage::Format_ARGB32_Premultiplied);
+		image.fill(QColor(Qt::white));
+		QPainter painter(&image);
+		painter.scale(5, 5);
+		RenderConfig config = { map, QRectF(0, 0, 40, 20), 5, RenderConfig::Screen | RenderConfig::HelperSymbols, 1.0 };
+		map.drawOverprintingSimulation(&painter, config);
+		painter.end();
+		// The stroke in red beside the field, the field in its spot colour.
+		QCOMPARE(QColor(image.pixel(50, 50)).rgb(), QColor(255, 0, 0).rgb());
+		QVERIFY(QColor(image.pixel(100, 25)).green() > 200);
+		QVERIFY(QColor(image.pixel(100, 25)).red() < 50);
+
+		// Without helper symbols (print output) the stroke stays out.
+		image.fill(QColor(Qt::white));
+		painter.begin(&image);
+		painter.scale(5, 5);
+		config.options = RenderConfig::Screen;
+		map.drawOverprintingSimulation(&painter, config);
+		painter.end();
+		QCOMPARE(QColor(image.pixel(50, 50)).rgb(), QColor(Qt::white).rgb());
+	}
+
+	/// Seen on 2026-11-22 after a legibility check: a colour inserted into the
+	/// table left what was drawn referring to the colours by their old places,
+	/// one place off. the design notes, "Sketch layer",
+	/// first Seen paragraph: the sketch colour had the same defect.
+	void colorInsertTest()
+	{
+		Map map;
+		map.setScaleDenominator(10000);
+		addGreenField(map);
+		auto const green_rgb = render(map, RenderConfig::Screen).pixel(100, 50);
+		QVERIFY(QColor(green_rgb).green() > 200 && QColor(green_rgb).red() < 50);
+
+		// Inserted on top, without updating the objects as the caller.
+		auto* red = new MapColor(QStringLiteral("Red"), 0);
+		red->setCmyk(MapColorCmyk(0.0f, 1.0f, 1.0f, 0.0f));
+		red->setRgbFromCmyk();
+		map.addColor(red, 0);
+		QCOMPARE(render(map, RenderConfig::Screen).pixel(100, 50), green_rgb);
+
+		// Deleted again.
+		map.deleteColor(0);
+		QCOMPARE(render(map, RenderConfig::Screen).pixel(100, 50), green_rgb);
+	}
 };
 
 

@@ -163,12 +163,15 @@ private:
 	QDoubleSpinBox* elevation_edit;
 	QDoubleSpinBox* exaggeration_edit;
 	QDoubleSpinBox* hill_cell_edit;
+	QCheckBox* bicubic_check;       // foom
+	QCheckBox* hill_corners_check;  // foom
 
 	// Slope gradient
 	QRadioButton* continuous_radio;
 	QRadioButton* binary_radio;
 	QDoubleSpinBox* threshold_edit;
 	QDoubleSpinBox* slope_cell_edit;
+	QCheckBox* slope_corners_check;  // foom
 	QCheckBox* cliffs_check;
 	QSpinBox* area_edit;
 	QSpinBox* length_edit;

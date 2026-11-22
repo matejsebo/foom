@@ -615,6 +615,23 @@ QString formatRouteTime(double seconds)
 }
 
 
+QString courseRoutesMessage(const CourseRoutes& routes, const QString& name)
+{
+	// The texts of the editor, where the message was made before.
+	auto const editorTr = [](const char* text, int n = -1) {
+		return QCoreApplication::translate("OpenOrienteering::MapEditorController", text, nullptr, n);
+	};
+	auto message = editorTr("The fastest routes of the course %1 take %2 over %3 m; the course itself is %4 m long.")
+	               .arg(name, formatRouteTime(routes.time_s)).arg(qRound(routes.length_m)).arg(qRound(routes.course_length_m));
+	// Seen on 2026-11-22: these were only under Show Details.
+	if (routes.missing > 0)
+		message += QLatin1Char('\n') + editorTr("%n leg(s) have no route: something impassable lies between their ends. They count with their straight length.", routes.missing);
+	if (routes.outside > 0)
+		message += QLatin1Char('\n') + editorTr("%n leg(s) lie out of the perimeter. They count with their straight length.", routes.outside);
+	return message;
+}
+
+
 QString courseRoutesText(const CourseRoutes& routes)
 {
 	QStringList lines;

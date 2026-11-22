@@ -208,6 +208,18 @@ private:
 				body.replace("@BASE_URL@", baseUrl().toLatin1());
 				type = "application/xml";
 			}
+			else if (path == QLatin1String("/wmts/Two.xml"))
+			{
+				// The same service with a second layer, after the first.
+				body = wmts_capabilities;
+				auto const begin = body.indexOf("<Layer>");
+				auto const end = body.indexOf("</Layer>") + int(qstrlen("</Layer>"));
+				auto other = body.mid(begin, end - begin);
+				other.replace("<ows:Identifier>checker</ows:Identifier>", "<ows:Identifier>other</ows:Identifier>");
+				body.insert(end, other);
+				body.replace("@BASE_URL@", baseUrl().toLatin1());
+				type = "application/xml";
+			}
 			else
 			{
 				auto const items = path.section(QLatin1Char('/'), 2).split(QLatin1Char('/'));
@@ -634,6 +646,25 @@ private slots:
 		stub.requests.clear();
 		colourCheck(map, raw, View{ QPointF(0, 0), 10.0, 600, 400 });
 		QVERIFY(std::any_of(stub.requests.begin(), stub.requests.end(), [](const QString& r) { return r.startsWith(QLatin1String("/wmts/")) && r.endsWith(QLatin1String(".png")); }));
+	}
+
+	/// A service of many layers given without a layer failed with
+	/// "The service does not state a coordinate system."
+	void wmtsWithoutLayerTest()
+	{
+		Map map;
+		setupMap(map);
+		MapService service;
+		service.kind = MapService::Wmts;
+		service.name = QStringLiteral("Checkerboard WMTS of two layers");
+		service.url = stub.baseUrl() + QStringLiteral("/wmts/Two.xml");
+		service.crs = QStringLiteral("EPSG:3857");
+		auto temp = std::make_unique<TileServiceTemplate>(service, &map);
+		auto* raw = temp.get();
+		map.addTemplate(0, std::move(temp));
+		QVERIFY2(raw->setupAndLoad(nullptr, nullptr), qPrintable(raw->errorString()));
+		stub.requests.clear();
+		colourCheck(map, raw, View{ QPointF(0, 0), 10.0, 600, 400 });
 	}
 
 	void xmlRoundTripTest()

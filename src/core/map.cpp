@@ -407,6 +407,56 @@ MapColorMap Map::MapColorSet::importSet(const Map::MapColorSet& other, std::vect
 
 
 
+// foom
+namespace {
+
+/**
+ * What is drawn refers to the colours by their places in the table. When a
+ * colour is inserted or deleted before others, the objects are redrawn on the
+ * next drawing, all at once, so that many insertions cost one update.
+ * Seen on 2026-11-22 after a legibility check, and before on the sketch.
+ */
+void colorPlacesShifted(Map& map)
+{
+	map.applyOnAllObjects([](Object* object) { object->setOutputDirty(); });
+	map.updateAllMapWidgets();
+}
+
+/**
+ * Draws, over the overprinting simulation, the objects of helper symbols in
+ * colours which are no spot colours and so in no separation: the sketch.
+ * Seen on 2026-11-22: strokes were not drawn on the example map forest sample.omap.
+ */
+void drawProcessHelpers(const Map& map, QPainter* painter, const RenderConfig& config)
+{
+	if (!config.testFlag(RenderConfig::HelperSymbols))
+		return;
+	std::vector<const Object*> helpers;
+	map.applyOnAllObjects([&map, &helpers, &config](const Object* object) {
+		auto const* symbol = object->getSymbol();
+		if (symbol && symbol->isHelperSymbol() && !symbol->isHidden() && !map.isObjectHidden(object)
+		    && object->getExtent().intersects(config.bounding_box))
+			helpers.push_back(object);
+	});
+	if (helpers.empty())
+		return;
+	for (auto i = map.getNumColors() - 1; i >= 0; --i)
+	{
+		auto const* color = map.getColor(i);
+		if (color->getSpotColorMethod() != MapColor::UndefinedMethod)
+			continue;
+		QColor qcolor = *color;
+		if (color->getOpacity() < 1)
+			qcolor.setAlphaF(color->getOpacity());
+		for (auto const* object : helpers)
+			object->renderables().draw(i, qcolor, painter, config);
+	}
+}
+
+}  // namespace
+
+
+
 // ### Map ###
 
 bool Map::static_initialized = false;
@@ -856,6 +906,7 @@ void Map::drawOverprintingSimulation(QPainter* painter, const RenderConfig& conf
 	// The actual drawing
 	drawImages(painter, config, false);  // foom
 	renderables->drawOverprintingSimulation(painter, config);
+	drawProcessHelpers(*this, painter, config);  // foom
 	drawImages(painter, config, true);  // foom
 }
 
@@ -1341,6 +1392,8 @@ void Map::addColor(MapColor* color, int pos)
 	setColorsDirty();
 	emit colorAdded(pos, color);
 	color->setPriority(pos);
+	if (pos + 1 < getNumColors())
+		colorPlacesShifted(*this);  // foom
 }
 
 void Map::deleteColor(int pos)
@@ -1379,6 +1432,8 @@ void Map::deleteColor(int pos)
 			symbol->colorDeletedEvent(color);
 	}
 	emit colorDeleted(pos, color);
+	if (pos < getNumColors())
+		colorPlacesShifted(*this);  // foom
 	
 	delete color;
 }

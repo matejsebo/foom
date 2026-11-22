@@ -31,7 +31,10 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QFont>
+#include <QFontMetrics>
 #include <QImage>
+#include <QLabel>
 #include <QMouseEvent>
 #include <QObject>
 #include <QPainter>
@@ -42,6 +45,7 @@
 #include <QString>
 #include <QTemporaryDir>
 #include <QToolBar>
+#include <QToolButton>
 
 #include "global.h"
 #include "settings.h"
@@ -73,6 +77,7 @@
 #include "fileformats/xml_file_format.h"
 #include "gui/main_window.h"
 #include "gui/map/draft_view_bar.h"
+#include "gui/map/insert_glyph_dialog.h"
 #include "gui/map/map_editor.h"
 #include "gui/map/map_widget.h"
 #include "gui/widgets/symbol_widget.h"
@@ -356,6 +361,28 @@ private slots:
 		QVERIFY(inked(image, area, -0.3, 5.0));
 	}
 
+	// Seen on 2026-11-22: the hidden segment of a virtual gap could not be clicked,
+	// and the selection frame left it out.
+	void virtualGapSelectTest()
+	{
+		BasicMap m;
+		std::unique_ptr<Map> owner(m.map);
+		auto gap = MapCoord(10.0, 0.0);
+		gap.setVirtualGap(true);
+		auto* line = new PathObject(m.line, { MapCoord(0.0, 0.0), gap, MapCoord(10.0, 20.0) });
+		m.map->addObject(line);
+		line->update();
+		QVERIFY(line->getExtent().contains(QPointF(10.0, 19.0)));
+		SelectionInfoVector found;
+		m.map->findObjectsAt(MapCoordF(10.0, 15.0), 0.25, false, false, false, false, found);
+		QCOMPARE(int(found.size()), 1);
+		QCOMPARE(found.front().second, line);
+		// Nothing far beside it.
+		found.clear();
+		m.map->findObjectsAt(MapCoordF(15.0, 15.0), 0.25, false, false, false, false, found);
+		QVERIFY(found.empty());
+	}
+
 	// Editing spec, "Corner and virtual gap vertices", Accept (3)
 	void vertexTypeFileTest()
 	{
@@ -532,6 +559,50 @@ private slots:
 			auto const actions = helper.toolBar()->actions();
 			QVERIFY(std::any_of(actions.begin(), actions.end(), [](const QAction* a) { return a->objectName() == QLatin1String("insert-glyph"); }));
 		}
+	}
+
+	// Seen on 2026-11-22: with the font of a text symbol, whose size is in map
+	// units, the buttons were centimetres high and the dialog filled the screen.
+	void insertGlyphDialogSize()
+	{
+		BasicMap m;
+		std::unique_ptr<Map> owner(m.map);
+		auto const symbol_font = m.text->getQFont();
+		QFont huge(QStringLiteral("Arial"));
+		huge.setPixelSize(4000);
+		for (auto const& font : { symbol_font, huge })
+		{
+			InsertGlyphDialog dialog(font, nullptr);
+			auto const ordinary = QFontMetrics(dialog.font()).height();
+			auto const buttons = dialog.findChildren<QToolButton*>();
+			QVERIFY(!buttons.isEmpty());
+			for (auto const* button : buttons)
+			{
+				QVERIFY2(button->sizeHint().height() <= 3 * ordinary, qPrintable(QString::number(button->sizeHint().height())));
+				QCOMPARE(button->font().family(), font.family());
+			}
+			QVERIFY2(dialog.sizeHint().height() < 600, qPrintable(QString::number(dialog.sizeHint().height())));
+			// The preview is large.
+			auto const* preview = dialog.findChild<QLabel*>(QStringLiteral("preview"));
+			QVERIFY(preview);
+			QVERIFY(QFontMetrics(preview->font()).height() >= 3 * ordinary);
+		}
+	}
+
+	// Seen on 2026-11-22: in a window which had shown four maps, the context menu
+	// of the tool bars listed Numeric entry, Sketch and Draft view four times.
+	void editorBarsTest()
+	{
+		auto* window = new MainWindow();
+		window->setAttribute(Qt::WA_DontShowOnScreen);
+		for (int i = 0; i < 3; ++i)
+			window->setController(new MapEditorController(MapEditorController::MapEditor, new Map()));
+		for (auto const* name : { "Numeric entry toolbar", "Sketch toolbar", "Draft view toolbar", "Course setting toolbar" })
+		{
+			auto const bars = window->findChildren<QToolBar*>(QString::fromLatin1(name));
+			QCOMPARE(bars.size(), 1);
+		}
+		delete window;
 	}
 
 	// Editing spec, "Curve entry style", Accept (1)
