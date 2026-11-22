@@ -22,6 +22,7 @@
 #include "text_symbol_settings.h"
 
 // IWYU pragma: no_include <algorithm>
+#include <utility>
 #include <vector>
 
 #include <QAbstractButton>
@@ -169,6 +170,24 @@ TextSymbolSettings::TextSymbolSettings(TextSymbol* symbol, SymbolSettingDialog* 
 	
 	layout->addItem(Util::SpacerItem::create(this));
 	
+	// foom: the design notes, "Line text in the symbol editor"
+	follows_path_check = new QCheckBox(tr("Text along a line (line text)"));
+	follows_path_check->setObjectName(QStringLiteral("follows_path_check"));
+	layout->addRow(follows_path_check);
+	
+	path_alignment_combo = new QComboBox();
+	path_alignment_combo->setObjectName(QStringLiteral("path_alignment_combo"));
+	for (auto const& vertical : { std::make_pair(0, tr("Bottom")), std::make_pair(4, tr("Middle")), std::make_pair(8, tr("Top")) })
+	{
+		path_alignment_combo->addItem(tr("%1, start").arg(vertical.second), vertical.first);
+		path_alignment_combo->addItem(tr("%1, centre").arg(vertical.second), vertical.first + 1);
+		path_alignment_combo->addItem(tr("%1, end").arg(vertical.second), vertical.first + 2);
+		path_alignment_combo->addItem(tr("%1, whole line").arg(vertical.second), vertical.first + 3);
+	}
+	layout->addRow(tr("Alignment along the line:"), path_alignment_combo);
+	
+	layout->addItem(Util::SpacerItem::create(this));
+	
 	icon_text_edit = new QLineEdit();
 	icon_text_edit->setMaxLength(3);
 	layout->addRow(tr("Symbol icon text:"), icon_text_edit);
@@ -290,6 +309,8 @@ TextSymbolSettings::TextSymbolSettings(TextSymbol* symbol, SymbolSettingDialog* 
 	connect(word_spacing_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &TextSymbolSettings::spacingChanged);  // foom
 	connect(font_weight_edit, QOverload<int>::of(&QSpinBox::valueChanged), this, &TextSymbolSettings::fontWeightChanged);
 	connect(frame_symbol_edit, QOverload<int>::of(&SymbolDropDown::currentIndexChanged), this, &TextSymbolSettings::frameSymbolChanged);
+	connect(follows_path_check, &QAbstractButton::clicked, this, &TextSymbolSettings::followsPathClicked);
+	connect(path_alignment_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &TextSymbolSettings::pathAlignmentChanged);
 	connect(icon_text_edit, &QLineEdit::textEdited, this, &TextSymbolSettings::iconTextEdited);
 	connect(framing_check, &QAbstractButton::clicked, this, &TextSymbolSettings::framingCheckClicked);
 	connect(ocad_compat_check, &QAbstractButton::clicked, this, &TextSymbolSettings::ocadCompatibilityButtonClicked);
@@ -451,6 +472,28 @@ void TextSymbolSettings::frameSymbolChanged()
 	
 	auto const* frame_symbol = frame_symbol_edit->symbol();
 	symbol->frame_symbol = (frame_symbol && frame_symbol->getType() == Symbol::Point) ? frame_symbol->asPoint() : nullptr;
+	emit propertiesModified();
+}
+
+// foom
+void TextSymbolSettings::followsPathClicked(bool checked)
+{
+	if (!react_to_changes)
+		return;
+	
+	symbol->follows_path = checked;
+	path_alignment_combo->setEnabled(checked);
+	dialog->recreatePreview();
+	emit propertiesModified();
+}
+
+// foom
+void TextSymbolSettings::pathAlignmentChanged()
+{
+	if (!react_to_changes)
+		return;
+	
+	symbol->path_alignment = path_alignment_combo->currentData().toInt();
 	emit propertiesModified();
 }
 
@@ -630,6 +673,9 @@ void TextSymbolSettings::updateGeneralContents()
 	word_spacing_edit->setValue(100 * symbol->word_spacing);  // foom
 	font_weight_edit->setValue(symbol->font_weight);
 	frame_symbol_edit->setSymbol(symbol->frame_symbol);
+	follows_path_check->setChecked(symbol->follows_path);
+	path_alignment_combo->setCurrentIndex(qMax(0, path_alignment_combo->findData(symbol->path_alignment)));
+	path_alignment_combo->setEnabled(symbol->follows_path);
 	icon_text_edit->setText(symbol->getIconText());
 	framing_check->setChecked(symbol->framing);
 	setTabEnabled(indexOf(framing_widget), symbol->framing);

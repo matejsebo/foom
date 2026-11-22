@@ -171,6 +171,7 @@ set(Mapper_Common_SRCS
   core/ops/to_curve.cpp
   core/ops/import_points.cpp
   core/ops/rectangle_box.cpp
+  core/ops/line_text.cpp
   core/renderables/path_text_renderable.cpp
   core/symbols/text_symbol_path.cpp
   core/symbols/text_symbol_properties.cpp
@@ -279,6 +280,7 @@ set(Mapper_Common_SRCS
   gui/map/sketch_dialog.cpp
   gui/map/import_points_dialog.cpp
   gui/map/rectangle_box_dialog.cpp
+  gui/map/lengthen_line_text_dialog.cpp
   gui/map/find_replace_text_dialog.cpp
   gui/map/move_parallel_dialog.cpp
   gui/map/numeric_entry_bar.cpp
@@ -365,6 +367,7 @@ set(Mapper_Common_SRCS
   tools/rectangle_box_tool.cpp
   tools/stairway_tool.cpp
   tools/points_along_tool.cpp
+  tools/draw_line_text_tool.cpp
   tools/sized_shape_tool.cpp
   tools/drawing_settings.cpp
   tools/move_parallel_tool.cpp

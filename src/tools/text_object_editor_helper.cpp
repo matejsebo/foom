@@ -130,9 +130,12 @@ TextObjectEditorHelper::TextObjectEditorHelper(not_null<TextObject*> text_object
 	auto window = editor->getWindow();
 	window->setShortcutsBlocked(true);
 	
-	auto const title = QCoreApplication::translate("OpenOrienteering::TextObjectAlignmentDockWidget", "Alignment");
-	alignment_toolbar = makeAlignmentToolBar();
-	editor->showPopupWidget(alignment_toolbar, title, MapEditorController::PopupLocationTop);
+	if (!text_object->followsPath())  // foom: line text takes its alignment from the symbol
+	{
+		auto const title = QCoreApplication::translate("OpenOrienteering::TextObjectAlignmentDockWidget", "Alignment");
+		alignment_toolbar = makeAlignmentToolBar();
+		editor->showPopupWidget(alignment_toolbar, title, MapEditorController::PopupLocationTop);
+	}
 	
 	// When the app is activated again, re-activate the input method.
 	connect(qApp, &QGuiApplication::applicationStateChanged, this, &TextObjectEditorHelper::claimFocus, Qt::QueuedConnection);

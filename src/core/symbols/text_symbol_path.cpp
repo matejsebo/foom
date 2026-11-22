@@ -65,9 +65,7 @@ PathTextLayout TextSymbol::layoutPathText(const TextObject* text_object) const
 	
 	auto text = text_object->getText();
 	text.replace(QLatin1Char('\n'), QLatin1Char(' '));
-	auto const n = text.size();
-	if (n == 0)
-		return layout;
+	auto const n = text.size();  // foom: an empty text still gets its cursor position
 	
 	auto const& font = getQFont();
 	auto const& font_metrics = getFontMetrics();
@@ -99,6 +97,15 @@ PathTextLayout TextSymbol::layoutPathText(const TextObject* text_object) const
 	}
 	auto const dy = v_mode == 4 ? font_metrics.ascent() / 2 : (v_mode == 8 ? font_metrics.ascent() : 0.0);
 	layout.overflow = total > path_length + 1e-9;
+	layout.box_bottom = -dy / scaling;
+	layout.box_top = (font_metrics.ascent() - dy) / scaling;
+	layout.caret_offsets.reserve(std::size_t(n) + 1);
+	for (int i = 0; i <= n; ++i)
+	{
+		// Halfway across the gap between two glyphs.
+		auto const gaps = i == 0 ? 0.0 : (i == n ? double(n - 1) : i - 0.5);
+		layout.caret_offsets.push_back(qBound(0.0, start + advance[std::size_t(i)] + gaps * gap, path_length));
+	}
 	
 	auto const begin = SplitPathCoord::begin(part.path_coords);
 	for (int i = 0; i < n; ++i)

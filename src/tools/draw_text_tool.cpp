@@ -95,6 +95,8 @@ void DrawTextTool::setDrawingSymbol(const Symbol* symbol)
 		drawing_symbol = symbol;
 		if (!symbol || symbol->isHidden())
 			deactivate();
+		else if (symbol->getType() == Symbol::Text && symbol->asText()->followsPath())  // foom: DrawLineTextTool
+			switchToDefaultDrawTool(symbol);
 		else if (!preview_text->setSymbol(symbol, false))
 			switchToDefaultDrawTool(symbol);
 	}

@@ -47,6 +47,11 @@ struct PathTextLayout
 	double text_advance = 0.0;
 	/** True when the text does not fit the path. */
 	bool overflow = false;
+	/** The arc position of the text cursor before each character and after the last, clamped to the path, mm. */
+	std::vector<double> caret_offsets;
+	/** The bottom and the top of the glyph box, as distances from the path towards the top of the glyphs, mm. */
+	double box_bottom = 0.0;
+	double box_top = 0.0;
 };
 
 

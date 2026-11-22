@@ -115,6 +115,11 @@ public slots:
 	 */
 	void setSymbolModified(bool modified = true);
 	
+	/**
+	 * foom: Builds the preview objects anew, for a change which needs objects of another kind.
+	 */
+	void recreatePreview();
+	
 	/** 
 	 * Updates the label which is the headline to the dialog.
 	 */
