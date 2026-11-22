@@ -29,6 +29,7 @@
 #include <QHash>
 #include <QImage>
 #include <QObject>
+#include <QPolygonF>
 #include <QRectF>
 #include <QSet>
 #include <QString>
@@ -135,6 +136,12 @@ public:
 	bool loadTypeSpecificTemplateConfiguration(QXmlStreamReader& xml) override;
 
 
+	/**
+	 * foom: The outline on the map, in mm, of a window in projected
+	 * coordinates: its four corners from the minimum, empty for an empty window.
+	 */
+	static QPolygonF downloadWindowOutline(const Georeferencing& georef, const QRectF& projected_rect);
+	
 	/** The bounding rectangle, in projected coordinates, of a rectangle in map coordinates (mm). */
 	static QRectF projectedBounds(const Georeferencing& georef, const QRectF& map_rect_mm);
 	QRectF projectedBounds(const QRectF& map_rect_mm) const;

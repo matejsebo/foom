@@ -31,6 +31,8 @@
 #include <QLatin1String>
 #include <QMetaObject>
 #include <QPainter>
+#include <QPointF>
+#include <QVector>
 #include <QStringList>
 #include <QStandardPaths>
 #include <QThread>
@@ -330,6 +332,16 @@ void TileServiceTemplate::projectionChanged()
 QRectF TileServiceTemplate::projectedBounds(const Georeferencing& georef, const QRectF& map_rect_mm)
 {
 	return georef.mapToProjected().mapRect(map_rect_mm);
+}
+
+// static, foom
+QPolygonF TileServiceTemplate::downloadWindowOutline(const Georeferencing& georef, const QRectF& projected_rect)
+{
+	if (projected_rect.isEmpty())
+		return {};
+	auto const to_map = georef.projectedToMap();
+	return QPolygonF{ QVector<QPointF>{ to_map.map(projected_rect.topLeft()), to_map.map(projected_rect.topRight()),
+	                                    to_map.map(projected_rect.bottomRight()), to_map.map(projected_rect.bottomLeft()) } };
 }
 
 QRectF TileServiceTemplate::projectedBounds(const QRectF& map_rect_mm) const

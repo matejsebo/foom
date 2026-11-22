@@ -3176,9 +3176,30 @@ void MapEditorController::updateMapServiceAction()
 }
 
 // foom
+void MapEditorController::setDownloadWindow(const QPolygonF& outline)
+{
+	// the design notes, "Download window on the map".
+	download_window = outline;
+	if (window && map_widget)
+		map_widget->update();
+}
+
+// foom
 void MapEditorController::drawTemplateAttributions(QPainter* painter, MapWidget* widget) const
 {
 	// the design notes, "Attribution and fair use".
+	if (download_window.size() >= 3)
+	{
+		QPolygonF outline;
+		for (auto const& corner : download_window)
+			outline.append(widget->mapToViewport(corner));
+		painter->save();
+		painter->setRenderHint(QPainter::Antialiasing, false);
+		painter->setBrush(QColor(200, 0, 160, 40));
+		painter->setPen(QPen(QColor(200, 0, 160), 3));
+		painter->drawPolygon(outline);
+		painter->restore();
+	}
 #ifdef MAPPER_USE_GDAL
 	QStringList attributions;
 	auto const* view = widget->getMapView();

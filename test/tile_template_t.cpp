@@ -39,10 +39,12 @@
 #include <QImage>
 #include <QIODevice>
 #include <QLatin1String>
+#include <QLineF>
 #include <QObject>
 #include <QPainter>
 #include <QPoint>
 #include <QPointF>
+#include <QPolygonF>
 #include <QRectF>
 #include <QSet>
 #include <QString>
@@ -1004,6 +1006,30 @@ private slots:
 		auto const any = TileServiceTemplate::printWarning(map, nullptr);
 		QVERIFY(any.contains(first.name));
 		QVERIFY(any.contains(second.name));
+	}
+
+	void downloadWindowOutlineTest()
+	{
+		// Accept (1) of the download window on the map (the design notes, "Download window on the map")
+		Map map;
+		setupMap(map);
+		auto const& georef = map.getGeoreferencing();
+		auto const center = georef.toProjectedCoords(MapCoordF(0, 0));
+		QRectF const window(center + QPointF(-1000, -800), QSizeF(2000, 1600));
+		auto const outline = TileServiceTemplate::downloadWindowOutline(georef, window);
+		QCOMPARE(outline.size(), 4);
+		QPointF const corners[4] = { window.topLeft(), window.topRight(), window.bottomRight(), window.bottomLeft() };
+		for (int i = 0; i < 4; ++i)
+		{
+			auto const back = georef.toProjectedCoords(MapCoordF(outline[i]));
+			QVERIFY2(std::abs(back.x() - corners[i].x()) < 1e-3 && std::abs(back.y() - corners[i].y()) < 1e-3,
+			         qPrintable(QStringLiteral("corner %1").arg(i)));
+		}
+		// With grivation the outline is turned on the map: not axis-parallel
+		QVERIFY(std::abs(outline[0].y() - outline[1].y()) > 1.0);
+		// 2000 m at 1:10,000 is 200 mm on the map
+		QVERIFY(std::abs(QLineF(outline[0], outline[1]).length() - 200.0) < 1.0);
+		QVERIFY(TileServiceTemplate::downloadWindowOutline(georef, QRectF()).isEmpty());
 	}
 
 	void localMapTest()

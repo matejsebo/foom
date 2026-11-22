@@ -32,6 +32,7 @@
 #include <QKeySequence>  // foom
 #include <QObject>
 #include <QPointer>
+#include <QPolygonF>  // foom
 #include <QVector>  // foom
 #include <QUuid>  // foom
 #include <QScopedPointer>
@@ -269,6 +270,9 @@ public:
 	/** foom: Draws the active extent as a sheet outline; the map widget's overlay. */
 	void drawActiveExtent(QPainter* painter, MapWidget* widget) const;
 	void drawTemplateAttributions(QPainter* painter, MapWidget* widget) const;  // foom
+	/** foom: Shows a window on the map (mm) while a download extent is chosen; an empty polygon takes it away. */
+	void setDownloadWindow(const QPolygonF& outline);
+	const QPolygonF& downloadWindow() const { return download_window; }
 	/** foom: Draws the reference of the rangefinder and the target of its fields. */
 	void drawRangefinder(QPainter* painter, MapWidget* widget) const;
 	
@@ -1559,6 +1563,7 @@ private:
 	QAction* extent_import_act = {};  // foom
 	QMenu* active_extent_menu = nullptr;  // foom
 	QString active_extent_name;  // foom: view state
+	QPolygonF download_window;  // foom: drawn by drawTemplateAttributions
 	QPointer<FindReplaceTextDialog> find_replace_text_dialog;  // foom
 	NumericEntryBar* numeric_entry_bar = nullptr;  // foom
 	QAction* view_back_act = {};  // foom

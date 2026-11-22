@@ -694,6 +694,7 @@ void MapServiceDialog::downloadClicked()
 		auto const w = qint64(std::ceil(window.width() / resolution_edit->value()));
 		auto const h = qint64(std::ceil(window.height() / resolution_edit->value()));
 		size_label->setText(tr("%1 by %2 pixels (at most %3 on a side)").arg(w).arg(h).arg(TileServiceTemplate::max_download_pixels));
+		controller->setDownloadWindow(TileServiceTemplate::downloadWindowOutline(georef, window));  // foom
 	};
 	for (auto* edit : { min_x, min_y, max_x, max_y, resolution_edit })
 		connect(edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), &dialog, update_size);
@@ -722,7 +723,9 @@ void MapServiceDialog::downloadClicked()
 	layout->addLayout(form);
 	layout->addWidget(buttons);
 	dialog.setLayout(layout);
-	if (dialog.exec() != QDialog::Accepted)
+	auto const accepted = dialog.exec() == QDialog::Accepted;
+	controller->setDownloadWindow({});  // foom
+	if (!accepted)
 		return;
 
 	auto const window = current_view->isChecked() ? view_bounds

@@ -34,6 +34,7 @@
 #include <QEvent>
 #include <QFileInfo>
 #include <QImage>
+#include <QPolygonF>  // foom
 #include <QJsonArray>  // foom
 #include <QMessageBox>  // foom
 #include <QMouseEvent>
@@ -538,6 +539,45 @@ void ToolsTest::embedTemplateCommand()
 	QVERIFY(!error.isEmpty());
 }
 
+
+void ToolsTest::downloadWindowCommand()
+{
+	// the design notes, "Download window on the map", Accept (2).
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* widget = editor.map_widget;
+	widget->resize(400, 300);
+	QVERIFY(editor.editor->downloadWindow().isEmpty());
+
+	auto const center = widget->getMapView()->center();
+	auto const c = QPointF(center.x(), center.y());
+	QPolygonF const outline{ QVector<QPointF>{ c + QPointF(-5, -5), c + QPointF(5, -5), c + QPointF(5, 5), c + QPointF(-5, 5) } };
+	editor.editor->setDownloadWindow(outline);
+	QCOMPARE(editor.editor->downloadWindow(), outline);
+
+	auto const paint = [&]() {
+		QImage image(widget->size(), QImage::Format_ARGB32_Premultiplied);
+		image.fill(Qt::transparent);
+		QPainter painter(&image);
+		editor.editor->drawTemplateAttributions(&painter, widget);
+		painter.end();
+		return image;
+	};
+	auto const edge = widget->mapToViewport(QPointF(c.x(), c.y() - 5)).toPoint();
+	auto const inside = widget->mapToViewport(c).toPoint();
+	auto const outside = widget->mapToViewport(c + QPointF(9, 9)).toPoint();
+	QVERIFY(QRect(QPoint(0, 0), widget->size()).contains(outside));
+	auto image = paint();
+	QVERIFY(qAlpha(image.pixel(edge)) > 100);
+	QVERIFY(qAlpha(image.pixel(inside)) > 0);
+	QVERIFY(qAlpha(image.pixel(inside)) < 100);
+	QCOMPARE(qAlpha(image.pixel(outside)), 0);
+
+	editor.editor->setDownloadWindow({});
+	QVERIFY(editor.editor->downloadWindow().isEmpty());
+	image = paint();
+	QCOMPARE(qAlpha(image.pixel(edge)), 0);
+}
 
 void ToolsTest::templateSeparationCommand()
 {
