@@ -275,6 +275,12 @@ public:
 	/** foom: Sets the blend mode. */
 	void setBlendMode(BlendMode mode) { blend_mode = mode; }
 	
+	/** foom: Returns the colour's number in the OCD file it came from, or -1. */
+	int getNumber() const { return number; }
+	
+	/** foom: Sets the colour's OCD number, -1 for none. */
+	void setNumber(int value) { number = value; }
+	
 	
 	/** 
 	 * Returns how the spot color is to be created.
@@ -514,6 +520,7 @@ protected:
 	SpotColorComponents components;
 	ColourGroup colour_group;  ///< foom: the stored colour group, Undefined when none is stored
 	BlendMode blend_mode = BlendNormal;  ///< foom
+	int number = -1;  ///< foom: the OCD colour number, -1 for none
 };
 
 /** Returns true if both MapColor are equal in all components. */

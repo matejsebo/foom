@@ -20,6 +20,7 @@
 // foom: the design notes, "Colours"
 
 #include <cmath>
+#include <utility>
 #include <vector>
 
 #include <QtGlobal>
@@ -27,12 +28,15 @@
 #include <QBuffer>
 #include <QByteArray>
 #include <QDir>
+#include <QFile>
 #include <QIODevice>
+#include <QTemporaryDir>
 #include <QLatin1String>
 #include <QObject>
 #include <QString>
 #include <QStringList>
 
+#include "global.h"
 #include "core/colour_load.h"
 #include "core/colour_swatch.h"
 #include "core/colour_usage.h"
@@ -43,6 +47,7 @@
 #include "core/objects/object.h"
 #include "core/symbols/line_symbol.h"
 #include "fileformats/file_format.h"
+#include "fileformats/file_format_registry.h"
 #include "fileformats/file_import_export.h"
 #include "fileformats/xml_file_format.h"
 
@@ -74,6 +79,7 @@ class ColourToolsTest : public QObject
 {
 Q_OBJECT
 private slots:
+	void initTestCase() { doStaticInitializations(); }  // the file format registry, for the OCD round trip
 	void swatchSemicolonForm();
 	void swatchTabForm();
 	void swatchApply();
@@ -81,6 +87,9 @@ private slots:
 	void blendModeCopy();
 	void loadReplaceAndAppend();
 	void loadSpotComposition();
+	void crtRead();
+	void colourNumbers();
+	void crtLoad();
 	void usageReport();
 };
 
@@ -358,6 +367,207 @@ void ColourToolsTest::loadSpotComposition()
 	QCOMPARE(mixed->getComponents().front().spot_color, spot);
 	QVERIFY(mixed->getCmyk() == source_mixed->getCmyk());
 	QVERIFY(near(spot->getCmyk(), 0, 0.6f, 1, 0.2f));
+}
+
+namespace {
+
+using Rows = std::vector<std::pair<int, int>>;
+
+MapColor* addNumbered(Map& map, const QString& name, int number, const MapColorCmyk& cmyk = MapColorCmyk(0, 0, 0, 1))
+{
+	auto* color = addColor(map, name, cmyk);
+	color->setNumber(number);
+	return color;
+}
+
+ColourCrt table(const Rows& rows)
+{
+	ColourCrt crt;
+	crt.rows = rows;
+	return crt;
+}
+
+/// The map and the file of Loading through a cross-reference table, Accept (3).
+void makeCrtMaps(Map& map, Map& source)
+{
+	addNumbered(map, QStringLiteral("Black"), 1);
+	addNumbered(map, QStringLiteral("Brown"), 2, MapColorCmyk(0, 0.5f, 1, 0.2f));
+	addNumbered(map, QStringLiteral("Green"), 3, MapColorCmyk(1, 0, 1, 0));
+	addColor(map, QStringLiteral("Red"), MapColorCmyk(0, 1, 1, 0));
+
+	addNumbered(source, QStringLiteral("Schwarz"), 10, MapColorCmyk(0, 0, 0, 1));
+	addNumbered(source, QStringLiteral("Braun"), 11, MapColorCmyk(0, 0.56f, 1, 0.18f));
+	addNumbered(source, QStringLiteral("Gelb"), 12, MapColorCmyk(0, 0, 1, 0));
+	addNumbered(source, QStringLiteral("Grau"), 13, MapColorCmyk(0, 0, 0, 0.5f));
+	addNumbered(source, QStringLiteral("Red"), 14, MapColorCmyk(0, 1, 1, 0));
+	addColor(source, QStringLiteral("Blau"), MapColorCmyk(1, 0, 0, 0));
+}
+
+QByteArray saveOcd(Map& map)
+{
+	auto const* format = FileFormats.findFormat("OCD");
+	QBuffer buffer;
+	buffer.open(QIODevice::ReadWrite);
+	auto exporter = format->makeExporter({}, &map, nullptr);
+	exporter->setDevice(&buffer);
+	if (!exporter->doExport())
+		return {};
+	return buffer.data();
+}
+
+bool loadOcd(Map& map, QByteArray data)
+{
+	auto const* format = FileFormats.findFormat("OCD");
+	QBuffer buffer(&data);
+	buffer.open(QIODevice::ReadOnly);
+	auto importer = format->makeImporter({}, &map, nullptr);
+	importer->setDevice(&buffer);
+	return importer->doImport();
+}
+
+}  // namespace
+
+// Loading through a cross-reference table, Accept (1)
+void ColourToolsTest::crtRead()
+{
+	auto const expected = Rows{ { 5, 12 }, { 6, 13 }, { 7, -1 }, { 8, 14 } };
+	QString message;
+	auto crt = readColourCrt("\xef\xbb\xbf" "5\t12\r\n6\t\t13.000\r\n\r\n7;-1\r\n8 14 extra\r\n9\t15.5\r\ntitle\r\n5\t99\r\n", &message);
+	QVERIFY(crt.rows == expected);
+	QCOMPARE(crt.skipped, 2);
+	QVERIFY(!message.isEmpty());
+	int target = 0;
+	QVERIFY(crt.find(7, &target));
+	QCOMPARE(target, -1);
+	QVERIFY(!crt.find(9, &target));
+
+	message.clear();
+	crt = readColourCrt("5\t12\n6\t\t13.000\n\n7;-1\n8 14 extra\n9\t15.5\ntitle\n5\t99\n", &message);
+	QVERIFY(crt.rows == expected);
+	QCOMPARE(crt.skipped, 2);
+
+	message.clear();
+	crt = readColourCrt("only\r\ntext\r\n", &message);
+	QVERIFY(crt.rows.empty());
+	QVERIFY(!message.isEmpty());
+
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	auto const path = dir.filePath(QStringLiteral("colours.ocdCrt"));
+	QFile file(path);
+	QVERIFY(file.open(QIODevice::WriteOnly));
+	file.write("1\t2\r\n3\t4\r\n");
+	file.close();
+	message.clear();
+	crt = readColourCrtFile(path, &message);
+	QVERIFY(crt.rows == (Rows{ { 1, 2 }, { 3, 4 } }));
+	QVERIFY2(message.isEmpty(), qPrintable(message));
+	crt = readColourCrtFile(dir.filePath(QStringLiteral("missing.ocdCrt")), &message);
+	QVERIFY(crt.rows.empty());
+	QVERIFY(!message.isEmpty());
+}
+
+// Loading through a cross-reference table, Accept (2)
+void ColourToolsTest::colourNumbers()
+{
+	Map map;
+	addNumbered(map, QStringLiteral("Blue"), 7, MapColorCmyk(1, 0, 0, 0));
+	addColor(map, QStringLiteral("Brown"), MapColorCmyk(0, 0.5f, 1, 0.2f));
+
+	auto const data = saveXml(map, true);
+	QCOMPARE(data.count(" number="), 1);
+	QVERIFY(data.contains(" number=\"7\""));
+	Map loaded;
+	QVERIFY(loadXml(loaded, data));
+	QCOMPARE(loaded.getColor(0)->getNumber(), 7);
+	QCOMPARE(loaded.getColor(1)->getNumber(), -1);
+	auto const plain = saveXml(map, false);
+	QVERIFY(!plain.isEmpty());
+	QVERIFY(!plain.contains(" number="));
+
+	MapColor color(QStringLiteral("Blue"), 0);
+	color.setNumber(7);
+	MapColor copy = color;
+	QCOMPARE(copy.getNumber(), 7);
+	auto* duplicate = color.duplicate();
+	QCOMPARE(duplicate->getNumber(), 7);
+	delete duplicate;
+	copy.setNumber(8);
+	QVERIFY(copy.equals(color));
+
+	Map ocd_map;
+	addNumbered(ocd_map, QStringLiteral("Black"), 40, MapColorCmyk(0, 0, 0, 1));
+	addNumbered(ocd_map, QStringLiteral("Brown"), 41, MapColorCmyk(0, 0.5f, 1, 0.2f));
+	addColor(ocd_map, QStringLiteral("Blue"), MapColorCmyk(1, 0, 0, 0));
+	auto const ocd = saveOcd(ocd_map);
+	QVERIFY(!ocd.isEmpty());
+	Map ocd_loaded;
+	QVERIFY(loadOcd(ocd_loaded, ocd));
+	QCOMPARE(ocd_loaded.getNumColors(), 3);
+	for (int i = 0; i < 3; ++i)
+		QCOMPARE(ocd_loaded.getColor(i)->getNumber(), i);
+}
+
+// Loading through a cross-reference table, Accept (3)
+void ColourToolsTest::crtLoad()
+{
+	auto const crt = table({ { 10, 1 }, { 11, 2 }, { 12, 9 }, { 13, -1 } });
+	{
+		Map map, source;
+		makeCrtMaps(map, source);
+		auto const* black = map.getColor(0);
+		auto const* brown = map.getColor(1);
+		auto const report = loadColoursFrom(map, source, ColourLoadMode::Replace, &crt);
+		QCOMPARE(colourNames(map), (QStringList{ QStringLiteral("Schwarz"), QStringLiteral("Braun"), QStringLiteral("Gelb"),
+		                                         QStringLiteral("Red"), QStringLiteral("Blau"), QStringLiteral("Green") }));
+		QCOMPARE(map.getColor(0), black);
+		QCOMPARE(map.getColor(1), brown);
+		QCOMPARE(black->getNumber(), 1);
+		QCOMPARE(brown->getNumber(), 2);
+		QVERIFY(near(brown->getCmyk(), 0, 0.56f, 1, 0.18f));
+		QCOMPARE(map.getColor(2)->getNumber(), 9);
+		QCOMPARE(map.getColor(3)->getNumber(), -1);
+		QCOMPARE(map.getColor(4)->getNumber(), -1);
+		QCOMPARE(map.getColor(5)->getNumber(), 3);
+		QCOMPARE(report.changed, (QStringList{ QStringLiteral("Schwarz"), QStringLiteral("Braun") }));
+		QCOMPARE(report.unchanged, QStringList{ QStringLiteral("Red") });
+		QCOMPARE(report.added, (QStringList{ QStringLiteral("Gelb"), QStringLiteral("Blau") }));
+		QCOMPARE(report.left_out, QStringList{ QStringLiteral("Grau") });
+		QCOMPARE(report.kept, QStringList{ QStringLiteral("Green") });
+		QVERIFY(report.text().contains(QLatin1String("Grau")));
+	}
+	{
+		Map map, source;
+		makeCrtMaps(map, source);
+		auto const report = loadColoursFrom(map, source, ColourLoadMode::Append, &crt);
+		QCOMPARE(colourNames(map), (QStringList{ QStringLiteral("Black"), QStringLiteral("Brown"), QStringLiteral("Green"),
+		                                         QStringLiteral("Red"), QStringLiteral("Gelb"), QStringLiteral("Blau") }));
+		QCOMPARE(map.getColor(4)->getNumber(), 9);
+		QCOMPARE(report.existing, (QStringList{ QStringLiteral("Black"), QStringLiteral("Brown"), QStringLiteral("Red") }));
+		QCOMPARE(report.left_out, QStringList{ QStringLiteral("Grau") });
+		QVERIFY(near(map.getColor(1)->getCmyk(), 0, 0.5f, 1, 0.2f));
+	}
+	{
+		Map map, source;
+		makeCrtMaps(map, source);
+		auto const both = table({ { 10, 1 }, { 11, 1 } });
+		auto const* brown = map.getColor(1);
+		auto const report = loadColoursFrom(map, source, ColourLoadMode::Replace, &both);
+		QCOMPARE(map.getColor(0)->getName(), QStringLiteral("Schwarz"));
+		QCOMPARE(report.left_out, QStringList{ QStringLiteral("Braun") });
+		QVERIFY(report.kept.contains(QStringLiteral("Brown")));
+		QVERIFY(near(brown->getCmyk(), 0, 0.5f, 1, 0.2f));
+	}
+	{
+		Map with_empty, without, source_a, source_b;
+		makeCrtMaps(with_empty, source_a);
+		makeCrtMaps(without, source_b);
+		auto const empty = table({});
+		auto const a = loadColoursFrom(with_empty, source_a, ColourLoadMode::Replace, &empty);
+		auto const b = loadColoursFrom(without, source_b, ColourLoadMode::Replace);
+		QCOMPARE(colourNames(with_empty), colourNames(without));
+		QCOMPARE(a.text(), b.text());
+	}
 }
 
 // Colour usage report, Accept (1)

@@ -205,6 +205,7 @@ namespace literal
 	static const QLatin1String object_group("group");  // foom
 	static const QLatin1String color_group("group");  // foom
 	static const QLatin1String blend("blend");  // foom
+	static const QLatin1String color_number("number");  // foom
 	static const QLatin1String bookmarks("bookmarks");  // foom
 	static const QLatin1String bookmark("bookmark");  // foom
 	static const QLatin1String bookmark_x("x");  // foom
@@ -457,6 +458,8 @@ void XMLFileExporter::exportColors()
 			color_element.writeAttribute(literal::color_group, colourGroupKey(color->getColourGroup()));
 		if (XMLFileFormat::foom_revision > 0 && color->getBlendMode() != MapColor::BlendNormal)  // foom
 			color_element.writeAttribute(literal::blend, QLatin1String(color->getBlendMode() == MapColor::BlendMultiply ? "multiply" : "darken"));
+		if (XMLFileFormat::foom_revision > 0 && color->getNumber() >= 0)  // foom
+			color_element.writeAttribute(literal::color_number, color->getNumber());
 		
 		if (color->getSpotColorMethod() != MapColor::UndefinedMethod)
 		{
@@ -1110,6 +1113,8 @@ void XMLFileImporter::importColors()
 				color->setBlendMode(blend == QLatin1String("multiply") ? MapColor::BlendMultiply
 				                    : blend == QLatin1String("darken") ? MapColor::BlendDarken : MapColor::BlendNormal);
 			}
+			if (color_element.hasAttribute(literal::color_number))  // foom
+				color->setNumber(color_element.attribute<int>(literal::color_number));
 			
 			MapColorCmyk cmyk;
 			cmyk.c = color_element.attribute<float>(literal::c);

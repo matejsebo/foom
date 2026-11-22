@@ -24,9 +24,13 @@
 #include <map>
 #include <vector>
 
+#include <QChar>
 #include <QCoreApplication>
+#include <QFile>
+#include <QIODevice>
 #include <QLatin1Char>
 #include <QLatin1String>
+#include <QRegularExpression>
 
 #include "core/map.h"
 #include "core/map_color.h"
@@ -36,9 +40,9 @@ namespace OpenOrienteering {
 
 namespace {
 
-QString tr(const char* text)
+QString tr(const char* text, int n = -1)
 {
-	return QCoreApplication::translate("OpenOrienteering::ColourLoad", text);
+	return QCoreApplication::translate("OpenOrienteering::ColourLoad", text, nullptr, n);
 }
 
 QString key(const QString& name)
@@ -64,7 +68,75 @@ MapColor definitionFor(const MapColor& source, const std::map<const MapColor*, M
 	return definition;
 }
 
+/** Reads a colour number of a table: an integer, or one with only zeros after a decimal point. */
+bool crtNumber(const QString& text, int* number)
+{
+	static const QRegularExpression pattern(QStringLiteral("^(-?[0-9]+)(\\.0*)?$"));
+	auto const match = pattern.match(text);
+	if (!match.hasMatch())
+		return false;
+	bool ok = false;
+	*number = match.captured(1).toInt(&ok);
+	return ok;
+}
+
 }  // namespace
+
+
+bool ColourCrt::find(int source, int* target) const
+{
+	auto const row = std::find_if(begin(rows), end(rows), [source](auto const& r) { return r.first == source; });
+	if (row == end(rows))
+		return false;
+	if (target)
+		*target = row->second;
+	return true;
+}
+
+ColourCrt readColourCrt(const QByteArray& data, QString* message)
+{
+	// the design notes, "Loading through a cross-reference table".
+	ColourCrt crt;
+	auto text = QString::fromUtf8(data);
+	if (text.startsWith(QChar(0xfeff)))
+		text.remove(0, 1);
+	static const QRegularExpression separators(QStringLiteral("[\\t ;,]+"));
+	for (auto const& raw_line : text.split(QLatin1Char('\n')))
+	{
+		auto const line = raw_line.trimmed();
+		if (line.isEmpty())
+			continue;
+		auto const cells = line.split(separators, Qt::SkipEmptyParts);
+		int source = 0, target = 0;
+		if (cells.size() < 2 || !crtNumber(cells[0], &source) || !crtNumber(cells[1], &target))
+		{
+			++crt.skipped;
+			continue;
+		}
+		if (!crt.find(source, nullptr))
+			crt.rows.emplace_back(source, target);
+	}
+	if (message)
+	{
+		if (crt.rows.empty())
+			*message = tr("The cross-reference table has no row of two colour numbers.");
+		else if (crt.skipped > 0)
+			*message = tr("%n line(s) of the cross-reference table are not two colour numbers and were skipped.", crt.skipped);
+	}
+	return crt;
+}
+
+ColourCrt readColourCrtFile(const QString& path, QString* message)
+{
+	QFile file(path);
+	if (!file.open(QIODevice::ReadOnly))
+	{
+		if (message)
+			*message = tr("Cannot read %1.").arg(path);
+		return {};
+	}
+	return readColourCrt(file.readAll(), message);
+}
 
 
 QString ColourLoadReport::text() const
@@ -87,39 +159,94 @@ QString ColourLoadReport::text() const
 	section(tr("Already in the map: %1"), existing);
 	section(tr("Added: %1"), added);
 	section(tr("Only in the map: %1"), kept);
+	section(tr("Left out: %1"), left_out);
 	return result;
 }
 
-ColourLoadReport loadColoursFrom(Map& map, const Map& source, ColourLoadMode mode)
+ColourLoadReport loadColoursFrom(Map& map, const Map& source, ColourLoadMode mode, const ColourCrt* crt)
 {
 	ColourLoadReport report;
 
-	// Match by name; the first colour of a name counts on either side.
+	// Match by number through the table for the colours it lists, else by name;
+	// the first colour of a name counts on either side, and a map colour takes one colour of the file.
 	std::map<const MapColor*, MapColor*> mapping;  // source colour -> map colour
-	std::vector<const MapColor*> sources;          // in the source's order, one per name
+	std::vector<const MapColor*> sources;          // in the source's order, one per target
+	std::vector<const MapColor*> by_name;          // the sources matched by name, for the first-of-a-name rule
 	std::vector<MapColor*> added;
+	std::map<const MapColor*, int> added_numbers;  // added colour -> its number
 	std::vector<bool> matched_in_map(std::size_t(map.getNumColors()), false);
+	auto const is_taken = [&mapping](const MapColor* target) {
+		return std::any_of(begin(mapping), end(mapping), [target](auto const& entry) { return entry.second == target; });
+	};
+	auto const number_in_map = [&map, &added_numbers](int number) {
+		if (number < 0)
+			return false;
+		for (int j = 0; j < map.getNumColors(); ++j)
+		{
+			if (map.getColor(j)->getNumber() == number)
+				return true;
+		}
+		return std::any_of(begin(added_numbers), end(added_numbers), [number](auto const& entry) { return entry.second == number; });
+	};
 	for (int i = 0; i < source.getNumColors(); ++i)
 	{
 		auto const* color = source.getColor(i);
-		auto const color_key = key(color->getName());
-		if (std::any_of(begin(sources), end(sources), [&color_key](auto const* other) { return key(other->getName()) == color_key; }))
-			continue;
-		sources.push_back(color);
 		MapColor* target = nullptr;
-		for (int j = 0; j < map.getNumColors() && !target; ++j)
+		int target_number = -1;
+		auto const through_table = crt && color->getNumber() >= 0 && crt->find(color->getNumber(), &target_number);
+		if (through_table)
 		{
-			if (key(map.getColor(j)->getName()) == color_key)
+			if (target_number < 0)
 			{
-				target = map.getMapColor(j);
-				matched_in_map[std::size_t(j)] = true;
+				report.left_out.append(color->getName());
+				continue;
+			}
+			for (int j = 0; j < map.getNumColors() && !target; ++j)
+			{
+				if (map.getColor(j)->getNumber() == target_number)
+					target = map.getMapColor(j);
+			}
+			if (!target)
+			{
+				// A second colour of the file for a target number which is added already.
+				auto const twin = std::find_if(begin(added_numbers), end(added_numbers), [target_number](auto const& entry) { return entry.second == target_number; });
+				if (twin != end(added_numbers))
+				{
+					report.left_out.append(color->getName());
+					continue;
+				}
 			}
 		}
-		if (!target)
+		else
+		{
+			auto const color_key = key(color->getName());
+			if (std::any_of(begin(by_name), end(by_name), [&color_key](auto const* other) { return key(other->getName()) == color_key; }))
+				continue;
+			by_name.push_back(color);
+			for (int j = 0; j < map.getNumColors() && !target; ++j)
+			{
+				if (key(map.getColor(j)->getName()) == color_key)
+					target = map.getMapColor(j);
+			}
+		}
+		if (target && is_taken(target))
+		{
+			report.left_out.append(color->getName());
+			continue;
+		}
+		if (target)
+		{
+			matched_in_map[std::size_t(map.findColorIndex(target))] = true;
+		}
+		else
 		{
 			target = new MapColor(color->getName(), map.getNumColors() + int(added.size()));
+			auto const number = through_table ? target_number
+			                    : number_in_map(color->getNumber()) ? -1 : color->getNumber();
 			added.push_back(target);
+			added_numbers[target] = number;
 		}
+		sources.push_back(color);
 		mapping[color] = target;
 	}
 
@@ -141,8 +268,10 @@ ColourLoadReport loadColoursFrom(Map& map, const Map& source, ColourLoadMode mod
 		auto const same = target->equals(definition) && target->getCmyk() == definition.getCmyk()
 		                  && target->getColourGroup() == definition.getColourGroup();
 		auto const priority = target->getPriority();
+		auto const number = is_new(target) ? added_numbers[target] : target->getNumber();
 		*target = definition;
 		target->setPriority(priority);
+		target->setNumber(number);
 		if (!is_new(target))
 			(same ? report.unchanged : report.changed).append(target->getName());  // as the file spells it
 	}

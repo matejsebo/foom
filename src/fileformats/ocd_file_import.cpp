@@ -73,6 +73,7 @@
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
 #include "fileformats/ocd_bookmark.h"
+#include "fileformats/ocd_guide.h"  // foom
 #include "core/symbols/text_symbol.h"
 #include "fileformats/file_format.h"
 #include "fileformats/ocd_datetime.h"
@@ -341,6 +342,7 @@ void OcdFileImport::importImplementation()
 			importView(file);
 		}
 		importBookmarks(file);  // foom
+		importGuides(file);  // foom
 		importLayoutImages(file);  // foom
 		importForeignData(file);  // foom
 		importCourseData(file.header()->file_type == Ocd::TypeCourseSetting);  // foom: reads what importForeignData() kept
@@ -535,6 +537,7 @@ void OcdFileImport::importColors(const OcdFile<Ocd::FormatV8>& file)
 		}
 		else
 		{
+			color->setNumber(color_info.number);  // foom
 			map->addColor(color, color_pos);
 			color_index[color_info.number] = color;
 		}
@@ -735,6 +738,7 @@ void OcdFileImport::importColor(const QString& param_string)
 	auto color = new MapColor(name, color_pos);
 	color->setCmyk(cmyk);
 	color->setOpacity(opacity);
+	color->setNumber(number);  // foom: the design notes, "Loading through a cross-reference table"
 	map->addColor(color, color_pos);
 	color_index[number] = color;
 
@@ -1125,6 +1129,24 @@ void OcdFileImport::importBookmark(const QString& param_string)
 	Bookmark bookmark;
 	if (parseOcdBookmark(param_string, bookmark))
 		map->addBookmark(bookmark);
+}
+
+// foom: the design notes, "OCD string type 26"
+template< class F >
+void OcdFileImport::importGuides(const OcdFile< F >& file)
+{
+	handleStrings(file, { { ocd_guide_string_type, &OcdFileImport::importGuide } });
+}
+
+// foom
+void OcdFileImport::importGuide(const QString& param_string)
+{
+	Guide guide;
+	if (!parseOcdGuide(param_string, guide))
+		return;
+	auto guides = map->guides();
+	guides.list.push_back(guide);
+	map->setGuides(std::move(guides));
 }
 
 // foom
