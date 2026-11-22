@@ -53,6 +53,7 @@
 #include <QUuid>  // foom
 
 #include "job.h"
+#include "generator_steps.h"  // foom
 #include "mapper_config.h"
 #include "check/issue.h"  // foom
 #include "check/legibility.h"  // foom
@@ -1173,6 +1174,10 @@ void StepRunner::validate(const Step& step, bool& map_open)
 		p.checkKnown({ "id" });
 		p.optionalString("id");
 	}
+	else if (isGeneratorStep(name))  // foom
+	{
+		validateGeneratorStep(step, map_open);
+	}
 	else
 	{
 		p.fail(QString::fromLatin1("unknown step \"%1\"").arg(name));
@@ -1213,6 +1218,8 @@ StepResult StepRunner::run(const Step& step)
 		return exportCoursesStep(step);
 	if (name == QLatin1String("import-courses"))  // foom
 		return importCoursesStep(step);
+	if (isGeneratorStep(name))  // foom
+		return runGeneratorStep(*map, step);
 	if (name == QLatin1String("field-copy-create"))
 		return fieldCopyCreate(step);
 	if (name == QLatin1String("merge-from-file"))

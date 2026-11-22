@@ -369,6 +369,7 @@ set(Mapper_Common_SRCS
   tools/points_along_tool.cpp
   tools/draw_line_text_tool.cpp
   tools/sized_shape_tool.cpp
+  tools/generator_place_tool.cpp
   tools/drawing_settings.cpp
   tools/move_parallel_tool.cpp
   tools/reshape_tool.cpp

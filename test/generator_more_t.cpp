@@ -26,10 +26,13 @@
 #include <QtMath>
 #include <QtTest>
 #include <QChar>
+#include <QColor>  // foom
+#include <QImage>  // foom
 #include <QJsonObject>
 #include <QLatin1Char>
 #include <QLatin1String>
 #include <QObject>
+#include <QPainter>  // foom
 #include <QPointF>
 #include <QRectF>
 #include <QString>
@@ -46,6 +49,8 @@
 #include "core/map_printer.h"
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
+#include "core/renderables/renderable.h"  // foom
+#include "core/symbols/area_symbol.h"  // foom
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
@@ -666,6 +671,7 @@ private slots:
 		
 		params.insert(QStringLiteral("text"), text);
 		params.insert(QStringLiteral("module"), 0.5);
+		params.insert(QStringLiteral("background"), false);  // foom: third change
 		auto part = -1;
 		auto const objects = run(map, qr_code, params, { 10, 10 }, &part);
 		QCOMPARE(part, layoutPartIndex(map));
@@ -701,6 +707,139 @@ private slots:
 			area += qAbs(twice) / 2;
 		}
 		QVERIFY2(qAbs(area - dark * 0.25) < 1e-6, qPrintable(QString::number(area)));
+	}
+	
+	/// Third change, Accept (6)
+	void qrBackgroundTest()
+	{
+		Map map;
+		map.setScaleDenominator(10000);
+		auto* black = addBlack(map);
+		auto* yellow = new MapColor(QStringLiteral("Yellow"), 1);
+		yellow->setCmyk({ 0.0f, 0.0f, 1.0f, 0.0f });
+		yellow->setRgbFromCmyk();
+		map.addColor(yellow, 1);
+		
+		auto params = defaultGeneratorParams(qr_code, map);
+		QCOMPARE(params.value(QLatin1String("background")).toBool(), true);
+		params.insert(QStringLiteral("text"), QStringLiteral("FOOM"));
+		auto const objects = run(map, qr_code, params, { 10, 10 });
+		QCOMPARE(objects.size(), std::size_t(2));
+		QCOMPARE(map.getNumColors(), 3);
+		QCOMPARE(map.getColor(0), black);
+		QCOMPARE(map.getColor(2), yellow);
+		auto const* white = map.getColor(1);
+		QCOMPARE(static_cast<const QColor&>(*white).rgb(), QColor(Qt::white).rgb());
+		
+		auto const* background = objects.front()->asPath();
+		QVERIFY(background->getSymbol()->isPrivate());
+		QCOMPARE(background->getSymbol()->getType(), Symbol::Area);
+		QVERIFY(background->getSymbol()->containsColor(white));
+		QVERIFY(!background->getSymbol()->containsColor(black));
+		QCOMPARE(background->parts().size(), std::size_t(1));
+		QVERIFY(background->parts().front().isClosed());
+		background->update();
+		auto const side = (21 + 8) * 0.5;
+		QVERIFY(near(background->getExtent().topLeft(), { 10, 10 }, 0.01));
+		QVERIFY(near(background->getExtent().bottomRight(), { 10 + side, 10 + side }, 0.01));
+		QVERIFY(objects.back()->getSymbol()->containsColor(black));
+		
+		// Once more: no colour is inserted.
+		QCOMPARE(run(map, qr_code, params, { 50, 10 }).size(), std::size_t(2));
+		QCOMPARE(map.getNumColors(), 3);
+		
+		// A white colour below black already.
+		Map other;
+		other.setScaleDenominator(10000);
+		addBlack(other);
+		auto* paper = new MapColor(QStringLiteral("Paper"), 1);
+		paper->setCmyk({ 0.0f, 0.0f, 0.0f, 0.0f });
+		paper->setRgbFromCmyk();
+		other.addColor(paper, 1);
+		QCOMPARE(run(other, qr_code, params, { 10, 10 }).size(), std::size_t(2));
+		QCOMPARE(other.getNumColors(), 2);
+	}
+	
+	/// Third change, Accept (7)
+	void qrBackgroundDrawnTest()
+	{
+		auto const draw = [](bool with_background) {
+			Map map;
+			map.setScaleDenominator(10000);
+			addBlack(map);
+			auto* yellow = new MapColor(QStringLiteral("Yellow"), 1);
+			yellow->setCmyk({ 0.0f, 0.0f, 1.0f, 0.0f });
+			yellow->setRgbFromCmyk();
+			map.addColor(yellow, 1);
+			auto* land = addSymbol<AreaSymbol>(map, QStringLiteral("Land"), 1, yellow);
+			MapCoordVector coords { MapCoord(-10, -10), MapCoord(40, -10), MapCoord(40, 40), MapCoord(-10, 40), MapCoord(-10, -10) };
+			coords.back().setClosePoint(true);
+			map.addObject(new PathObject(land, coords), 0);
+			auto params = defaultGeneratorParams(qr_code, map);
+			params.insert(QStringLiteral("text"), QStringLiteral("FOOM"));
+			params.insert(QStringLiteral("background"), with_background);
+			run(map, qr_code, params, { 0, 0 });
+			
+			map.updateObjects();
+			QRectF const extent(0, 0, 20, 20);
+			constexpr double pixel_per_mm = 10;
+			QImage image(int(extent.width() * pixel_per_mm), int(extent.height() * pixel_per_mm), QImage::Format_ARGB32_Premultiplied);
+			image.fill(QColor(Qt::white));
+			QPainter painter(&image);
+			painter.setRenderHint(QPainter::Antialiasing, false);
+			painter.scale(pixel_per_mm, pixel_per_mm);
+			map.draw(&painter, RenderConfig{ map, extent, pixel_per_mm, RenderConfig::DisableAntialiasing, 1 });
+			painter.end();
+			return image;
+		};
+		// The quiet zone is 2 mm wide; the finder pattern's corner module is at (2, 2) to (2.5, 2.5) mm.
+		auto const with = draw(true);
+		QCOMPARE(QColor(with.pixel(10, 10)), QColor(Qt::white));
+		QCOMPARE(QColor(with.pixel(22, 22)).lightness() < 60, true);
+		auto const without = draw(false);
+		auto const quiet = QColor(without.pixel(10, 10));
+		QVERIFY2(quiet.blue() < 60 && quiet.red() > 200, qPrintable(quiet.name()));
+		QCOMPARE(QColor(without.pixel(22, 22)).lightness() < 60, true);
+	}
+	
+	void qrBackgroundRedrawTest()
+	{
+		// the design notes, "Generators", third change, Accept (7):
+		// what was drawn before the white colour came in keeps its colours.
+		Map map;
+		map.setScaleDenominator(10000);
+		addBlack(map);
+		auto* yellow = new MapColor(QStringLiteral("Yellow"), 1);
+		yellow->setCmyk({ 0.0f, 0.0f, 1.0f, 0.0f });
+		yellow->setRgbFromCmyk();
+		map.addColor(yellow, 1);
+		auto* land = addSymbol<AreaSymbol>(map, QStringLiteral("Land"), 1, yellow);
+		MapCoordVector coords { MapCoord(-10, -10), MapCoord(40, -10), MapCoord(40, 40), MapCoord(-10, 40), MapCoord(-10, -10) };
+		coords.back().setClosePoint(true);
+		map.addObject(new PathObject(land, coords), 0);
+		// The area is drawn before the generator runs, as it is in an open map.
+		map.updateObjects();
+		
+		auto params = defaultGeneratorParams(qr_code, map);
+		params.insert(QStringLiteral("text"), QStringLiteral("FOOM"));
+		run(map, qr_code, params, { 0, 0 });
+		QCOMPARE(map.getColor(1)->getName(), QStringLiteral("White"));
+		QCOMPARE(map.getColor(2), yellow);
+		
+		map.updateObjects();
+		QRectF const extent(0, 0, 40, 40);
+		constexpr double pixel_per_mm = 10;
+		QImage image(int(extent.width() * pixel_per_mm), int(extent.height() * pixel_per_mm), QImage::Format_ARGB32_Premultiplied);
+		image.fill(QColor(Qt::darkBlue));
+		QPainter painter(&image);
+		painter.setRenderHint(QPainter::Antialiasing, false);
+		painter.scale(pixel_per_mm, pixel_per_mm);
+		map.draw(&painter, RenderConfig{ map, extent, pixel_per_mm, RenderConfig::DisableAntialiasing, 1 });
+		painter.end();
+		// 30 mm is beyond the code's 14.5 mm: the area there is still yellow.
+		auto const outside = QColor(image.pixel(300, 300));
+		QVERIFY2(outside.blue() < 60 && outside.red() > 200 && outside.green() > 200, qPrintable(outside.name()));
+		QCOMPARE(QColor(image.pixel(10, 10)), QColor(Qt::white));
 	}
 };
 

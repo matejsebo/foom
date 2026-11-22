@@ -48,9 +48,11 @@
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
 #include "core/path_coord.h"
+#include "core/symbol_tree.h"  // foom
 #include "core/symbols/area_symbol.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
+#include "core/symbols/private_symbol.h"  // foom
 #include "core/symbols/symbol.h"
 #include "core/symbols/text_symbol.h"
 #include "layout/layout_part.h"
@@ -423,15 +425,22 @@ bool buildLegend(const Context& c, const QJsonObject& params, const MapCoordF& a
 	auto const max_column_height = number("max_column_height", 0);
 	auto const show_number = flag("show_number", false);
 	auto const* text_symbol = textSymbol(c, params, build);
-	auto const text_line = text_symbol->getLineSpacing() * text_symbol->getFontMetrics().lineSpacing() / text_symbol->calculateInternalScaling();
+	auto const lineHeight = [](const TextSymbol* symbol) {
+		return symbol->getLineSpacing() * symbol->getFontMetrics().lineSpacing() / symbol->calculateInternalScaling();
+	};
+	auto const text_line = lineHeight(text_symbol);
 	
 	std::vector<bool> in_use;
 	if (flag("only_used", false))
 		determineMapContentSymbolsInUse(c.map, in_use);  // not the layout, so not a legend's own samples
 	
-	auto x = anchor.x();
-	auto y = anchor.y();
-	auto rows_in_column = 0;
+	// The symbols which pass the filters, in symbol-box order, with the type of their sample.
+	struct Candidate
+	{
+		const Symbol* symbol;
+		Symbol::Type type;
+	};
+	std::vector<Candidate> candidates;
 	for (int i = 0; i < c.map.getNumPublicSymbols(); ++i)
 	{
 		auto const* symbol = c.map.getSymbol(i);
@@ -449,46 +458,145 @@ bool buildLegend(const Context& c, const QJsonObject& params, const MapCoordF& a
 		                    || (type == Symbol::Line && flag("lines", true))
 		                    || (type == Symbol::Area && flag("areas", true))
 		                    || (type == Symbol::Text && flag("texts", true));
-		if (!wanted)
-			continue;
-		
-		// The sample of a line is as long as it needs to show its pattern.
-		auto sample_width = width;
-		if (symbol->getType() == Symbol::Line)
+		if (wanted)
+			candidates.push_back({ symbol, type });
+	}
+	
+	// foom, third change: the rows, by the top-level symbol groups when there are headings.
+	struct Row
+	{
+		const Symbol* symbol;  ///< nullptr for a heading
+		Symbol::Type type;
+		QString heading;
+		TextObject* text;
+		double height;
+		double sample_width;
+	};
+	std::vector<Row> rows;
+	auto const addSymbolRow = [&rows](const Candidate& candidate) {
+		rows.push_back({ candidate.symbol, candidate.type, {}, nullptr, 0, 0 });
+	};
+	auto const& tree = c.map.symbolTree();
+	if (flag("group_headings", false) && !tree.empty())
+	{
+		std::vector<bool> listed(candidates.size(), false);
+		for (int g = 0; g < int(tree.size()); ++g)
 		{
-			auto const* line = symbol->asLine();
-			if (line->isDashed())
+			if (tree[std::size_t(g)].parent != -1)
+				continue;
+			auto const numbers = symbolGroupNumbers(c.map, g);
+			auto heading_added = false;
+			for (std::size_t i = 0; i < candidates.size(); ++i)
 			{
-				auto const dashes = qMax(1, line->getDashesInGroup());
-				auto const period = 0.001 * (dashes * line->getDashLength() + (dashes - 1) * line->getInGroupBreakLength() + line->getBreakLength());
-				sample_width = std::max(sample_width, period);
-			}
-			else if (line->getMidSymbol() && !line->getMidSymbol()->isEmpty())
-			{
-				sample_width = std::max(sample_width, 2 * 0.001 * line->getSegmentLength());
+				if (listed[i] || !numbers.contains(candidates[i].symbol->getNumberAsString()))
+					continue;
+				if (!heading_added)
+				{
+					rows.push_back({ nullptr, Symbol::NoSymbol, tree[std::size_t(g)].name, nullptr, 0, 0 });
+					heading_added = true;
+				}
+				addSymbolRow(candidates[i]);
+				listed[i] = true;
 			}
 		}
-		
-		auto label_text = symbol->getPlainTextName();
-		if (show_number)
-			label_text = symbol->getNumberAsString() + QLatin1Char(' ') + label_text;
-		auto* label = new TextObject(text_symbol);
-		label->setText(label_text);
-		label->setHorizontalAlignment(TextObject::AlignLeft);
-		label->setVerticalAlignment(TextObject::AlignVCenter);
-		label->setBox(0, 0, label_width, height);
-		label->prepareLineInfos();
-		auto const row_height = std::max(height, label->getNumLines() * text_line);
-		
-		if (max_column_height > 0 && rows_in_column > 0 && y + row_height - anchor.y() > max_column_height)
+		for (std::size_t i = 0; i < candidates.size(); ++i)
+		{
+			if (!listed[i])
+				addSymbolRow(candidates[i]);
+		}
+	}
+	else
+	{
+		for (auto const& candidate : candidates)
+			addSymbolRow(candidate);
+	}
+	
+	const TextSymbol* heading_symbol = nullptr;
+	auto heading_line = text_line;
+	auto const heading_width = width + 2 + label_width;
+	for (auto& row : rows)
+	{
+		if (row.symbol)
+		{
+			// The sample of a line is as long as it needs to show its pattern.
+			row.sample_width = width;
+			if (row.symbol->getType() == Symbol::Line)
+			{
+				auto const* line = row.symbol->asLine();
+				if (line->isDashed())
+				{
+					auto const dashes = qMax(1, line->getDashesInGroup());
+					auto const period = 0.001 * (dashes * line->getDashLength() + (dashes - 1) * line->getInGroupBreakLength() + line->getBreakLength());
+					row.sample_width = std::max(row.sample_width, period);
+				}
+				else if (line->getMidSymbol() && !line->getMidSymbol()->isEmpty())
+				{
+					row.sample_width = std::max(row.sample_width, 2 * 0.001 * line->getSegmentLength());
+				}
+			}
+			
+			auto label_text = row.symbol->getPlainTextName();
+			if (show_number)
+				label_text = row.symbol->getNumberAsString() + QLatin1Char(' ') + label_text;
+			row.text = new TextObject(text_symbol);
+			row.text->setText(label_text);
+			row.text->setHorizontalAlignment(TextObject::AlignLeft);
+			row.text->setVerticalAlignment(TextObject::AlignVCenter);
+			row.text->setBox(0, 0, label_width, height);
+			row.text->prepareLineInfos();
+			row.height = std::max(height, row.text->getNumLines() * text_line);
+		}
+		else
+		{
+			if (!heading_symbol)
+			{
+				auto* bold = static_cast<TextSymbol*>(makePrivateCopy(*text_symbol).release());
+				bold->setName(tr("Legend heading"));
+				bold->setBold(true);
+				build.symbols.push_back(bold);
+				heading_symbol = bold;
+				heading_line = lineHeight(heading_symbol);
+			}
+			row.text = new TextObject(heading_symbol);
+			row.text->setText(row.heading);
+			row.text->setHorizontalAlignment(TextObject::AlignLeft);
+			row.text->setVerticalAlignment(TextObject::AlignVCenter);
+			row.text->setBox(0, 0, heading_width, heading_line);
+			row.text->prepareLineInfos();
+			row.height = std::max(1, row.text->getNumLines()) * heading_line;
+		}
+	}
+	
+	auto x = anchor.x();
+	auto y = anchor.y();
+	auto rows_in_column = 0;
+	for (std::size_t i = 0; i < rows.size(); ++i)
+	{
+		auto& row = rows[i];
+		// A heading never ends a column.
+		auto needed = row.height;
+		if (!row.symbol && i + 1 < rows.size())
+			needed += line_spacing + rows[i + 1].height;
+		if (max_column_height > 0 && rows_in_column > 0 && y + needed - anchor.y() > max_column_height)
 		{
 			x += width + label_width + 5;
 			y = anchor.y();
 			rows_in_column = 0;
 		}
 		
-		const QRectF box(x, y + (row_height - height) / 2, width, height);
-		switch (type)
+		if (!row.symbol)
+		{
+			row.text->setBox(qRound(1000 * (x + heading_width / 2)), qRound(1000 * (y + row.height / 2)), heading_width, row.height);
+			build.objects.push_back(row.text);
+			row.text = nullptr;
+			y += row.height + line_spacing;
+			++rows_in_column;
+			continue;
+		}
+		
+		auto const* symbol = row.symbol;
+		const QRectF box(x, y + (row.height - height) / 2, width, height);
+		switch (row.type)
 		{
 		case Symbol::Point:
 			{
@@ -498,7 +606,7 @@ bool buildLegend(const Context& c, const QJsonObject& params, const MapCoordF& a
 			}
 			break;
 		case Symbol::Line:
-			build.objects.push_back(makeLine(symbol, { box.left(), box.center().y() }, { box.left() + sample_width, box.center().y() }));
+			build.objects.push_back(makeLine(symbol, { box.left(), box.center().y() }, { box.left() + row.sample_width, box.center().y() }));
 			break;
 		case Symbol::Area:
 			build.objects.push_back(makeRectangle(symbol, box));
@@ -510,11 +618,12 @@ bool buildLegend(const Context& c, const QJsonObject& params, const MapCoordF& a
 			break;
 		}
 		
-		auto const label_left = x + std::max(width, sample_width) + 2;
-		label->setBox(qRound(1000 * (label_left + label_width / 2)), qRound(1000 * (y + row_height / 2)), label_width, row_height);
-		build.objects.push_back(label);
+		auto const label_left = x + std::max(width, row.sample_width) + 2;
+		row.text->setBox(qRound(1000 * (label_left + label_width / 2)), qRound(1000 * (y + row.height / 2)), label_width, row.height);
+		build.objects.push_back(row.text);
+		row.text = nullptr;
 		
-		y += row_height + line_spacing;
+		y += row.height + line_spacing;
 		++rows_in_column;
 	}
 	
@@ -558,6 +667,11 @@ BuildFunction buildFunction(const QString& id)
  */
 void addBuilt(Map& map, const QString& id, const QJsonObject& params, const MapCoordF& anchor, Build& build, int part_index, int group, CombinedUndoStep* undo)
 {
+	for (auto const& color : build.colors)
+		map.addColor(color.first, color.second);
+	// What is drawn already refers to the colours by their place in the table.
+	if (!build.colors.empty())
+		map.updateAllObjects();
 	for (auto* symbol : build.symbols)
 		map.addSymbol(symbol, map.getNumSymbols());
 	
@@ -681,6 +795,7 @@ std::vector<GeneratorField> generatorFields(const QString& id, const Map* map)
 		fields.push_back(field("only_used", tr("Only symbols which are used"), GeneratorField::Bool));
 		fields.push_back(field("include_hidden", tr("Include hidden symbols"), GeneratorField::Bool));
 		fields.push_back(field("show_number", tr("Show the symbol number"), GeneratorField::Bool));
+		fields.push_back(field("group_headings", tr("Headings from the symbol groups"), GeneratorField::Bool));
 		fields.push_back(field("icon_width", tr("Sample width:"), GeneratorField::Double, 1, 200, 1, mm));
 		fields.push_back(field("icon_height", tr("Sample height:"), GeneratorField::Double, 1, 200, 1, mm));
 		fields.push_back(field("line_spacing", tr("Space between rows:"), GeneratorField::Double, 0, 100, 1, mm));
@@ -774,6 +889,7 @@ std::vector<GeneratorField> generatorFields(const QString& id, const Map* map)
 		level.choices = QStringList{ QStringLiteral("L"), QStringLiteral("M"), QStringLiteral("Q"), QStringLiteral("H") };
 		level.choice_labels = QStringList{ tr("L (7 %)"), tr("M (15 %)"), tr("Q (25 %)"), tr("H (30 %)") };
 		fields.push_back(level);
+		fields.push_back(field("background", tr("White background"), GeneratorField::Bool));
 		fields.push_back(field("area_symbol", tr("Area symbol (none: automatic):"), GeneratorField::AreaSymbol));
 	}
 	return fields;
@@ -812,6 +928,7 @@ QJsonObject defaultGeneratorParams(const QString& id, const Map& map)
 		set("only_used", false);
 		set("include_hidden", true);
 		set("show_number", false);
+		set("group_headings", !map.symbolTree().empty());
 		set("icon_width", 10);
 		set("icon_height", 5);
 		set("line_spacing", 1);
@@ -883,9 +1000,35 @@ QJsonObject defaultGeneratorParams(const QString& id, const Map& map)
 		set("module", 0.5);
 		set("quiet_zone", 4);
 		set("ec_level", QStringLiteral("M"));
+		set("background", true);
 		set("area_symbol", QString{});
 	}
 	return params;
+}
+
+bool generatorIsPlaced(const QString& id)
+{
+	return id == scale_bar_id || id == north_arrow_id || id == legend_id || id == name_index_id || id == qr_code_id;
+}
+
+QRectF generatorPreview(const Map& map, const QString& id, const QJsonObject& params, QString* error)
+{
+	auto const build_function = buildFunction(id);
+	if (!build_function)
+	{
+		setError(error, tr("There is no generator %1.").arg(id));
+		return {};
+	}
+	Build build;
+	if (!build_function({ map, 0 }, params, MapCoordF(0, 0), build, error) || build.objects.empty())
+		return {};
+	QRectF extent;
+	for (auto const* object : build.objects)
+	{
+		object->update();
+		rectIncludeSafe(extent, object->getExtent());
+	}
+	return extent;
 }
 
 double scaleBarAutoLength(unsigned int scale_denominator)

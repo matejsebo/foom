@@ -272,6 +272,7 @@
 #include "tools/stairway_tool.h"  // foom
 #include "tools/points_along_tool.h"  // foom
 #include "tools/sized_shape_tool.h"  // foom
+#include "tools/generator_place_tool.h"  // foom
 #include "tools/drawing_settings.h"  // foom
 #include "gui/map/sized_shape_dialog.h"  // foom
 #include "core/ops/frame.h"  // foom
@@ -7953,14 +7954,36 @@ void MapEditorController::runGeneratorDialog(const QString& id)
 	dialog.setWindowModality(Qt::WindowModal);
 	if (dialog.exec() != QDialog::Accepted)
 		return;
-	
+	placeGenerator(id, dialog.params());
+}
+
+bool MapEditorController::placeGenerator(const QString& id, const QJsonObject& params)
+{
+	// the design notes, "Generators", third change
+	if (generatorIsPlaced(id))
+	{
+		QString error;
+		auto const preview = generatorPreview(*map, id, params, &error);
+		if (!preview.isValid() && !error.isEmpty())
+		{
+			QMessageBox::warning(window, generatorTitle(id), error);
+			return false;
+		}
+		setTool(new GeneratorPlaceTool(this, id, params, preview));
+		return true;
+	}
 	auto const view_rect = main_view->calculateViewedRect(map_widget->viewportToView(map_widget->rect()));
+	return placeGeneratorAt(id, params, MapCoordF(view_rect.center()));
+}
+
+bool MapEditorController::placeGeneratorAt(const QString& id, const QJsonObject& params, const MapCoordF& anchor)
+{
 	QString error;
-	auto const group = runGenerator(*map, id, dialog.params(), MapCoordF(view_rect.center()), &error);
+	auto const group = runGenerator(*map, id, params, anchor, &error);
 	if (group == 0)
 	{
 		QMessageBox::warning(window, generatorTitle(id), error);
-		return;
+		return false;
 	}
 	
 	// Show the result selected, in its part, ready to be dragged.
@@ -7975,6 +7998,7 @@ void MapEditorController::runGeneratorDialog(const QString& id)
 		map->emitSelectionChanged();
 	}
 	window->showStatusBarMessage(tr("%1: %n object(s).", nullptr, int(objects.size())).arg(generatorTitle(id)), 3000);
+	return true;
 }
 
 void MapEditorController::regenerateClicked()

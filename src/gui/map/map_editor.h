@@ -63,6 +63,7 @@ class QByteArray;
 class QComboBox;
 class QDockWidget;
 class QFrame;
+class QJsonObject;  // foom
 class QKeyEvent;
 class QLabel;
 class QMenu;
@@ -509,8 +510,15 @@ public slots:
 	void generateLegendClicked();
 	/** foom: Runs the generator whose id the sending action holds. */
 	void generateClicked();
-	/** foom: Asks for the parameters of the generator, runs it at the centre of the view and selects its group. */
+	/** foom: Asks for the parameters of the generator, then runs it with placeGenerator(). */
 	void runGeneratorDialog(const QString& id);
+	/**
+	 * foom: Runs the generator: one with an anchor is placed by a click with the place tool,
+	 * the others are added at once. Returns false after showing the generator's message.
+	 */
+	bool placeGenerator(const QString& id, const QJsonObject& params);
+	/** foom: Runs the generator with the anchor and selects its group in its part. Returns false after a message. */
+	bool placeGeneratorAt(const QString& id, const QJsonObject& params, const MapCoordF& anchor);
 	/** foom: Rebuilds the generated groups of the selection (regenerate). */
 	void regenerateClicked();
 	void updateMapServiceAction();  // foom

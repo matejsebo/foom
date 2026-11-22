@@ -21,6 +21,7 @@
 #ifndef FOOM_GENERATOR_P_H
 #define FOOM_GENERATOR_P_H
 
+#include <utility>
 #include <vector>
 
 #include <QJsonObject>
@@ -51,6 +52,7 @@ struct Build
 {
 	std::vector<Symbol*> symbols;
 	std::vector<Object*> objects;
+	std::vector<std::pair<MapColor*, int>> colors;  ///< New colours and the index to insert each at.
 	
 	Build() = default;
 	Build(const Build&) = delete;
@@ -63,12 +65,15 @@ struct Build
 			delete object;
 		for (auto* symbol : symbols)
 			delete symbol;
+		for (auto& color : colors)
+			delete color.first;
 	}
 	
 	void handedOver()
 	{
 		objects.clear();
 		symbols.clear();
+		colors.clear();
 	}
 };
 
