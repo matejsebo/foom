@@ -26,7 +26,9 @@
 #include <QColor>
 #include <QCoreApplication>
 #include <QFlags>
+#include <QApplication>
 #include <QIcon>
+#include <QStyle>
 #include <QLatin1String>
 #include <QModelIndex>
 #include <QPalette>
@@ -86,6 +88,7 @@ TemplateTableModel::TemplateTableModel(Map& map, MapView& view, QObject* parent)
 	{
 		auto* temp = map.getTemplate(i);
 		connect(temp, &Template::templateStateChanged, this, &TemplateTableModel::onTemplateStateChanged);
+		connect(temp, &Template::warningChanged, this, &TemplateTableModel::onTemplateStateChanged, Qt::UniqueConnection);  // foom
 	}
 }
 
@@ -311,11 +314,18 @@ QVariant TemplateTableModel::templateData(Template* temp, const QModelIndex &ind
 	case combined(nameColumn(), Qt::DisplayRole):
 		return temp->getTemplateFilename();
 		
+	case combined(nameColumn(), Qt::DecorationRole):  // foom
+		if (!temp->warningText().isEmpty())
+			return QApplication::style()->standardIcon(QStyle::SP_MessageBoxWarning);
+		break;
+		
 	case combined(visibilityColumn(), Qt::ToolTipRole):
 		if (!touchMode())
 			break;
 		Q_FALLTHROUGH();
 	case combined(nameColumn(), Qt::ToolTipRole):
+		if (!temp->warningText().isEmpty())  // foom
+			return QString(temp->getTemplatePath() + QLatin1Char('\n') + temp->warningText());
 		return temp->getTemplatePath();
 	}
 	
@@ -417,11 +427,13 @@ void TemplateTableModel::onTemplateAdded(int /*pos*/, Template* temp)
 {
 	endInsertRows();
 	connect(temp, &Template::templateStateChanged, this, &TemplateTableModel::onTemplateStateChanged);
+	connect(temp, &Template::warningChanged, this, &TemplateTableModel::onTemplateStateChanged, Qt::UniqueConnection);  // foom
 }
 
 void TemplateTableModel::onTemplateChanged(int pos, Template* temp)
 {
 	connect(temp, &Template::templateStateChanged, this, &TemplateTableModel::onTemplateStateChanged);
+	connect(temp, &Template::warningChanged, this, &TemplateTableModel::onTemplateStateChanged, Qt::UniqueConnection);  // foom
 	auto const row = rowFromPos(pos);
 	emit dataChanged(index(row, 0), index(row, 3));
 }

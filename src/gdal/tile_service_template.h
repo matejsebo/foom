@@ -143,6 +143,12 @@ public:
 
 	/** The message of the last failed tile, empty when none failed. */
 	QString lastTileError() const { return last_tile_error; }
+	
+	/**
+	 * foom: The message of the last failed tile, until a tile arrives or the
+	 * template is unloaded; shown in the template list.
+	 */
+	QString warningText() const override { return warning; }
 
 
 	/**
@@ -177,12 +183,14 @@ private slots:
 private:
 	void startWorker();
 	void stopWorker();
+	void setWarning(const QString& text);
 	void drawCached(QPainter* painter, const QRectF& projected_bounds, int level) const;
 
 	MapService service_;
 	double r0 = 0;
 	bool downloading = false;
 	QString last_tile_error;
+	QString warning;
 
 	mutable QCache<TileKey, QImage> cache;
 	mutable QHash<TileKey, qint64> failed_until;

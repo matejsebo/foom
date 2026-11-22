@@ -268,6 +268,7 @@ bool TileServiceTemplate::loadTemplateFileImpl()
 	in_flight.clear();
 	last_requests.clear();
 	last_tile_error.clear();
+	setWarning({});
 	return true;
 }
 
@@ -277,6 +278,15 @@ void TileServiceTemplate::unloadTemplateFileImpl()
 	cache.clear();
 	failed_until.clear();
 	r0 = 0;
+	setWarning({});
+}
+
+void TileServiceTemplate::setWarning(const QString& text)
+{
+	if (warning == text)
+		return;
+	warning = text;
+	emit warningChanged();
 }
 
 void TileServiceTemplate::projectionChanged()
@@ -403,6 +413,7 @@ void TileServiceTemplate::tileReady(const TileKey& key, const QImage& image)
 {
 	in_flight.remove(key);
 	failed_until.remove(key);
+	setWarning({});
 	if (getTemplateState() == Loaded && r0 > 0)
 	{
 		auto* copy = new QImage(image);
@@ -419,6 +430,7 @@ void TileServiceTemplate::tileFailed(const TileKey& key, const QString& message)
 	failed_until.insert(key, QDateTime::currentMSecsSinceEpoch() + failure_hold_ms);
 	last_tile_error = message;
 	setErrorString(message);
+	setWarning(message);
 	emit tilesChanged();
 }
 

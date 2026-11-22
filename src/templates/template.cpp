@@ -274,6 +274,12 @@ QString Template::errorString() const
 	return error_string;
 }
 
+// foom
+QString Template::warningText() const
+{
+	return {};
+}
+
 void Template::setErrorString(const QString &text)
 {
 	error_string = text;

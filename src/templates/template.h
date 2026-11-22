@@ -193,6 +193,15 @@ public:
 	QString errorString() const;
 	
 	/**
+	 * foom: A warning about a template which is loaded but not working fully,
+	 * such as a map service whose tiles fail; empty when there is none.
+	 * 
+	 * The template list shows it as an icon beside the name. Subclasses
+	 * emit warningChanged() when it changes. The default is empty.
+	 */
+	virtual QString warningText() const;
+	
+	/**
 	 * Returns true if the template is raster graphics.
 	 * 
 	 * Raster graphics cannot be printed in the foreground in vector mode.
@@ -675,6 +684,9 @@ signals:
 	 * Emitted whenever template_state was changed.
 	 */
 	void templateStateChanged();
+	
+	/** foom: Emitted when warningText() changes. */
+	void warningChanged();
 	
 	
 protected:

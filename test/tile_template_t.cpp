@@ -35,6 +35,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QIcon>
 #include <QImage>
 #include <QIODevice>
 #include <QLatin1String>
@@ -63,6 +64,7 @@
 #include "core/latlon.h"
 #include "core/map.h"
 #include "core/map_coord.h"
+#include "core/map_view.h"
 #include "fileformats/xml_file_format.h"
 #include "fileformats/file_import_export.h"
 #include "gdal/map_service.h"
@@ -70,6 +72,7 @@
 #include "gdal/tile_pyramid.h"
 #include "gdal/tile_service_template.h"
 #include "templates/template.h"
+#include "templates/template_table_model.h"
 
 using namespace OpenOrienteering;
 
@@ -153,6 +156,7 @@ public:
 	}
 
 	QStringList requests;
+	bool fail_tiles = false;  ///< When set, XYZ tiles are answered with 404
 
 private:
 	static QByteArray readAll(const QString& path)
@@ -202,7 +206,11 @@ private:
 			else
 			{
 				auto const items = path.section(QLatin1Char('/'), 2).split(QLatin1Char('/'));
-				if (items.size() == 3)
+				if (fail_tiles && path.startsWith(QLatin1String("/xyz/")))
+				{
+					status = 404;
+				}
+				else if (items.size() == 3)
 				{
 					auto const z = items[0].toInt();
 					auto const second = items[1].toLongLong();
@@ -885,6 +893,69 @@ private slots:
 		error.clear();
 		QVERIFY(!MapService::loadDescriptor(dir.filePath(QStringLiteral("missing.tms.xml")), loaded, &error));
 		QVERIFY(!error.isEmpty());
+	}
+
+	void warningTest()
+	{
+		// Accept of the warning in the template list (the design notes, "Warning in the template list")
+		Map map;
+		setupMap(map);
+		MapView map_view(&map);
+		auto service = xyzService(stub);
+		service.url += QStringLiteral("?warning");  // not in GDAL's disk cache from the other tests
+		auto temp = std::make_unique<TileServiceTemplate>(service, &map);
+		auto* raw = temp.get();
+		map.addTemplate(0, std::move(temp));
+		TemplateTableModel model(map, map_view);
+		auto const row = model.rowFromPos(0);
+		auto const name_index = model.index(row, TemplateTableModel::nameColumn());
+		QVERIFY2(raw->setupAndLoad(nullptr, nullptr), qPrintable(raw->errorString()));
+
+		// (1) The template base class has no warning; a working service has none either
+		QVERIFY(raw->warningText().isEmpty());
+		QVERIFY(model.data(name_index, Qt::DecorationRole).isNull());
+		QCOMPARE(model.data(name_index, Qt::ToolTipRole).toString(), raw->getTemplatePath());
+
+		// (2) Failing tiles: a warning with the message, signalled, shown as an icon and in the tool tip
+		QSignalSpy warning_spy(raw, &Template::warningChanged);
+		QSignalSpy model_spy(&model, &QAbstractItemModel::dataChanged);
+		stub.fail_tiles = true;
+		View view{ QPointF(0, 0), 10.0, 400, 300 };
+		paintTemplates(map, view);
+		QVERIFY(!raw->lastRequests().empty());
+		QTRY_VERIFY_WITH_TIMEOUT(raw->pendingCount() == 0, 60000);
+		QVERIFY(!raw->warningText().isEmpty());
+		QCOMPARE(raw->warningText(), raw->lastTileError());
+		QVERIFY(warning_spy.count() >= 1);
+		QVERIFY(model_spy.count() >= 1);
+		auto const icon = model.data(name_index, Qt::DecorationRole);
+		QVERIFY(icon.canConvert<QIcon>());
+		QVERIFY(!icon.value<QIcon>().isNull());
+		auto const tool_tip = model.data(name_index, Qt::ToolTipRole).toString();
+		QVERIFY(tool_tip.startsWith(raw->getTemplatePath()));
+		QVERIFY(tool_tip.contains(raw->warningText()));
+
+		// (3) A tile which arrives takes the warning away
+		stub.fail_tiles = false;
+		auto const signals_before = warning_spy.count();
+		View panned{ QPointF(400, 0), 10.0, 400, 300 };
+		paintTemplates(map, panned);
+		QVERIFY(!raw->lastRequests().empty());
+		QTRY_VERIFY_WITH_TIMEOUT(raw->pendingCount() == 0, 60000);
+		QVERIFY(raw->cachedTileCount() > 0);
+		QVERIFY(raw->warningText().isEmpty());
+		QVERIFY(warning_spy.count() > signals_before);
+		QVERIFY(model.data(name_index, Qt::DecorationRole).isNull());
+
+		// (4) Reloading starts without a warning
+		stub.fail_tiles = true;
+		View elsewhere{ QPointF(-800, 0), 10.0, 400, 300 };
+		paintTemplates(map, elsewhere);
+		QTRY_VERIFY_WITH_TIMEOUT(raw->pendingCount() == 0, 60000);
+		stub.fail_tiles = false;
+		QVERIFY(!raw->warningText().isEmpty());
+		raw->unloadTemplateFile();
+		QVERIFY(raw->warningText().isEmpty());
 	}
 
 	void localMapTest()
