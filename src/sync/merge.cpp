@@ -31,6 +31,7 @@
 #include <QCryptographicHash>
 #include <QHash>
 #include <QIODevice>
+#include <QRectF>
 #include <QSet>
 #include <QStringList>
 #include <QXmlStreamWriter>
@@ -43,6 +44,7 @@
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
 #include "core/symbols/symbol.h"
+#include "core/sync_record.h"
 #include "undo/map_part_undo.h"
 #include "undo/object_undo.h"
 #include "undo/undo.h"
@@ -335,6 +337,33 @@ private:
 };
 
 
+/** The record of the field copy which both maps list, from their side; null when there is none. */
+const SyncCopy* copyRecord(const Map& mine, const Map& theirs)
+{
+	for (auto const& record : theirs.syncCopies())
+	{
+		for (auto const& own : mine.syncCopies())
+		{
+			if (own.id == record.id)
+				return &record;
+		}
+	}
+	return nullptr;
+}
+
+bool inSketch(const Map& map, const Located& located)
+{
+	return located.object && map.getPart(std::size_t(located.part))->role() == MapPart::Role::Sketch;
+}
+
+bool outside(const Object* object, const QRectF& extent)
+{
+	if (!object || extent.isNull())
+		return false;
+	object->update();
+	return !object->getExtent().intersects(extent);
+}
+
 MergeRow::Side sideOf(bool in_base, bool present, const QByteArray& base_state, const QByteArray& state)
 {
 	if (!in_base)
@@ -487,6 +516,12 @@ MergePlan compareMaps(const Map* base, const Map& mine, const Map& theirs)
 	}
 	auto const base_index = base ? indexOf(*base) : Index{};
 	
+	// A copy of a part of the map knows nothing of what lies outside, and
+	// from a review copy only the sketch part comes back.
+	auto const* record = copyRecord(mine, theirs);
+	auto const extent = record ? record->extent : QRectF{};
+	auto const review = record && record->review;
+	
 	QSet<const Symbol*> their_symbols;
 	for (auto const& uuid : order)
 	{
@@ -499,6 +534,10 @@ MergePlan compareMaps(const Map* base, const Map& mine, const Map& theirs)
 		row.uuid = uuid;
 		if (!base)
 		{
+			if (review && !inSketch(theirs, b))
+				continue;
+			if (!b.object && outside(a.object, extent))
+				continue;
 			if (a.object && b.object && state_a == state_b)
 				continue;
 			row.mine = !a.object ? MergeRow::Absent : b.object ? MergeRow::Changed : MergeRow::Added;
@@ -512,14 +551,24 @@ MergePlan compareMaps(const Map* base, const Map& mine, const Map& theirs)
 		{
 			auto const o = base_index.value(uuid);
 			auto const state_o = o.object ? stateOf(*base, o) : QByteArray{};
+			// What they did outside the sketch part of a review copy does not count.
+			auto their_object = bool(b.object);
+			auto their_state = state_b;
+			if (review && !inSketch(theirs, b) && !(!b.object && inSketch(*base, o)))
+			{
+				their_object = bool(o.object);
+				their_state = state_o;
+			}
+			if (!o.object && !their_object && outside(a.object, extent))
+				continue;
 			row.mine = sideOf(o.object, a.object, state_o, state_a);
-			row.theirs = sideOf(o.object, b.object, state_o, state_b);
+			row.theirs = sideOf(o.object, their_object, state_o, their_state);
 			if (!touched(row.mine) && !touched(row.theirs))
 				continue;
 			if (touched(row.mine) && touched(row.theirs))
 			{
 				// Both deleted it, or both made the same of it.
-				if (bool(a.object) == bool(b.object) && state_a == state_b)
+				if (bool(a.object) == their_object && state_a == their_state)
 					continue;
 				row.status = MergeRow::Conflict;
 				row.resolved = false;

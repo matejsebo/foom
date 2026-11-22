@@ -169,6 +169,7 @@
 #include "gui/map/map_notes.h"
 #include "gui/map/map_widget.h"
 #include "gui/map/generator_dialog.h"  // foom
+#include "gui/map/field_copy_dialog.h"  // foom
 #include "gui/map/merge_dialog.h"  // foom
 #include "gui/map/sketch_dialog.h"  // foom
 #include "gui/map/image_properties_dialog.h"  // foom
@@ -8143,6 +8144,12 @@ void MapEditorController::fieldCopyCreateClicked()
 		QMessageBox::information(window, tr("Create field copy"), tr("A field copy needs a map which is saved as a .foom, .omap or .xmap file. Save the map first."));
 		return;
 	}
+	auto const visible = map_widget->getMapView()->calculateViewedRect(map_widget->viewportToView(map_widget->rect()));
+	QRectF selected;
+	map->includeSelectionRect(selected);
+	FieldCopyDialog options_dialog(visible, selected, window);
+	if (options_dialog.exec() != QDialog::Accepted)
+		return;
 	const QFileInfo map_file(map_path);
 	QString suggestion = map_file.path();
 	suggestion += QLatin1Char('/');
@@ -8157,7 +8164,7 @@ void MapEditorController::fieldCopyCreateClicked()
 		filename += QLatin1String(".foom");
 	
 	QString error;
-	auto const id = createFieldCopy(*map, map_path, filename, &error);
+	auto const id = createFieldCopy(*map, map_path, filename, options_dialog.options(), &error);
 	if (id.isEmpty())
 	{
 		QMessageBox::warning(window, tr("Create field copy"), error);

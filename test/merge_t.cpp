@@ -28,19 +28,24 @@
 #include <QBrush>
 #include <QByteArray>
 #include <QColor>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDateTime>
 #include <QDialog>
 #include <QLabel>
 #include <QPointF>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QRectF>
 #include <QSignalSpy>
+#include <QSize>
+#include <QSpinBox>
 #include <QTableView>
 #include <QTableWidget>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
 #include <QIODevice>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -66,10 +71,13 @@
 #include "core/sync_record.h"
 #include "fileformats/file_import_export.h"
 #include "fileformats/xml_file_format.h"
+#include "gui/map/field_copy_dialog.h"
 #include "gui/map/merge_dialog.h"
 #include "sync/field_copy.h"
 #include "sync/merge.h"
 #include "sync/merge_decisions.h"
+#include "templates/template.h"
+#include "templates/template_image.h"
 #include "undo/undo_manager.h"
 
 using namespace OpenOrienteering;
@@ -910,6 +918,206 @@ private slots:
 		QVERIFY(!closeFieldCopy(map, map_path, QString{}, &error));
 	}
 	
+	/// Accept (21)
+	void fieldCopyExtentTest()
+	{
+		auto const map_path = file("extent.foom");
+		auto const copy_path = file("extent-field.foom");
+		Map map;
+		setupBase(map);
+		QVERIFY(saveTo(map, map_path));
+		
+		// The lines a, b and c lie in the extent, d and the others outside.
+		FieldCopyOptions options;
+		options.extent = QRectF(-1.0, -1.0, 31.0, 13.0);
+		QString error;
+		auto const sync_id = createFieldCopy(map, map_path, copy_path, options, &error);
+		QVERIFY2(!sync_id.isEmpty(), qPrintable(error));
+		QCOMPARE(map.syncCopies()[0].extent, options.extent);
+		QCOMPARE(map.getNumObjects(), 11);
+		QCOMPARE(bytes(baseFilePath(map_path, sync_id)), bytes(copy_path));
+		{
+			Map copy;
+			QVERIFY(copy.loadFrom(copy_path));
+			QCOMPARE(copy.getNumObjects(), 3);
+			QVERIFY(find(copy, 'a') && find(copy, 'b') && find(copy, 'c') && !find(copy, 'd'));
+			QCOMPARE(copy.syncCopies()[0].extent, options.extent);
+		}
+		QVERIFY(saveTo(map, map_path));
+		Map loaded;
+		QVERIFY(loaded.loadFrom(map_path));
+		QCOMPARE(loaded.syncCopies()[0].extent, options.extent);
+		
+		// What lies outside the extent gives no rows, whatever I do there.
+		MergeInput input;
+		QVERIFY2(loadForMerge(map, map_path, copy_path, input, &error), qPrintable(error));
+		QVERIFY(compareMaps(input.base.get(), map, *input.theirs).rows.empty());
+		change(map, 'd', 30, 2000);
+		remove(map, 'g');
+		addObject(map, 'e', 1, -1, 2000);
+		change(*input.theirs, 'a', 40, 3000);
+		auto plan = compareMaps(input.base.get(), map, *input.theirs);
+		QCOMPARE(plan.rows.size(), std::size_t(1));
+		QCOMPARE(statusOf(plan, 'a'), MergeRow::Incoming);
+		// Without the base, too.
+		plan = compareMaps(nullptr, map, *input.theirs);
+		QCOMPARE(plan.rows.size(), std::size_t(1));
+		QVERIFY(plan.row(id('a')));
+		
+		// Something of mine which I add inside the extent is listed.
+		auto* inside = new PathObject(symbolNumbered(map, 1), MapCoordVector{ MapCoord(1.0, 2.0), MapCoord(5.0, 2.0) });
+		map.addObject(inside);
+		plan = compareMaps(input.base.get(), map, *input.theirs);
+		QCOMPARE(plan.rows.size(), std::size_t(2));
+		QVERIFY(plan.row(inside->uuid()));
+		QCOMPARE(plan.row(inside->uuid())->status, MergeRow::Outgoing);
+	}
+	
+	/// Accept (22)
+	void reviewCopyTest()
+	{
+		auto const map_path = file("review.foom");
+		auto const copy_path = file("review-field.foom");
+		Map map;
+		setupBase(map);
+		QVERIFY(saveTo(map, map_path));
+		
+		FieldCopyOptions options;
+		options.review = true;
+		QString error;
+		auto const sync_id = createFieldCopy(map, map_path, copy_path, options, &error);
+		QVERIFY2(!sync_id.isEmpty(), qPrintable(error));
+		QVERIFY(map.syncCopies()[0].review);
+		QCOMPARE(map.getNumParts(), 1);
+		
+		MergeInput input;
+		QVERIFY2(loadForMerge(map, map_path, copy_path, input, &error), qPrintable(error));
+		auto& theirs = *input.theirs;
+		QVERIFY(theirs.syncCopies()[0].review);
+		// The copy has a sketch part, and it is the current part.
+		QCOMPARE(theirs.getNumParts(), 2);
+		auto const sketch = int(theirs.getCurrentPartIndex());
+		QCOMPARE(theirs.getPart(std::size_t(sketch))->role(), MapPart::Role::Sketch);
+		
+		// They edit the map, which does not count, and sketch, which does.
+		change(theirs, 'a', 40, 3000);
+		remove(theirs, 'c');
+		addObject(theirs, 'e', 1, sketch, 3000);
+		change(map, 'b', 30, 2000);
+		auto plan = compareMaps(input.base.get(), map, theirs);
+		QCOMPARE(plan.rows.size(), std::size_t(2));
+		QCOMPARE(statusOf(plan, 'e'), MergeRow::Incoming);
+		QCOMPARE(statusOf(plan, 'b'), MergeRow::Outgoing);
+		QVERIFY(!plan.row(id('a')) && !plan.row(id('c')));
+		
+		MergeResult result;
+		QVERIFY2(applyMerge(map, theirs, plan, &result, &error), qPrintable(error));
+		QCOMPARE(result.added, 1);
+		QCOMPARE(result.parts, 1);
+		QCOMPARE(endX(map, 'a'), 20.0);
+		QVERIFY(find(map, 'c'));
+		QCOMPARE(map.getPart(1)->role(), MapPart::Role::Sketch);
+		
+		// Without the base, only the sketch part counts as well.
+		plan = compareMaps(nullptr, map, theirs);
+		for (auto const& row : plan.rows)
+			QVERIFY(row.uuid == id('b'));
+	}
+	
+	/// Accept (23)
+	void cachedTemplatesTest()
+	{
+		auto const map_path = file("templates.foom");
+		auto const copy_path = file("templates-field.foom");
+		auto const image_path = file("blue.png");
+		QImage blue(100, 100, QImage::Format_ARGB32);
+		blue.fill(QColor(Qt::blue));
+		QVERIFY(blue.save(image_path));
+		
+		Map map;
+		setupBase(map);
+		// 100 pixels at 0.1 mm: a square of 10 mm with its centre at (10, 10).
+		auto image = std::make_unique<TemplateImage>(image_path, &map);
+		image->setTemplatePosition(MapCoord(10.0, 10.0));
+		image->setTemplateScaleX(0.1);
+		image->setTemplateScaleY(0.1);
+		image->setTemplateRotation(0);
+		image->setTemplateState(Template::Unloaded);
+		QVERIFY(image->loadTemplateFile());
+		map.addTemplate(0, std::move(image));
+		QVERIFY(saveTo(map, map_path));
+		
+		// At 254 dpi, 10 pixels per mm; the extent takes the left half of the image.
+		FieldCopyOptions options;
+		options.template_dpi = 254;
+		options.extent = QRectF(0.0, 0.0, 10.0, 30.0);
+		QString error;
+		auto const sync_id = createFieldCopy(map, map_path, copy_path, options, &error);
+		QVERIFY2(!sync_id.isEmpty(), qPrintable(error));
+		// The working map keeps its template.
+		QCOMPARE(map.getTemplate(0)->getTemplatePath(), image_path);
+		
+		Map copy;
+		QVERIFY(copy.loadFrom(copy_path));
+		QCOMPARE(copy.getNumTemplates(), 1);
+		auto* cached = copy.getTemplate(0);
+		QCOMPARE(cached->getTemplateType(), "TemplateImage");
+		auto const cached_path = cached->getTemplatePath();
+		QCOMPARE(QFileInfo(cached_path).absolutePath(), QFileInfo(file("templates-field.templates/1.png")).absolutePath());
+		QImage written(cached_path);
+		QCOMPARE(written.size(), QSize(50, 100));
+		QCOMPARE(written.pixelColor(25, 50), QColor(Qt::blue));
+		if (cached->getTemplateState() != Template::Loaded)
+			QVERIFY(cached->loadTemplateFile());
+		auto const box = cached->calculateTemplateBoundingBox();
+		QVERIFY(qAbs(box.left() - 5.0) < 0.01);
+		QVERIFY(qAbs(box.right() - 10.0) < 0.01);
+		QVERIFY(qAbs(box.top() - 5.0) < 0.01);
+		QVERIFY(qAbs(box.bottom() - 15.0) < 0.01);
+		
+		// Without the option, the copy refers to the template as it is.
+		auto const plain_path = file("templates-plain.foom");
+		QVERIFY(!createFieldCopy(map, map_path, plain_path, FieldCopyOptions{}, &error).isEmpty());
+		Map plain;
+		QVERIFY(plain.loadFrom(plain_path));
+		QCOMPARE(plain.getTemplate(0)->getTemplatePath(), image_path);
+	}
+	
+	/// Accept (24)
+	void fieldCopyDialogTest()
+	{
+		FieldCopyDialog dialog(QRectF(0.0, 0.0, 50.0, 40.0), QRectF(10.0, 10.0, 5.0, 5.0));
+		auto* whole = dialog.findChild<QRadioButton*>(QStringLiteral("extent-whole"));
+		auto* visible = dialog.findChild<QRadioButton*>(QStringLiteral("extent-visible"));
+		auto* selection = dialog.findChild<QRadioButton*>(QStringLiteral("extent-selection"));
+		auto* templates = dialog.findChild<QCheckBox*>(QStringLiteral("templates"));
+		auto* dpi = dialog.findChild<QSpinBox*>(QStringLiteral("dpi"));
+		auto* review = dialog.findChild<QCheckBox*>(QStringLiteral("review"));
+		QVERIFY(whole && visible && selection && templates && dpi && review);
+		QVERIFY(whole->isChecked());
+		QVERIFY(!dpi->isEnabled());
+		auto options = dialog.options();
+		QVERIFY(options.extent.isNull());
+		QCOMPARE(options.template_dpi, 0);
+		QVERIFY(!options.review);
+		
+		visible->setChecked(true);
+		templates->setChecked(true);
+		QVERIFY(dpi->isEnabled());
+		dpi->setValue(300);
+		review->setChecked(true);
+		options = dialog.options();
+		QCOMPARE(options.extent, QRectF(0.0, 0.0, 50.0, 40.0));
+		QCOMPARE(options.template_dpi, 300);
+		QVERIFY(options.review);
+		selection->setChecked(true);
+		QCOMPARE(dialog.options().extent, QRectF(10.0, 10.0, 5.0, 5.0));
+		
+		// Without a selection, that choice is not offered.
+		FieldCopyDialog without(QRectF(0.0, 0.0, 50.0, 40.0), QRectF());
+		QVERIFY(!without.findChild<QRadioButton*>(QStringLiteral("extent-selection"))->isEnabled());
+	}
+
 	/// Accept (13), (14), (15)
 	void modelTest()
 	{

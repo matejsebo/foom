@@ -1191,8 +1191,17 @@ void StepRunner::validate(const Step& step, bool& map_open)
 	{
 		// the design notes, "Merge changes from file"
 		p.requireMap(map_open);
-		p.checkKnown({ "path" });
+		p.checkKnown({ "path", "extent", "templates_dpi", "review" });
 		p.requireString("path");
+		if (p.has("extent"))
+		{
+			auto const numbers = p.numberArray(p.value("extent"), 4, QLatin1String("\"extent\""));
+			if (numbers[2] <= 0 || numbers[3] <= 0)
+				p.fail(QLatin1String("the extent needs a positive width and height"));
+		}
+		if (p.has("templates_dpi"))
+			p.requirePositiveInt("templates_dpi");
+		p.optionalBool("review", false);
 	}
 	else if (name == QLatin1String("merge-from-file"))
 	{
@@ -2028,8 +2037,17 @@ StepResult StepRunner::fieldCopyCreate(const Step& step)
 	if (!problem.isEmpty())
 		return failure(problem);
 	
+	FieldCopyOptions options;
+	if (p.has("extent"))
+	{
+		auto const numbers = p.numberArray(p.value("extent"), 4, QLatin1String("\"extent\""));
+		options.extent = QRectF(numbers[0], numbers[1], numbers[2], numbers[3]);
+	}
+	if (p.has("templates_dpi"))
+		options.template_dpi = int(p.requirePositiveInt("templates_dpi"));
+	options.review = p.optionalBool("review", false);
 	QString error;
-	auto const id = createFieldCopy(*map, map_path, path, &error);
+	auto const id = createFieldCopy(*map, map_path, path, options, &error);
 	if (id.isEmpty())
 		return failure(error);
 	problem = saveWorkingMap(*map, map_path);

@@ -21,13 +21,22 @@
 #include "field_copy.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <memory>
 #include <vector>
 
 #include <QtGlobal>
+#include <QBuffer>
+#include <QColor>
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QIODevice>
+#include <QImage>
+#include <QPainter>
 #include <QLatin1Char>
 #include <QLatin1String>
 #include <QPointF>
@@ -36,8 +45,13 @@
 #include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_coord.h"
+#include "core/map_part.h"
+#include "core/objects/object.h"
 #include "fileformats/file_import_export.h"
 #include "fileformats/xml_file_format.h"
+#include "templates/template.h"
+#include "templates/template_image.h"
+#include "undo/undo_manager.h"
 
 
 namespace OpenOrienteering {
@@ -78,6 +92,120 @@ bool sameFrame(const Map& mine, const Map& theirs)
 	       && qAbs(a.getDeclination() - b.getDeclination()) < 0.005;
 }
 
+/** Writes the map to the copy's file with the options applied. The map itself is left as it is. */
+bool writeCopy(const Map& map, const QString& copy_path, const FieldCopyOptions& options, QString* error)
+{
+	// The copy is the map read back from its own file format.
+	XMLFileFormat format;
+	QBuffer buffer;
+	buffer.open(QIODevice::ReadWrite);
+	auto exporter = format.makeExporter({}, &map, nullptr);
+	exporter->setDevice(&buffer);
+	if (!exporter->doExport())
+		return fail(error, tr("Cannot write %1.").arg(copy_path));
+	buffer.seek(0);
+	Map copy;
+	auto importer = format.makeImporter({}, &copy, nullptr);
+	importer->setDevice(&buffer);
+	if (!importer->doImport())
+		return fail(error, tr("Cannot write %1.").arg(copy_path));
+	// Undoing in the copy must not bring back what is left out.
+	copy.undoManager().clear();
+	
+	if (!options.extent.isNull())
+	{
+		for (int p = 0; p < copy.getNumParts(); ++p)
+		{
+			auto* part = copy.getPart(std::size_t(p));
+			for (int i = part->getNumObjects() - 1; i >= 0; --i)
+			{
+				auto* object = part->getObject(i);
+				object->update();
+				if (!object->getExtent().intersects(options.extent))
+					part->deleteObject(i);
+			}
+		}
+	}
+	
+	if (options.template_dpi > 0)
+	{
+		auto const copy_info = QFileInfo(copy_path);
+		auto folder = copy_info.absolutePath();
+		folder += QLatin1Char('/');
+		folder += copy_info.completeBaseName();
+		folder += QLatin1String(".templates");
+		auto const pixels_per_mm = options.template_dpi / 25.4;
+		for (int i = 0; i < copy.getNumTemplates() && i < map.getNumTemplates(); ++i)
+		{
+			auto* original = const_cast<Template*>(map.getTemplate(i));  // loaded for drawing, and unloaded again
+			auto const was_loaded = original->getTemplateState() == Template::Loaded;
+			if (!was_loaded && !original->loadTemplateFile())
+				continue;  // The copy refers to it as it is.
+			auto region = original->calculateTemplateBoundingBox();
+			if (!options.extent.isNull())
+				region = region.intersected(options.extent);
+			auto const width = int(std::ceil(region.width() * pixels_per_mm - 0.001));
+			auto const height = int(std::ceil(region.height() * pixels_per_mm - 0.001));
+			if (width <= 0 || height <= 0 || qint64(width) * height > 400000000)
+			{
+				if (!was_loaded)
+					original->unloadTemplateFile();
+				if (width > 0 && height > 0)
+					return fail(error, tr("The template %1 is too large for an image at %2 dpi.").arg(original->getTemplateFilename()).arg(options.template_dpi));
+				continue;
+			}
+			QImage image(width, height, QImage::Format_ARGB32_Premultiplied);
+			image.fill(QColor(Qt::transparent));
+			{
+				QPainter painter(&image);
+				painter.scale(width / region.width(), height / region.height());
+				painter.translate(-region.topLeft());
+				original->drawTemplate(&painter, region, pixels_per_mm, false, 1.0);
+			}
+			if (!was_loaded)
+				original->unloadTemplateFile();
+			
+			auto path = folder;
+			path += QLatin1Char('/');
+			path += QString::number(i + 1);
+			path += QLatin1String(".png");
+			if (!QDir().mkpath(folder) || !image.save(path))
+				return fail(error, tr("Cannot write %1.").arg(path));
+			auto cached = std::make_unique<TemplateImage>(path, &copy);
+			cached->setTemplatePosition(MapCoord(region.center()));
+			cached->setTemplateScaleX(region.width() / width);
+			cached->setTemplateScaleY(region.height() / height);
+			cached->setTemplateShear(0);
+			cached->setTemplateRotation(0);
+			cached->setTemplateState(Template::Unloaded);
+			copy.setTemplate(i, std::move(cached));
+		}
+	}
+	
+	if (options.review)
+	{
+		auto sketch = -1;
+		for (int p = 0; p < copy.getNumParts() && sketch < 0; ++p)
+		{
+			if (copy.getPart(std::size_t(p))->role() == MapPart::Role::Sketch)
+				sketch = p;
+		}
+		if (sketch < 0)
+		{
+			auto* part = new MapPart(tr("Sketch"), &copy);
+			part->setRole(MapPart::Role::Sketch);
+			sketch = copy.getNumParts();
+			copy.addPart(part, std::size_t(sketch));
+		}
+		copy.setCurrentPartIndex(std::size_t(sketch));
+	}
+	
+	auto writer = format.makeExporter(copy_path, &copy, nullptr);
+	if (!writer || !writer->doExport())
+		return fail(error, tr("Cannot write %1.").arg(copy_path));
+	return true;
+}
+
 }  // namespace
 
 
@@ -95,6 +223,11 @@ QString baseFilePath(const QString& map_path, const QString& id)
 
 QString createFieldCopy(Map& map, const QString& map_path, const QString& copy_path, QString* error)
 {
+	return createFieldCopy(map, map_path, copy_path, FieldCopyOptions{}, error);
+}
+
+QString createFieldCopy(Map& map, const QString& map_path, const QString& copy_path, const FieldCopyOptions& options, QString* error)
+{
 	if (map_path.isEmpty())
 	{
 		fail(error, tr("The map has no file yet. Save it first."));
@@ -111,19 +244,30 @@ QString createFieldCopy(Map& map, const QString& map_path, const QString& copy_p
 	record.created = QDateTime::currentSecsSinceEpoch();
 	auto const base_path = baseFilePath(map_path, record.id);
 	record.base = QFileInfo(base_path).fileName();
+	record.extent = options.extent;
+	record.review = options.review;
 	
 	// The copy lists its own id only.
 	auto const open_copies = map.syncCopies();
 	auto own_record = record;
 	own_record.base.clear();
 	map.setSyncCopies({ own_record });
-	XMLFileFormat format;
-	auto exporter = format.makeExporter(copy_path, &map, nullptr);
-	auto const written = exporter && exporter->doExport();
+	auto written = false;
+	QString problem = tr("Cannot write %1.").arg(copy_path);
+	if (options.isDefault())
+	{
+		XMLFileFormat format;
+		auto exporter = format.makeExporter(copy_path, &map, nullptr);
+		written = exporter && exporter->doExport();
+	}
+	else
+	{
+		written = writeCopy(map, copy_path, options, &problem);
+	}
 	map.setSyncCopies(open_copies);
 	if (!written)
 	{
-		fail(error, tr("Cannot write %1.").arg(copy_path));
+		fail(error, problem);
 		return {};
 	}
 	if (!copyFile(copy_path, base_path, error))

@@ -24,6 +24,7 @@
 #include <vector>
 
 #include <QtGlobal>
+#include <QRectF>
 #include <QString>
 
 class QXmlStreamReader;
@@ -43,6 +44,8 @@ struct SyncCopy
 	QString id;
 	QString base;        ///< The file name of the base snapshot, or empty in the copy.
 	qint64 created = 0;  ///< Seconds since the epoch (UTC).
+	QRectF extent;       ///< The part of the map which the copy holds, in map coordinates; null for all of it.
+	bool review = false; ///< A review copy: only changes in its sketch parts come back.
 };
 
 bool operator==(const SyncCopy& lhs, const SyncCopy& rhs);

@@ -23,6 +23,7 @@
 
 #include <memory>
 
+#include <QRectF>
 #include <QString>
 
 #include "core/sync_record.h"
@@ -42,6 +43,24 @@ class Map;
 /** The path of the base snapshot: <map name>.base-<id>.xmap beside the working file. */
 QString baseFilePath(const QString& map_path, const QString& id);
 
+/** What a field copy holds. The default is all of the map, as it is. */
+struct FieldCopyOptions
+{
+	/** Only the objects which touch this rectangle, in map coordinates; null for all. */
+	QRectF extent;
+	
+	/**
+	 * Above 0: every template is drawn into an image at this resolution,
+	 * within the extent, and the copy refers to these images instead.
+	 */
+	int template_dpi = 0;
+	
+	/** A review copy: only what is drawn in its sketch part comes back. */
+	bool review = false;
+	
+	bool isDefault() const { return extent.isNull() && template_dpi <= 0 && !review; }
+};
+
 /**
  * Makes a field copy of the working map.
  *
@@ -52,6 +71,13 @@ QString baseFilePath(const QString& map_path, const QString& id);
  * Returns the sync id, or an empty string and a message.
  */
 QString createFieldCopy(Map& map, const QString& map_path, const QString& copy_path, QString* error);
+
+/**
+ * Makes a field copy with options. The extent and the review flag are kept
+ * in the sync record of both maps. The cached templates are written to the
+ * folder <copy name>.templates beside the copy, one image per template.
+ */
+QString createFieldCopy(Map& map, const QString& map_path, const QString& copy_path, const FieldCopyOptions& options, QString* error);
 
 /**
  * Closes a field copy: removes the record from the map and deletes the base.
