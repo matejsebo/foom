@@ -101,6 +101,9 @@ public:
 
 	/// The enabled sets.
 	std::vector<ContourParams> sets() const;
+	
+	/// The number of levels of the set in the range, as the dialog shows it.
+	int levelCount(bool smoothed) const;
 
 private:
 	struct SetWidgets
@@ -111,14 +114,19 @@ private:
 		QComboBox* index_interval;
 		QCheckBox* depression_check;
 		QCheckBox* curves_check;
+		QLabel* levels_label;
 	};
 
 	SetWidgets makeSet(const QString& title, bool smoothed, bool enabled);
+	ContourParams setParams(const SetWidgets& widgets) const;
+	void updateLevelCounts();
 
 	SetWidgets unsmoothed;
 	SetWidgets smoothed;
 	QDoubleSpinBox* minimum_edit;
 	QDoubleSpinBox* maximum_edit;
+	double grid_minimum;
+	double grid_maximum;
 };
 
 

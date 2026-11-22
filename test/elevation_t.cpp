@@ -64,6 +64,7 @@
 #include "elevation/cliffs.h"
 #include "elevation/contours.h"
 #include "elevation/elevation_model.h"
+#include "elevation/embedded_grid.h"
 #include "elevation/elevation_set.h"
 #include "elevation/landforms.h"
 #include "elevation/profile.h"
@@ -763,6 +764,185 @@ private slots:
 		QVERIFY2(qAbs(bbox.top() - top_left.y()) < 0.01, qPrintable(QString::number(bbox.top())));
 		QVERIFY2(qAbs(bbox.right() - bottom_right.x()) < 0.01, qPrintable(QString::number(bbox.right())));
 		QVERIFY2(qAbs(bbox.bottom() - bottom_right.y()) < 0.01, qPrintable(QString::number(bbox.bottom())));
+	}
+
+	/// the design notes, "The embedded grid for course setting", Accept (1) and (2).
+	void embeddedGridCodec()
+	{
+		// Heights from 400 to 4000 m, one void cell, a system.
+		auto grid = makeGrid(60, 40, 950000.0, 500040.0, 1.0, [](double x, double y) { return 400.0 + 1.5 * (x - 950000.0) * (y - 500000.0); });
+		grid->setValue(7, 3, std::numeric_limits<float>::quiet_NaN());
+		grid->setCrsSpec(QStringLiteral("EPSG:26954"));
+		auto const text = encodeEmbeddedGrid(*grid);
+		QVERIFY(!text.isEmpty());
+		auto const base64 = QByteArray("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=");
+		for (auto c : text)
+			QVERIFY(base64.contains(c));
+		QString error;
+		auto const decoded = decodeEmbeddedGrid(text, &error);
+		QVERIFY2(decoded, qPrintable(error));
+		QCOMPARE(decoded->width(), 60);
+		QCOMPARE(decoded->height(), 40);
+		QCOMPARE(decoded->extent(), grid->extent());
+		QCOMPARE(decoded->cellSize(), 1.0);
+		QCOMPARE(decoded->crsSpec(), QStringLiteral("EPSG:26954"));
+		auto worst = 0.0;
+		for (int r = 0; r < 40; ++r)
+		{
+			for (int c = 0; c < 60; ++c)
+			{
+				if (c == 7 && r == 3)
+				{
+					QVERIFY(std::isnan(decoded->value(c, r)));
+					continue;
+				}
+				worst = std::max(worst, std::abs(double(decoded->value(c, r)) - double(grid->value(c, r))));
+			}
+		}
+		QVERIFY2(worst <= 0.0501, qPrintable(QString::number(worst)));
+
+		// Smaller than the grid as float32, and a smooth grid far smaller.
+		QVERIFY(text.size() < 60 * 40 * 4);
+		auto const smooth = makeGrid(200, 200, 0.0, 200.0, 1.0, [](double x, double y) { return 500.0 + 0.1 * x + 0.05 * y; });
+		QVERIFY(encodeEmbeddedGrid(*smooth).size() < 200 * 200 / 4);
+
+		// Accept (2): damaged text.
+		QVERIFY(!decodeEmbeddedGrid(QByteArray("not a grid"), &error));
+		QVERIFY(!error.isEmpty());
+		auto truncated = text.left(text.size() / 2);
+		QVERIFY(!decodeEmbeddedGrid(truncated, &error));
+	}
+
+	/// the design notes, "The embedded grid for course setting", Accept (3) and (4).
+	void embeddedGridXml()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		auto const* format = FileFormats.findFormat("XML");
+		QVERIFY(format);
+		auto const map_path = QDir(dir.path()).absoluteFilePath(QStringLiteral("map.xmap"));
+		auto grid = makeGrid(11, 11, 500000.0, 5000011.0, 1.0, [](double x, double) { return 100.0 + 0.1 * (x - 500000.0); });
+		{
+			Map map;
+			map.setGeoreferencing(utm32Georeferencing());
+			map.elevationSet().setEmbeddedGrid(std::make_unique<ElevationModel>(*grid));
+			QVERIFY(map.elevationSet().embeddedGrid());
+			QVERIFY(map.elevationSet().isEmpty());  // no grid file
+			// A copy of the set keeps it.
+			ElevationSet copy(map.elevationSet());
+			QVERIFY(copy.embeddedGrid());
+			QCOMPARE(copy.embeddedGrid()->width(), 11);
+			auto exporter = format->makeExporter(map_path, &map, nullptr);
+			QVERIFY(exporter->doExport());
+			QFile file(map_path);
+			QVERIFY(file.open(QIODevice::ReadOnly));
+			auto const text = file.readAll();
+			QVERIFY(text.contains("<embedded_elevation>"));
+			QVERIFY(!text.contains("<elevation "));
+		}
+		{
+			Map map;
+			auto importer = format->makeImporter(map_path, &map, nullptr);
+			QVERIFY(importer->doImport());
+			QVERIFY(importer->warnings().empty());
+			auto const* embedded = map.elevationSet().embeddedGrid();
+			QVERIFY(embedded);
+			QCOMPARE(embedded->extent(), grid->extent());
+			QVERIFY(std::abs(embedded->at(QPointF(500005.5, 5000005.5)) - grid->at(QPointF(500005.5, 5000005.5))) <= 0.0501);
+			map.clear();
+			QVERIFY(!map.elevationSet().embeddedGrid());
+		}
+	}
+
+	/// the design notes, "Levels in the range", Accept (1) to (3).
+	void contourLevelCountTest()
+	{
+		ContourParams params;
+		QCOMPARE(contourLevelCount(500.05, 540.359, params), 40);
+		params.interval = 2.5;
+		QCOMPARE(contourLevelCount(500.05, 540.359, params), 16);
+		params.interval = 1.0;
+		params.minimum = 510.0;
+		params.maximum = 520.0;
+		QCOMPARE(contourLevelCount(500.05, 540.359, params), 11);
+		params.minimum = 500.0;
+		params.maximum = std::numeric_limits<double>::quiet_NaN();
+		QCOMPARE(contourLevelCount(500.0, 510.0, params), 10);   // no level at the minimum itself
+		params.minimum = 530.0;
+		params.maximum = 520.0;
+		QCOMPARE(contourLevelCount(500.05, 540.359, params), 0);
+		QCOMPARE(contourLevelCount(std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN(), ContourParams()), 0);
+
+		// The count is the number of levels the tracer gives lines for on a plane.
+		auto const plane = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double x, double) { return 100.0 + 0.1 * x; });
+		auto const info = plane->info();
+		for (auto const& range : { std::make_pair(std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN()), std::make_pair(103.0, 107.0) })
+		{
+			ContourParams p;
+			p.minimum = range.first;
+			p.maximum = range.second;
+			std::set<QString> levels;
+			for (auto const& line : traceContours(*plane, p))
+				levels.insert(line.tag);
+			QCOMPARE(int(levels.size()), contourLevelCount(info.minimum, info.maximum, p));
+			if (!std::isnan(range.first))
+			{
+				QVERIFY(levels.count(QStringLiteral("103")));
+				QVERIFY(levels.count(QStringLiteral("107")));
+			}
+		}
+	}
+
+	/// the design notes, "Tiled export", Accept.
+	void tiledExport()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		auto grid = makeGrid(25, 12, 1000.0, 1024.0, 2.0, [](double x, double y) { return 300.0 + 0.01 * x + 0.003 * y; });
+		grid->setValue(21, 11, std::numeric_limits<float>::quiet_NaN());
+		auto const path = QDir(dir.path()).absoluteFilePath(QStringLiteral("dtm.asc"));
+
+		// Accept (1): the names and the number.
+		auto const tiles = grid->saveAsciiTiles(path, 11);
+		QCOMPARE(tiles.size(), 6);
+		QStringList expected;
+		for (auto const* name : { "dtm_0_0.asc", "dtm_0_1.asc", "dtm_0_2.asc", "dtm_1_0.asc", "dtm_1_1.asc", "dtm_1_2.asc" })
+			expected.push_back(QDir(dir.path()).absoluteFilePath(QString::fromLatin1(name)));
+		QCOMPARE(tiles, expected);
+		QVERIFY(!QFileInfo::exists(path));
+
+		// Accept (2): the tiles, sharing their edge cells.
+		int const c0[] = { 0, 10, 20 };
+		int const w[] = { 11, 11, 5 };
+		int const r0[] = { 0, 10 };
+		int const h[] = { 11, 2 };
+		for (int tr = 0; tr < 2; ++tr)
+		{
+			for (int tc = 0; tc < 3; ++tc)
+			{
+				auto const tile = ElevationModel::open(tiles[tr * 3 + tc]);
+				QVERIFY2(tile, qPrintable(ElevationModel::lastError()));
+				QCOMPARE(tile->width(), w[tc]);
+				QCOMPARE(tile->height(), h[tr]);
+				QCOMPARE(tile->cellSize(), 2.0);
+				QCOMPARE(tile->extent(), QRectF(1000.0 + 2.0 * c0[tc], 1024.0 - 2.0 * (r0[tr] + h[tr]), 2.0 * w[tc], 2.0 * h[tr]));
+				for (int r = 0; r < h[tr]; ++r)
+				{
+					for (int c = 0; c < w[tc]; ++c)
+					{
+						auto const original = grid->value(c0[tc] + c, r0[tr] + r);
+						if (std::isnan(original))
+							QVERIFY(std::isnan(tile->value(c, r)));
+						else
+							QVERIFY(std::abs(tile->value(c, r) - original) < 0.001);
+					}
+				}
+			}
+		}
+
+		// Accept (3): one tile when the grid fits; nothing for fewer than two points.
+		QCOMPARE(grid->saveAsciiTiles(QDir(dir.path()).absoluteFilePath(QStringLiteral("one.asc"))).size(), 1);
+		QVERIFY(grid->saveAsciiTiles(QDir(dir.path()).absoluteFilePath(QStringLiteral("none.asc")), 1).isEmpty());
 	}
 
 	void xmlRoundTrip()

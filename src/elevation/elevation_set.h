@@ -57,7 +57,7 @@ public:
 	/// True when no grid is set.
 	bool isEmpty() const;
 
-	/// Forgets every grid.
+	/// Forgets every grid, the embedded one too.
 	void clear();
 
 	/// The absolute path of the grid, empty when none.
@@ -78,6 +78,19 @@ public:
 
 	/// The grid if it is loaded.
 	const ElevationModel* loadedModel(Kind kind) const { return models[std::size_t(kind)].get(); }
+	
+	/**
+	 * The grid embedded in the map file for course setting, in the map's
+	 * projected system; nullptr when there is none.
+	 * 
+	 * It is no grid file: isEmpty() and clearGrids() leave it alone.
+	 * See the design notes, "The embedded grid for course setting".
+	 */
+	const ElevationModel* embeddedGrid() const { return embedded.get(); }
+	/// Sets or, with nullptr, removes the embedded grid.
+	void setEmbeddedGrid(std::unique_ptr<ElevationModel> grid);
+	/// Forgets every grid file, keeping the embedded grid.
+	void clearGrids();
 
 	/// The file's name of the kind: terrain, surface, canopy.
 	static QString kindName(Kind kind);
@@ -94,6 +107,7 @@ public:
 private:
 	std::array<QString, kind_count> hrefs;
 	std::array<std::unique_ptr<ElevationModel>, kind_count> models;
+	std::unique_ptr<ElevationModel> embedded;
 };
 
 

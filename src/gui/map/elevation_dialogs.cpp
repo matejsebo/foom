@@ -130,6 +130,8 @@ ElevationModel::OpenOptions ElevationOpenDialog::options() const
 
 ContourDialog::ContourDialog(double minimum, double maximum, QWidget* parent)
 : QDialog(parent)
+, grid_minimum(minimum)
+, grid_maximum(maximum)
 {
 	setWindowTitle(tr("Contours"));
 	unsmoothed = makeSet(tr("Unsmoothed contours"), false, true);
@@ -154,9 +156,30 @@ ContourDialog::ContourDialog(double minimum, double maximum, QWidget* parent)
 	main_layout->addWidget(smoothed.group);
 	main_layout->addLayout(range_layout);
 	main_layout->addWidget(makeButtons(this));
+
+	// the design notes, "Levels in the range".
+	for (auto const* widgets : { &unsmoothed, &smoothed })
+	{
+		connect(widgets->interval, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ContourDialog::updateLevelCounts);
+		connect(widgets->interval, &QComboBox::editTextChanged, this, &ContourDialog::updateLevelCounts);
+	}
+	connect(minimum_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ContourDialog::updateLevelCounts);
+	connect(maximum_edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ContourDialog::updateLevelCounts);
+	updateLevelCounts();
 }
 
 ContourDialog::~ContourDialog() = default;
+
+int ContourDialog::levelCount(bool is_smoothed) const
+{
+	return contourLevelCount(grid_minimum, grid_maximum, setParams(is_smoothed ? smoothed : unsmoothed));
+}
+
+void ContourDialog::updateLevelCounts()
+{
+	for (auto const* widgets : { &unsmoothed, &smoothed })
+		widgets->levels_label->setText(tr("%n level(s) in the range", nullptr, levelCount(widgets == &smoothed)));
+}
 
 ContourDialog::SetWidgets ContourDialog::makeSet(const QString& title, bool is_smoothed, bool enabled)
 {
@@ -171,6 +194,9 @@ ContourDialog::SetWidgets ContourDialog::makeSet(const QString& title, bool is_s
 	widgets.curves_check = new QCheckBox(tr("Convert to curves"));
 	widgets.curves_check->setChecked(is_smoothed);
 	widgets.curves_check->setVisible(is_smoothed);
+	widgets.levels_label = new QLabel();
+	widgets.interval->setObjectName(is_smoothed ? QStringLiteral("smoothed_interval") : QStringLiteral("unsmoothed_interval"));
+	widgets.levels_label->setObjectName(is_smoothed ? QStringLiteral("smoothed_levels") : QStringLiteral("unsmoothed_levels"));
 	auto* layout = new QFormLayout(widgets.group);
 	layout->addRow(is_smoothed ? tr("Form line interval:") : tr("Smallest interval:"), widgets.interval);
 	layout->addRow(tr("Main interval:"), widgets.main_interval);
@@ -178,7 +204,22 @@ ContourDialog::SetWidgets ContourDialog::makeSet(const QString& title, bool is_s
 	layout->addRow(widgets.depression_check);
 	if (is_smoothed)
 		layout->addRow(widgets.curves_check);
+	layout->addRow(widgets.levels_label);
 	return widgets;
+}
+
+ContourParams ContourDialog::setParams(const SetWidgets& widgets) const
+{
+	ContourParams params;
+	params.smoothed = (&widgets == &smoothed);
+	params.interval = comboValue(widgets.interval, params.smoothed ? 2.5 : 1.0);
+	params.main_interval = comboValue(widgets.main_interval, 5.0);
+	params.index_interval = comboValue(widgets.index_interval, 25.0);
+	params.depression_symbols = widgets.depression_check->isChecked();
+	params.curves = params.smoothed && widgets.curves_check->isChecked();
+	params.minimum = minimum_edit->value();
+	params.maximum = maximum_edit->value();
+	return params;
 }
 
 std::vector<ContourParams> ContourDialog::sets() const
@@ -188,16 +229,7 @@ std::vector<ContourParams> ContourDialog::sets() const
 	{
 		if (!widgets->group->isChecked())
 			continue;
-		ContourParams params;
-		params.smoothed = (widgets == &smoothed);
-		params.interval = comboValue(widgets->interval, params.smoothed ? 2.5 : 1.0);
-		params.main_interval = comboValue(widgets->main_interval, 5.0);
-		params.index_interval = comboValue(widgets->index_interval, 25.0);
-		params.depression_symbols = widgets->depression_check->isChecked();
-		params.curves = params.smoothed && widgets->curves_check->isChecked();
-		params.minimum = minimum_edit->value();
-		params.maximum = maximum_edit->value();
-		result.push_back(params);
+		result.push_back(setParams(*widgets));
 	}
 	return result;
 }

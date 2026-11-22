@@ -79,6 +79,8 @@ struct GriddingParams
 	bool dtm = true;
 	bool dsm = true;
 	int fill_cells = 10;    ///< reach of the void filling, in cells
+	double tile_size = 1000.0;  ///< rows of tiles of this many metres are gridded one at a time
+	double tile_buffer = 20.0;  ///< metres read beyond a row of tiles; at least the reach of the void filling
 };
 
 
@@ -87,6 +89,8 @@ struct GriddingResult
 	std::unique_ptr<ElevationModel> dtm;
 	std::unique_ptr<ElevationModel> dsm;
 	QString error;
+	int tile_rows = 0;       ///< rows of tiles gridded
+	int file_reads = 0;      ///< files read for the rows, the extent pass not counted
 	
 	GriddingResult();
 	GriddingResult(GriddingResult&&);
@@ -169,6 +173,9 @@ public:
 	static bool write(const QString& path, const std::vector<CloudPoint>& points, const QString& wkt, int epsg, QString* error);
 	
 	static PointCloudInfo analyse(const QStringList& paths);
+	
+	/// The largest grid grid() makes, in cells.
+	static qint64 maxCells();
 	
 	static GriddingResult grid(const QStringList& paths, const GriddingParams& params);
 	

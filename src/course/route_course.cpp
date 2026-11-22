@@ -474,10 +474,23 @@ bool viaRouteAt(const CourseRoutes& routes, const MapCoordF& place, double reach
 }
 
 
+namespace {
+
+/// The terrain grid, else the grid embedded for course setting
+/// (the design notes, "The embedded grid for course setting").
+const ElevationModel* routeTerrainOf(Map& map)
+{
+	auto const* model = map.elevationSet().model(ElevationSet::Terrain, map.getGeoreferencing().getProjectedCRSSpec());
+	return model ? model : map.elevationSet().embeddedGrid();
+}
+
+}  // namespace
+
+
 RouteHeights routeHeightsOf(Map& map)
 {
 	auto const* georeferencing = &map.getGeoreferencing();
-	auto const* model = map.elevationSet().model(ElevationSet::Terrain, georeferencing->getProjectedCRSSpec());
+	auto const* model = routeTerrainOf(map);
 	if (!model)
 		return {};
 	return [model, georeferencing](const MapCoordF& place) { return model->at(georeferencing->toProjectedCoords(place)); };
@@ -486,7 +499,7 @@ RouteHeights routeHeightsOf(Map& map)
 
 double routeGridCellOf(Map& map)
 {
-	auto const* model = map.elevationSet().model(ElevationSet::Terrain, map.getGeoreferencing().getProjectedCRSSpec());
+	auto const* model = routeTerrainOf(map);
 	return model ? model->cellSize() : 0.0;
 }
 

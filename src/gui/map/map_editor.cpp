@@ -1223,6 +1223,8 @@ void MapEditorController::createActions()
 	dem_resize_act = newAction("dem-resize", tr("Crop elevation grid..."), this, SLOT(elevationResizeClicked()));  // foom
 	dem_smooth_act = newAction("dem-smooth", tr("Smooth elevation grid..."), this, SLOT(elevationSmoothClicked()));  // foom
 	dem_close_act = newAction("dem-close", tr("Close elevation grids"), this, SLOT(elevationCloseClicked()));  // foom
+	dem_embed_act = newAction("dem-embed", tr("Embed grid for course setting..."), this, SLOT(elevationEmbedClicked()));  // foom
+	dem_remove_embedded_act = newAction("dem-remove-embedded", tr("Remove embedded grid"), this, SLOT(elevationRemoveEmbeddedClicked()));  // foom
 	issues_window_act = newCheckAction("issueswindow", tr("Issues window"), this, SLOT(showIssuesWindow(bool)));  // foom
 	issue_model = new IssueModel(this);
 	connect(issue_model, &IssueModel::issueActivated, this, &MapEditorController::issueActivated);
@@ -1939,6 +1941,9 @@ void MapEditorController::createMenuAndToolbars()
 	elevation_menu->addAction(dem_vegetation_height_act);
 	elevation_menu->addAction(dem_profile_act);
 	elevation_menu->addAction(dem_features_act);
+	elevation_menu->addSeparator();  // foom: the design notes, "The embedded grid for course setting"
+	elevation_menu->addAction(dem_embed_act);
+	elevation_menu->addAction(dem_remove_embedded_act);
 	
 	QMenu* courses_menu = window->menuBar()->addMenu(tr("&Courses"));  // foom: the design notes, "Menu placement"
 	courses_menu->addAction(course_dock_act);
@@ -9130,8 +9135,76 @@ bool MapEditorController::smoothElevation(int radius, QString* error)
 
 void MapEditorController::closeElevation()
 {
-	map->elevationSet().clear();
+	map->elevationSet().clearGrids();  // foom: the embedded grid stays
 	map->setHasUnsavedChanges(true);
+}
+
+// foom: the design notes, "The embedded grid for course setting".
+bool MapEditorController::embedCourseElevation(double cell_size, QString* error)
+{
+	auto const target_crs = map->getGeoreferencing().getProjectedCRSSpec();
+	auto const* model = map->elevationSet().model(ElevationSet::Terrain, target_crs);
+	if (!model)
+	{
+		*error = map->elevationSet().href(ElevationSet::Terrain).isEmpty()
+		         ? tr("Import elevation data first (Elevation > Import elevation data).")
+		         : ElevationModel::lastError();
+		return false;
+	}
+	auto grid = cell_size > model->cellSize() ? model->resampled(cell_size) : std::make_unique<ElevationModel>(*model);
+	if (!grid)
+	{
+		*error = tr("The grid cannot be resampled.");
+		return false;
+	}
+	if (!target_crs.isEmpty())
+		grid->setCrsSpec(target_crs);
+	map->elevationSet().setEmbeddedGrid(std::move(grid));
+	map->setHasUnsavedChanges(true);
+	return true;
+}
+
+bool MapEditorController::removeEmbeddedElevation()
+{
+	if (!map->elevationSet().embeddedGrid())
+		return false;
+	map->elevationSet().setEmbeddedGrid(nullptr);
+	map->setHasUnsavedChanges(true);
+	return true;
+}
+
+void MapEditorController::elevationEmbedClicked()
+{
+	auto const* model = terrainModel(*map, window);
+	if (!model)
+		return;
+	bool ok = false;
+	auto const cell_size = QInputDialog::getDouble(window, tr("Embed grid for course setting"),
+	                                               tr("The terrain grid is stored in the map file, in steps of 0.1 m, for the route analysis.\nCell size (m):"),
+	                                               std::max(model->cellSize(), 2.0), model->cellSize(), 100.0, 1, &ok);
+	if (!ok)
+		return;
+	QString error;
+	if (!embedCourseElevation(cell_size, &error))
+	{
+		QMessageBox::warning(window, tr("Embed grid for course setting"), error);
+		return;
+	}
+	auto const* embedded = map->elevationSet().embeddedGrid();
+	window->showStatusBarMessage(tr("Embedded a grid of %1 by %2 cells of %3 m").arg(embedded->width()).arg(embedded->height()).arg(embedded->cellSize()), 5000);
+}
+
+void MapEditorController::elevationRemoveEmbeddedClicked()
+{
+	if (!map->elevationSet().embeddedGrid())
+	{
+		QMessageBox::information(window, tr("Remove embedded grid"), tr("The map has no embedded grid."));
+		return;
+	}
+	if (QMessageBox::question(window, tr("Remove embedded grid"), tr("Remove the grid embedded in the map file?")) != QMessageBox::Yes)
+		return;
+	removeEmbeddedElevation();
+	window->showStatusBarMessage(tr("Embedded grid removed"), 5000);
 }
 
 void MapEditorController::elevationMergeClicked()
@@ -9488,10 +9561,22 @@ void MapEditorController::elevationExportClicked()
 		return;
 	QString const filter = tr("GeoTIFF") + QLatin1String(" (*.tif);;") + tr("ESRI ASCII grid") + QLatin1String(" (*.asc);;")
 	                    + tr("XYZ grid") + QLatin1String(" (*.xyz);;") + tr("OCD grid") + QLatin1String(" (*.ocdDem)");
+	// the design notes, "Tiled export".
+	auto const tiles_filter = tr("ESRI ASCII grid, tiles of 1001 by 1001 points") + QLatin1String(" (*.asc)");
 	auto const start = productPath(window->currentPath(), map->elevationSet().href(ElevationSet::Terrain), QStringLiteral("dtm"));
-	auto const path = FileDialog::getSaveFileName(window, tr("Export grid"), start, filter);
+	QString selected;
+	auto const path = FileDialog::getSaveFileName(window, tr("Export grid"), start, filter + QLatin1String(";;") + tiles_filter, &selected);
 	if (path.isEmpty())
 		return;
+	if (selected == tiles_filter)
+	{
+		auto const tiles = model->saveAsciiTiles(path);
+		if (tiles.isEmpty())
+			QMessageBox::warning(window, tr("Export grid"), ElevationModel::lastError());
+		else
+			window->showStatusBarMessage(tr("%n tile(s) written", nullptr, tiles.size()), 5000);
+		return;
+	}
 	if (!model->save(path))
 		QMessageBox::warning(window, tr("Export grid"), ElevationModel::lastError());
 }
