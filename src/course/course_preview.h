@@ -25,12 +25,16 @@
 #include <utility>
 #include <vector>
 
+#include <QtGlobal>
+#include <QRectF>
 #include <QString>
 #include <QStringList>
 
 #include "course/course_data.h"
 #include "core/map_view.h"
 #include "course/course_map.h"
+
+class QPainter;
 
 namespace OpenOrienteering {
 
@@ -93,6 +97,39 @@ private:
 	/** The templates which are hidden in the view, with their visibility before. */
 	std::vector<std::pair<Template*, TemplateVisibility>> hidden_templates;
 };
+
+
+/**
+ * The frame of the extent of the canvas of a course over the map, shown
+ * while the canvases are active.
+ *
+ * See the design notes, "Canvases: the frame of the extent".
+ */
+struct CanvasFrame
+{
+	bool shown = false;
+	/** The name of the extent, which is written in the frame. */
+	QString name;
+	/** The name of the canvas. */
+	QString canvas;
+	/** The extent in map coordinates, mm. */
+	QRectF rect;
+};
+
+/**
+ * The frame of a course, or of one of its parts: shown while the canvases are
+ * active and the course has a canvas whose extent the map has. All parts of a
+ * course have the frame of the canvas of the course, else that of its first part.
+ */
+CanvasFrame courseCanvasFrame(const Map& map, const CourseData& data, const QString& course, int part);
+
+/**
+ * Paints the frame in red, with the name of the extent inside its upper left
+ * corner, with a painter which is set up for map coordinates.
+ *
+ * @param scaling  pixels per mm
+ */
+void paintCanvasFrame(QPainter* painter, const CanvasFrame& frame, qreal scaling);
 
 
 }  // namespace OpenOrienteering

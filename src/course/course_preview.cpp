@@ -20,8 +20,18 @@
 
 #include "course_preview.h"
 
-#include <QLatin1Char>
+#include <algorithm>
+#include <iterator>
 
+#include <Qt>
+#include <QColor>
+#include <QFont>
+#include <QLatin1Char>
+#include <QPainter>
+#include <QPen>
+#include <QPointF>
+
+#include "core/extents.h"
 #include "core/map.h"
 #include "core/map_view.h"
 #include "course/course_canvas.h"
@@ -120,6 +130,51 @@ CourseMapDrawing CourseMapPreview::draw() const
 			sheet_data.options.setValue(QLatin1Char('i'), QString::number(shown_canvas->max_rows));
 	}
 	return drawCourseMap(map, sheet_data, side, numbers);
+}
+
+
+// the design notes, "Canvases: the frame of the extent"
+CanvasFrame courseCanvasFrame(const Map& map, const CourseData& data, const QString& course, int part)
+{
+	CanvasFrame frame;
+	if (!data.canvases.active || course.isEmpty() || !data.findCourse(course))
+		return frame;
+	auto const* canvas = canvasFor(data.canvases, course, part);
+	if (!canvas && part < 0)
+		canvas = canvasFor(data.canvases, course, 0);
+	if (!canvas || canvas->extent.isEmpty())
+		return frame;
+	auto const& extents = map.extents();
+	auto const named = std::find_if(begin(extents), end(extents), [canvas](const Extent& extent) { return extent.name == canvas->extent; });
+	if (named == end(extents))
+		return frame;
+	frame.shown = true;
+	frame.name = named->name;
+	frame.canvas = canvas->name;
+	frame.rect = named->rect_mm;
+	return frame;
+}
+
+
+void paintCanvasFrame(QPainter* painter, const CanvasFrame& frame, qreal scaling)
+{
+	if (!frame.shown || scaling <= 0.0)
+		return;
+	painter->save();
+	painter->setRenderHint(QPainter::Antialiasing, false);
+	painter->setBrush(Qt::NoBrush);
+	QPen pen(QColor(230, 0, 0), 2.0);
+	pen.setCosmetic(true);
+	painter->setPen(pen);
+	painter->drawRect(frame.rect);
+	// The name in pixels of the screen, inside the upper left corner.
+	painter->translate(frame.rect.topLeft());
+	painter->scale(1.0 / scaling, 1.0 / scaling);
+	auto font = painter->font();
+	font.setPixelSize(13);
+	painter->setFont(font);
+	painter->drawText(QPointF(5.0, 17.0), frame.name);
+	painter->restore();
 }
 
 

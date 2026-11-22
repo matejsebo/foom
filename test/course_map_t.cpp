@@ -34,6 +34,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QIODevice>
+#include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -344,6 +345,7 @@ private slots:
 	void printTest();
 	void previewTest();
 	void canvasBackgroundTest();
+	void canvasFrameTest();
 };
 
 
@@ -1182,6 +1184,65 @@ void CourseMapTest::canvasBackgroundTest()
 	QCOMPARE(dialog.canvases().canvases[0].hidden_templates, (QStringList{ QStringLiteral("elsewhere.ocd"), QStringLiteral("north.png") }));
 	QVERIFY(dialog.canvases().used_templates.contains(QStringLiteral("north.png")));
 	QVERIFY(dialog.canvases().used_templates.contains(QStringLiteral("south.png")));
+}
+
+
+/// Canvases: the frame of the extent, Accept (9)
+void CourseMapTest::canvasFrameTest()
+{
+	Map map;
+	fillMap(map);
+	auto data = map.courseData();
+	CourseCanvas a;
+	a.name = QStringLiteral("A");
+	a.extent = QStringLiteral("Sheet");
+	CanvasCourse entry;
+	entry.course = QStringLiteral("X");
+	entry.part = 0;
+	a.courses.push_back(entry);
+	CourseCanvas b;
+	b.name = QStringLiteral("B");
+	b.extent = QStringLiteral("Gone");
+	entry = {};
+	entry.course = QStringLiteral("Plain");
+	b.courses.push_back(entry);
+	data.canvases.canvases = { a, b };
+
+	// Only with the canvases active.
+	QVERIFY(!courseCanvasFrame(map, data, QStringLiteral("X"), 0).shown);
+	data.canvases.active = true;
+	auto frame = courseCanvasFrame(map, data, QStringLiteral("X"), 0);
+	QVERIFY(frame.shown);
+	QCOMPARE(frame.name, QStringLiteral("Sheet"));
+	QCOMPARE(frame.canvas, QStringLiteral("A"));
+	QCOMPARE(frame.rect, QRectF(-40.0, -40.0, 100.0, 80.0));
+	// All parts with the canvas of the first part; a part without a canvas, an extent which the map has not, no course: none.
+	QVERIFY(courseCanvasFrame(map, data, QStringLiteral("X"), -1).shown);
+	QVERIFY(!courseCanvasFrame(map, data, QStringLiteral("X"), 1).shown);
+	QVERIFY(!courseCanvasFrame(map, data, QStringLiteral("Plain"), -1).shown);
+	QVERIFY(!courseCanvasFrame(map, data, QString{}, -1).shown);
+	QVERIFY(!courseCanvasFrame(map, data, QStringLiteral("Nobody"), -1).shown);
+
+	// Painted in red over the map: 1 pixel for a mm, the map's origin in the middle of the image.
+	QImage image(200, 200, QImage::Format_ARGB32_Premultiplied);
+	image.fill(Qt::white);
+	{
+		QPainter painter(&image);
+		painter.translate(100.0, 100.0);
+		paintCanvasFrame(&painter, frame, 1.0);
+	}
+	auto const left = QColor(image.pixel(60, 100));
+	QVERIFY2(left.red() > 200 && left.green() < 120 && left.blue() < 120, qPrintable(left.name()));
+	auto const inside = QColor(image.pixel(100, 120));
+	QCOMPARE(inside, QColor(Qt::white));
+	// A frame which is not shown paints nothing.
+	QImage empty(200, 200, QImage::Format_ARGB32_Premultiplied);
+	empty.fill(Qt::white);
+	{
+		QPainter painter(&empty);
+		paintCanvasFrame(&painter, CanvasFrame{}, 1.0);
+	}
+	QCOMPARE(QColor(empty.pixel(60, 100)), QColor(Qt::white));
 }
 
 

@@ -6272,7 +6272,9 @@ void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget
 	auto const drawing = previewed ? CourseDrawing{} : drawCourse(*map, preview_data, course, part);
 	auto const descriptions = previewed ? CourseDescriptionDrawing{} : drawCourseDescriptions(*map, preview_data, course, part);
 	auto const course_map = previewed ? course_map_preview->draw() : CourseMapDrawing{};
-	if (!drawing.drawn && !descriptions.drawn && !course_map.drawn)
+	// foom: the design notes, "Canvases: the frame of the extent"
+	auto const frame = courseCanvasFrame(*map, preview_data, course, part);
+	if (!drawing.drawn && !descriptions.drawn && !course_map.drawn && !frame.shown)
 		return;
 	
 	const MapView* map_view = widget->getMapView();
@@ -6285,6 +6287,7 @@ void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget
 	paintCourseDescriptions(painter, map, descriptions, viewed_rect, map_view->calculateFinalZoomFactor());
 	paintCourseDrawing(painter, map, drawing, viewed_rect, map_view->calculateFinalZoomFactor());
 	paintCourseMap(painter, map, course_map, viewed_rect, map_view->calculateFinalZoomFactor());
+	paintCanvasFrame(painter, frame, map_view->calculateFinalZoomFactor());
 	// The routes which the map keeps, for the course, the part and the variant which are chosen.
 	if (show_course_routes && !preview_data.routes.isEmpty())
 		paintCourseRoutes(painter, storedCourseRoutes(*map, preview_data, course, part));
