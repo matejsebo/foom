@@ -64,6 +64,7 @@
 #include "elevation/cliffs.h"
 #include "elevation/contours.h"
 #include "elevation/elevation_model.h"
+#include "elevation/embedded_grid.h"
 #include "elevation/elevation_set.h"
 #include "elevation/landforms.h"
 #include "elevation/profile.h"
@@ -763,6 +764,94 @@ private slots:
 		QVERIFY2(qAbs(bbox.top() - top_left.y()) < 0.01, qPrintable(QString::number(bbox.top())));
 		QVERIFY2(qAbs(bbox.right() - bottom_right.x()) < 0.01, qPrintable(QString::number(bbox.right())));
 		QVERIFY2(qAbs(bbox.bottom() - bottom_right.y()) < 0.01, qPrintable(QString::number(bbox.bottom())));
+	}
+
+	/// the design notes, "The embedded grid for course setting", Accept (1) and (2).
+	void embeddedGridCodec()
+	{
+		// Heights from 400 to 4000 m, one void cell, a system.
+		auto grid = makeGrid(60, 40, 950000.0, 500040.0, 1.0, [](double x, double y) { return 400.0 + 1.5 * (x - 950000.0) * (y - 500000.0); });
+		grid->setValue(7, 3, std::numeric_limits<float>::quiet_NaN());
+		grid->setCrsSpec(QStringLiteral("EPSG:26954"));
+		auto const text = encodeEmbeddedGrid(*grid);
+		QVERIFY(!text.isEmpty());
+		auto const base64 = QByteArray("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=");
+		for (auto c : text)
+			QVERIFY(base64.contains(c));
+		QString error;
+		auto const decoded = decodeEmbeddedGrid(text, &error);
+		QVERIFY2(decoded, qPrintable(error));
+		QCOMPARE(decoded->width(), 60);
+		QCOMPARE(decoded->height(), 40);
+		QCOMPARE(decoded->extent(), grid->extent());
+		QCOMPARE(decoded->cellSize(), 1.0);
+		QCOMPARE(decoded->crsSpec(), QStringLiteral("EPSG:26954"));
+		auto worst = 0.0;
+		for (int r = 0; r < 40; ++r)
+		{
+			for (int c = 0; c < 60; ++c)
+			{
+				if (c == 7 && r == 3)
+				{
+					QVERIFY(std::isnan(decoded->value(c, r)));
+					continue;
+				}
+				worst = std::max(worst, std::abs(double(decoded->value(c, r)) - double(grid->value(c, r))));
+			}
+		}
+		QVERIFY2(worst <= 0.0501, qPrintable(QString::number(worst)));
+
+		// Smaller than the grid as float32, and a smooth grid far smaller.
+		QVERIFY(text.size() < 60 * 40 * 4);
+		auto const smooth = makeGrid(200, 200, 0.0, 200.0, 1.0, [](double x, double y) { return 500.0 + 0.1 * x + 0.05 * y; });
+		QVERIFY(encodeEmbeddedGrid(*smooth).size() < 200 * 200 / 4);
+
+		// Accept (2): damaged text.
+		QVERIFY(!decodeEmbeddedGrid(QByteArray("not a grid"), &error));
+		QVERIFY(!error.isEmpty());
+		auto truncated = text.left(text.size() / 2);
+		QVERIFY(!decodeEmbeddedGrid(truncated, &error));
+	}
+
+	/// the design notes, "The embedded grid for course setting", Accept (3) and (4).
+	void embeddedGridXml()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		auto const* format = FileFormats.findFormat("XML");
+		QVERIFY(format);
+		auto const map_path = QDir(dir.path()).absoluteFilePath(QStringLiteral("map.xmap"));
+		auto grid = makeGrid(11, 11, 500000.0, 5000011.0, 1.0, [](double x, double) { return 100.0 + 0.1 * (x - 500000.0); });
+		{
+			Map map;
+			map.setGeoreferencing(utm32Georeferencing());
+			map.elevationSet().setEmbeddedGrid(std::make_unique<ElevationModel>(*grid));
+			QVERIFY(map.elevationSet().embeddedGrid());
+			QVERIFY(map.elevationSet().isEmpty());  // no grid file
+			// A copy of the set keeps it.
+			ElevationSet copy(map.elevationSet());
+			QVERIFY(copy.embeddedGrid());
+			QCOMPARE(copy.embeddedGrid()->width(), 11);
+			auto exporter = format->makeExporter(map_path, &map, nullptr);
+			QVERIFY(exporter->doExport());
+			QFile file(map_path);
+			QVERIFY(file.open(QIODevice::ReadOnly));
+			auto const text = file.readAll();
+			QVERIFY(text.contains("<embedded_elevation>"));
+			QVERIFY(!text.contains("<elevation "));
+		}
+		{
+			Map map;
+			auto importer = format->makeImporter(map_path, &map, nullptr);
+			QVERIFY(importer->doImport());
+			QVERIFY(importer->warnings().empty());
+			auto const* embedded = map.elevationSet().embeddedGrid();
+			QVERIFY(embedded);
+			QCOMPARE(embedded->extent(), grid->extent());
+			QVERIFY(std::abs(embedded->at(QPointF(500005.5, 5000005.5)) - grid->at(QPointF(500005.5, 5000005.5))) <= 0.0501);
+			map.clear();
+			QVERIFY(!map.elevationSet().embeddedGrid());
+		}
 	}
 
 	void xmlRoundTrip()

@@ -78,6 +78,7 @@
 #include "elevation/raster_products.h"
 #include "elevation/landforms.h"
 #include "elevation/point_cloud.h"
+#include "course/route_course.h"  // foom
 #include "gui/map/extent_dialog.h"
 #include "check/issue.h"
 #include "check/legibility.h"
@@ -2085,6 +2086,64 @@ void ToolsTest::demMergeContours()
 	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 1);
 	QVERIFY(map.map->undoManager().undo());
 	QCOMPARE(map.map->getNumObjects(), objects);
+}
+
+
+void ToolsTest::demEmbedGrid()
+{
+	// the design notes, "The embedded grid for course setting", Accept (5) to (7).
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	TestMap map;
+	TestMapEditor editor(map.map);
+	for (auto const* id : { "dem-embed", "dem-remove-embedded" })
+		QVERIFY2(editor.editor->getAction(id), id);
+	auto& set = map.map->elevationSet();
+	QString error;
+	QVERIFY(!editor.editor->embedCourseElevation(0.0, &error));
+	QVERIFY(!error.isEmpty());
+	QVERIFY(!set.embeddedGrid());
+
+	// A plane of 1 m cells rising 0.1 m per metre to the east, embedded at 2 m.
+	std::vector<float> values(40 * 30);
+	for (int r = 0; r < 30; ++r)
+		for (int c = 0; c < 40; ++c)
+			values[std::size_t(r) * 40 + std::size_t(c)] = float(200.0 + 0.1 * (c + 0.5));
+	auto const path = dir.filePath(QStringLiteral("plane.tif"));
+	QVERIFY(std::make_unique<ElevationModel>(40, 30, QPointF(0.0, 30.0), 1.0, values)->save(path));
+	set.setModel(ElevationSet::Terrain, ElevationModel::open(path), path);
+	map.map->setHasUnsavedChanges(false);
+	QVERIFY2(editor.editor->embedCourseElevation(2.0, &error), qPrintable(error));
+	auto const* embedded = set.embeddedGrid();
+	QVERIFY(embedded);
+	QCOMPARE(embedded->cellSize(), 2.0);
+	QCOMPARE(embedded->width(), 20);
+	QCOMPARE(embedded->height(), 15);
+	QCOMPARE(embedded->extent(), QRectF(0.0, 0.0, 40.0, 30.0));
+	QVERIFY(std::abs(embedded->at(QPointF(21.0, 15.0)) - 202.1) <= 0.06);
+	QVERIFY(map.map->hasUnsavedChanges());
+
+	// A smaller cell than the grid's keeps the grid's.
+	QVERIFY(editor.editor->embedCourseElevation(0.5, &error));
+	QCOMPARE(set.embeddedGrid()->cellSize(), 1.0);
+
+	// Closing the grid files keeps it, and the route analysis takes its heights.
+	editor.editor->closeElevation();
+	QVERIFY(set.isEmpty());
+	QVERIFY(set.embeddedGrid());
+	auto const heights = routeHeightsOf(*map.map);
+	QVERIFY(bool(heights));
+	auto const place = map.map->getGeoreferencing().toMapCoordF(QPointF(21.0, 15.0));
+	QVERIFY(std::abs(heights(place) - 202.1) <= 0.06);
+	QCOMPARE(routeGridCellOf(*map.map), 1.0);
+
+	// Removing it.
+	map.map->setHasUnsavedChanges(false);
+	QVERIFY(editor.editor->removeEmbeddedElevation());
+	QVERIFY(!set.embeddedGrid());
+	QVERIFY(map.map->hasUnsavedChanges());
+	QVERIFY(!editor.editor->removeEmbeddedElevation());
+	QVERIFY(!bool(routeHeightsOf(*map.map)));
 }
 
 

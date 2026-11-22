@@ -33,6 +33,7 @@ ElevationSet::ElevationSet() = default;
 
 ElevationSet::ElevationSet(const ElevationSet& other)
 : hrefs(other.hrefs)
+, embedded(other.embedded ? std::make_unique<ElevationModel>(*other.embedded) : nullptr)
 {
 	// Models are reloaded on demand.
 }
@@ -44,6 +45,7 @@ ElevationSet& ElevationSet::operator=(const ElevationSet& other)
 		hrefs = other.hrefs;
 		for (auto& model : models)
 			model.reset();
+		embedded = other.embedded ? std::make_unique<ElevationModel>(*other.embedded) : nullptr;
 	}
 	return *this;
 }
@@ -62,10 +64,23 @@ bool ElevationSet::isEmpty() const
 
 void ElevationSet::clear()
 {
+	clearGrids();
+	embedded.reset();
+}
+
+
+void ElevationSet::clearGrids()
+{
 	for (auto& href : hrefs)
 		href.clear();
 	for (auto& model : models)
 		model.reset();
+}
+
+
+void ElevationSet::setEmbeddedGrid(std::unique_ptr<ElevationModel> grid)
+{
+	embedded = std::move(grid);
 }
 
 

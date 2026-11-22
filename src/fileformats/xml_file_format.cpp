@@ -56,6 +56,8 @@
 #include "core/color_group.h"  // foom
 #include "core/foreign_data.h"  // foom
 #include "course/course_storage.h"  // foom
+#include "elevation/elevation_model.h"  // foom
+#include "elevation/embedded_grid.h"  // foom
 #include "core/map_color.h"
 #include "core/map_coord.h"
 #include "core/map_grid.h"
@@ -235,6 +237,7 @@ namespace literal
 	static const QLatin1String elevation("elevation");  // foom
 	static const QLatin1String elevation_href("href");  // foom
 	static const QLatin1String elevation_kind("kind");  // foom
+	static const QLatin1String embedded_elevation("embedded_elevation");  // foom
 	static const QLatin1String part("part");
 	
 	static const QLatin1String templates("templates");
@@ -379,7 +382,7 @@ bool XMLFileExporter::exportImplementation()
 			exportSyncCopies();
 			writeLineBreak(xml);
 		}
-		if (XMLFileFormat::foom_revision >= 1 && !map->elevationSet().isEmpty())  // foom
+		if (XMLFileFormat::foom_revision >= 1 && (!map->elevationSet().isEmpty() || map->elevationSet().embeddedGrid()))  // foom
 		{
 			exportElevation();
 			writeLineBreak(xml);
@@ -696,6 +699,12 @@ void XMLFileExporter::exportElevation()
 		element.writeAttribute(literal::elevation_href, ElevationSet::relativeHref(href, path));
 		element.writeAttribute(literal::elevation_kind, ElevationSet::kindName(ElevationSet::Kind(kind)));
 	}
+	// the design notes, "The embedded grid for course setting".
+	if (auto const* embedded = set.embeddedGrid())
+	{
+		XmlElementWriter element(xml, literal::embedded_elevation);
+		xml.writeCharacters(QString::fromLatin1(encodeEmbeddedGrid(*embedded)));
+	}
 }
 
 void XMLFileExporter::exportTemplates()
@@ -929,6 +938,14 @@ void XMLFileImporter::importElements()
 			importForeignData();
 		else if (name == literal::elevation)  // foom
 			importElevation();
+		else if (name == literal::embedded_elevation)  // foom
+		{
+			QString problem;
+			auto grid = decodeEmbeddedGrid(xml.readElementText().toLatin1(), &problem);
+			if (!grid)
+				addWarning(problem);
+			map->elevationSet().setEmbeddedGrid(std::move(grid));
+		}
 		else if (name == literal::templates)
 			importTemplates();
 		else if (name == literal::print)

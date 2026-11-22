@@ -952,6 +952,14 @@ public slots:
 	bool cropElevation(const QRectF& box, QString* error);
 	bool smoothElevation(int radius, QString* error);
 	void closeElevation();
+	/** foom: Embeds the terrain grid for course setting, resampled to a coarser cell; see the design notes. */
+	bool embedCourseElevation(double cell_size, QString* error);
+	/** foom: Removes the embedded grid; false when there is none. */
+	bool removeEmbeddedElevation();
+	/** foom: Asks for the cell size and embeds the grid (dem-embed). */
+	void elevationEmbedClicked();
+	/** foom: Asks, then removes the embedded grid (dem-remove-embedded). */
+	void elevationRemoveEmbeddedClicked();
 	/** foom: Runs the map check and shows the issues; returns their number. */
 	int runMapCheck();
 	/** foom: Asks for the legibility parameters, then runs the scan. */
@@ -1549,6 +1557,8 @@ private:
 	QAction* dem_resize_act = {};  // foom
 	QAction* dem_smooth_act = {};  // foom
 	QAction* dem_close_act = {};  // foom
+	QAction* dem_embed_act = {};  // foom
+	QAction* dem_remove_embedded_act = {};  // foom
 	QAction* check_legibility_act = {};  // foom
 	std::function<std::vector<Issue>()> last_check;  // foom: what Check again repeats
 	QAction* issues_window_act = {};  // foom

@@ -30,6 +30,7 @@ set(MAPPER_ELEVATION_SOURCES
   contours.cpp
   elevation_model.cpp
   elevation_set.cpp
+  embedded_grid.cpp
   landforms.cpp
   point_cloud.cpp
   profile.cpp
