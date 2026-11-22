@@ -6890,21 +6890,25 @@ void MapEditorController::interpolateClicked()
 	auto* form = new QFormLayout();
 	form->addRow(tr("Number of new objects:"), count_edit);
 	form->addRow(symbol_check);
+	auto* fit_check = new QCheckBox(tr("Fit curves"));  // foom: step 4 of the spec
+	fit_check->setChecked(true);
+	form->addRow(fit_check);
 	auto* layout = new QVBoxLayout(&dialog);
 	layout->addLayout(form);
 	layout->addWidget(buttons);
 	if (dialog.exec() == QDialog::Accepted)
-		interpolate(count_edit->value(), symbol_check->isEnabled() && symbol_check->isChecked());
+		interpolate(count_edit->value(), symbol_check->isEnabled() && symbol_check->isChecked(), fit_check->isChecked());
 }
 
 // foom
-void MapEditorController::interpolate(int count, bool use_selected_symbol)
+void MapEditorController::interpolate(int count, bool use_selected_symbol, bool curve_fit)
 {
 	// the design notes, "Interpolate".
 	auto const& selection = map->selectedObjects();
 	std::vector<const Object*> in(begin(selection), end(selection));
 	ops::InterpolateParams params;
 	params.count = count;
+	params.curve_fit = curve_fit;
 	if (use_selected_symbol && symbol_widget)
 		params.symbol = symbol_widget->getSingleSelectedSymbol();
 	applyOpResult(ops::interpolate(*map, in, params));

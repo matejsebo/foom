@@ -42,6 +42,8 @@
 #include "core/map_part.h"
 #include "core/objects/object.h"
 #include "core/ops/crop.h"
+#include "core/ops/flatten.h"
+#include "core/ops/interpolate.h"
 #include "core/ops/wkt.h"
 #include "core/symbols/area_symbol.h"
 #include "core/symbols/line_symbol.h"
@@ -490,6 +492,50 @@ private slots:
 		QCOMPARE(t.map.getNumSelectedObjects(), 1);
 		QCOMPARE(t.map.getFirstSelectedObject()->getSymbol(), t.line);
 		window->deleteLater();
+	}
+
+
+	void interpolateCurveFit()
+	{
+		// the design notes, "Interpolate", Accept (7).
+		TestMap t;
+		auto const arc = [&t](double radius) {
+			std::vector<MapCoordF> points;
+			for (int i = 0; i <= 128; ++i)
+			{
+				auto const angle = M_PI * i / 128.0;
+				points.emplace_back(50.0 - radius * std::cos(angle), 50.0 - radius * std::sin(angle));
+			}
+			return std::unique_ptr<PathObject>(makePath(t.line, points, false));
+		};
+		auto a = arc(10);
+		auto b = arc(20);
+		ops::InterpolateParams params;
+		params.curve_fit = true;
+		auto result = ops::interpolate(t.map, { a.get(), b.get() }, params);
+		QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+		QCOMPARE(int(result.out.size()), 1);
+		auto const& coords = result.out.front()->getRawCoordinateVector();
+		QVERIFY(std::any_of(coords.begin(), coords.end(), [](const MapCoord& c) { return c.isCurveStart(); }));
+		QVERIFY(near(MapCoordF(coords.front()), {35, 50}));
+		QVERIFY(near(MapCoordF(coords.back()), {65, 50}));
+		for (auto const& c : ops::flattenCoords(coords, 0.005))
+			QVERIFY(std::abs(MapCoordF(c).distanceTo(MapCoordF(50, 50)) - 15.0) < 0.1);
+
+		params.curve_fit = false;
+		result = ops::interpolate(t.map, { a.get(), b.get() }, params);
+		auto const& plain = result.out.front()->getRawCoordinateVector();
+		QVERIFY(std::none_of(plain.begin(), plain.end(), [](const MapCoord& c) { return c.isCurveStart(); }));
+		auto const vertices = [](const MapCoordVector& vector) {
+			int count = 0;
+			for (std::size_t i = 0; i < vector.size(); ++i, ++count)
+			{
+				if (vector[i].isCurveStart())
+					i += 2;
+			}
+			return count;
+		};
+		QVERIFY(vertices(coords) < vertices(plain));
 	}
 };
 

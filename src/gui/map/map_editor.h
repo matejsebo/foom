@@ -767,7 +767,7 @@ public slots:
 	void applyStatusSetClicked();
 	void deleteStatusSetClicked();
 	/** foom: Adds count paths between the two selected paths as one undo step; see the design notes. */
-	void interpolate(int count, bool use_selected_symbol);
+	void interpolate(int count, bool use_selected_symbol, bool curve_fit = false);
 	/** foom: Crops the objects of the current part, or of the symbols selected in the symbol pane, to the selected paths or to rect; see the design notes, "Crop". */
 	void crop(bool selected_symbols, bool use_rectangle, const QRectF& rect, bool hole, bool delete_shapes);
 	/** foom: Puts the selection on the clipboard as well-known text and returns it; see the design notes, "Well-known text". */

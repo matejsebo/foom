@@ -28,6 +28,7 @@
 
 #include "core/map_coord.h"
 #include "core/objects/object.h"
+#include "core/ops/to_curve.h"
 #include "core/path_coord.h"
 
 
@@ -40,8 +41,9 @@ namespace {
 /// Resampling: at most this far apart (mm), at least this many points.
 constexpr double resample_spacing = 0.2;
 constexpr std::size_t resample_minimum = 64;
-/// Douglas-Peucker tolerance of the result (mm).
+/// Douglas-Peucker tolerance of the result (mm), and before a curve fit.
 constexpr double simplify_tolerance = 0.01;
+constexpr double curve_fit_tolerance = 0.05;
 
 double distance(const MapCoordF& a, const MapCoordF& b)
 {
@@ -103,7 +105,7 @@ double signedArea(const std::vector<MapCoordF>& ring)
 	return sum / 2;
 }
 
-void simplify(const std::vector<MapCoordF>& points, std::size_t first, std::size_t last, std::vector<bool>& keep)
+void simplify(const std::vector<MapCoordF>& points, std::size_t first, std::size_t last, std::vector<bool>& keep, double tolerance)
 {
 	if (last <= first + 1)
 		return;
@@ -122,11 +124,11 @@ void simplify(const std::vector<MapCoordF>& points, std::size_t first, std::size
 			index = k;
 		}
 	}
-	if (worst > simplify_tolerance)
+	if (worst > tolerance)
 	{
 		keep[index] = true;
-		simplify(points, first, index, keep);
-		simplify(points, index, last, keep);
+		simplify(points, first, index, keep, tolerance);
+		simplify(points, index, last, keep, tolerance);
 	}
 }
 
@@ -134,7 +136,7 @@ void simplify(const std::vector<MapCoordF>& points, std::size_t first, std::size
 
 
 
-OpResult interpolate(const Map& /*map*/, const std::vector<const Object*>& in, const InterpolateParams& params)
+OpResult interpolate(const Map& map, const std::vector<const Object*>& in, const InterpolateParams& params)
 {
 	// the design notes, "Interpolate".
 	OpResult result;
@@ -202,7 +204,7 @@ OpResult interpolate(const Map& /*map*/, const std::vector<const Object*>& in, c
 			blend.push_back(ra[i] * (1.0 - t) + rb[i] * t);
 		std::vector<bool> keep(blend.size(), false);
 		keep.front() = keep.back() = true;
-		simplify(blend, 0, blend.size() - 1, keep);
+		simplify(blend, 0, blend.size() - 1, keep, params.curve_fit ? curve_fit_tolerance : simplify_tolerance);
 		MapCoordVector coords;
 		for (std::size_t i = 0; i < blend.size(); ++i)
 		{
@@ -212,6 +214,16 @@ OpResult interpolate(const Map& /*map*/, const std::vector<const Object*>& in, c
 		auto object = std::make_unique<PathObject>(symbol, coords);
 		if (closed)
 			object->closeAllParts();
+		if (params.curve_fit)
+		{
+			// the design notes, "Interpolate", curve fit.
+			auto fitted = toCurve(map, { object.get() }, ToCurveParams{});
+			if (fitted.error.isEmpty() && fitted.out.size() == 1)
+			{
+				result.out.push_back(std::move(fitted.out.front()));
+				continue;
+			}
+		}
 		result.out.push_back(std::move(object));
 	}
 	return result;

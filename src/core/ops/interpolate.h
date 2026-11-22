@@ -42,6 +42,9 @@ struct InterpolateParams : public OpParams
 	
 	/** The symbol of the new objects; nullptr for the first input's. */
 	const Symbol* symbol = nullptr;
+	
+	/** Fit curves through the simplified result (step 4), with toCurve()'s defaults. */
+	bool curve_fit = false;
 };
 
 
