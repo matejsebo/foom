@@ -161,7 +161,7 @@ public:
 	}
 
 	QStringList requests;
-	bool fail_tiles = false;  ///< When set, XYZ tiles are answered with 404
+	bool fail_tiles = false;  ///< When set, XYZ tiles are answered with 500
 
 private:
 	static QByteArray readAll(const QString& path)
@@ -213,7 +213,7 @@ private:
 				auto const items = path.section(QLatin1Char('/'), 2).split(QLatin1Char('/'));
 				if (fail_tiles && path.startsWith(QLatin1String("/xyz/")))
 				{
-					status = 404;
+					status = 500;
 				}
 				else if (items.size() == 3)
 				{
