@@ -29,8 +29,10 @@
 
 class QCheckBox;
 class QComboBox;
+class QDoubleSpinBox;
 class QLineEdit;
 class QListWidget;
+class QSpinBox;
 class QWidget;
 
 namespace OpenOrienteering {
@@ -60,9 +62,19 @@ private:
 	void browse();
 	void updateButtons();
 	void updateEnabled();
+	void fillPlacings();
 	
 	QListWidget* course_list;
 	QComboBox* format_box;
+	QComboBox* placing_box;
+	QComboBox* content_box;
+	QSpinBox* intensity_spin;
+	QSpinBox* line_width_spin;
+	QDoubleSpinBox* stretch_x_spin;
+	QDoubleSpinBox* stretch_y_spin;
+	QCheckBox* mirror_check;
+	QDoubleSpinBox* offset_x_spin;
+	QDoubleSpinBox* offset_y_spin;
 	QComboBox* relay_box;
 	QComboBox* extent_box;
 	QCheckBox* canvases_check;

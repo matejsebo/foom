@@ -303,8 +303,9 @@ CourseDescriptionDrawing drawCourseDescriptions(const Map& map, const CourseData
  *
  * @param bounding_box  the part of the map which is painted, in mm
  * @param scaling       pixels per mm
+ * @param opacity       of everything painted
  */
-void paintCourseDescriptions(QPainter* painter, Map* map, const CourseDescriptionDrawing& drawing, const QRectF& bounding_box, qreal scaling);
+void paintCourseDescriptions(QPainter* painter, Map* map, const CourseDescriptionDrawing& drawing, const QRectF& bounding_box, qreal scaling, qreal opacity = 1.0);
 
 
 }  // namespace OpenOrienteering

@@ -622,6 +622,53 @@ RelayMaps parseRelayMaps(const Params& p)
 	return RelayMaps::Runners;
 }
 
+// foom: the design notes, "Several courses in one file"
+CourseMapPlacing parseCourseMapPlacing(const Params& p)
+{
+	auto const name = p.optionalString("placing");
+	if (name.isEmpty() || name == QLatin1String("separate"))
+		return CourseMapPlacing::Separate;
+	if (name == QLatin1String("pages"))
+		return CourseMapPlacing::Pages;
+	if (name == QLatin1String("beside"))
+		return CourseMapPlacing::Beside;
+	if (name == QLatin1String("below"))
+		return CourseMapPlacing::Below;
+	if (name != QLatin1String("original"))
+		p.fail(QLatin1String("\"placing\" must be \"separate\", \"pages\", \"beside\", \"below\" or \"original\""));
+	return CourseMapPlacing::Original;
+}
+
+// foom: the design notes, "Course only, intensity, line width and the control descriptions"
+void parseCourseMapPrint(const Params& p, CourseMapExportOptions& options)
+{
+	auto const content = p.optionalString("content");
+	if (content.isEmpty() || content == QLatin1String("map"))
+		options.content = CourseMapContent::Map;
+	else if (content == QLatin1String("course-only"))
+		options.content = CourseMapContent::CourseOnly;
+	else if (content == QLatin1String("descriptions"))
+		options.content = CourseMapContent::Descriptions;
+	else
+		p.fail(QLatin1String("\"content\" must be \"map\", \"course-only\" or \"descriptions\""));
+	if (p.has("intensity"))
+		options.intensity = qRound(p.requireNumber("intensity"));
+	if (p.has("line_width"))
+		options.line_width = qRound(p.requireNumber("line_width"));
+	if (p.has("stretch_x"))
+		options.stretch_x = p.requireNumber("stretch_x");
+	if (p.has("stretch_y"))
+		options.stretch_y = p.requireNumber("stretch_y");
+	options.mirror = p.optionalBool("mirror", false);
+	if (p.has("offset_x"))
+		options.offset_x = p.requireNumber("offset_x");
+	if (p.has("offset_y"))
+		options.offset_y = p.requireNumber("offset_y");
+	auto const error = courseMapOptionsError(options);
+	if (!error.isEmpty())
+		p.fail(error);
+}
+
 QStringList parseImportLayers(const Params& p)
 {
 	QStringList layers;
@@ -1188,10 +1235,14 @@ void StepRunner::validate(const Step& step, bool& map_open)
 	else if (name == QLatin1String("export-course-maps"))  // foom
 	{
 		p.requireMap(map_open);
-		p.checkKnown({ "folder", "courses", "relay", "extent", "scale", "canvases", "routes", "format" });
+		p.checkKnown({ "folder", "courses", "relay", "extent", "scale", "canvases", "routes", "format", "placing",
+		               "content", "intensity", "line_width", "stretch_x", "stretch_y", "mirror", "offset_x", "offset_y" });
 		p.requireString("folder");
 		parseCourseNames(p);
 		parseRelayMaps(p);
+		CourseMapExportOptions options;
+		options.placing = parseCourseMapPlacing(p);
+		parseCourseMapPrint(p, options);
 		if (p.has("scale"))
 			p.requirePositiveInt("scale");
 	}
@@ -1770,6 +1821,8 @@ StepResult StepRunner::exportCourseMapsStep(const Step& step)
 	options.scale = p.has("scale") ? p.requirePositiveInt("scale") : 0u;
 	options.use_canvases = p.optionalBool("canvases", false);
 	options.with_routes = p.optionalBool("routes", false);
+	options.placing = parseCourseMapPlacing(p);
+	parseCourseMapPrint(p, options);
 	// foom: the design notes, "Course maps as map files"
 	auto const file_format = p.optionalString("format").toLower();
 	if (!file_format.isEmpty() && file_format != QLatin1String("pdf"))

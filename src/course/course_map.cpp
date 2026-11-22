@@ -25,6 +25,8 @@
 #include <functional>
 #include <iterator>
 #include <map>
+#include <utility>
+#include <vector>
 
 #include <QtMath>
 #include <Qt>
@@ -33,12 +35,15 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
 #include <QLatin1Char>
 #include <QLatin1String>
 #include <QCoreApplication>
 #include <QPainter>
 #include <QPen>
 #include <QPolygonF>
+#include <QRectF>
+#include <QTransform>
 #include <QUuid>
 #ifdef QT_PRINTSUPPORT_LIB
 #  include <QPrinter>
@@ -55,6 +60,9 @@
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
 #include "core/renderables/renderable.h"
+#include "core/map_part.h"
+#include "core/symbols/line_symbol.h"
+#include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
 #include "course/course_canvas.h"
 #include "course/course_description.h"
@@ -340,12 +348,12 @@ CourseMapDrawing drawCourseMap(const Map& map, const CourseData& original, const
 }
 
 
-void paintCourseMap(QPainter* painter, Map* map, const CourseMapDrawing& drawing, const QRectF& bounding_box, qreal scaling)
+void paintCourseMap(QPainter* painter, Map* map, const CourseMapDrawing& drawing, const QRectF& bounding_box, qreal scaling, qreal opacity)
 {
 	if (!drawing.drawn)
 		return;
 	// The description first: its white ground lies below the course.
-	paintCourseDescriptions(painter, map, drawing.description, bounding_box, scaling);
+	paintCourseDescriptions(painter, map, drawing.description, bounding_box, scaling, opacity);
 	if (drawing.objects.empty())
 		return;
 	MapRenderables renderables(map);
@@ -354,10 +362,46 @@ void paintCourseMap(QPainter* painter, Map* map, const CourseMapDrawing& drawing
 		object->update();
 		renderables.insertRenderablesOfObject(object.get());
 	}
-	RenderConfig config = { *map, bounding_box, scaling, RenderConfig::NoOptions, 1.0 };
+	RenderConfig config = { *map, bounding_box, scaling, RenderConfig::NoOptions, opacity };
 	renderables.draw(painter, config);
 	for (auto const& object : drawing.objects)
 		renderables.removeRenderablesOfObject(object.get(), false);
+}
+
+
+// the design notes, "Course only, intensity, line width and the control descriptions"
+namespace {
+
+void scaleLineWidths(Symbol* symbol, double factor)
+{
+	if (!symbol)
+		return;
+	auto const scaled = [factor](int width) { return qRound(width * factor); };
+	if (symbol->getType() == Symbol::Line)
+	{
+		auto* line = symbol->asLine();
+		line->setLineWidth(0.001 * scaled(line->getLineWidth()));
+		line->getBorder().width = scaled(line->getBorder().width);
+		line->getRightBorder().width = scaled(line->getRightBorder().width);
+	}
+	else if (symbol->getType() == Symbol::Point)
+	{
+		auto* point = symbol->asPoint();
+		point->setOuterWidth(scaled(point->getOuterWidth()));
+		for (int i = 0; i < point->getNumElements(); ++i)
+			scaleLineWidths(point->getElementSymbol(i), factor);
+	}
+}
+
+}  // namespace
+
+
+void scaleCourseLineWidths(CourseMapDrawing& drawing, double factor)
+{
+	for (auto& symbol : drawing.symbols)
+		scaleLineWidths(symbol.get(), factor);
+	for (auto& object : drawing.objects)
+		object->setOutputDirty();
 }
 
 
@@ -414,6 +458,32 @@ std::unique_ptr<MapView> canvasPrintView(Map& map, const MapView* view, const Co
 		print_view->setTemplateVisibility(temp, visibility);
 	}
 	return print_view;
+}
+
+
+QString courseMapOptionsError(const CourseMapExportOptions& options)
+{
+	if (options.intensity < 10 || options.intensity > 100)
+		return tr("The intensity must be from 10 to 100 percent.");
+	if (options.line_width < 50 || options.line_width > 200)
+		return tr("The line width must be from 50 to 200 percent.");
+	auto const stretched = [](double value) { return value >= 90.0 && value <= 110.0; };
+	if (!stretched(options.stretch_x) || !stretched(options.stretch_y))
+		return tr("The stretch must be from 90 to 110 percent.");
+	if (qAbs(options.offset_x) > 25.0 || qAbs(options.offset_y) > 25.0)
+		return tr("Adjustments must be between -25 mm and 25 mm.");
+	if (!options.map_format.isEmpty()
+	    && (options.content != CourseMapContent::Map || options.intensity != 100 || options.line_width != 100))
+		return tr("Course only, the control descriptions, the intensity and the line width are for PDF files and printing.");
+	if (options.content == CourseMapContent::Descriptions && options.placing == CourseMapPlacing::Original)
+		return tr("The control descriptions cannot be placed over each other.");
+	return {};
+}
+
+
+QString courseMapsOneFileName()
+{
+	return QStringLiteral("Courses");
 }
 
 
@@ -490,6 +560,37 @@ void paintRoutePerimeter(QPainter* painter, const std::vector<MapCoordF>& perime
 
 namespace {
 
+/** Hides, as long as it lives, every symbol of the map but the kept ones. */
+class AllSymbolsHider
+{
+public:
+	AllSymbolsHider(Map& map, bool active, const std::vector<const Symbol*>& kept)
+	{
+		if (!active)
+			return;
+		for (int i = 0; i < map.getNumSymbols(); ++i)
+		{
+			auto* symbol = map.getSymbol(i);
+			if (!symbol->isHidden() && std::find(kept.begin(), kept.end(), symbol) == kept.end())
+			{
+				symbol->setHidden(true);
+				hidden.push_back(symbol);
+			}
+		}
+	}
+	~AllSymbolsHider()
+	{
+		for (auto* symbol : hidden)
+			symbol->setHidden(false);
+	}
+	AllSymbolsHider(const AllSymbolsHider&) = delete;
+	AllSymbolsHider& operator=(const AllSymbolsHider&) = delete;
+
+private:
+	std::vector<Symbol*> hidden;
+};
+
+
 /**
  * Sets up a printer for every sheet of the options and gives it to the
  * output while the symbols which the sheet draws itself are hidden.
@@ -520,96 +621,258 @@ bool printSheets(Map& map, const CourseMapExportOptions& options, const QPrinter
 			courses.push_back(course.name);
 	}
 
+	// the design notes, "Course only, intensity, line width and the control descriptions"
+	auto const content = options.content;
+	auto const print_error = courseMapOptionsError(options);
+	if (!print_error.isEmpty())
+	{
+		report.error = print_error;
+		return false;
+	}
+	auto const use_canvases = options.use_canvases && content != CourseMapContent::Descriptions;
+	if (content == CourseMapContent::Descriptions)
+		extent = nullptr;
+
+	// the design notes, "Several courses in one file"
+	auto const placing = options.placing;
+	if (placing == CourseMapPlacing::Beside || placing == CourseMapPlacing::Below)
+	{
+		report.error = tr("Maps beside or below each other can be written as map files only.");
+		return false;
+	}
+	if (placing != CourseMapPlacing::Separate && use_canvases)
+	{
+		report.error = tr("By the canvases every map is a file of its own.");
+		return false;
+	}
+
+	std::vector<CourseMapSheet> all_sheets;
 	for (auto const& course : qAsConst(courses))
 	{
-		auto const sheets = courseMapSheets(data, course, options.relay_maps);
+		auto sheets = courseMapSheets(data, course, options.relay_maps);
 		if (sheets.empty())
-		{
 			report.skipped.push_back(course);
+		for (auto& sheet : sheets)
+			all_sheets.push_back(std::move(sheet));
+	}
+	if (placing != CourseMapPlacing::Separate)
+	{
+		// All maps are the sides of one sheet.
+		CourseMapSheet one;
+		one.name = courseMapsOneFileName();
+		for (auto const& sheet : all_sheets)
+			one.sides.insert(one.sides.end(), sheet.sides.begin(), sheet.sides.end());
+		all_sheets.clear();
+		if (!one.sides.empty())
+			all_sheets.push_back(std::move(one));
+	}
+
+	for (auto const& sheet : all_sheets)
+	{
+		// With canvases the sheet is that of the canvas of its first side.
+		auto const* canvas = use_canvases ? canvasFor(data.canvases, sheet.sides.front().course, sheet.sides.front().part) : nullptr;
+		if (use_canvases && !canvas)
+		{
+			report.skipped.push_back(sheet.name);
 			continue;
 		}
-		for (auto const& sheet : sheets)
+		auto sheet_data = data;
+		auto const* sheet_extent = extent;
+		auto sheet_scale = content == CourseMapContent::Descriptions ? 0u : options.scale;
+		auto sheet_name = sheet.name;
+		QStringList hidden_numbers;
+		if (canvas)
 		{
-			// With canvases the sheet is that of the canvas of its first side.
-			auto const* canvas = options.use_canvases ? canvasFor(data.canvases, sheet.sides.front().course, sheet.sides.front().part) : nullptr;
-			if (options.use_canvases && !canvas)
+			auto const& extents = map.extents();
+			auto const named = std::find_if(begin(extents), end(extents), [canvas](const Extent& entry) { return entry.name == canvas->extent; });
+			if (named == end(extents))
+			{
+				report.error = tr("No extent found for the canvas \"%1\". Define its extent first.").arg(canvas->name);
+				return false;
+			}
+			sheet_extent = &*named;
+			sheet_scale = canvas->scale;
+			sheet_name = canvas->name + QLatin1Char('.') + sheet.name;
+			hidden_numbers = canvas->hidden_symbols;
+			if (canvas->box_size > 0.0)
+				sheet_data.options.setValue(QLatin1Char('s'), QString::number(canvas->box_size, 'f', 2));
+			if (canvas->max_rows > 0)
+				sheet_data.options.setValue(QLatin1Char('i'), QString::number(canvas->max_rows));
+		}
+
+		// Drawn before the symbols are hidden: the copies are of symbols as the map shows them.
+		std::vector<CourseMapDrawing> sides;
+		for (auto const& side : sheet.sides)
+			sides.push_back(drawCourseMap(map, sheet_data, side, hidden_numbers));
+		if (options.line_width != 100)
+		{
+			for (auto& drawing : sides)
+				scaleCourseLineWidths(drawing, options.line_width / 100.0);
+		}
+		// The control descriptions alone: the page is the box of their blocks.
+		QRectF description_box;
+		if (content == CourseMapContent::Descriptions)
+		{
+			for (auto const& drawing : sides)
+			{
+				for (auto const& layout : drawing.description.layouts)
+				{
+					for (auto const& block : layout.blocks)
+						description_box = description_box.isValid() ? description_box.united(block) : block;
+				}
+			}
+			if (!description_box.isValid())
 			{
 				report.skipped.push_back(sheet.name);
 				continue;
 			}
-			auto sheet_data = data;
-			auto const* sheet_extent = extent;
-			auto sheet_scale = options.scale;
-			auto sheet_name = sheet.name;
-			QStringList hidden_numbers;
-			if (canvas)
-			{
-				auto const& extents = map.extents();
-				auto const named = std::find_if(begin(extents), end(extents), [canvas](const Extent& entry) { return entry.name == canvas->extent; });
-				if (named == end(extents))
-				{
-					report.error = tr("No extent found for the canvas \"%1\". Define its extent first.").arg(canvas->name);
-					return false;
-				}
-				sheet_extent = &*named;
-				sheet_scale = canvas->scale;
-				sheet_name = canvas->name + QLatin1Char('.') + sheet.name;
-				hidden_numbers = canvas->hidden_symbols;
-				if (canvas->box_size > 0.0)
-					sheet_data.options.setValue(QLatin1Char('s'), QString::number(canvas->box_size, 'f', 2));
-				if (canvas->max_rows > 0)
-					sheet_data.options.setValue(QLatin1Char('i'), QString::number(canvas->max_rows));
-			}
-
-			// Drawn before the symbols are hidden: the copies are of symbols as the map shows them.
-			std::vector<CourseMapDrawing> sides;
-			for (auto const& side : sheet.sides)
-				sides.push_back(drawCourseMap(map, sheet_data, side, hidden_numbers));
-			// The routes which the map keeps for the sides.
-			std::vector<CourseRoutes> side_routes;
-			if (options.with_routes)
-			{
-				for (auto const& side : sheet.sides)
-				{
-					if (side.variant.leg > 0)
-						side_routes.push_back(storedCourseRoutes(map, withRelayVariant(sheet_data, side.course, side.variant), side.course, side.part));
-					else
-						side_routes.push_back(storedCourseRoutes(map, sheet_data, side.course, side.part));
-				}
-			}
-
-			// The background maps which the canvas hides are not printed.
-			auto const sheet_view = canvas ? canvasPrintView(map, options.view, *canvas) : std::unique_ptr<MapView>{};
-			MapPrinter printer(map, sheet_view ? sheet_view.get() : options.view);
-			printer.setTarget(target);
-			printer.setMode(MapPrinterOptions::Vector);
-			printer.setPrintTemplates(true);
-			if (sheet_extent)
-			{
-				applyExtentToPrinter(printer, map, *sheet_extent);
-				// The sides of the sheet are those of the course, not the backs of the extent.
-				printer.setBackSides({});
-			}
-			else if (!map.hasPrinterConfig())
-			{
-				printer.setPrintArea(map.calculateExtent(false, true, options.view));
-			}
-			if (sheet_scale > 0)
-				printer.setScale(sheet_scale);
-			// One page for a side: without an extent which brings its paper, the page is as large as the area.
-			if (!sheet_extent || sheet_scale > 0)
-				printer.setCustomPageSize(printer.getPrintAreaPaperSize());
-			printer.setOverlay([&map, &sides, &side_routes](QPainter* painter, const RenderConfig& config, int side) {
-				if (side >= 0 && std::size_t(side) < sides.size())
-					paintCourseMap(painter, &map, sides[std::size_t(side)], config.bounding_box, config.scaling);
-				if (side >= 0 && std::size_t(side) < side_routes.size())
-					paintCourseRoutes(painter, side_routes[std::size_t(side)]);
-			}, int(sides.size()));
-
-			const CourseSymbolsHider hider(map, hidden_numbers);
-			if (!output(sheet_name, printer))
-				return false;
+			description_box.adjust(-5.0, -5.0, 5.0, 5.0);
+			sheet_name += QLatin1String(".Descriptions");
 		}
+		// Course only: the objects of the other course symbols, by the numbers 701 to 799, are a part of
+		// the course; not those of the lines and the numbers (705, 704), which the map has as overrides only.
+		auto const isOtherCourseSymbol = [](const Symbol& symbol) {
+			auto const number = symbol.getNumberComponent(0);
+			return number >= 701 && number <= 799 && number != 704 && number != 705 && !isDrawnByCourseMap(symbol);
+		};
+		CourseMapDrawing others;
+		if (content == CourseMapContent::CourseOnly)
+		{
+			others.drawn = true;
+			for (int p = 0; p < map.getNumParts(); ++p)
+			{
+				auto const* part = map.getPart(std::size_t(p));
+				for (int i = 0; i < part->getNumObjects(); ++i)
+				{
+					auto const* object = part->getObject(i);
+					auto const* symbol = object->getSymbol();
+					if (!symbol || symbol->isHidden() || !isOtherCourseSymbol(*symbol)
+					    || hidden_numbers.contains(canvasSymbolNumber(symbol->getNumberComponent(0), symbol->getNumberComponent(1))))
+						continue;
+					// With a copy of its symbol, as the map's symbols are hidden while the course is printed alone.
+					auto source = std::find(others.symbol_sources.begin(), others.symbol_sources.end(), symbol);
+					if (source == others.symbol_sources.end())
+					{
+						auto shown = duplicate(*symbol);
+						shown->setHidden(false);
+						others.symbols.push_back(std::move(shown));
+						others.symbol_sources.push_back(symbol);
+						source = others.symbol_sources.end() - 1;
+					}
+					std::unique_ptr<Object> copy(object->duplicate());
+					copy->setSymbol(others.symbols[std::size_t(source - others.symbol_sources.begin())].get(), true);
+					others.objects.push_back(std::move(copy));
+				}
+			}
+		}
+		// The routes which the map keeps for the sides.
+		std::vector<CourseRoutes> side_routes;
+		if (options.with_routes)
+		{
+			for (auto const& side : sheet.sides)
+			{
+				if (side.variant.leg > 0)
+					side_routes.push_back(storedCourseRoutes(map, withRelayVariant(sheet_data, side.course, side.variant), side.course, side.part));
+				else
+					side_routes.push_back(storedCourseRoutes(map, sheet_data, side.course, side.part));
+			}
+		}
+
+		// The background maps which the canvas hides are not printed; nor the map, for the course or the descriptions alone.
+		auto sheet_view = canvas ? canvasPrintView(map, options.view, *canvas) : std::unique_ptr<MapView>{};
+		if (content != CourseMapContent::Map)
+		{
+			sheet_view = std::make_unique<MapView>(&map);
+			// The map is drawn with all its symbols hidden (below); the templates are hidden each by itself.
+			for (int i = 0; i < map.getNumTemplates(); ++i)
+				sheet_view->setTemplateVisibility(map.getTemplate(i), TemplateVisibility{ 1.0, false });
+		}
+		MapPrinter printer(map, sheet_view ? sheet_view.get() : options.view);
+		printer.setTarget(target);
+		printer.setMode(MapPrinterOptions::Vector);
+		printer.setPrintTemplates(content == CourseMapContent::Map);
+		if (content == CourseMapContent::Descriptions)
+		{
+			printer.setPrintArea(description_box);
+			printer.setScale(map.getScaleDenominator());
+		}
+		else if (sheet_extent)
+		{
+			applyExtentToPrinter(printer, map, *sheet_extent);
+			// The sides of the sheet are those of the course, not the backs of the extent.
+			printer.setBackSides({});
+		}
+		else if (!map.hasPrinterConfig())
+		{
+			printer.setPrintArea(map.calculateExtent(false, true, options.view));
+		}
+		if (sheet_scale > 0)
+			printer.setScale(sheet_scale);
+		// One page for a side: without an extent which brings its paper, the page is as large as the area.
+		if (!sheet_extent || sheet_scale > 0)
+			printer.setCustomPageSize(printer.getPrintAreaPaperSize());
+
+		// Course only: stretched about the bottom left corner of the print area, mirrored, and moved.
+		QTransform adjustment;
+		if (content == CourseMapContent::CourseOnly)
+		{
+			auto const area = printer.getPrintArea();
+			auto const sx = options.stretch_x / 100.0;
+			auto const sy = options.stretch_y / 100.0;
+			adjustment = QTransform(sx, 0.0, 0.0, sy, area.left() * (1.0 - sx), area.bottom() * (1.0 - sy));
+			if (options.mirror)
+				adjustment *= QTransform(-1.0, 0.0, 0.0, 1.0, 2.0 * area.center().x(), 0.0);
+			// From mm on the paper to mm of the map.
+			auto const paper_to_map = printer.getOptions().scale > 0 ? double(printer.getOptions().scale) / double(map.getScaleDenominator()) : 1.0;
+			adjustment *= QTransform::fromTranslate(options.offset_x * paper_to_map, -options.offset_y * paper_to_map);
+		}
+		auto const opacity = options.intensity / 100.0;
+		// At their place all sides are painted on one page.
+		auto const original = placing == CourseMapPlacing::Original;
+		auto const descriptions_only = content == CourseMapContent::Descriptions;
+		printer.setOverlay([&map, &sides, &side_routes, &others, original, descriptions_only, adjustment, opacity](QPainter* painter, const RenderConfig& config, int side) {
+			painter->save();
+			painter->setTransform(adjustment, true);
+			auto const box = adjustment.inverted().mapRect(config.bounding_box);
+			painter->setOpacity(opacity);
+			if (descriptions_only)
+			{
+				if (side >= 0 && std::size_t(side) < sides.size())
+					paintCourseDescriptions(painter, &map, sides[std::size_t(side)].description, box, config.scaling, opacity);
+				painter->restore();
+				return;
+			}
+			paintCourseMap(painter, &map, others, box, config.scaling, opacity);
+			for (std::size_t i = 0; i < sides.size(); ++i)
+			{
+				if (original || int(i) == side)
+					paintCourseMap(painter, &map, sides[i], box, config.scaling, opacity);
+			}
+			for (std::size_t i = 0; i < side_routes.size(); ++i)
+			{
+				if (original || int(i) == side)
+				{
+					painter->setOpacity(opacity);
+					paintCourseRoutes(painter, side_routes[i]);
+				}
+			}
+			painter->restore();
+		}, original ? 1 : int(sides.size()));
+
+		const CourseSymbolsHider hider(map, hidden_numbers);
+		// The course or the descriptions alone: no symbol of the map is drawn but those of the descriptions.
+		std::vector<const Symbol*> kept;
+		if (content != CourseMapContent::Map)
+		{
+			for (auto const& drawing : sides)
+			{
+				for (auto const& object : drawing.description.objects)
+					kept.push_back(object->getSymbol());
+			}
+		}
+		const AllSymbolsHider all_hidden(map, content != CourseMapContent::Map, kept);
+		if (!output(sheet_name, printer))
+			return false;
 	}
 	return true;
 }
@@ -659,6 +922,44 @@ CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& o
 	});
 	return report;
 #endif
+}
+
+
+std::vector<QImage> courseMapImages(Map& map, const CourseMapExportOptions& options, double pixel_per_mm, CourseMapExportReport* report)
+{
+	std::vector<QImage> images;
+	CourseMapExportReport own;
+	auto& result = report ? *report : own;
+	result = {};
+#ifndef QT_PRINTSUPPORT_LIB
+	Q_UNUSED(map)
+	Q_UNUSED(options)
+	Q_UNUSED(pixel_per_mm)
+	result.error = tr("This build cannot print.");
+#else
+	result.ok = printSheets(map, options, MapPrinter::imageTarget(), result, [&](const QString& sheet_name, MapPrinter& printer) {
+		printer.setMode(MapPrinterOptions::Raster);
+		printer.setResolution(qRound(pixel_per_mm * 25.4));
+		auto const size = printer.getPrintAreaPaperSize() * pixel_per_mm;
+		QImage image(qRound(size.width()), qRound(size.height()), QImage::Format_ARGB32_Premultiplied);
+		if (image.isNull())
+		{
+			result.error = tr("Cannot print the map of \"%1\".").arg(sheet_name);
+			return false;
+		}
+		image.fill(Qt::white);
+		{
+			QPainter painter(&image);
+			printer.drawPage(&painter, printer.getPrintArea(), &image);
+		}
+		images.push_back(image);
+		result.files.push_back(sheet_name);
+		return true;
+	});
+	if (!result.ok)
+		images.clear();
+#endif
+	return images;
 }
 
 

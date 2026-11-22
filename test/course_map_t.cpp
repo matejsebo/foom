@@ -27,10 +27,12 @@
 #include <QtMath>
 #include <QtTest>
 #include <QByteArray>
+#include <QCheckBox>
 #include <QColor>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QDoubleSpinBox>
 #include <QFile>
 #include <QFileInfo>
 #include <QIODevice>
@@ -54,6 +56,7 @@
 #include <QRectF>
 #include <QRegularExpression>
 #include <QSize>
+#include <QSpinBox>
 #include <QString>
 #include <QStringList>
 #include <QTemporaryDir>
@@ -202,6 +205,7 @@ void fillMap(Map& map)
 	map.setScaleDenominator(10000);
 	auto* purple = new MapColor(QStringLiteral("Purple"), 0);
 	purple->setRgb(QColor(160, 51, 240));
+	purple->setCmykFromRgb();  // what is printed
 	map.addColor(purple, 0);
 	
 	auto* start = addSymbol<PointSymbol>(map, 701, -1, Symbol::CourseStart);
@@ -343,6 +347,8 @@ private slots:
 	void dialogTest();
 	void mapFilesTest();
 	void printTest();
+	void oneFileTest();
+	void printOptionsTest();
 	void previewTest();
 	void canvasBackgroundTest();
 	void canvasFrameTest();
@@ -669,6 +675,25 @@ void CourseMapTest::runnerTest()
 		                             { QStringLiteral("folder"), QStringLiteral("files") },
 		                             { QStringLiteral("courses"), QJsonArray{ QStringLiteral("X") } },
 		                             { QStringLiteral("format"), QStringLiteral("ocd") } });
+		// Several courses in one file, Accept (13)
+		steps.push_back(QJsonObject{ { QStringLiteral("step"), QStringLiteral("export-course-maps") },
+		                             { QStringLiteral("folder"), QStringLiteral("one") },
+		                             { QStringLiteral("courses"), QJsonArray{ QStringLiteral("X"), QStringLiteral("R") } },
+		                             { QStringLiteral("extent"), QStringLiteral("Sheet") },
+		                             { QStringLiteral("placing"), QStringLiteral("pages") } });
+		// Course only, intensity, line width and the control descriptions, Accept (19)
+		steps.push_back(QJsonObject{ { QStringLiteral("step"), QStringLiteral("export-course-maps") },
+		                             { QStringLiteral("folder"), QStringLiteral("course-only") },
+		                             { QStringLiteral("courses"), QJsonArray{ QStringLiteral("Plain") } },
+		                             { QStringLiteral("extent"), QStringLiteral("Sheet") },
+		                             { QStringLiteral("content"), QStringLiteral("course-only") },
+		                             { QStringLiteral("intensity"), 60 },
+		                             { QStringLiteral("line_width"), 150 },
+		                             { QStringLiteral("offset_x"), 2 } });
+		steps.push_back(QJsonObject{ { QStringLiteral("step"), QStringLiteral("export-course-maps") },
+		                             { QStringLiteral("folder"), QStringLiteral("descriptions") },
+		                             { QStringLiteral("courses"), QJsonArray{ QStringLiteral("Plain") } },
+		                             { QStringLiteral("content"), QStringLiteral("descriptions") } });
 		QFile job_file(job_path);
 		QVERIFY(job_file.open(QIODevice::WriteOnly | QIODevice::Truncate));
 		job_file.write(QJsonDocument(QJsonObject{ { QStringLiteral("steps"), steps } }).toJson());
@@ -692,6 +717,43 @@ void CourseMapTest::runnerTest()
 	QVERIFY2(output.contains("\"files\":2"), output.constData());
 	for (auto const* name : { "event.X.1.ocd", "event.X.2.ocd" })
 		QVERIFY2(files.exists(QString::fromLatin1(name)), name);
+	// Several courses in one file, Accept (13)
+	QVERIFY2(output.contains("\"files\":1"), output.constData());
+	auto const one = QDir(QDir(dir.path()).absoluteFilePath(QStringLiteral("one")));
+	QCOMPARE(int(pagesOf(one.absoluteFilePath(QStringLiteral("event.Courses.pdf"))).size()), 6);
+	// Course only, intensity, line width and the control descriptions, Accept (19)
+	QVERIFY(QDir(QDir(dir.path()).absoluteFilePath(QStringLiteral("course-only"))).exists(QStringLiteral("event.Plain.pdf")));
+	QVERIFY(QDir(QDir(dir.path()).absoluteFilePath(QStringLiteral("descriptions"))).exists(QStringLiteral("event.Plain.Descriptions.pdf")));
+	{
+		QJsonArray steps;
+		steps.push_back(QJsonObject{ { QStringLiteral("step"), QStringLiteral("open") }, { QStringLiteral("path"), map_path } });
+		steps.push_back(QJsonObject{ { QStringLiteral("step"), QStringLiteral("export-course-maps") },
+		                             { QStringLiteral("folder"), QStringLiteral("bad") },
+		                             { QStringLiteral("placing"), QStringLiteral("sideways") } });
+		QFile job_file(job_path);
+		QVERIFY(job_file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+		job_file.write(QJsonDocument(QJsonObject{ { QStringLiteral("steps"), steps } }).toJson());
+	}
+	process.start(QString::fromUtf8(FOOM_CLI_EXECUTABLE), { QStringLiteral("--run"), job_path });
+	QVERIFY(process.waitForFinished(120000));
+	output = process.readAllStandardOutput() + process.readAllStandardError();
+	QVERIFY2(process.exitCode() != 0, output.constData());
+	QVERIFY2(output.contains("placing"), output.constData());
+	{
+		QJsonArray steps;
+		steps.push_back(QJsonObject{ { QStringLiteral("step"), QStringLiteral("open") }, { QStringLiteral("path"), map_path } });
+		steps.push_back(QJsonObject{ { QStringLiteral("step"), QStringLiteral("export-course-maps") },
+		                             { QStringLiteral("folder"), QStringLiteral("bad") },
+		                             { QStringLiteral("intensity"), 0 } });
+		QFile job_file(job_path);
+		QVERIFY(job_file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+		job_file.write(QJsonDocument(QJsonObject{ { QStringLiteral("steps"), steps } }).toJson());
+	}
+	process.start(QString::fromUtf8(FOOM_CLI_EXECUTABLE), { QStringLiteral("--run"), job_path });
+	QVERIFY(process.waitForFinished(120000));
+	output = process.readAllStandardOutput() + process.readAllStandardError();
+	QVERIFY2(process.exitCode() != 0, output.constData());
+	QVERIFY2(output.contains("intensity"), output.constData());
 }
 
 
@@ -864,6 +926,62 @@ void CourseMapTest::dialogTest()
 	format->setCurrentIndex(0);
 	QVERIFY(extent->isEnabled());
 	
+	// Several courses in one file, Accept (14)
+	auto* placing = dialog.findChild<QComboBox*>(QStringLiteral("course-maps-placing"));
+	auto* canvases = dialog.findChild<QCheckBox*>(QStringLiteral("course-maps-canvases"));
+	QVERIFY(placing && canvases);
+	QCOMPARE(placing->count(), 3);
+	QCOMPARE(placing->currentIndex(), 0);
+	QVERIFY(dialog.options().placing == CourseMapPlacing::Separate);
+	placing->setCurrentIndex(1);
+	QVERIFY(dialog.options().placing == CourseMapPlacing::Pages);
+	QVERIFY(!canvases->isEnabled());
+	placing->setCurrentIndex(0);
+	format->setCurrentIndex(2);
+	QCOMPARE(placing->count(), 4);
+	QCOMPARE(placing->currentIndex(), 0);
+	placing->setCurrentIndex(2);
+	QVERIFY(dialog.options().placing == CourseMapPlacing::Below);
+	format->setCurrentIndex(0);
+	QCOMPARE(placing->count(), 3);
+	QCOMPARE(placing->currentIndex(), 0);
+	QVERIFY(dialog.options().placing == CourseMapPlacing::Separate);
+	
+	// Course only, intensity, line width and the control descriptions, Accept (20)
+	auto* content = dialog.findChild<QComboBox*>(QStringLiteral("course-maps-content"));
+	auto* intensity = dialog.findChild<QSpinBox*>(QStringLiteral("course-maps-intensity"));
+	auto* line_width = dialog.findChild<QSpinBox*>(QStringLiteral("course-maps-line-width"));
+	auto* stretch_x = dialog.findChild<QDoubleSpinBox*>(QStringLiteral("course-maps-stretch-x"));
+	auto* offset_y = dialog.findChild<QDoubleSpinBox*>(QStringLiteral("course-maps-offset-y"));
+	auto* mirror = dialog.findChild<QCheckBox*>(QStringLiteral("course-maps-mirror"));
+	QVERIFY(content && intensity && line_width && stretch_x && offset_y && mirror);
+	QCOMPARE(content->count(), 3);
+	QVERIFY(dialog.options().content == CourseMapContent::Map);
+	QVERIFY(!stretch_x->isEnabled() && !offset_y->isEnabled() && !mirror->isEnabled());
+	content->setCurrentIndex(1);
+	QVERIFY(dialog.options().content == CourseMapContent::CourseOnly);
+	QVERIFY(stretch_x->isEnabled() && offset_y->isEnabled() && mirror->isEnabled());
+	offset_y->setValue(3.0);
+	mirror->setChecked(true);
+	intensity->setValue(60);
+	line_width->setValue(150);
+	options = dialog.options();
+	QCOMPARE(options.intensity, 60);
+	QCOMPARE(options.line_width, 150);
+	QCOMPARE(options.offset_y, 3.0);
+	QVERIFY(options.mirror);
+	content->setCurrentIndex(2);
+	QVERIFY(dialog.options().content == CourseMapContent::Descriptions);
+	QVERIFY(!stretch_x->isEnabled() && !mirror->isEnabled());
+	content->setCurrentIndex(1);
+	format->setCurrentIndex(2);
+	QVERIFY(!content->isEnabled() && !intensity->isEnabled() && !line_width->isEnabled());
+	options = dialog.options();
+	QVERIFY(options.content == CourseMapContent::Map);
+	QCOMPARE(options.intensity, 100);
+	QCOMPARE(options.line_width, 100);
+	format->setCurrentIndex(0);
+	
 	for (int i = 0; i < courses->count(); ++i)
 		courses->item(i)->setCheckState(Qt::Unchecked);
 	QVERIFY(!buttons->button(QDialogButtonBox::Ok)->isEnabled());
@@ -1024,6 +1142,314 @@ void CourseMapTest::printTest()
 	QVERIFY(buttons->button(QDialogButtonBox::Ok)->isEnabled());
 	QVERIFY(dialog.options().map_format.isEmpty());
 	QCOMPARE(dialog.windowTitle(), CourseMapsDialog::tr("Print course maps"));
+	// Several courses in one file, Accept (14)
+	auto* placing = dialog.findChild<QComboBox*>(QStringLiteral("course-maps-placing"));
+	QVERIFY(placing && placing->isVisibleTo(&dialog));
+	QCOMPARE(placing->count(), 3);
+}
+
+
+/// Several courses in one file, Accept (11) and (12)
+void CourseMapTest::oneFileTest()
+{
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	Map map;
+	fillMap(map);
+	map.getSymbol(8)->setHidden(true);  // the plain symbol 101
+	map.setHasUnsavedChanges(false);
+	auto const objects_before = map.getNumObjects();
+	
+	// PDF: a page for every map, or all maps on one page.
+	CourseMapExportOptions options;
+	options.folder = QDir(dir.path()).absoluteFilePath(QStringLiteral("pages"));
+	options.base_name = QStringLiteral("m");
+	options.courses = QStringList{ QStringLiteral("X"), QStringLiteral("Flip"), QStringLiteral("Plain"), QStringLiteral("Nobody") };
+	options.extent = QStringLiteral("Sheet");
+	options.placing = CourseMapPlacing::Pages;
+	auto report = exportCourseMaps(map, options);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.skipped, QStringList{ QStringLiteral("Nobody") });
+	QCOMPARE(report.files.size(), 1);
+	QCOMPARE(QFileInfo(report.files[0]).fileName(), QStringLiteral("m.Courses.pdf"));
+	auto const page = QSize(283, 227);
+	QCOMPARE(pagesOf(report.files[0]), (std::vector<QSize>{ page, page, page, page, page }));
+	
+	options.folder = QDir(dir.path()).absoluteFilePath(QStringLiteral("original"));
+	options.placing = CourseMapPlacing::Original;
+	report = exportCourseMaps(map, options);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.files.size(), 1);
+	QCOMPARE(QFileInfo(report.files[0]).fileName(), QStringLiteral("m.Courses.pdf"));
+	QCOMPARE(pagesOf(report.files[0]), std::vector<QSize>{ page });
+	
+	// Printed: one job of all pages.
+	{
+		auto const path = QDir(dir.path()).absoluteFilePath(QStringLiteral("printed.pdf"));
+		QPrinter printer(QPrinter::HighResolution);
+		printer.setOutputFormat(QPrinter::PdfFormat);
+		printer.setOutputFileName(path);
+		printer.setPageSize(QPageSize(QPageSize::A4));
+		printer.setPageOrientation(QPageLayout::Portrait);
+		options.placing = CourseMapPlacing::Pages;
+		report = printCourseMaps(map, options, &printer);
+		QVERIFY2(report.ok, qPrintable(report.error));
+		QCOMPARE(report.files, QStringList{ QStringLiteral("Courses") });
+		QCOMPARE(int(pagesOf(path).size()), 5);
+	}
+	QCOMPARE(hiddenSymbols(map), QStringList{ QStringLiteral("101") });
+	QVERIFY(!map.hasUnsavedChanges());
+	
+	// What cannot be placed so.
+	options.folder = QDir(dir.path()).absoluteFilePath(QStringLiteral("refused"));
+	options.placing = CourseMapPlacing::Beside;
+	report = exportCourseMaps(map, options);
+	QVERIFY(!report.ok);
+	QVERIFY(!report.error.isEmpty());
+	options.placing = CourseMapPlacing::Pages;
+	options.map_format = QStringLiteral("XML");
+	report = exportCourseMaps(map, options);
+	QVERIFY(!report.ok);
+	options.map_format.clear();
+	options.use_canvases = true;
+	report = exportCourseMaps(map, options);
+	QVERIFY(!report.ok);
+	options.use_canvases = false;
+	QVERIFY(QDir(options.folder).entryList(QDir::Files).isEmpty());
+	
+	// Map files: the map once for every map, beside or below each other, or once.
+	map.getSymbol(8)->setHidden(false);
+	auto const box = map.calculateExtent();
+	options.courses = QStringList{ QStringLiteral("X"), QStringLiteral("Plain") };
+	options.map_format = QStringLiteral("XML");
+	options.extent.clear();
+	auto const xOf = [](const Object* object) { return object->asPoint()->getCoordF().x(); };
+	auto const yOf = [](const Object* object) { return object->asPoint()->getCoordF().y(); };
+	for (auto const placing : { CourseMapPlacing::Beside, CourseMapPlacing::Below })
+	{
+		auto const beside = placing == CourseMapPlacing::Beside;
+		options.placing = placing;
+		options.folder = QDir(dir.path()).absoluteFilePath(beside ? QStringLiteral("beside") : QStringLiteral("below"));
+		report = exportCourseMaps(map, options);
+		QVERIFY2(report.ok, qPrintable(report.error));
+		QCOMPARE(report.files.size(), 1);
+		QCOMPARE(QFileInfo(report.files[0]).fileName(), QStringLiteral("m.Courses.foom"));
+		Map file;
+		QVERIFY(file.loadFrom(report.files[0]));
+		auto const plain = objectsOf(file, 101);
+		QCOMPARE(int(plain.size()), 3);
+		auto const along = [beside, &xOf, &yOf](const Object* object) { return beside ? xOf(object) : yOf(object); };
+		auto const across = [beside, &xOf, &yOf](const Object* object) { return beside ? yOf(object) : xOf(object); };
+		auto const d = along(plain[1]) - along(plain[0]);
+		QVERIFY2(d >= (beside ? box.width() : box.height()) + 10.0 - 0.01, qPrintable(QString::number(d)));
+		QVERIFY(qAbs(along(plain[0]) - 5.0) < 0.01);
+		QVERIFY(qAbs(along(plain[2]) - along(plain[1]) - d) < 0.01);
+		for (auto const* object : plain)
+			QVERIFY(qAbs(across(object) - 5.0) < 0.01);
+		auto const starts = objectsOf(file, 701);
+		QCOMPARE(int(starts.size()), 3);
+		auto const offset = [beside](double d) { return beside ? MapCoordF(d, 0.0) : MapCoordF(0.0, d); };
+		auto const near = [](MapCoordF a, MapCoordF b) { return qAbs(a.x() - b.x()) < 0.01 && qAbs(a.y() - b.y()) < 0.01; };
+		QVERIFY(near(starts[0]->asPoint()->getCoordF(), MapCoordF(0.0, 0.0)));
+		QVERIFY(near(starts[1]->asPoint()->getCoordF(), MapCoordF(20.0, 10.0) + offset(d)));
+		QVERIFY(near(starts[2]->asPoint()->getCoordF(), offset(2 * d)));
+		QCOMPARE(int(objectsOf(file, 703).size()), 7);
+		auto titles = textsOf(file, 721);
+		titles.sort();
+		QCOMPARE(titles, (QStringList{ QStringLiteral("Plain"), QStringLiteral("X (1)"), QStringLiteral("X (2)") }));
+		QVERIFY(file.courseData().courses.empty());
+	}
+	
+	options.placing = CourseMapPlacing::Original;
+	options.folder = QDir(dir.path()).absoluteFilePath(QStringLiteral("files-original"));
+	report = exportCourseMaps(map, options);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.files.size(), 1);
+	{
+		Map file;
+		QVERIFY(file.loadFrom(report.files[0]));
+		QCOMPARE(int(objectsOf(file, 101).size()), 1);
+		QStringList starts;
+		for (auto const* object : objectsOf(file, 701))
+			starts.push_back(QString::fromLatin1("%1,%2").arg(qRound(xOf(object))).arg(qRound(yOf(object))));
+		QCOMPARE(starts, (QStringList{ QStringLiteral("0,0"), QStringLiteral("20,10"), QStringLiteral("0,0") }));
+		QCOMPARE(int(objectsOf(file, 703).size()), 7);
+		QCOMPARE(textsOf(file, 721).size(), 3);
+	}
+	
+	// The map itself is as it was.
+	QVERIFY(hiddenSymbols(map).isEmpty());
+	QVERIFY(!map.hasUnsavedChanges());
+	QCOMPARE(map.getNumObjects(), objects_before);
+	QCOMPARE(int(map.courseData().courses.size()), 4);
+}
+
+
+/// Course only, intensity, line width and the control descriptions, Accept (15) to (18)
+void CourseMapTest::printOptionsTest()
+{
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	Map map;
+	fillMap(map);
+	// The block of the description away from the course, so that its white ground covers nothing of the page.
+	for (int i = 0; i < map.getPart(0)->getNumObjects(); ++i)
+	{
+		auto* object = map.getPart(0)->getObject(i);
+		if (object->getSymbol()->getNumberComponent(0) == 720)
+			object->asPoint()->setPosition(MapCoordF(-150.0, -150.0));
+	}
+	// An out-of-bounds point, a course symbol which is no item.
+	{
+		auto* forbidden = addSymbol<PointSymbol>(map, 709, -1, Symbol::NoCourseRole);
+		forbidden->setInnerColor(map.getColor(0));
+		forbidden->setInnerRadius(500);
+		drawPoint(map, forbidden, -20.0, 20.0);
+	}
+	map.setHasUnsavedChanges(false);
+	
+	CourseMapExportOptions options;
+	options.base_name = QStringLiteral("m");
+	options.courses = QStringList{ QStringLiteral("Plain") };
+	options.extent = QStringLiteral("Sheet");
+	auto const ppm = 10.0;
+	// The pixel of a point of the map on the page of the extent (-40, -40, 100, 80).
+	auto const pixel = [](const QImage& image, double x, double y) {
+		return QColor(image.pixel(qRound((x + 40.0) * 10.0), qRound((y + 40.0) * 10.0)));
+	};
+	auto const purple = QColor(160, 51, 240);
+	auto const near = [](const QColor& a, const QColor& b) {
+		return qAbs(a.red() - b.red()) <= 8 && qAbs(a.green() - b.green()) <= 8 && qAbs(a.blue() - b.blue()) <= 8;
+	};
+	auto const white = QColor(Qt::white);
+	auto const imageOf = [&map, ppm](const CourseMapExportOptions& options) {
+		CourseMapExportReport report;
+		auto images = courseMapImages(map, options, ppm, &report);
+		if (!report.ok)
+			qInfo("%s", qPrintable(report.error));
+		return images.empty() ? QImage{} : images.front();
+	};
+	
+	// Accept (15): with the map, course only, intensity.
+	auto image = imageOf(options);
+	QCOMPARE(image.size(), QSize(1000, 800));
+	QVERIFY2(near(pixel(image, 5.0, 5.0), purple), qPrintable(pixel(image, 5.0, 5.0).name()));
+	QVERIFY(near(pixel(image, 10.0, 0.0), purple));
+	options.content = CourseMapContent::CourseOnly;
+	image = imageOf(options);
+	QVERIFY(!image.isNull());
+	QVERIFY(near(pixel(image, 5.0, 5.0), white));
+	QVERIFY(near(pixel(image, 10.0, 0.0), purple));
+	QVERIFY(near(pixel(image, -20.0, 20.0), purple));
+	options.content = CourseMapContent::Map;
+	options.intensity = 50;
+	image = imageOf(options);
+	QVERIFY(!image.isNull());
+	auto const half = QColor(255 - (255 - 160) / 2, 255 - (255 - 51) / 2, 255 - (255 - 240) / 2);
+	QVERIFY2(near(pixel(image, 10.0, 0.0), half), qPrintable(pixel(image, 10.0, 0.0).name()));
+	QVERIFY(near(pixel(image, 5.0, 5.0), purple));
+	options.intensity = 100;
+	
+	// Accept (16): the adjustments of course only.
+	options.content = CourseMapContent::CourseOnly;
+	options.offset_y = 5.0;
+	image = imageOf(options);
+	QVERIFY(near(pixel(image, 10.0, -5.0), purple));
+	QVERIFY(near(pixel(image, 10.0, 0.0), white));
+	options.offset_y = 0.0;
+	options.stretch_y = 110.0;
+	image = imageOf(options);
+	QVERIFY(near(pixel(image, 10.0, -4.0), purple));
+	QVERIFY(near(pixel(image, 10.0, 0.0), white));
+	options.stretch_y = 100.0;
+	options.mirror = true;
+	image = imageOf(options);
+	QVERIFY(near(pixel(image, -10.0, 10.0), purple));
+	QVERIFY(near(pixel(image, 30.0, 10.0), white));
+	options.mirror = false;
+	for (auto const& bad : { std::make_pair(&CourseMapExportOptions::offset_x, 26.0), std::make_pair(&CourseMapExportOptions::stretch_x, 120.0) })
+	{
+		auto wrong = options;
+		wrong.*(bad.first) = bad.second;
+		CourseMapExportReport report;
+		QVERIFY(courseMapImages(map, wrong, ppm, &report).empty());
+		QVERIFY(!report.ok && !report.error.isEmpty());
+	}
+	for (auto const& bad : { std::make_pair(&CourseMapExportOptions::intensity, 0), std::make_pair(&CourseMapExportOptions::line_width, 300) })
+	{
+		auto wrong = options;
+		wrong.*(bad.first) = bad.second;
+		CourseMapExportReport report;
+		QVERIFY(courseMapImages(map, wrong, ppm, &report).empty());
+		QVERIFY(!report.ok && !report.error.isEmpty());
+	}
+	
+	// Accept (17): the line widths of the copies.
+	{
+		CourseMapSide side;
+		side.course = QStringLiteral("Plain");
+		auto drawing = drawCourseMap(map, map.courseData(), side);
+		QVERIFY(drawing.drawn);
+		scaleCourseLineWidths(drawing, 1.5);
+		auto found = false;
+		for (auto const& symbol : drawing.symbols)
+		{
+			if (symbol->getType() == Symbol::Line && symbol->getNumberComponent(0) == 705)
+			{
+				found = true;
+				QCOMPARE(symbol->asLine()->getLineWidth(), 525);
+			}
+		}
+		QVERIFY(found);
+		QCOMPARE(map.getSymbol(6)->asLine()->getLineWidth(), 350);
+	}
+	
+	// Accept (18): the control descriptions.
+	options.content = CourseMapContent::Descriptions;
+	options.folder = QDir(dir.path()).absoluteFilePath(QStringLiteral("descriptions"));
+	auto report = exportCourseMaps(map, options);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.files.size(), 1);
+	QCOMPARE(QFileInfo(report.files[0]).fileName(), QStringLiteral("m.Plain.Descriptions.pdf"));
+	{
+		CourseMapSide side;
+		side.course = QStringLiteral("Plain");
+		auto const drawing = drawCourseMap(map, map.courseData(), side);
+		QRectF box;
+		for (auto const& layout : drawing.description.layouts)
+		{
+			for (auto const& block : layout.blocks)
+				box = box.isValid() ? box.united(block) : block;
+		}
+		QVERIFY(box.isValid());
+		auto const pages = pagesOf(report.files[0]);
+		QCOMPARE(int(pages.size()), 1);
+		auto const points = 72.0 / 25.4;
+		QVERIFY2(qAbs(pages[0].width() - (box.width() + 10.0) * points) <= 1.0, qPrintable(QString::number(pages[0].width())));
+		QVERIFY2(qAbs(pages[0].height() - (box.height() + 10.0) * points) <= 1.0, qPrintable(QString::number(pages[0].height())));
+		image = imageOf(options);
+		QVERIFY(!image.isNull());
+		auto dark = false;
+		for (int y = 0; y < image.height() && !dark; ++y)
+		{
+			for (int x = 0; x < image.width() && !dark; ++x)
+				dark = qGray(image.pixel(x, y)) < 128;
+		}
+		QVERIFY(dark);
+	}
+	options.map_format = QStringLiteral("XML");
+	QVERIFY(!exportCourseMaps(map, options).ok);
+	options.map_format.clear();
+	options.placing = CourseMapPlacing::Original;
+	QVERIFY(!exportCourseMaps(map, options).ok);
+	options.placing = CourseMapPlacing::Separate;
+	options.content = CourseMapContent::Map;
+	options.intensity = 50;
+	options.map_format = QStringLiteral("XML");
+	QVERIFY(!exportCourseMaps(map, options).ok);
+	
+	QVERIFY(hiddenSymbols(map).isEmpty());
+	QVERIFY(!map.hasUnsavedChanges());
 }
 
 
