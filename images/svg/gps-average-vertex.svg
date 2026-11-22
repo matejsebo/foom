@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FOOM icon gps-average-vertex. Copyright 2026 Matej Šebo. Licensed under the GNU GPL, version 3 or later. -->
+<!-- Written by make_foom_icons.py; change the script, not this file. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" stroke-linejoin="round" stroke-linecap="round">
+<circle fill="none" stroke="#e01010" stroke-width="1.30" cx="16.00" cy="16.00" r="11.50"/>
+<circle fill="#505050" cx="10.00" cy="12.00" r="1.90"/>
+<circle fill="#505050" cx="21.00" cy="9.00" r="1.90"/>
+<circle fill="#505050" cx="23.00" cy="19.00" r="1.90"/>
+<circle fill="#505050" cx="13.00" cy="23.00" r="1.90"/>
+<circle fill="#505050" cx="8.00" cy="18.00" r="1.90"/>
+<circle fill="#505050" cx="18.00" cy="13.50" r="1.90"/>
+<circle fill="#505050" cx="19.00" cy="24.00" r="1.90"/>
+<circle fill="#505050" cx="12.00" cy="8.00" r="1.90"/>
+<circle fill="#505050" cx="24.00" cy="14.00" r="1.90"/>
+<polygon fill="#ffffff" stroke="#303030" stroke-width="1.20" points="13.00,13.00 19.00,13.00 19.00,19.00 13.00,19.00"/>
+</svg>

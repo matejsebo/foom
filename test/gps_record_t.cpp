@@ -25,13 +25,17 @@
 #include <QCoreApplication>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QIcon>
+#include <QImage>
 #include <QKeyEvent>
+#include <QMenu>
 #include <QObject>
 #include <QSettings>
 #include <QStaticPlugin>
 #include <QString>
 #include <QTcpServer>
 #include <QTemporaryDir>
+#include <QToolButton>
 #include <QWidget>
 
 #include "global.h"
@@ -46,6 +50,7 @@
 #include "core/symbols/line_symbol.h"
 #include "gui/main_window.h"
 #include "gui/map/map_editor.h"
+#include "gui/widgets/action_grid_bar.h"
 #include "gui/widgets/symbol_widget.h"
 #include "sensors/gps_path_recorder.h"
 #include "sensors/nmea_position_plugin.h"
@@ -70,6 +75,7 @@ private slots:
 	void recorderTest();
 	void settingsTest();
 	void editorTest();
+	void mobileButtonsTest();
 	
 private:
 	QTemporaryDir settings_dir;
@@ -332,6 +338,59 @@ void GpsRecordTest::editorTest()
 	Settings::getInstance().setPositionSource({});
 	NmeaSourceSettings{}.save();
 	window->deleteLater();
+}
+
+
+/// the design notes, "Icons and buttons in the mobile interface", Accept (1) and (2)
+void GpsRecordTest::mobileButtonsTest()
+{
+	const char* const ids[] = { "gps-record", "gps-record-pause", "gps-add-vertex", "gps-average-vertex", "gps-set-offset", "gps-clear-offset", "rangefinder" };
+	for (auto id : ids)
+	{
+		const QImage image(QStringLiteral(":/images/%1.png").arg(QLatin1String(id)));
+		QVERIFY2(!image.isNull(), id);
+		QCOMPARE(image.size(), QSize(32, 32));
+		QVERIFY2(image.hasAlphaChannel(), id);
+		QCOMPARE(image.pixelColor(0, 31).alpha(), 0);
+	}
+	
+	auto& settings = Settings::getInstance();
+	auto const touch_mode = settings.touchModeEnabled();
+	settings.setTouchModeEnabled(true);
+	auto* window = new MainWindow();
+	auto* editor = new MapEditorController(MapEditorController::MapEditor, new Map());
+	window->setController(editor);
+	QVERIFY(editor->isInMobileMode());
+	auto const bars = window->findChildren<ActionGridBar*>();
+	QVERIFY(!bars.isEmpty());
+	for (auto id : ids)
+	{
+		auto* action = editor->getAction(id);
+		QVERIFY2(action, id);
+		QVERIFY2(!action->icon().isNull(), id);
+		QToolButton* button = nullptr;
+		for (auto* bar : bars)
+		{
+			if (!button)
+				button = bar->getButtonForAction(action);
+		}
+		QVERIFY2(button, id);
+		QCOMPARE(button->defaultAction(), action);
+	}
+	// The long press on the button for the temporary trace still offers them.
+	auto* trace = editor->getAction("gpstemporarypath");
+	QToolButton* trace_button = nullptr;
+	for (auto* bar : bars)
+	{
+		if (!trace_button)
+			trace_button = bar->getButtonForAction(trace);
+	}
+	QVERIFY(trace_button && trace_button->menu());
+	QVERIFY(trace_button->menu()->actions().contains(editor->getAction("gps-record")));
+	
+	window->deleteLater();
+	QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+	settings.setTouchModeEnabled(touch_mode);
 }
 
 

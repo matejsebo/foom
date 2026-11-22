@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FOOM icon rangefinder. Copyright 2026 Matej Šebo. Licensed under the GNU GPL, version 3 or later. -->
+<!-- Written by make_foom_icons.py; change the script, not this file. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" stroke-linejoin="round" stroke-linecap="round">
+<polyline fill="none" stroke="#808080" stroke-width="1.20" points="6.00,27.00 6.00,4.00"/>
+<polyline fill="none" stroke="#e01010" stroke-width="1.80" points="6.00,16.00 6.54,16.01 7.08,16.05 7.61,16.12 8.15,16.21 8.67,16.33 9.19,16.47 9.71,16.64 10.21,16.84 10.70,17.06 11.19,17.30 11.66,17.56 12.11,17.85 12.55,18.16 12.98,18.50 13.39,18.85 13.78,19.22"/>
+<polyline fill="none" stroke="#303030" stroke-width="2.20" points="6.00,27.00 26.00,7.00"/>
+<polyline fill="none" stroke="#303030" stroke-width="1.40" points="11.00,18.80 14.20,22.00"/>
+<polyline fill="none" stroke="#303030" stroke-width="1.40" points="17.60,12.20 20.80,15.40"/>
+<circle fill="#ffffff" stroke="#303030" stroke-width="1.50" cx="6.00" cy="27.00" r="3.20"/>
+<circle fill="#303030" cx="6.00" cy="27.00" r="1.00"/>
+<circle fill="none" stroke="#e01010" stroke-width="1.60" cx="26.00" cy="7.00" r="3.20"/>
+<polyline fill="none" stroke="#e01010" stroke-width="1.40" points="20.80,7.00 24.80,7.00"/>
+<polyline fill="none" stroke="#e01010" stroke-width="1.40" points="27.20,7.00 31.20,7.00"/>
+<polyline fill="none" stroke="#e01010" stroke-width="1.40" points="26.00,1.80 26.00,5.80"/>
+<polyline fill="none" stroke="#e01010" stroke-width="1.40" points="26.00,8.20 26.00,12.20"/>
+</svg>

@@ -1415,18 +1415,18 @@ void MapEditorController::createActions()
 	gps_temporary_clear_act = newAction("gpstemporaryclear", tr("Clear temporary GPS markers"), this, SLOT(gpsTemporaryClearClicked()), "gps-temporary-clear.png", QString{}, "toolbars.html#gps_temporary_clear"); // TODO: write documentation
 	gps_temporary_clear_act->setEnabled(false);
 	// foom: the design notes, "Recording into a symbol"
-	gps_record_act = newCheckAction("gps-record", tr("Record GPS positions into the path"), this, SLOT(gpsRecordClicked(bool)), nullptr, tr("While a path is drawn, adds a vertex for every GPS position which is far enough from the last one."));
+	gps_record_act = newCheckAction("gps-record", tr("Record GPS positions into the path"), this, SLOT(gpsRecordClicked(bool)), "gps-record.png", tr("While a path is drawn, adds a vertex for every GPS position which is far enough from the last one."));
 	gps_record_act->setEnabled(false);
-	gps_record_pause_act = newCheckAction("gps-record-pause", tr("Pause recording"), this, SLOT(gpsRecordPauseClicked(bool)));
+	gps_record_pause_act = newCheckAction("gps-record-pause", tr("Pause recording"), this, SLOT(gpsRecordPauseClicked(bool)), "gps-record-pause.png");
 	gps_record_pause_act->setEnabled(false);
-	gps_add_vertex_act = newAction("gps-add-vertex", tr("Add vertex at GPS position"), this, SLOT(gpsAddVertexClicked()));
+	gps_add_vertex_act = newAction("gps-add-vertex", tr("Add vertex at GPS position"), this, SLOT(gpsAddVertexClicked()), "gps-add-vertex.png");
 	gps_add_vertex_act->setEnabled(false);
-	gps_average_vertex_act = newCheckAction("gps-average-vertex", tr("Average GPS positions for a vertex"), this, SLOT(gpsAverageVertexClicked(bool)), nullptr, tr("While it is on, the GPS positions are averaged. Switching it off adds the mean as a vertex."));
+	gps_average_vertex_act = newCheckAction("gps-average-vertex", tr("Average GPS positions for a vertex"), this, SLOT(gpsAverageVertexClicked(bool)), "gps-average-vertex.png", tr("While it is on, the GPS positions are averaged. Switching it off adds the mean as a vertex."));
 	gps_average_vertex_act->setEnabled(false);
 	// foom: the offset of the GPS position; the design notes, "Position offset and sentence log"
-	gps_set_offset_act = newToolAction("gps-set-offset", tr("Set GPS position offset"), this, SLOT(gpsSetOffsetClicked()), nullptr, tr("Click the place on the map where the GPS receiver is. The difference is added to the GPS positions which follow."));
+	gps_set_offset_act = newToolAction("gps-set-offset", tr("Set GPS position offset"), this, SLOT(gpsSetOffsetClicked()), "gps-set-offset.png", tr("Click the place on the map where the GPS receiver is. The difference is added to the GPS positions which follow."));
 	gps_set_offset_act->setEnabled(false);
-	gps_clear_offset_act = newAction("gps-clear-offset", tr("Remove GPS position offset"), this, SLOT(gpsClearOffsetClicked()));
+	gps_clear_offset_act = newAction("gps-clear-offset", tr("Remove GPS position offset"), this, SLOT(gpsClearOffsetClicked()), "gps-clear-offset.png");
 	gps_clear_offset_act->setEnabled(false);
 	// foom: the course dock; the design notes, "Course dock"
 	course_dock_act = newCheckAction("course-dock", tr("Course setting"), this, SLOT(courseDockClicked(bool)), nullptr, tr("Show or hide the course objects, the courses and their classes."));
@@ -1463,7 +1463,7 @@ void MapEditorController::createActions()
 	course_export_maps_act = newAction("course-export-maps", tr("Export course maps (PDF)..."), this, SLOT(exportCourseMapsClicked()), nullptr, tr("Write a PDF file with the map of every course, of every part of a course with a map exchange, and of every variant or runner of a relay."));
 	course_relay_variations_act = newAction("course-relay-variations", tr("Export relay variations..."), this, SLOT(exportRelayVariationsClicked()), nullptr, tr("Write which team runs which variant of the relays, as a text file."));
 	// foom: the rangefinder; the design notes, "Rangefinder dock: detail"
-	rangefinder_act = newCheckAction("rangefinder", tr("Rangefinder"), this, SLOT(rangefinderClicked(bool)), nullptr, tr("Draw from a reference point with distance and azimuth."));
+	rangefinder_act = newCheckAction("rangefinder", tr("Rangefinder"), this, SLOT(rangefinderClicked(bool)), "rangefinder.png", tr("Draw from a reference point with distance and azimuth."));
 	rangefinder_reference_act = newToolAction("rangefinder-reference", tr("Set rangefinder reference"), this, SLOT(rangefinderReferenceClicked()), nullptr, tr("Click the reference point of the rangefinder on the map."));
 	connect(this, &MapEditorController::toolChanged, this, &MapEditorController::updateGpsRecordActions);
 	if (gps_display)
@@ -2294,6 +2294,15 @@ void MapEditorController::createMobileGUI()
 	bottom_action_bar->addAction(paint_action, 0, col);
 	if (auto* button = bottom_action_bar->getButtonForAction(paint_action))
 		button->setPopupMode(QToolButton::DelayedPopup);
+	
+	// foom: the design notes, "Icons and buttons in the mobile interface"
+	bottom_action_bar->addAction(rangefinder_act, 1, col++);
+	bottom_action_bar->addAction(gps_record_act, 0, col);
+	bottom_action_bar->addAction(gps_record_pause_act, 1, col++);
+	bottom_action_bar->addAction(gps_add_vertex_act, 0, col);
+	bottom_action_bar->addAction(gps_average_vertex_act, 1, col++);
+	bottom_action_bar->addAction(gps_set_offset_act, 0, col);
+	bottom_action_bar->addAction(gps_clear_offset_act, 1, col++);
 	
 	// Right side
 	bottom_action_bar->addActionAtEnd(mobile_symbol_selector_action, 0, 1, 2, 2);

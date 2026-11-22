@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FOOM icon gps-clear-offset. Copyright 2026 Matej Šebo. Licensed under the GNU GPL, version 3 or later. -->
+<!-- Written by make_foom_icons.py; change the script, not this file. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" stroke-linejoin="round" stroke-linecap="round">
+<circle fill="#c8c8c8" stroke="#606060" stroke-width="1.00" cx="8.00" cy="24.00" r="6.50"/>
+<polygon fill="#808080" stroke="#505050" stroke-width="0.80" points="8.00,19.32 11.25,27.77 8.00,25.82 4.75,27.77"/>
+<polyline fill="none" stroke="#808080" stroke-width="2.00" points="12.50,19.50 16.96,15.04"/>
+<polygon fill="#808080" points="20.50,11.50 18.91,16.98 15.02,13.09"/>
+<circle fill="none" stroke="#808080" stroke-width="1.60" cx="24.00" cy="8.00" r="4.20"/>
+<polyline fill="none" stroke="#808080" stroke-width="1.40" points="17.80,8.00 21.80,8.00"/>
+<polyline fill="none" stroke="#808080" stroke-width="1.40" points="26.20,8.00 30.20,8.00"/>
+<polyline fill="none" stroke="#808080" stroke-width="1.40" points="24.00,1.80 24.00,5.80"/>
+<polyline fill="none" stroke="#808080" stroke-width="1.40" points="24.00,10.20 24.00,14.20"/>
+<polyline fill="none" stroke="#e01010" stroke-width="3.00" points="11.00,6.00 21.00,16.00"/>
+<polyline fill="none" stroke="#e01010" stroke-width="3.00" points="21.00,6.00 11.00,16.00"/>
+</svg>

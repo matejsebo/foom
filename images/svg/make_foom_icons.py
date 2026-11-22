@@ -187,6 +187,36 @@ ICONS = {
         line(RED, 3.0, wave(2, 21, 30, 11, 2.0, 1.5)),
         poly("#7cc47c", [(9, 6), (23, 6), (23, 26), (9, 26)], "#2e7d32", 1.6),
     ],
+    # GNSS
+    "gps-record": [circle(RED, 7, 7, 4.2, "#800000", 1.0)]
+        + path_with_vertices([(4, 28), (10, 21), (16, 24), (20, 16)]) + gps_marker(24, 10, 6.5),
+    "gps-record-pause": [
+        poly(DARK, [(3, 3), (6, 3), (6, 13), (3, 13)]),
+        poly(DARK, [(8.5, 3), (11.5, 3), (11.5, 13), (8.5, 13)]),
+    ] + path_with_vertices([(4, 28), (10, 21), (16, 24), (20, 16)]) + gps_marker(24, 10, 6.5),
+    "gps-add-vertex": gps_marker(20, 12, 9) + [
+        line("#1f7a1f", 3.0, [(3, 24), (13, 24)]),
+        line("#1f7a1f", 3.0, [(8, 19), (8, 29)]),
+        vertex(20, 26, 5),
+    ],
+    "gps-average-vertex": [
+        circle(None, 16, 16, 11.5, RED, 1.3),
+    ] + [circle("#505050", 16 + dx, 16 + dy, 1.9) for dx, dy in [(-6, -4), (5, -7), (7, 3), (-3, 7), (-8, 2), (2, -2.5), (3, 8), (-4, -8), (8, -2)]] + [
+        vertex(16, 16, 6),
+    ],
+    "gps-set-offset": gps_marker(8, 24, 6.5) + arrow(12.5, 19.5, 20.5, 11.5) + crosshair(24, 8, 4.2),
+    "gps-clear-offset": gps_marker(8, 24, 6.5, grey=True) + arrow(12.5, 19.5, 20.5, 11.5, GREY) + crosshair(24, 8, 4.2, GREY) + [
+        line(RED, 3.0, [(11, 6), (21, 16)]),
+        line(RED, 3.0, [(21, 6), (11, 16)]),
+    ],
+    "rangefinder": [
+        line(GREY, 1.2, [(6, 27), (6, 4)]),
+        line(RED, 1.8, arc(6, 27, 11, 0, 45)),
+        line(DARK, 2.2, [(6, 27), (26, 7)]),
+    ] + [line(DARK, 1.4, [(6 + 20 * t - 1.6, 27 - 20 * t - 1.6), (6 + 20 * t + 1.6, 27 - 20 * t + 1.6)]) for t in (0.33, 0.66)] + [
+        circle(WHITE, 6, 27, 3.2, DARK, 1.5),
+        circle(DARK, 6, 27, 1.0),
+    ] + crosshair(26, 7, 3.2),
 }
 
 
