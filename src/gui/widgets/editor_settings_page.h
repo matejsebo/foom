@@ -75,6 +75,8 @@ private:
 	QCheckBox* legibility_minimum_check;  // foom
 	QCheckBox* legibility_halo;  // foom
 	QDoubleSpinBox* legibility_halo_mm;  // foom
+	QComboBox* rectangle_selection;  // foom
+	QComboBox* curve_entry_style;  // foom
 };
 
 

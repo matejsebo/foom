@@ -28,6 +28,7 @@
 #include <QPointF>
 #include <QRectF>
 
+#include "core/box_selection_rule.h"  // foom
 #include "core/map_coord.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
@@ -137,7 +138,8 @@ void findObjectsInPolygon(
         const std::vector<MapCoordF>& polygon,
         bool include_hidden_objects,
         bool include_protected_objects,
-        std::vector<Object*>& out )
+        std::vector<Object*>& out,
+        bool entirely )
 {
 	if (polygon.size() < 3)
 		return;
@@ -164,6 +166,12 @@ void findObjectsInPolygon(
 		if (object->getType() != Object::Point && extent.isValid() && !bounds.intersects(extent))
 			continue;  // a point symbol which draws nothing has no extent, and is tested by its coordinate
 		auto selected = false;
+		if (entirely)  // foom
+		{
+			if (objectEntirelyInPolygon(*object, polygon))
+				out.push_back(object);
+			continue;
+		}
 		switch (object->getType())
 		{
 		case Object::Point:

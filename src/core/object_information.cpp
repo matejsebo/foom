@@ -54,8 +54,12 @@ QString flagsText(const MapCoord& coord)
 		flags << QStringLiteral("curve start");
 	if (coord.isDashPoint())
 		flags << QStringLiteral("dash");
+	if (coord.isCornerPoint())
+		flags << QStringLiteral("corner");
 	if (coord.isGapPoint())
 		flags << QStringLiteral("gap");
+	if (coord.isVirtualGap())
+		flags << QStringLiteral("virtual gap");
 	if (coord.isHolePoint())
 		flags << QStringLiteral("end of part");  // OOM's hole flag ends every part, the outer one too
 	if (coord.isClosePoint())

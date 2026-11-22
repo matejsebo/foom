@@ -53,10 +53,13 @@ OpResult setVertexType(const Map& /*map*/, const std::vector<const Object*>& in,
 			for (auto i = part.first_index; i <= part.last_index; ++i)
 			{
 				auto const is_end = i == part.first_index || i == part.last_index;
-				if (!(params.keep_ends && is_end) && coords[i].isDashPoint() != params.dash)
+				if (!(params.keep_ends && is_end))
 				{
-					coords[i].setDashPoint(params.dash);
-					changed = true;
+					auto const before = coords[i].flags();
+					coords[i].setDashPoint(params.type == VertexType::Dash || params.type == VertexType::Corner);
+					coords[i].setCornerPoint(params.type == VertexType::Corner);
+					coords[i].setVirtualGap(params.type == VertexType::VirtualGap);
+					changed |= coords[i].flags() != before;
 				}
 				if (coords[i].isCurveStart())
 					i += 2;  // skip the control points

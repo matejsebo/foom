@@ -99,6 +99,7 @@ public:
 		TemplateVisible     =  8,
 		MapVisible          = 16,
 		FavouriteTemplatesOnly = 32,  // foom
+		DraftMode           = 64,  // foom
 	};
 	
 	
@@ -309,6 +310,30 @@ public:
 	/** foom: Whether the view shows the favourite templates only. */
 	bool areFavouriteTemplatesOnly() const { return favourite_templates_only; }
 	
+	/** foom: Switches the draft view (the design notes, "Draft view"). */
+	void setDraftMode(bool value);
+	
+	/** foom: Whether the draft view is on. */
+	bool isDraftMode() const { return draft_mode; }
+	
+	/** foom: Sets how much the draft view dims the map, from 0 (not at all) to 1. */
+	void setDraftMapDim(qreal value);
+	
+	/** foom: How much the draft view dims the map. */
+	qreal draftMapDim() const { return draft_map_dim; }
+	
+	/** foom: Sets how much the draft view dims the templates, from 0 (not at all) to 1. */
+	void setDraftTemplateDim(qreal value);
+	
+	/** foom: How much the draft view dims the templates. */
+	qreal draftTemplateDim() const { return draft_template_dim; }
+	
+	/** foom: The visibility of the map on screen: effectiveMapVisibility(), dimmed in the draft view. */
+	TemplateVisibility screenMapVisibility() const;
+	
+	/** foom: The visibility of a template on screen: its visibility, dimmed in the draft view. */
+	TemplateVisibility screenTemplateVisibility(const Template* temp) const;
+	
 	
 	/** Returns if the map grid is visible. */
 	bool isGridVisible() const;
@@ -423,6 +448,9 @@ private:
 	
 	bool all_templates_hidden;
 	bool favourite_templates_only = false;  // foom
+	bool draft_mode = false;  // foom
+	qreal draft_map_dim = 0.5;  // foom
+	qreal draft_template_dim = 0.5;  // foom
 	bool grid_visible;
 	bool overprinting_simulation_enabled;
 };

@@ -47,6 +47,7 @@
 #include "core/renderables/renderable_implementation.h"
 #include "core/symbols/area_symbol.h"
 #include "core/symbols/point_symbol.h"
+#include "core/symbols/virtual_gap.h"  // foom
 #include "core/symbols/symbol.h"
 #include "core/virtual_coord_vector.h"
 #include "core/virtual_path.h"
@@ -285,9 +286,22 @@ void LineSymbol::createRenderables(
         ObjectRenderables& output,
         RenderableOptions options ) const
 {
+	MapCoordVector virtual_gap_flags;  // foom
+	MapCoordVectorF virtual_gap_coords;  // foom
 	if (options.testFlag(Symbol::RenderBaselines))
 	{
 		createBaselineRenderables(object, path_parts, output, guessDominantColor());
+	}
+	else if (splitAtVirtualGaps(path_parts, virtual_gap_flags, virtual_gap_coords))  // foom
+	{
+		// the design notes, "Corner and virtual gap vertices"
+		createStartEndSymbolRenderables(path_parts, output);
+		auto const coords = VirtualCoordVector(virtual_gap_flags, virtual_gap_coords);
+		for (const auto& part : PathPart::calculatePathParts(coords))
+		{
+			createSinglePathRenderables(part, part.isClosed(), output);
+			flushMidSymbols(part, output);
+		}
 	}
 	else
 	{

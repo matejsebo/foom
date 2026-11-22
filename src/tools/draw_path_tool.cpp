@@ -60,6 +60,7 @@
 #include "gui/widgets/key_button_bar.h"
 #include "tools/legibility_feedback.h"  // foom
 #include "tools/tool.h"
+#include "tools/curve_entry_style.h"  // foom
 #include "tools/tool_helpers.h"
 #include "util/util.h"
 #include "undo/object_undo.h"
@@ -758,10 +759,14 @@ void DrawPathTool::createPreviewCurve(MapCoord position, qreal direction)
 	const MapCoord previous_point = preview_path->getCoordinate(last - 3);
 	const MapCoord last_point = preview_path->getCoordinate(last);
 	
-	double bezier_handle_distance = BEZIER_HANDLE_DISTANCE * previous_point.distanceTo(last_point);
+	// foom: the design notes, "Curve entry style"
+	auto const style = curveEntryStyle();
+	auto const chord = previous_point.distanceTo(last_point);
+	auto const previous_distance = curveHandleLength(style, chord, previous_pos_map.distanceTo(previous_drag_map));
+	auto const bezier_handle_distance = curveHandleLength(style, chord, dragging ? click_pos_map.distanceTo(constrained_pos_map) : 0.0);
 	
-	preview_path->setCoordinate(last - 2, MapCoord(previous_point.x() - bezier_handle_distance * sin(previous_point_direction),
-	                                               previous_point.y() - bezier_handle_distance * cos(previous_point_direction)));
+	preview_path->setCoordinate(last - 2, MapCoord(previous_point.x() - previous_distance * sin(previous_point_direction),
+	                                               previous_point.y() - previous_distance * cos(previous_point_direction)));
 	preview_path->setCoordinate(last - 1, MapCoord(last_point.x() + bezier_handle_distance * sin(direction),
 	                                               last_point.y() + bezier_handle_distance * cos(direction)));
 	updatePreviewPath();	

@@ -220,6 +220,18 @@ set(Mapper_Common_SRCS
   core/ops/transform.cpp
   core/ops/vertex_type.cpp
   core/ops/wkt.cpp
+  # foom: editing and view additions of 2026-11-22
+  core/box_selection_rule.cpp
+  core/glyph_code.cpp
+  core/map_view_draft.cpp
+  core/unsymbolized_objects.cpp
+  core/symbols/virtual_gap.cpp
+  course/impassable_features.cpp
+  gui/map/draft_view_bar.cpp
+  gui/map/insert_glyph_dialog.cpp
+  gui/map/view_highlights.cpp
+  tools/curve_entry_style.cpp
+  tools/text_object_glyph.cpp
   
   core/renderables/renderable.cpp
   core/renderables/renderable_implementation.cpp

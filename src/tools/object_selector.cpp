@@ -27,6 +27,7 @@
 
 #include <QRectF>
 
+#include "core/box_selection_rule.h"  // foom
 #include "core/map.h"
 #include "core/object_groups.h"  // foom
 // IWYU pragma: no_include "core/map_part.h"
@@ -141,6 +142,13 @@ bool ObjectSelector::selectBox(const MapCoordF& corner1, const MapCoordF& corner
 	
 	std::vector<Object*> objects;
 	map->findObjectsAtBox(corner1, corner2, false, false, objects);
+	if (rectangleSelectsEntirelyInside())  // foom: the design notes, "Rectangle selection rule"
+	{
+		auto const box = QRectF(QPointF(corner1), QPointF(corner2));
+		objects.erase(std::remove_if(objects.begin(), objects.end(), [&box](const Object* object) {
+			return !objectEntirelyInBox(*object, box);
+		}), objects.end());
+	}
 	
 	if (!toggle)
 	{

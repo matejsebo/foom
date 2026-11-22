@@ -130,10 +130,11 @@ TextObjectEditorHelper::TextObjectEditorHelper(not_null<TextObject*> text_object
 	auto window = editor->getWindow();
 	window->setShortcutsBlocked(true);
 	
-	if (!text_object->followsPath())  // foom: line text takes its alignment from the symbol
 	{
 		auto const title = QCoreApplication::translate("OpenOrienteering::TextObjectAlignmentDockWidget", "Alignment");
-		alignment_toolbar = makeAlignmentToolBar();
+		// foom: line text takes its alignment from the symbol; the toolbar then holds the glyph button alone
+		alignment_toolbar = text_object->followsPath() ? new QToolBar() : makeAlignmentToolBar();
+		addInsertGlyphAction(alignment_toolbar);  // foom
 		editor->showPopupWidget(alignment_toolbar, title, MapEditorController::PopupLocationTop);
 	}
 	

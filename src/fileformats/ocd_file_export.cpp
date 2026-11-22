@@ -3703,7 +3703,11 @@ quint16 OcdFileExport::exportCoordinates(const MapCoordVector& coords, const Sym
 			top_right.setNativeY(point.nativeY());
 		
 		auto p = convertPoint(point);
-		if (point.isDashPoint())
+		if (point.isDashPoint() && point.isCornerPoint())
+		{
+			p.y |= Ocd::OcdPoint32::FlagCorner;  // foom: the design notes, "Corner and virtual gap vertices"
+		}
+		else if (point.isDashPoint())
 		{
 			if (!symbol || symbol->getType() != Symbol::Line)
 				p.y |= Ocd::OcdPoint32::FlagCorner;

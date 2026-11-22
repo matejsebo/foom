@@ -137,6 +137,15 @@ public:
 	/** foom: Returns the position of the text cursor in the text. */
 	int cursorPosition() const { return cursor_position; }
 	
+	/** foom: Puts the glyph in place of the selection, as typing does (the design notes, "Insert glyphs"). */
+	void insertGlyph(const QString& glyph);
+	
+	/** foom: Selects the text from anchor to cursor. */
+	bool setTextSelection(int anchor, int cursor) { return setSelection(anchor, cursor); }
+	
+	/** foom: The toolbar shown above the map while the text is edited. */
+	QToolBar* toolBar() const;
+	
 
 private slots:	
 	/**
@@ -270,6 +279,12 @@ private:
 	
 	
 	QToolBar* makeAlignmentToolBar();
+	
+	/** foom: Adds "Insert glyph..." to the toolbar. */
+	void addInsertGlyphAction(QToolBar* toolbar);
+	
+	/** foom: Asks for a glyph and inserts it. */
+	void insertGlyphClicked();
 	
 	void setHorizontalAlignment(int h_alignment);
 	

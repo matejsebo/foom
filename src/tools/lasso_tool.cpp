@@ -35,6 +35,7 @@
 #include <QRectF>
 #include <QString>
 
+#include "core/box_selection_rule.h"  // foom
 #include "core/lasso_query.h"
 #include "core/map.h"
 #include "core/map_part.h"
@@ -70,7 +71,7 @@ bool LassoTool::selectPolygon(const std::vector<MapCoordF>& polygon, bool toggle
 {
 	// the design notes, "Lasso selection".
 	std::vector<Object*> objects;
-	findObjectsInPolygon(*map()->getCurrentPart(), polygon, false, false, objects);
+	findObjectsInPolygon(*map()->getCurrentPart(), polygon, false, false, objects, rectangleSelectsEntirelyInside());  // foom: "Rectangle selection rule"
 	
 	auto selection_changed = false;
 	if (!toggle)
