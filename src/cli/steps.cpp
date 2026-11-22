@@ -93,6 +93,7 @@
 #ifdef MAPPER_USE_GDAL
 #  include "gdal/cmyk_tiff.h"  // foom
 #  include "gdal/geodata_import.h"  // foom
+#  include "gdal/import_rule_choice.h"  // foom
 #  include "gdal/new_map.h"  // foom
 #endif
 
@@ -242,6 +243,14 @@ void addWarnings(StepResult& result, const std::vector<QString>& warnings)
 	QJsonArray array;
 	for (auto const& warning : warnings)
 		array.append(warning);
+	result.details.insert(QLatin1String("warnings"), array);
+}
+
+// foom: adds one warning to those of the result
+void appendWarning(StepResult& result, const QString& warning)
+{
+	auto array = result.details.value(QLatin1String("warnings")).toArray();
+	array.append(warning);
 	result.details.insert(QLatin1String("warnings"), array);
 }
 
@@ -1099,7 +1108,8 @@ void StepRunner::validate(const Step& step, bool& map_open)
 		p.requireMap(map_open);
 		p.checkKnown({ "path", "crt", "layer", "clip" });
 		p.requireString("path");
-		p.optionalString("crt");
+		if (p.value("crt") != QJsonValue(false))  // foom: false, the default symbols
+			p.optionalString("crt");
 		parseImportLayers(p);
 		if (p.has("clip"))
 			p.numberArray(p.value("clip"), 4, QLatin1String("\"clip\""));
@@ -1422,7 +1432,8 @@ StepResult StepRunner::open(const Step& step)
 
 #ifdef MAPPER_USE_GDAL
 // foom: the import step with the import options
-static StepResult importGeodataStep(Map& map, const Job& job, const Params& p, const QString& path, const QString& crt)
+static StepResult importGeodataStep(Map& map, const Job& job, const Params& p, const QString& path, const QString& crt,
+                                    const ImportRuleChoice* choice = nullptr)
 {
 	auto const* format = FileFormats.findFormatForFilename(path, &FileFormat::supportsFileImport);
 	if (!format || qstrcmp(format->id(), "OGR") != 0)
@@ -1437,6 +1448,11 @@ static StepResult importGeodataStep(Map& map, const Job& job, const Params& p, c
 	}
 	if (!crt.isEmpty())
 		options.crt_file = job.resolvePath(crt);
+	if (choice)  // foom: "Choosing the table from the dataset"
+	{
+		options.crt_file = choice->crt_file;
+		options.layer_tag = choice->layer_tag;
+	}
 	
 	auto const outcome = importGeodata(map, { path }, options);
 	if (!outcome.ok)
@@ -1444,6 +1460,11 @@ static StepResult importGeodataStep(Map& map, const Job& job, const Params& p, c
 	StepResult result;
 	result.details.insert(QLatin1String("path"), path);
 	result.details.insert(QLatin1String("objects"), outcome.objects);
+	if (choice)
+	{
+		result.details.insert(QLatin1String("dataset"), choice->dataset);
+		result.details.insert(QLatin1String("crt"), choice->crt_file);
+	}
 	addWarnings(result, std::vector<QString>(outcome.warnings.begin(), outcome.warnings.end()));
 	return result;
 }
@@ -1454,11 +1475,32 @@ StepResult StepRunner::import(const Step& step)
 {
 	Params p(step);
 	auto const path = job.resolvePath(p.requireString("path"));
-	auto const crt = p.optionalString("crt");
+	auto const default_symbols = p.value("crt") == QJsonValue(false);  // foom
+	auto const crt = default_symbols ? QString() : p.optionalString("crt");
 	
 #ifdef MAPPER_USE_GDAL
+	// foom: without "crt", the shipped table chosen from the dataset
+	QString no_table;
+	if (!p.has("crt") && !default_symbols)
+	{
+		auto const* format = FileFormats.findFormatForFilename(path, &FileFormat::supportsFileImport);
+		if (format && qstrcmp(format->id(), "OGR") == 0)
+		{
+			auto const choice = chooseImportRules({ path }, *map);
+			if (!choice.crt_file.isEmpty())
+				return importGeodataStep(*map, job, p, path, {}, &choice);
+			if (!choice.dataset.isEmpty())
+				no_table = QString::fromLatin1("No rule table for %1 and the symbol set \"%2\": default symbols")
+				           .arg(choice.dataset, map->symbolSetId());
+		}
+	}
 	if (p.has("layer") || p.has("clip"))
-		return importGeodataStep(*map, job, p, path, crt);  // foom: the import options
+	{
+		auto result = importGeodataStep(*map, job, p, path, crt);  // foom: the import options
+		if (!no_table.isEmpty())
+			appendWarning(result, no_table);
+		return result;
+	}
 #endif
 	
 	Map imported;
@@ -1472,6 +1514,10 @@ StepResult StepRunner::import(const Step& step)
 	StepResult result;
 	result.details.insert(QLatin1String("path"), path);
 	addWarnings(result, importer->warnings());
+#ifdef MAPPER_USE_GDAL
+	if (!no_table.isEmpty())
+		appendWarning(result, no_table);  // foom
+#endif
 	
 	if (!crt.isEmpty())
 	{

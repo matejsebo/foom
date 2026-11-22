@@ -64,10 +64,14 @@ in millimetres on the map. *Off* keeps every vertex.
 **Symbols**: *Default symbols* gives the objects one simple point, line, area and text symbol each;
 *CRT file* assigns the map's own symbols by the rules of a [CRT file](crt_files.md).
 
+FOOM ships rule tables for OpenStreetMap and recognises its files. When the map's symbol set has a table,
+the dialog starts with *CRT file* and that table, and says so under the field.
+Choose another file to override it.
+
 
 ### The options of the last import
 
-The dialog starts with the options of the last import which was confirmed with **OK**:
+Apart from a rule table recognised from the data, the dialog starts with the options of the last import which was confirmed with **OK**:
 the coordinate system choice, the units, offset and rotation, the clip (and the typed box),
 the layer name tag, the text attribute, the block option, the simplify tolerance and the symbols.
 The layers are not remembered; for new files they are all checked.

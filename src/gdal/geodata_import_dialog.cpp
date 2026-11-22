@@ -52,6 +52,7 @@
 #include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_coord.h"
+#include "gdal/import_rule_choice.h"
 #include "gui/util_gui.h"
 
 
@@ -200,6 +201,10 @@ GeodataImportDialog::GeodataImportDialog(const QStringList& paths, const Map& ma
 	crt_layout->addWidget(crt_edit, 1);
 	crt_layout->addWidget(crt_button);
 	layout->addRow(tr("CRT file:"), crt_layout);
+	rule_choice_label = new QLabel();  // foom: "Choosing the table from the dataset"
+	rule_choice_label->setWordWrap(true);
+	rule_choice_label->setVisible(false);
+	layout->addRow(rule_choice_label);
 	
 	buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::Help);  // foom: Help
 	layout->addRow(buttons);
@@ -217,9 +222,11 @@ GeodataImportDialog::GeodataImportDialog(const QStringList& paths, const Map& ma
 	         { box_spins[2], "box_spin_2" }, { box_spins[3], "box_spin_3" },
 	         { layer_tag_combo, "layer_tag_combo" }, { text_combo, "text_combo" },
 	         { blocks_check, "blocks_check" }, { simplify_spin, "simplify_spin" },
-	         { symbols_combo, "symbols_combo" }, { crt_edit, "crt_edit" } })
+	         { symbols_combo, "symbols_combo" }, { crt_edit, "crt_edit" },
+	         { rule_choice_label, "rule_choice_label" } })
 		pair.first->setObjectName(QLatin1String(pair.second));
 	restoreOptions();
+	applyRuleChoice();
 	
 	connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
 	connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -232,6 +239,10 @@ GeodataImportDialog::GeodataImportDialog(const QStringList& paths, const Map& ma
 		connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &GeodataImportDialog::updateWidgets);
 	connect(crs_edit, &QLineEdit::textChanged, this, &GeodataImportDialog::updateWidgets);
 	connect(crt_edit, &QLineEdit::textChanged, this, &GeodataImportDialog::updateWidgets);
+	connect(crt_edit, &QLineEdit::textChanged, this, [this](const QString& text) {
+		if (text != chosen_crt)
+			rule_choice_label->setVisible(false);
+	});
 	updateWidgets();
 }
 
@@ -322,6 +333,22 @@ void GeodataImportDialog::restoreOptions()
 	crt_edit->setText(settings.value(QStringLiteral("crt_file")).toString());
 	if (settings.value(QStringLiteral("symbols")).toString() == QLatin1String("crt"))
 		select_data(symbols_combo, int(CrtSymbols));
+}
+
+
+// foom: the design notes, "Choosing the table from the dataset"
+void GeodataImportDialog::applyRuleChoice()
+{
+	auto const choice = chooseImportRules(paths, map);
+	if (choice.crt_file.isEmpty())
+		return;
+	symbols_combo->setCurrentIndex(symbols_combo->findData(int(CrtSymbols)));
+	chosen_crt = QDir::toNativeSeparators(choice.crt_file);
+	crt_edit->setText(chosen_crt);
+	if (choice.layer_tag == GeodataImportOptions::LayerNameTag)
+		layer_tag_combo->setCurrentIndex(1);
+	rule_choice_label->setText(tr("Rule table for %1 chosen from the data.").arg(geodataDatasetTitle(choice.dataset)));
+	rule_choice_label->setVisible(true);
 }
 
 
