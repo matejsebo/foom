@@ -320,6 +320,7 @@ add_dependencies(merge_t foom-cli)
 add_system_test(generator_more_t)  # foom: the design notes, Generators, second change
 add_system_test(qr_code_t)  # foom: the design notes, Generators, gen-qr-code
 add_system_test(import_points_t)  # foom: the design notes, Delimited text
+add_system_test(map_import_policy_t)  # foom: the design notes, Map import policies
 add_system_test(text_symbol_t)
 add_system_test(line_taper_t)
 add_system_test(area_pattern_t)

@@ -10,6 +10,7 @@ FOOM imports geospatial vector data (every format which [GDAL](gdal.md) reads, s
 Shapefile, DXF or OSM) through the *Import geodata* dialog.
 It opens from **File > Import geodata...**, which takes several files at once,
 and from **File > Import...** when the chosen file is such a format.
+Map files have a dialog of their own, see [Map files](#map-files) below.
 
 The objects are added to the current map part. The whole import is one step of **Edit > Undo**.
 
@@ -72,3 +73,27 @@ the layer name tag, the text attribute, the block option, the simplify tolerance
 The layers are not remembered; for new files they are all checked.
 An attribute which the new file does not have is not chosen.
 **Cancel** keeps the options of the import before.
+
+
+### Map files
+
+**File > Import...** of a map file (FOOM, OpenOrienteering Mapper or OCD) asks how the symbols and colours
+of the file are taken. A symbol of the file *clashes* when the map has a symbol of the same number.
+A clashing symbol which is the same in every respect is simply shared.
+
+- **No symbols or colours**: objects take the map's symbol of their number; objects whose number the map
+  lacks are left out.
+- **Only symbols whose number is absent**: new symbols come with their colours; objects of a clashing
+  symbol take the map's symbol.
+- **Absent symbols, renumbering on a clash**: a clashing symbol which differs is added under a new number
+  below its own, such as 102.1 for 102.
+- **All symbols and colours, replacing on a clash**: every symbol and colour of the file; a clashing symbol
+  which differs replaces the map's, also for the map's own objects.
+
+**New colours** go above the map's colours (drawn on top) or below them.
+**Protect the imported symbols** marks them protected.
+When the file has another scale, **Scale** brings its data to the map's scale.
+
+The objects are placed **by georeferencing**, **by offset** (in millimetres on the map),
+or **by mouse**: at the centre of the view, selected, so that they can be dragged into place.
+The dialog remembers the choices of symbols, colours and protection.

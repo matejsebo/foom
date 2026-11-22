@@ -173,6 +173,7 @@
 #include "gui/map/sketch_dialog.h"  // foom
 #include "gui/map/image_properties_dialog.h"  // foom
 #include "gui/map/import_points_dialog.h"  // foom
+#include "gui/map/map_import_dialog.h"  // foom
 #include "gui/symbols/symbol_setting_dialog.h"  // foom
 #include "layout/generator.h"  // foom
 #include "sketch/sketch.h"  // foom
@@ -7920,7 +7921,29 @@ bool MapEditorController::importMapFile(const QString& filename, bool show_error
 	if (show_errors && !importer->warnings().empty())
 	    MainWindow::showMessageBox(window, tr("Warning"), tr("The map import generated warnings."), importer->warnings());
 	
-	return importMapWithReplacement(imported_map, Map::MinimalObjectImport | Map::GeorefImport, filename);
+	// foom: the import policies, the design notes, "Map import policies"
+	if (!SymbolReplacement(imported_map, *map).withAutoCrtFile(window, filename))
+	{
+		if (QMessageBox::question(window, ::OpenOrienteering::Map::tr("Import..."),
+		                          ::OpenOrienteering::Map::tr("Symbol replacement was canceled.\n"
+		                                                      "Import the data anyway?"),
+		                          QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::No)
+			return false;
+	}
+	MapImportDialog dialog(imported_map, *map, window);
+	auto const center = main_view->center();
+	dialog.setViewCenter(QPointF(center.x(), center.y()));
+	if (dialog.exec() != QDialog::Accepted)
+		return false;
+	auto const result = importMapWithPolicy(*map, imported_map, dialog.policy());
+	if (!result.ok)
+	{
+		QMessageBox::warning(window, tr("Error"), result.error);
+		return false;
+	}
+	if (!result.warnings.isEmpty())
+		window->showStatusBarMessage(result.warnings.join(QLatin1Char(' ')), 6000);
+	return true;
 }
 
 bool MapEditorController::importOgrFile(const QString& filename)
