@@ -138,6 +138,7 @@
 #include "elevation/raster_products.h"  // foom
 #include "core/ops/align.h"
 #include "core/ops/apply_op.h"
+#include "core/ops/gradient.h"  // foom
 #include "core/ops/offset.h"
 #include "core/ops/vertex_type.h"
 #include "core/ops/group.h"
@@ -148,6 +149,7 @@
 #include "core/ops/mirror.h"
 #include "core/ops/transform.h"
 #include "core/symbols/line_symbol.h"  // foom
+#include "core/symbols/object_style.h"  // foom
 #include "core/symbols/private_symbol.h"  // foom
 #include "core/symbols/symbol.h"
 #include "core/symbols/symbol_icon_decorator.h"
@@ -172,7 +174,9 @@
 #include "gui/map/generator_dialog.h"  // foom
 #include "gui/map/merge_dialog.h"  // foom
 #include "gui/map/sketch_dialog.h"  // foom
+#include "gui/map/gradient_dialog.h"  // foom
 #include "gui/map/image_properties_dialog.h"  // foom
+#include "gui/map/object_style_dialog.h"  // foom
 #include "gui/map/import_points_dialog.h"  // foom
 #include "gui/symbols/symbol_setting_dialog.h"  // foom
 #include "layout/generator.h"  // foom
@@ -1509,6 +1513,9 @@ void MapEditorController::createActions()
 	image_add_act = newAction("image-add", tr("Add image..."), this, SLOT(addImageClicked()), nullptr, tr("Adds a PNG or JPEG image to the map."), "map_menu.html");
 	image_embed_act = newAction("image-embed", tr("Embed image"), this, SLOT(embedImageClicked()), nullptr, tr("Stores the selected linked images in the map file."), "map_menu.html");
 	image_properties_act = newAction("image-properties", tr("Image properties..."), this, SLOT(imagePropertiesClicked()), nullptr, tr("Sets the opacity and the position of the selected images."), "map_menu.html");
+	image_clip_act = newAction("image-clip", tr("Clip image"), this, SLOT(imageClipClicked()), nullptr, tr("Clips the selected images to the outline of the selected areas."), "map_menu.html");
+	image_unclip_act = newAction("image-unclip", tr("Remove image clipping"), this, SLOT(imageUnclipClicked()), nullptr, tr("Shows the selected images whole again."), "map_menu.html");
+	gradient_act = newAction("gradient-create", tr("Gradient fill..."), this, SLOT(gradientClicked()), nullptr, tr("Fills the selected areas with a colour gradient image."), "map_menu.html");
 	// foom: the design notes, "Generators"
 	gen_scale_bar_act = newAction("gen-scale-bar", tr("Scale bar..."), this, SLOT(generateScaleBarClicked()), nullptr, QString{}, "map_menu.html");
 	gen_north_lines_act = newAction("gen-north-lines", tr("North lines..."), this, SLOT(generateNorthLinesClicked()), nullptr, QString{}, "map_menu.html");
@@ -1851,6 +1858,9 @@ void MapEditorController::createMenuAndToolbars()
 	map_menu->addAction(image_add_act);  // foom
 	map_menu->addAction(image_embed_act);  // foom
 	map_menu->addAction(image_properties_act);  // foom
+	map_menu->addAction(image_clip_act);  // foom
+	map_menu->addAction(image_unclip_act);  // foom
+	map_menu->addAction(gradient_act);  // foom
 	auto* generate_menu = map_menu->addMenu(tr("Generate"));  // foom
 	generate_menu->menuAction()->setMenuRole(QAction::NoRole);
 	generate_menu->addAction(gen_scale_bar_act);
@@ -8014,6 +8024,18 @@ void MapEditorController::objectStyleClicked()
 	auto const index = map->findSymbolIndex(sharedPrivateSymbol(*map));
 	if (index < 0)
 		return;
+	{
+		// The reduced panel first, the full symbol editor on request.
+		ObjectStyleDialog panel(*map, objectStyleOf(*map->getSymbol(index)), window);
+		panel.setWindowModality(Qt::WindowModal);
+		if (panel.exec() == QDialog::Accepted)
+		{
+			setObjectStyle(*map, panel.style());
+			return;
+		}
+		if (!panel.symbolEditorRequested())
+			return;
+	}
 	SymbolSettingDialog dialog(map->getSymbol(index), map, window);
 	dialog.setWindowModality(Qt::WindowModal);
 	if (dialog.exec() == QDialog::Accepted)
@@ -8142,7 +8164,34 @@ void MapEditorController::imagePropertiesClicked()
 	ImagePropertiesDialog dialog(*image, window);
 	dialog.setWindowModality(Qt::WindowModal);
 	if (dialog.exec() == QDialog::Accepted)
-		setSelectedImageProperties(*map, dialog.opacity(), dialog.layer());
+		setSelectedImageProperties(*map, dialog.opacity(), dialog.layer(), dialog.spotColorName());
+}
+
+void MapEditorController::imageClipClicked()
+{
+	auto const count = clipSelectedImages(*map);
+	window->showStatusBarMessage(tr("Clipped %n image(s).", nullptr, count), 2000);
+	updateLayoutActions();
+}
+
+void MapEditorController::imageUnclipClicked()
+{
+	auto const count = unclipSelectedImages(*map);
+	window->showStatusBarMessage(tr("Removed the clipping of %n image(s).", nullptr, count), 2000);
+	updateLayoutActions();
+}
+
+void MapEditorController::gradientClicked()
+{
+	std::vector<const Object*> in(map->selectedObjects().begin(), map->selectedObjects().end());
+	auto const line_selected = std::any_of(in.begin(), in.end(), [](const Object* object) {
+		return object->getType() == Object::Path && !object->asPath()->parts().empty() && !object->asPath()->parts().front().isClosed();
+	});
+	GradientDialog dialog(*map, line_selected, window);
+	dialog.setWindowModality(Qt::WindowModal);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	applyOpResult(ops::gradientFill(*map, in, dialog.params()));
 }
 
 void MapEditorController::embedImageClicked()
@@ -8379,6 +8428,9 @@ void MapEditorController::updateLayoutActions()
 	image_add_act->setEnabled(!editing_in_progress);
 	image_embed_act->setEnabled(!editing_in_progress && have_selection && isLinkedImageSelected(*map));
 	image_properties_act->setEnabled(!editing_in_progress && have_selection && firstSelectedImage(*map));
+	image_clip_act->setEnabled(!editing_in_progress && have_selection && canClipSelectedImages(*map));
+	image_unclip_act->setEnabled(!editing_in_progress && have_selection && isClippedImageSelected(*map));
+	gradient_act->setEnabled(!editing_in_progress && have_selection);
 	gen_scale_bar_act->setEnabled(!editing_in_progress);
 	gen_north_lines_act->setEnabled(!editing_in_progress);
 	gen_legend_act->setEnabled(!editing_in_progress);

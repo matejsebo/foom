@@ -24,6 +24,7 @@
 #include <QtGlobal>
 #include <QDialog>
 #include <QObject>
+#include <QString>
 
 #include "core/objects/image_object.h"
 
@@ -54,9 +55,13 @@ public:
 	/** The layer as chosen. */
 	ImageObject::Layer layer() const;
 	
+	/** The name of the spot colour as chosen, empty for none. */
+	QString spotColorName() const;
+	
 private:
 	QSpinBox* opacity_edit;
 	QComboBox* layer_combo;
+	QComboBox* spot_combo;
 };
 
 

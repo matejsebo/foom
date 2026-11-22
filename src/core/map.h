@@ -1846,6 +1846,8 @@ private:
 	
 	/** foom: Draws the image objects of one layer, see ImageObject::Layer. */
 	void drawImages(QPainter* painter, const RenderConfig& config, bool above) const;
+	/** foom: Draws the image objects of one layer printed in the spot colour. */
+	void drawSpotImages(QPainter* painter, const RenderConfig& config, const MapColor* spot_color, bool use_color, bool above) const;
 	bool has_image_objects = false;  ///< foom: set once an image object was drawable
 	
 	// Static

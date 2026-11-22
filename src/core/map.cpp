@@ -865,7 +865,31 @@ void Map::drawColorSeparation(QPainter* painter, const RenderConfig& config, con
 	updateObjects();
 	
 	// The actual drawing
+	drawSpotImages(painter, config, spot_color, use_color, false);  // foom
 	renderables->drawColorSeparation(painter, config, spot_color, use_color);
+	drawSpotImages(painter, config, spot_color, use_color, true);  // foom
+}
+
+// foom
+void Map::drawSpotImages(QPainter* painter, const RenderConfig& config, const MapColor* spot_color, bool use_color, bool above) const
+{
+	if (!has_image_objects || !spot_color || spot_color->getSpotColorMethod() != MapColor::SpotColor)
+		return;
+
+	for (auto const* part : parts)
+	{
+		if (!part->isVisible())
+			continue;
+		for (int i = 0; i < part->getNumObjects(); ++i)
+		{
+			auto const* object = part->getObject(i);
+			if (object->getType() != Object::Image)
+				continue;
+			auto const* image = static_cast<const ImageObject*>(object);
+			if ((image->layer() == ImageObject::AboveMap) == above && image->spotColor() == spot_color)
+				image->drawSeparation(painter, config, use_color);
+		}
+	}
 }
 
 void Map::drawGrid(QPainter* painter, const QRectF& bounding_box)

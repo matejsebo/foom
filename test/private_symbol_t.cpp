@@ -44,8 +44,12 @@
 #include "core/symbols/area_symbol.h"
 #include "core/symbols/combined_symbol.h"
 #include "core/symbols/line_symbol.h"
+#include "core/symbols/object_style.h"
+#include "core/symbols/point_symbol.h"
 #include "core/symbols/private_symbol.h"
 #include "core/symbols/symbol.h"
+#include "core/symbols/text_symbol.h"
+#include "core/objects/text_object.h"
 #include "fileformats/file_import_export.h"
 #include "fileformats/xml_file_format.h"
 #include "undo/undo_manager.h"
@@ -388,6 +392,162 @@ private slots:
 		auto const* part = map.getPart(0);
 		QVERIFY(part->getObject(0)->getSymbol() != part->getObject(1)->getSymbol());
 		QCOMPARE(map.getNumColors(), 1);
+	}
+
+	/// Accept (8)
+	void objectStyleOfTest()
+	{
+		Map map;
+		auto* red_color = addColor(map, QStringLiteral("Red"), red);
+		auto* blue_color = addColor(map, QStringLiteral("Blue"), MapColorCmyk(1, 0.5f, 0, 0));
+
+		LineSymbol line;
+		line.setColor(red_color);
+		line.setLineWidth(0.5);
+		auto style = objectStyleOf(*makePrivateCopy(line));
+		QVERIFY(style.has_line);
+		QCOMPARE(style.line_color, red_color);
+		QCOMPARE(style.line_width, 0.5);
+		QVERIFY(!style.has_fill);
+		QVERIFY(!style.has_text);
+
+		auto* border = new LineSymbol();
+		border->setColor(blue_color);
+		border->setLineWidth(0.3);
+		auto* fill = new AreaSymbol();
+		fill->setColor(red_color);
+		CombinedSymbol combined;
+		combined.setNumParts(2);
+		combined.setPart(0, border, true);
+		combined.setPart(1, fill, true);
+		style = objectStyleOf(combined);
+		QVERIFY(style.has_line);
+		QCOMPARE(style.line_color, blue_color);
+		QCOMPARE(style.line_width, 0.3);
+		QVERIFY(style.has_fill);
+		QCOMPARE(style.fill_color, red_color);
+		QVERIFY(!style.has_text);
+
+		TextSymbol text;
+		text.setColor(red_color);
+		text.setFontFamily(QStringLiteral("Arial"));
+		text.setFontSize(4000);
+		style = objectStyleOf(text);
+		QVERIFY(style.has_text);
+		QCOMPARE(style.text_color, red_color);
+		QCOMPARE(style.font_family, QStringLiteral("Arial"));
+		QCOMPARE(style.font_size, 4.0);
+		QVERIFY(!style.has_line);
+
+		PointSymbol point;
+		style = objectStyleOf(point);
+		QVERIFY(!style.has_line);
+		QVERIFY(!style.has_fill);
+		QVERIFY(!style.has_text);
+	}
+
+	/// Accept (9)
+	void setObjectStyleTest()
+	{
+		Map map;
+		auto* red_color = addColor(map, QStringLiteral("Red"), red);
+		auto* blue_color = addColor(map, QStringLiteral("Blue"), MapColorCmyk(1, 0.5f, 0, 0));
+		auto* line = addLineSymbol(map, QStringLiteral("Line"), red_color, 101, 0.5);
+		auto* a = addLine(map, line, 0.0);
+		auto* b = addLine(map, line, 5.0);
+		auto* c = addLine(map, line, 10.0);
+		select(map, { a });
+		QCOMPARE(convertToGraphic(map), 1);
+		auto const* old_symbol = a->getSymbol();
+		b->setSymbol(old_symbol, true);
+		c->setSymbol(old_symbol, true);
+		select(map, { a, b });
+		QCOMPARE(sharedPrivateSymbol(map), old_symbol);
+
+		auto const steps = map.undoManager().undoStepCount();
+		auto style = objectStyleOf(*old_symbol);
+		style.line_color = blue_color;
+		style.line_width = 0.8;
+		QVERIFY(setObjectStyle(map, style));
+		QCOMPARE(map.undoManager().undoStepCount(), steps + 1);
+		auto const* new_symbol = a->getSymbol();
+		QVERIFY(new_symbol != old_symbol);
+		QCOMPARE(b->getSymbol(), new_symbol);
+		QVERIFY(new_symbol->isPrivate());
+		QVERIFY(map.findSymbolIndex(new_symbol) >= 0);
+		QCOMPARE(new_symbol->asLine()->getColor(), blue_color);
+		QCOMPARE(new_symbol->asLine()->getLineWidth(), 800);
+		QCOMPARE(c->getSymbol(), old_symbol);
+		QCOMPARE(old_symbol->asLine()->getColor(), red_color);
+		QCOMPARE(old_symbol->asLine()->getLineWidth(), 500);
+
+		map.undoManager().undo();
+		QCOMPARE(map.getPart(0)->getObject(0)->getSymbol(), old_symbol);
+		QCOMPARE(map.getPart(0)->getObject(1)->getSymbol(), old_symbol);
+
+		auto* first = map.getPart(0)->getObject(0);
+		auto* second = map.getPart(0)->getObject(1);
+		select(map, { first, second });
+		auto const steps_after_undo = map.undoManager().undoStepCount();
+		QVERIFY(!setObjectStyle(map, objectStyleOf(*old_symbol)));
+		QCOMPARE(map.undoManager().undoStepCount(), steps_after_undo);
+
+		style = objectStyleOf(*old_symbol);
+		style.line_width = 0;
+		QVERIFY(setObjectStyle(map, style));
+		QCOMPARE(first->getSymbol()->asLine()->getLineWidth(), 10);
+	}
+
+	/// Accept (10)
+	void setObjectStyleCombinedAndTextTest()
+	{
+		Map map;
+		auto* red_color = addColor(map, QStringLiteral("Red"), red);
+		auto* blue_color = addColor(map, QStringLiteral("Blue"), MapColorCmyk(1, 0.5f, 0, 0));
+		auto* border = new LineSymbol();
+		border->setColor(blue_color);
+		border->setLineWidth(0.3);
+		auto* fill = new AreaSymbol();
+		fill->setColor(red_color);
+		auto* combined = new CombinedSymbol();
+		combined->setNumParts(2);
+		combined->setPart(0, border, true);
+		combined->setPart(1, fill, true);
+		combined->setPrivate(true);
+		map.addSymbol(combined, map.getNumSymbols());
+		auto* area = addSquare(map, combined, 0, 0, 10);
+		select(map, { area });
+
+		auto style = objectStyleOf(*combined);
+		style.fill_color = blue_color;
+		QVERIFY(setObjectStyle(map, style));
+		auto const* new_symbol = area->getSymbol()->asCombined();
+		QVERIFY(new_symbol != combined);
+		QCOMPARE(new_symbol->getPart(1)->asArea()->getColor(), blue_color);
+		QCOMPARE(new_symbol->getPart(0)->asLine()->getColor(), blue_color);
+		QCOMPARE(new_symbol->getPart(0)->asLine()->getLineWidth(), 300);
+		QCOMPARE(combined->getPart(1)->asArea()->getColor(), red_color);
+
+		auto* text_symbol = new TextSymbol();
+		text_symbol->setColor(red_color);
+		text_symbol->setFontFamily(QStringLiteral("Arial"));
+		text_symbol->setFontSize(4000);
+		text_symbol->setPrivate(true);
+		map.addSymbol(text_symbol, map.getNumSymbols());
+		auto* text = new TextObject(text_symbol);
+		text->setAnchorPosition(MapCoordF(0, 0));
+		text->setText(QStringLiteral("Text"));
+		map.addObject(text);
+		select(map, { text });
+		style = objectStyleOf(*text_symbol);
+		style.font_family = QStringLiteral("Courier New");
+		style.font_size = 5;
+		QVERIFY(setObjectStyle(map, style));
+		auto const* new_text = text->getSymbol()->asText();
+		QVERIFY(new_text != text_symbol);
+		QCOMPARE(new_text->getFontFamily(), QStringLiteral("Courier New"));
+		QCOMPARE(new_text->getFontSize(), 5.0);
+		QCOMPARE(new_text->getColor(), red_color);
 	}
 };
 

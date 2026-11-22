@@ -24,6 +24,7 @@
 #include <QPointF>
 #include <QTransform>
 
+#include "core/objects/image_object.h"  // foom
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
 #include "core/symbols/symbol.h"
@@ -93,6 +94,12 @@ void ObjectMover::addTextHandle(TextObject* text, MapCoordVector::size_type hand
 }
 
 
+void ObjectMover::addImageCorner(ImageObject* image, int corner)
+{
+	image_corners.push_back({ image, corner, image->corners(), 0, 0 });
+}
+
+
 void ObjectMover::move(const MapCoordF& cursor_pos, HandleOpMode move_opposite_handles, qint32* out_dx, qint32* out_dy)
 {
 	auto delta_x = qRound(1000 * (cursor_pos.x() - start_position.x())) - prev_drag_x;
@@ -159,6 +166,16 @@ void ObjectMover::move(qint32 dx, qint32 dy, HandleOpMode move_opposite_handles)
 		}
 	}
 	
+	// foom: Move image corners; the opposite corner stays.
+	for (auto& item : image_corners)
+	{
+		item.total_dx += dx;
+		item.total_dy += dy;
+		auto const& start = item.start_corners[std::size_t(item.corner)];
+		auto const target = MapCoordF(start.x() + 0.001 * item.total_dx, start.y() + 0.001 * item.total_dy);
+		item.image->setCorners(imageCornersDraggedTo(item.start_corners, item.corner, target, keep_image_aspect));
+	}
+
 	// Move box text object handles
 	for (auto& handle : text_handles)
 	{

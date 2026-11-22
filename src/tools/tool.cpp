@@ -34,6 +34,7 @@
 #include <QRect>
 
 #include "settings.h"
+#include "core/objects/image_object.h"  // foom
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
 #include "gui/main_window.h"
@@ -312,6 +313,22 @@ MapCoordVector::size_type MapEditorTool::findHoverPoint(const QPointF& cursor, c
 				return i;
 			}
 		}
+	}
+	else if (object->getType() == Object::Image)  // foom: the corner handles
+	{
+		auto const corners = static_cast<const ImageObject*>(object)->corners();
+		auto best_dist_sq = click_tolerance_squared;
+		for (std::size_t i = 0; i < corners.size(); ++i)
+		{
+			auto const distance_sq = distanceSquared(widget->mapToViewport(corners[i]), cursor);
+			if (distance_sq <= best_dist_sq)
+			{
+				best_index = i;
+				best_dist_sq = distance_sq;
+			}
+		}
+		if (out_handle_pos && best_index < corners.size())
+			*out_handle_pos = corners[best_index];
 	}
 	else if (object->getType() == Object::Path)
 	{
