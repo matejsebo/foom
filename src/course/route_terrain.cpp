@@ -274,6 +274,13 @@ bool RouteTerrain::isImpassableAt(const MapCoordF& place) const
 
 
 
+bool RouteTerrain::isWithinPerimeter(const MapCoordF& place) const
+{
+	return perimeter.size() < 3 || perimeter.containsPoint(QPointF(place), Qt::OddEvenFill);
+}
+
+
+
 RouteTerrain buildRouteTerrain(const Map& map, const RouteSettings& settings, const QRectF& wanted_area)
 {
 	RouteTerrain terrain;
@@ -360,6 +367,14 @@ RouteTerrain buildRouteTerrain(const Map& map, const RouteSettings& settings, co
 	terrain.area = wanted_area.isValid() ? wanted_area : map.calculateExtent(false, true).united(extent).united(points);
 	if (!terrain.area.isValid() || terrain.area.isEmpty())
 		terrain.area = extent;
+	// the design notes, "Route analysis: the perimeter": the box around it.
+	if (settings.perimeter.size() >= 3)
+	{
+		for (auto const& point : settings.perimeter)
+			terrain.perimeter.push_back(QPointF(point));
+		auto const box = terrain.perimeter.boundingRect();
+		terrain.area = wanted_area.isValid() ? wanted_area.intersected(box) : box;
+	}
 	if (!terrain.area.isValid() || terrain.area.isEmpty())
 		return terrain;
 	terrain.width = int(std::ceil(terrain.area.width() / terrain.pixel - 1e-6));
@@ -487,6 +502,24 @@ RouteTerrain buildRouteTerrain(const Map& map, const RouteSettings& settings, co
 				}
 			});
 		}
+	}
+
+	// Outside the perimeter nothing can be run, a road neither.
+	if (terrain.perimeter.size() >= 3)
+	{
+		Layer layer(terrain, 0);
+		Shape shape;
+		shape.fill = true;
+		shape.path.addPolygon(terrain.perimeter);
+		shape.path.closeSubpath();
+		layer.draw(shape, 255);
+		forEachPixel(layer.done(), [&terrain](std::size_t i, uchar inside) {
+			if (!inside)
+			{
+				terrain.impassable[i] = 1;
+				terrain.runnability[i] = 0;
+			}
+		});
 	}
 	return terrain;
 }

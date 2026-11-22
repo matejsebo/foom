@@ -54,6 +54,8 @@ struct CourseRouteLeg
 	bool known = true;
 	/** The straight length of the leg in m; for a marked route that of its path. */
 	double straight_m = 0.0;
+	/** One of its ends lies outside the perimeter of the analysis: it has no route. */
+	bool outside = false;
 	RouteResult route;
 	/** The kept routes of the leg over via points and their indexes, where the routes are those which the map keeps. */
 	std::vector<RouteResult> via_routes;
@@ -80,6 +82,8 @@ struct CourseRoutes
 	bool with_heights = false;
 	/** The legs for which no route was found; their straights count in the sums. */
 	int missing = 0;
+	/** The legs which lie out of the perimeter; they are not among the missing ones. */
+	int outside = 0;
 	/** The legs which have not been analysed; their straights count in the sums. */
 	int unknown = 0;
 };
@@ -176,6 +180,9 @@ AllCourseRoutes analyseAllRoutes(const Map& map, const CourseData& data, RouteSe
 
 /** The same from the routes which the course data keep, without a search. */
 AllCourseRoutes storedAllRoutes(const Map& map, const CourseData& data);
+
+/** The legs of the tables which lie out of the perimeter, every leg once. */
+int routeLegsOutside(const AllCourseRoutes& all);
 
 /**
  * Analyses all courses of a map with its route settings, the rasters of

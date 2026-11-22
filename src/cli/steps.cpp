@@ -1750,7 +1750,10 @@ StepResult StepRunner::analyseRoutesStep(const Step& step)
 	StepResult result;
 	result.details.insert(QLatin1String("tables"), int(all.tables.size()));
 	result.details.insert(QLatin1String("routes"), int(store.routes.size()));
-	result.details.insert(QLatin1String("missing"), missing);
+	auto const outside = routeLegsOutside(all);
+	result.details.insert(QLatin1String("missing"), missing - outside);
+	if (outside > 0)
+		result.details.insert(QLatin1String("outside"), outside);
 	if (alternatives > 0)
 		result.details.insert(QLatin1String("alternatives"), all.alternatives);
 	if (!all.skipped.isEmpty())

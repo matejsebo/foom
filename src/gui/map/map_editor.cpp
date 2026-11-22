@@ -1459,6 +1459,8 @@ void MapEditorController::createActions()
 	course_routes_delete_act = newAction("course-routes-delete", tr("Delete routes"), this, SLOT(deleteCourseRoutesClicked()), nullptr, tr("Take the routes of the analysis out of the map."));
 	course_routes_export_act = newAction("course-routes-export", tr("Export routes..."), this, SLOT(exportCourseRoutesClicked()), nullptr, tr("Write the lengths and the times of the routes of all courses as a text file."));
 	course_routes_alternatives_act = newAction("course-routes-alternatives", tr("Search alternative routes of the course"), this, SLOT(searchAlternativeRoutesClicked()), nullptr, tr("Search routes beside the fastest route of every leg of the course which is chosen in the course dock, and keep them in the map."));
+	course_routes_perimeter_act = newAction("course-routes-perimeter", tr("Define route perimeter"), this, SLOT(defineRoutePerimeterClicked()), nullptr, tr("Keep the route analysis within the outline of the selected object."));
+	course_routes_perimeter_clear_act = newAction("course-routes-perimeter-clear", tr("Clear route perimeter"), this, SLOT(clearRoutePerimeterClicked()), nullptr, tr("Analyse the routes on the whole map again."));
 	course_routes_settings_act = newAction("course-routes-settings", tr("Route settings..."), this, SLOT(routeSettingsClicked()), nullptr, tr("The base pace of the route analysis, whether it uses runnability and elevation, and the runnability of the symbols."));
 	course_export_maps_act = newAction("course-export-maps", tr("Export course maps (PDF)..."), this, SLOT(exportCourseMapsClicked()), nullptr, tr("Write a PDF file with the map of every course, of every part of a course with a map exchange, and of every variant or runner of a relay."));
 	course_relay_variations_act = newAction("course-relay-variations", tr("Export relay variations..."), this, SLOT(exportRelayVariationsClicked()), nullptr, tr("Write which team runs which variant of the relays, as a text file."));
@@ -1963,6 +1965,8 @@ void MapEditorController::createMenuAndToolbars()
 	courses_menu->addAction(course_routes_analyse_act);
 	courses_menu->addAction(course_routes_analyse_all_act);
 	courses_menu->addAction(course_routes_alternatives_act);
+	courses_menu->addAction(course_routes_perimeter_act);
+	courses_menu->addAction(course_routes_perimeter_clear_act);
 	courses_menu->addAction(course_routes_show_act);
 	courses_menu->addAction(course_routes_hide_act);
 	courses_menu->addAction(course_routes_via_act);
@@ -5928,6 +5932,8 @@ void MapEditorController::analyseCourseRoutesClicked()
 	QString text = courseRoutesText(routes);
 	if (routes.missing > 0)
 		text += QLatin1Char('\n') + tr("%n leg(s) have no route: something impassable lies between their ends. They count with their straight length.", nullptr, routes.missing);
+	if (routes.outside > 0)
+		text += QLatin1Char('\n') + tr("%n leg(s) lie out of the perimeter. They count with their straight length.", nullptr, routes.outside);
 	QMessageBox box(QMessageBox::Information, title, tr("The fastest routes of the course %1 take %2 over %3 m; the course itself is %4 m long.")
 	                .arg(course_name, formatRouteTime(routes.time_s)).arg(qRound(routes.length_m)).arg(qRound(routes.course_length_m)),
 	                QMessageBox::Ok, window);
@@ -5957,6 +5963,8 @@ void MapEditorController::analyseAllCourseRoutesClicked()
 	auto missing = 0;
 	for (auto const& route : fresh.routes)
 		missing += route.found ? 0 : 1;
+	auto const outside = routeLegsOutside(all);
+	missing -= outside;
 	auto const text = allRoutesText(map->courseData(), fresh, all);
 	auto data = map->courseData();
 	// The routes over via points stay with the legs whose ends are where they were.
@@ -5971,6 +5979,8 @@ void MapEditorController::analyseAllCourseRoutesClicked()
 	                  + QLatin1Char('\n') + tr("They are the routes of %n course(s) and variant(s) of relays.", nullptr, int(all.tables.size()));
 	if (missing > 0)
 		message += QLatin1Char('\n') + tr("%n leg(s) have no route: something impassable lies between their ends.", nullptr, missing);
+	if (outside > 0)
+		message += QLatin1Char('\n') + tr("%n leg(s) lie out of the perimeter.", nullptr, outside);
 	if (!all.skipped.isEmpty())
 		message += QLatin1Char('\n') + tr("Left out for the faults of their variations: %1.").arg(all.skipped.join(QLatin1String(", ")));
 	QMessageBox box(QMessageBox::Information, title, message, QMessageBox::Ok, window);
@@ -6009,6 +6019,52 @@ void MapEditorController::searchAlternativeRoutesClicked()
 		QMessageBox::information(window, title, tr("No alternative route was found. Only the legs whose fastest routes are kept get alternatives: analyse the routes of the course first."));
 	else
 		QMessageBox::information(window, title, tr("%n alternative route(s) were found and are kept in the map.", nullptr, added));
+}
+
+
+// the design notes, "Route analysis: the perimeter"
+void MapEditorController::defineRoutePerimeterClicked()
+{
+	auto const title = tr("Define route perimeter");
+	const Object* object = map->getNumSelectedObjects() == 1 ? map->getFirstSelectedObject() : nullptr;
+	std::vector<MapCoordF> outline;
+	if (object && object->getType() == Object::Path)
+	{
+		object->update();
+		auto const& parts = object->asPath()->parts();
+		if (!parts.empty())
+		{
+			for (auto const& coord : parts.front().path_coords)
+			{
+				if (outline.empty() || outline.back() != coord.pos)
+					outline.push_back(coord.pos);
+			}
+			if (outline.size() > 1 && outline.front() == outline.back())
+				outline.pop_back();
+		}
+	}
+	if (outline.size() < 3)
+	{
+		QMessageBox::information(window, title, tr("Select one area or line of three or more points first: its outline becomes the perimeter."));
+		return;
+	}
+	auto data = map->courseData();
+	data.route.perimeter = std::move(outline);
+	if (data != map->courseData())
+		changeCourseData(*map, std::move(data));
+	show_course_routes = true;
+	map_widget->update();
+}
+
+
+void MapEditorController::clearRoutePerimeterClicked()
+{
+	auto data = map->courseData();
+	if (data.route.perimeter.empty())
+		return;
+	data.route.perimeter.clear();
+	changeCourseData(*map, std::move(data));
+	map_widget->update();
 }
 
 
@@ -6220,6 +6276,8 @@ void MapEditorController::drawCoursePreview(QPainter* painter, MapWidget* widget
 	// The routes which the map keeps, for the course, the part and the variant which are chosen.
 	if (show_course_routes && !preview_data.routes.isEmpty())
 		paintCourseRoutes(painter, storedCourseRoutes(*map, preview_data, course, part));
+	if (show_course_routes)
+		paintRoutePerimeter(painter, preview_data.route.perimeter);
 	painter->restore();
 }
 

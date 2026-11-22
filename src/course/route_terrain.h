@@ -25,6 +25,7 @@
 #include <vector>
 
 #include <QtGlobal>
+#include <QPolygonF>
 #include <QRectF>
 #include <QString>
 
@@ -71,12 +72,16 @@ struct RouteTerrain
 	std::vector<quint8> runnability;
 	/** For every pixel 1 where the terrain is impassable. */
 	std::vector<quint8> impassable;
+	/** The perimeter of the analysis in mm of the map; empty for none. Outside it every pixel is impassable. */
+	QPolygonF perimeter;
 	
 	bool isEmpty() const { return width <= 0 || height <= 0; }
 	/** The runnability at a place of the map; that of forest outside the area. */
 	int runnabilityAt(const MapCoordF& place) const;
 	/** False outside the area. */
 	bool isImpassableAt(const MapCoordF& place) const;
+	/** Whether a place is within the perimeter; every place is when there is none. */
+	bool isWithinPerimeter(const MapCoordF& place) const;
 };
 
 /**
