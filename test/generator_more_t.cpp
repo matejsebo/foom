@@ -801,6 +801,46 @@ private slots:
 		QVERIFY2(quiet.blue() < 60 && quiet.red() > 200, qPrintable(quiet.name()));
 		QCOMPARE(QColor(without.pixel(22, 22)).lightness() < 60, true);
 	}
+	
+	void qrBackgroundRedrawTest()
+	{
+		// the design notes, "Generators", third change, Accept (7):
+		// what was drawn before the white colour came in keeps its colours.
+		Map map;
+		map.setScaleDenominator(10000);
+		addBlack(map);
+		auto* yellow = new MapColor(QStringLiteral("Yellow"), 1);
+		yellow->setCmyk({ 0.0f, 0.0f, 1.0f, 0.0f });
+		yellow->setRgbFromCmyk();
+		map.addColor(yellow, 1);
+		auto* land = addSymbol<AreaSymbol>(map, QStringLiteral("Land"), 1, yellow);
+		MapCoordVector coords { MapCoord(-10, -10), MapCoord(40, -10), MapCoord(40, 40), MapCoord(-10, 40), MapCoord(-10, -10) };
+		coords.back().setClosePoint(true);
+		map.addObject(new PathObject(land, coords), 0);
+		// The area is drawn before the generator runs, as it is in an open map.
+		map.updateObjects();
+		
+		auto params = defaultGeneratorParams(qr_code, map);
+		params.insert(QStringLiteral("text"), QStringLiteral("FOOM"));
+		run(map, qr_code, params, { 0, 0 });
+		QCOMPARE(map.getColor(1)->getName(), QStringLiteral("White"));
+		QCOMPARE(map.getColor(2), yellow);
+		
+		map.updateObjects();
+		QRectF const extent(0, 0, 40, 40);
+		constexpr double pixel_per_mm = 10;
+		QImage image(int(extent.width() * pixel_per_mm), int(extent.height() * pixel_per_mm), QImage::Format_ARGB32_Premultiplied);
+		image.fill(QColor(Qt::darkBlue));
+		QPainter painter(&image);
+		painter.setRenderHint(QPainter::Antialiasing, false);
+		painter.scale(pixel_per_mm, pixel_per_mm);
+		map.draw(&painter, RenderConfig{ map, extent, pixel_per_mm, RenderConfig::DisableAntialiasing, 1 });
+		painter.end();
+		// 30 mm is beyond the code's 14.5 mm: the area there is still yellow.
+		auto const outside = QColor(image.pixel(300, 300));
+		QVERIFY2(outside.blue() < 60 && outside.red() > 200 && outside.green() > 200, qPrintable(outside.name()));
+		QCOMPARE(QColor(image.pixel(10, 10)), QColor(Qt::white));
+	}
 };
 
 

@@ -768,6 +768,7 @@ void ToolsTest::generatorPlaceTool()
 	});
 	watchdog.start(200);
 	auto const parts_before = map.map->getNumParts();
+	auto const part_before = map.map->getCurrentPartIndex();
 	auto const objects_before = map.map->getNumObjects();
 	auto const steps_before = map.map->undoManager().undoStepCount();
 	
@@ -790,6 +791,21 @@ void ToolsTest::generatorPlaceTool()
 	QVERIFY(map.map->undoManager().undo());
 	QCOMPARE(map.map->getNumParts(), parts_before);
 	QCOMPARE(map.map->getNumObjects(), objects_before);
+	// Accept (3): the part made for the bar went with it, so the part before is current again.
+	QCOMPARE(map.map->getCurrentPartIndex(), part_before);
+	
+	// With a layout part already there, undo makes the part it changed current, as every undo does.
+	map.map->addPart(new MapPart(QStringLiteral("Layout"), map.map), std::size_t(map.map->getNumParts()));
+	map.map->getPart(std::size_t(map.map->getNumParts() - 1))->setRole(MapPart::Role::Layout);
+	map.map->setCurrentPartIndex(part_before);
+	QVERIFY(editor.editor->placeGenerator(scale_bar, defaultGeneratorParams(scale_bar, *map.map)));
+	QTest::mouseClick(widget, Qt::LeftButton, {}, widget->mapToViewport(MapCoord(10.0, 20.0)).toPoint());
+	QCOMPARE(int(map.map->getCurrentPartIndex()), layoutPartIndex(*map.map));
+	QVERIFY(map.map->undoManager().undo());
+	QCOMPARE(int(map.map->getCurrentPartIndex()), layoutPartIndex(*map.map));
+	QCOMPARE(map.map->getNumObjects(), objects_before);
+	map.map->setCurrentPartIndex(part_before);
+	map.map->removePart(std::size_t(layoutPartIndex(*map.map)));
 	
 	// Esc changes nothing.
 	auto const steps = map.map->undoManager().undoStepCount();

@@ -669,6 +669,9 @@ void addBuilt(Map& map, const QString& id, const QJsonObject& params, const MapC
 {
 	for (auto const& color : build.colors)
 		map.addColor(color.first, color.second);
+	// What is drawn already refers to the colours by their place in the table.
+	if (!build.colors.empty())
+		map.updateAllObjects();
 	for (auto* symbol : build.symbols)
 		map.addSymbol(symbol, map.getNumSymbols());
 	
