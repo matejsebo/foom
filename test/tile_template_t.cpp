@@ -47,6 +47,7 @@
 #include <QPolygonF>
 #include <QRectF>
 #include <QSet>
+#include <QSpinBox>
 #include <QString>
 #include <QStringList>
 #include <QTcpServer>
@@ -62,6 +63,7 @@
 #include "test_config.h"
 
 #include "global.h"
+#include "settings.h"
 #include "core/georeferencing.h"
 #include "core/latlon.h"
 #include "core/map.h"
@@ -69,6 +71,7 @@
 #include "core/map_view.h"
 #include "fileformats/xml_file_format.h"
 #include "fileformats/file_import_export.h"
+#include "gdal/gdal_settings_page.h"
 #include "gdal/map_service.h"
 #include "gdal/map_service_capabilities.h"
 #include "gdal/tile_pyramid.h"
@@ -1030,6 +1033,43 @@ private slots:
 		// 2000 m at 1:10,000 is 200 mm on the map
 		QVERIFY(std::abs(QLineF(outline[0], outline[1]).length() - 200.0) < 1.0);
 		QVERIFY(TileServiceTemplate::downloadWindowOutline(georef, QRectF()).isEmpty());
+	}
+
+	void cacheSettingTest()
+	{
+		// Accept of the cache size in the settings (the design notes, "Cache size in the settings")
+		auto& settings = Settings::getInstance();
+		settings.setSetting(Settings::Templates_TileCacheMB, 256);
+		Map map;
+		setupMap(map);
+		auto* temp = new TileServiceTemplate(xyzService(stub), &map);
+		map.addTemplate(0, std::unique_ptr<Template>(temp));
+		QCOMPARE(temp->cacheBudgetBytes(), qint64(256) * 1024 * 1024);
+
+		// (1) The field shows the setting, with its range
+		GdalSettingsPage page;
+		auto* spin = page.findChild<QSpinBox*>(QStringLiteral("tile_cache_mb"));
+		QVERIFY(spin);
+		QCOMPARE(spin->value(), 256);
+		QCOMPARE(spin->minimum(), 16);
+		QCOMPARE(spin->maximum(), 16384);
+
+		// (2) Applied, it changes the setting and the budget of an existing template
+		spin->setValue(64);
+		page.apply();
+		QCOMPARE(settings.getSetting(Settings::Templates_TileCacheMB).toInt(), 64);
+		QCOMPARE(temp->cacheBudgetBytes(), qint64(64) * 1024 * 1024);
+		auto* other = new TileServiceTemplate(xyzService(stub), &map);
+		map.addTemplate(1, std::unique_ptr<Template>(other));
+		QCOMPARE(other->cacheBudgetBytes(), qint64(64) * 1024 * 1024);
+
+		// (3) Reset shows the stored value again
+		spin->setValue(1000);
+		page.reset();
+		QCOMPARE(spin->value(), 64);
+
+		settings.setSetting(Settings::Templates_TileCacheMB, 256);
+		QCOMPARE(temp->cacheBudgetBytes(), qint64(256) * 1024 * 1024);
 	}
 
 	void localMapTest()

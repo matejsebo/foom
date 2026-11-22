@@ -30,6 +30,7 @@
 #include <QLabel>
 #include <QSignalBlocker>
 #include <QSpacerItem>
+#include <QSpinBox>
 #include <QStringList>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -69,6 +70,15 @@ GdalSettingsPage::GdalSettingsPage(QWidget* parent)
 	
 	view_baseline = new QCheckBox(tr("Baseline view"));
 	form_layout->addRow(view_baseline);
+	
+	// foom: the design notes, "Cache size in the settings"
+	tile_cache_mb = new QSpinBox();
+	tile_cache_mb->setObjectName(QStringLiteral("tile_cache_mb"));
+	tile_cache_mb->setRange(16, 16384);
+	tile_cache_mb->setSingleStep(64);
+	tile_cache_mb->setSuffix(QLatin1Char(' ') + tr("MB"));
+	tile_cache_mb->setToolTip(tr("Memory for the tiles of each map service template"));
+	form_layout->addRow(tr("Map service cache:"), tile_cache_mb);
 	
 	
 	form_layout->addItem(Util::SpacerItem::create(this));
@@ -122,6 +132,7 @@ void GdalSettingsPage::apply()
 
 	manager.setExportOptionEnabled(GdalManager::OneLayerPerSymbol, export_one_layer_per_symbol->isChecked());
 	manager.setImportOptionEnabled(GdalManager::ClipLayers, clip_layers->isChecked());
+	Settings::getInstance().setSetting(Settings::Templates_TileCacheMB, tile_cache_mb->value());  // foom
 	
 	const auto old_parameters = manager.parameterKeys();
 	
@@ -160,6 +171,7 @@ void GdalSettingsPage::updateWidgets()
 	import_gpx->setChecked(manager.isFormatEnabled(GdalManager::GPX));
 	view_hatch->setChecked(manager.isAreaHatchingEnabled());
 	view_baseline->setChecked(manager.isBaselineViewEnabled());
+	tile_cache_mb->setValue(Settings::getInstance().getSetting(Settings::Templates_TileCacheMB).toInt());  // foom
 	
 	export_one_layer_per_symbol->setChecked(manager.isExportOptionEnabled(GdalManager::OneLayerPerSymbol));
 	

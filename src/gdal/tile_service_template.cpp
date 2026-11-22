@@ -137,7 +137,8 @@ TileServiceTemplate::TileServiceTemplate(const MapService& service, Map* map)
 	template_path = service.url;
 	template_file = service.name;
 	is_georeferenced = true;
-	cache.setMaxCost(qMax(1, Settings::getInstance().getSettingCached(Settings::Templates_TileCacheMB).toInt()) * 1024 * 1024);
+	applyCacheSetting();
+	connect(&Settings::getInstance(), &Settings::settingsChanged, this, &TileServiceTemplate::applyCacheSetting);  // foom
 	connect(&map->getGeoreferencing(), &Georeferencing::projectionChanged, this, &TileServiceTemplate::projectionChanged);
 	connect(&map->getGeoreferencing(), &Georeferencing::transformationChanged, this, [this]() {
 		if (getTemplateState() == Loaded)
@@ -151,7 +152,8 @@ TileServiceTemplate::TileServiceTemplate(const QString& path, Map* map)
 	service_.url = path;
 	template_path = path;
 	is_georeferenced = true;
-	cache.setMaxCost(qMax(1, Settings::getInstance().getSettingCached(Settings::Templates_TileCacheMB).toInt()) * 1024 * 1024);
+	applyCacheSetting();
+	connect(&Settings::getInstance(), &Settings::settingsChanged, this, &TileServiceTemplate::applyCacheSetting);  // foom
 	connect(&map->getGeoreferencing(), &Georeferencing::projectionChanged, this, &TileServiceTemplate::projectionChanged);
 	connect(&map->getGeoreferencing(), &Georeferencing::transformationChanged, this, [this]() {
 		if (getTemplateState() == Loaded)
@@ -173,6 +175,7 @@ TileServiceTemplate::TileServiceTemplate(const TileServiceTemplate& proto)
 , service_(proto.service_)
 {
 	cache.setMaxCost(proto.cache.maxCost());
+	connect(&Settings::getInstance(), &Settings::settingsChanged, this, &TileServiceTemplate::applyCacheSetting);  // foom
 	connect(&map->getGeoreferencing(), &Georeferencing::projectionChanged, this, &TileServiceTemplate::projectionChanged);
 	connect(&map->getGeoreferencing(), &Georeferencing::transformationChanged, this, [this]() {
 		if (getTemplateState() == Loaded)
@@ -307,6 +310,12 @@ void TileServiceTemplate::unloadTemplateFileImpl()
 	failed_until.clear();
 	r0 = 0;
 	setWarning({});
+}
+
+void TileServiceTemplate::applyCacheSetting()
+{
+	auto const mb = qMax(1, Settings::getInstance().getSettingCached(Settings::Templates_TileCacheMB).toInt());
+	cache.setMaxCost(mb * 1024 * 1024);
 }
 
 void TileServiceTemplate::setWarning(const QString& text)

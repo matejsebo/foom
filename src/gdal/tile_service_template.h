@@ -155,6 +155,9 @@ public:
 	/** The number of tiles requested and not yet received. */
 	int pendingCount() const { return in_flight.size(); }
 
+	/** foom: The byte budget of the memory cache, from the setting Templates/tile_cache_mb. */
+	qint64 cacheBudgetBytes() const { return cache.maxCost(); }
+	
 	/** The number of tiles in the memory cache. */
 	int cachedTileCount() const { return cache.count(); }
 
@@ -201,6 +204,7 @@ private:
 	void startWorker();
 	void stopWorker();
 	void setWarning(const QString& text);
+	void applyCacheSetting();
 	void drawCached(QPainter* painter, const QRectF& projected_bounds, int level) const;
 
 	MapService service_;
