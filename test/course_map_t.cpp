@@ -64,6 +64,7 @@
 #include "core/map_coord.h"
 #include "core/map_part.h"
 #include "core/map_printer.h"
+#include "core/map_view.h"
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
 #include "core/renderables/renderable.h"
@@ -79,7 +80,10 @@
 #include "course/course_storage.h"
 #include "fileformats/file_import_export.h"
 #include "fileformats/xml_file_format.h"
+#include "gui/map/course_canvases_dialog.h"
 #include "gui/map/course_maps_dialog.h"
+#include "templates/template.h"
+#include "templates/template_image.h"
 #include "undo/object_undo.h"
 #include "undo/undo.h"
 
@@ -339,6 +343,7 @@ private slots:
 	void mapFilesTest();
 	void printTest();
 	void previewTest();
+	void canvasBackgroundTest();
 };
 
 
@@ -1085,6 +1090,98 @@ void CourseMapTest::previewTest()
 	// Afterwards as before.
 	QCOMPARE(hiddenSymbols(map), QStringList{ QStringLiteral("101") });
 	QVERIFY(!map.hasUnsavedChanges());
+}
+
+
+/// Canvases: the background maps, Accept (8)
+void CourseMapTest::canvasBackgroundTest()
+{
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	Map map;
+	fillMap(map);
+	map.addTemplate(0, std::make_unique<TemplateImage>(QDir(dir.path()).absoluteFilePath(QStringLiteral("north.png")), &map));
+	map.addTemplate(1, std::make_unique<TemplateImage>(QDir(dir.path()).absoluteFilePath(QStringLiteral("south.png")), &map));
+	auto* north = map.getTemplate(0);
+	auto* south = map.getTemplate(1);
+	QCOMPARE(south->getTemplateFilename(), QStringLiteral("south.png"));
+	MapView view(&map);
+	view.setTemplateVisibility(north, { 1.0, true });
+	view.setTemplateVisibility(south, { 0.5, true });
+
+	CourseCanvas canvas;
+	canvas.name = QStringLiteral("A");
+	canvas.extent = QStringLiteral("Sheet");
+	canvas.hidden_templates = QStringList{ QStringLiteral("south.png"), QStringLiteral("elsewhere.ocd") };
+
+	// The view of the print: as the view of the editor, without what the canvas hides.
+	auto print_view = canvasPrintView(map, &view, canvas);
+	QVERIFY(bool(print_view));
+	QVERIFY(print_view->getTemplateVisibility(north).visible);
+	QVERIFY(!print_view->getTemplateVisibility(south).visible);
+	QVERIFY(view.getTemplateVisibility(south).visible);
+	print_view = canvasPrintView(map, nullptr, canvas);
+	QVERIFY(print_view->getTemplateVisibility(north).visible);
+	QVERIFY(!print_view->getTemplateVisibility(south).visible);
+	// A canvas which hides no background map of the map needs no view of its own.
+	CourseCanvas plain_canvas;
+	plain_canvas.hidden_templates = QStringList{ QStringLiteral("elsewhere.ocd") };
+	QVERIFY(!canvasPrintView(map, &view, plain_canvas));
+
+	// The export by the canvas; the view of the editor is as it was.
+	auto data = map.courseData();
+	data.canvases.active = true;
+	data.canvases.used_templates = QStringList{ QStringLiteral("south.png") };
+	CanvasCourse entry;
+	entry.course = QStringLiteral("Plain");
+	canvas.courses.push_back(entry);
+	data.canvases.canvases = { canvas };
+	changeCourseData(map, data);
+	map.setHasUnsavedChanges(false);
+	CourseMapExportOptions options;
+	options.folder = QDir(dir.path()).absoluteFilePath(QStringLiteral("out"));
+	options.base_name = QStringLiteral("m");
+	options.courses = QStringList{ QStringLiteral("Plain") };
+	options.use_canvases = true;
+	options.view = &view;
+	auto const report = exportCourseMaps(map, options);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.files.size(), 1);
+	QVERIFY(view.getTemplateVisibility(south).visible);
+
+	// The preview hides it in the view while the course is shown, and puts it back as it was.
+	{
+		CourseMapPreview preview(map, &view);
+		QVERIFY(preview.setSide(map.courseData(), QStringLiteral("Plain"), -1));
+		QVERIFY(!view.getTemplateVisibility(south).visible);
+		QVERIFY(view.getTemplateVisibility(north).visible);
+		QVERIFY(preview.setSide(map.courseData(), QStringLiteral("X"), -1));
+		QVERIFY(view.getTemplateVisibility(south).visible);
+		QCOMPARE(view.getTemplateVisibility(south).opacity, 0.5);
+		QVERIFY(preview.setSide(map.courseData(), QStringLiteral("Plain"), -1));
+		QVERIFY(!view.getTemplateVisibility(south).visible);
+	}
+	QVERIFY(view.getTemplateVisibility(south).visible);
+	QCOMPARE(view.getTemplateVisibility(south).opacity, 0.5);
+	QVERIFY(!map.hasUnsavedChanges());
+
+	// The dialog of the canvases lists the background maps of the map, and those which the canvases name.
+	CourseCanvasesDialog dialog(&map);
+	auto* templates = dialog.findChild<QListWidget*>(QStringLiteral("canvas-templates"));
+	QVERIFY(templates);
+	QCOMPARE(templates->count(), 3);
+	QCOMPARE(templates->item(0)->text(), QStringLiteral("north.png"));
+	QCOMPARE(templates->item(1)->text(), QStringLiteral("south.png"));
+	QCOMPARE(templates->item(2)->text(), QStringLiteral("elsewhere.ocd"));
+	QCOMPARE(dialog.currentCanvas(), 0);
+	QCOMPARE(templates->item(0)->checkState(), Qt::Unchecked);
+	QCOMPARE(templates->item(1)->checkState(), Qt::Checked);
+	QCOMPARE(templates->item(2)->checkState(), Qt::Checked);
+	templates->item(0)->setCheckState(Qt::Checked);
+	templates->item(1)->setCheckState(Qt::Unchecked);
+	QCOMPARE(dialog.canvases().canvases[0].hidden_templates, (QStringList{ QStringLiteral("elsewhere.ocd"), QStringLiteral("north.png") }));
+	QVERIFY(dialog.canvases().used_templates.contains(QStringLiteral("north.png")));
+	QVERIFY(dialog.canvases().used_templates.contains(QStringLiteral("south.png")));
 }
 
 

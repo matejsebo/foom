@@ -39,6 +39,7 @@ class QPrinter;
 
 namespace OpenOrienteering {
 
+struct CourseCanvas;
 struct CourseRoutes;
 class Map;
 class MapView;
@@ -202,6 +203,16 @@ struct CourseMapExportReport
 	/** The courses which have no map: not there, or relays with a fault; with canvases also the sheets which no canvas has. */
 	QStringList skipped;
 };
+
+/**
+ * The view with which a sheet of a canvas is printed: the templates as the
+ * view shows them, or without a view every template, and not those whose file
+ * names the canvas hides. nullptr when the canvas hides no template of the map,
+ * so that the given view is used as it is.
+ *
+ * See the design notes, "Canvases: the background maps".
+ */
+std::unique_ptr<MapView> canvasPrintView(Map& map, const MapView* view, const CourseCanvas& canvas);
 
 /** A name of a sheet as a part of a file name. */
 QString courseMapFileName(const QString& base_name, const QString& sheet);

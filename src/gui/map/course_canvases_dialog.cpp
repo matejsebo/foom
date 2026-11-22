@@ -57,6 +57,7 @@
 #include "core/symbols/symbol.h"
 #include "course/course_data.h"
 #include "course/course_parts.h"
+#include "templates/template.h"
 
 namespace OpenOrienteering {
 
@@ -186,6 +187,38 @@ CourseCanvasesDialog::CourseCanvasesDialog(const Map* map, QWidget* parent)
 		item->setData(Qt::UserRole, canvasSymbolNumber(first, symbol->getNumberComponent(1)));
 	}
 	
+	// the design notes, "Canvases: the background maps"
+	template_list = new QListWidget();
+	template_list->setObjectName(QStringLiteral("canvas-templates"));
+	template_list->setToolTip(tr("The background maps which are checked are not printed on the maps of this canvas."));
+	QStringList template_names;
+	for (int i = 0; i < map->getNumTemplates(); ++i)
+	{
+		auto const& name = map->getTemplate(i)->getTemplateFilename();
+		if (!template_names.contains(name))
+			template_names.push_back(name);
+	}
+	// Those which the canvases of a file name, whether the map has them or not.
+	for (auto const& name : data.used_templates)
+	{
+		if (!template_names.contains(name))
+			template_names.push_back(name);
+	}
+	for (auto const& canvas : data.canvases)
+	{
+		for (auto const& name : canvas.hidden_templates)
+		{
+			if (!template_names.contains(name))
+				template_names.push_back(name);
+		}
+	}
+	for (auto const& name : template_names)
+	{
+		auto* item = new QListWidgetItem(name, template_list);
+		item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+		item->setCheckState(Qt::Unchecked);
+	}
+
 	auto* form = new QFormLayout();
 	form->addRow(tr("Export scale:"), scale_edit);
 	form->addRow(tr("Extent:"), extent_box);
@@ -199,6 +232,8 @@ CourseCanvasesDialog::CourseCanvasesDialog(const Map* map, QWidget* parent)
 	auto* symbols_layout = new QVBoxLayout();
 	symbols_layout->addWidget(new QLabel(tr("Hidden course symbols:")));
 	symbols_layout->addWidget(symbol_list, 1);
+	symbols_layout->addWidget(new QLabel(tr("Hidden background maps:")));
+	symbols_layout->addWidget(template_list, 1);
 	lists->addLayout(courses_layout, 1);
 	lists->addLayout(symbols_layout, 1);
 	canvas_panel = new QWidget();
@@ -232,6 +267,7 @@ CourseCanvasesDialog::CourseCanvasesDialog(const Map* map, QWidget* parent)
 	connect(rows_edit, QOverload<int>::of(&QSpinBox::valueChanged), this, &CourseCanvasesDialog::valuesChanged);
 	connect(course_list, &QListWidget::itemChanged, this, &CourseCanvasesDialog::courseChanged);
 	connect(symbol_list, &QListWidget::itemChanged, this, &CourseCanvasesDialog::symbolChanged);
+	connect(template_list, &QListWidget::itemChanged, this, &CourseCanvasesDialog::templateChanged);
 	
 	refreshList(data.canvases.empty() ? -1 : 0);
 }
@@ -343,6 +379,11 @@ void CourseCanvasesDialog::refreshCanvas()
 		auto* item = symbol_list->item(i);
 		item->setCheckState(canvas.hidden_symbols.contains(item->data(Qt::UserRole).toString()) ? Qt::Checked : Qt::Unchecked);
 	}
+	for (int i = 0; i < template_list->count(); ++i)
+	{
+		auto* item = template_list->item(i);
+		item->setCheckState(canvas.hidden_templates.contains(item->text()) ? Qt::Checked : Qt::Unchecked);
+	}
 	refreshing = false;
 }
 
@@ -394,6 +435,25 @@ void CourseCanvasesDialog::symbolChanged(QListWidgetItem* item)
 		// What a canvas hides is a symbol which the canvases govern.
 		if (!data.used_symbols.contains(number))
 			data.used_symbols.push_back(number);
+	}
+}
+
+
+// the design notes, "Canvases: the background maps"
+void CourseCanvasesDialog::templateChanged(QListWidgetItem* item)
+{
+	auto const index = currentCanvas();
+	if (refreshing || index < 0 || std::size_t(index) >= data.canvases.size())
+		return;
+	auto const name = item->text();
+	auto& hidden = data.canvases[std::size_t(index)].hidden_templates;
+	hidden.removeAll(name);
+	if (item->checkState() == Qt::Checked)
+	{
+		hidden.push_back(name);
+		// What a canvas hides is a background map which the canvases govern.
+		if (!data.used_templates.contains(name))
+			data.used_templates.push_back(name);
 	}
 }
 

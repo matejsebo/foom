@@ -91,6 +91,7 @@ private:
 	void valuesChanged();
 	void courseChanged(QListWidgetItem* item);
 	void symbolChanged(QListWidgetItem* item);
+	void templateChanged(QListWidgetItem* item);
 	void newClicked();
 	void renameClicked();
 	void backgroundExtentChosen(int index);
@@ -118,6 +119,7 @@ private:
 	QSpinBox* rows_edit;
 	QListWidget* course_list;
 	QListWidget* symbol_list;
+	QListWidget* template_list;
 };
 
 

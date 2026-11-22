@@ -49,6 +49,7 @@
 #include "core/extents.h"
 #include "core/map.h"
 #include "core/map_coord.h"
+#include "core/map_view.h"
 #include "core/map_printer.h"
 #include "mapper_config.h"
 #include "core/objects/object.h"
@@ -60,6 +61,7 @@
 #include "course/course_parts.h"
 #include "course/course_render.h"
 #include "course/route_course.h"
+#include "templates/template.h"
 
 namespace OpenOrienteering {
 
@@ -389,6 +391,32 @@ CourseSymbolsHider::~CourseSymbolsHider()
 
 
 
+// the design notes, "Canvases: the background maps"
+std::unique_ptr<MapView> canvasPrintView(Map& map, const MapView* view, const CourseCanvas& canvas)
+{
+	auto hides = false;
+	for (int i = 0; i < map.getNumTemplates() && !hides; ++i)
+		hides = canvas.hidden_templates.contains(map.getTemplate(i)->getTemplateFilename());
+	if (!hides)
+		return {};
+	auto print_view = std::make_unique<MapView>(&map);
+	if (view)
+	{
+		print_view->setMapVisibility(view->getMapVisibility());
+		print_view->setAllTemplatesHidden(view->areAllTemplatesHidden());
+	}
+	for (int i = 0; i < map.getNumTemplates(); ++i)
+	{
+		auto* temp = map.getTemplate(i);
+		auto visibility = view ? view->getTemplateVisibility(temp) : TemplateVisibility{ 1.0, true };
+		if (canvas.hidden_templates.contains(temp->getTemplateFilename()))
+			visibility.visible = false;
+		print_view->setTemplateVisibility(temp, visibility);
+	}
+	return print_view;
+}
+
+
 QString courseMapFileName(const QString& base_name, const QString& sheet)
 {
 	return courseMapFileName(base_name, sheet, QStringLiteral("pdf"));
@@ -531,7 +559,9 @@ bool printSheets(Map& map, const CourseMapExportOptions& options, const QPrinter
 				}
 			}
 
-			MapPrinter printer(map, options.view);
+			// The background maps which the canvas hides are not printed.
+			auto const sheet_view = canvas ? canvasPrintView(map, options.view, *canvas) : std::unique_ptr<MapView>{};
+			MapPrinter printer(map, sheet_view ? sheet_view.get() : options.view);
 			printer.setTarget(target);
 			printer.setMode(MapPrinterOptions::Vector);
 			printer.setPrintTemplates(true);

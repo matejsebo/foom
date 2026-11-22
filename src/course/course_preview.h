@@ -22,17 +22,20 @@
 #define FOOM_COURSE_PREVIEW_H
 
 #include <memory>
+#include <utility>
+#include <vector>
 
 #include <QString>
 #include <QStringList>
 
 #include "course/course_data.h"
+#include "core/map_view.h"
 #include "course/course_map.h"
 
 namespace OpenOrienteering {
 
 class Map;
-class MapView;
+class Template;
 struct CourseCanvas;
 
 
@@ -41,7 +44,7 @@ struct CourseCanvas;
  * course alone, as its map shows it.
  * While a course is set, the symbols whose objects a course map draws
  * itself are hidden, and with the canvases active what the canvas of the
- * course hides; draw() gives what is painted over the map in their place.
+ * course hides, its background maps in the view; draw() gives what is painted over the map in their place.
  * Everything is put back when the course is cleared and when the preview
  * ends. The map is not marked as changed.
  *
@@ -71,6 +74,9 @@ public:
 	/** The numbers of the symbols which the canvas hides ("704.000"). */
 	const QStringList& canvasSymbols() const { return numbers; }
 
+	/** The file names of the background maps which the canvas hides. */
+	const QStringList& canvasTemplates() const { return template_names; }
+
 	/** Draws the side as the map is now. */
 	CourseMapDrawing draw() const;
 
@@ -82,7 +88,10 @@ private:
 	CourseData data;
 	CourseMapSide side;
 	QStringList numbers;
+	QStringList template_names;
 	std::unique_ptr<CourseSymbolsHider> hider;
+	/** The templates which are hidden in the view, with their visibility before. */
+	std::vector<std::pair<Template*, TemplateVisibility>> hidden_templates;
 };
 
 

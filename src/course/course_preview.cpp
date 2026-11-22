@@ -23,7 +23,9 @@
 #include <QLatin1Char>
 
 #include "core/map.h"
+#include "core/map_view.h"
 #include "course/course_canvas.h"
+#include "templates/template.h"
 
 // the design notes, "The preview of a course map"
 
@@ -46,6 +48,16 @@ CourseMapPreview::~CourseMapPreview()
 void CourseMapPreview::release()
 {
 	hider.reset();
+	if (view)
+	{
+		for (auto const& entry : hidden_templates)
+		{
+			// A template which was deleted meanwhile is no longer asked for.
+			if (map.findTemplateIndex(entry.first) >= 0)
+				view->setTemplateVisibility(entry.first, entry.second);
+		}
+	}
+	hidden_templates.clear();
 }
 
 
@@ -65,19 +77,32 @@ bool CourseMapPreview::setSide(const CourseData& new_data, const QString& course
 {
 	auto const had = bool(hider);
 	auto const old_numbers = numbers;
+	auto const old_templates = template_names;
 	data = new_data;
 	side = {};
 	side.course = data.findCourse(course) ? course : QString{};
 	side.part = part;
 	auto const* shown_canvas = canvas();
 	numbers = shown_canvas ? shown_canvas->hidden_symbols : QStringList{};
+	template_names = shown_canvas ? shown_canvas->hidden_templates : QStringList{};
 
 	auto const wanted = !side.course.isEmpty();
-	if (had == wanted && (!wanted || numbers == old_numbers))
+	if (had == wanted && (!wanted || (numbers == old_numbers && template_names == old_templates)))
 		return false;
 	release();
 	if (wanted)
+	{
 		hider = std::make_unique<CourseSymbolsHider>(map, numbers);
+		for (int i = 0; view && i < map.getNumTemplates(); ++i)
+		{
+			auto* temp = map.getTemplate(i);
+			auto const visibility = view->getTemplateVisibility(temp);
+			if (!visibility.visible || !template_names.contains(temp->getTemplateFilename()))
+				continue;
+			hidden_templates.emplace_back(temp, visibility);
+			view->setTemplateVisibility(temp, { visibility.opacity, false });
+		}
+	}
 	return true;
 }
 
