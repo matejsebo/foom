@@ -1367,6 +1367,7 @@ void MapEditorController::createActions()
 	mirror_act = newAction("mirror", tr("Mirror..."), this, SLOT(mirrorClicked()));  // foom
 	convert_to_point_act = newAction("convert-to-point", tr("Convert to point objects..."), this, SLOT(convertToPointsClicked()));  // foom
 	interpolate_act = newAction("interpolate", tr("Interpolate..."), this, SLOT(interpolateClicked()));  // foom
+	crop_act = newAction("crop", tr("Crop..."), this, SLOT(cropClicked()), nullptr, tr("Crop the objects to the selected lines and areas or to a rectangle, or crop a hole."));  // foom
 	export_descriptions_act = newAction("symbols-descriptions-export", tr("Export symbol descriptions..."), this, SLOT(exportSymbolDescriptionsClicked()));  // foom
 	import_descriptions_act = newAction("symbols-descriptions-import", tr("Import symbol descriptions..."), this, SLOT(importSymbolDescriptionsClicked()));  // foom
 	update_symbols_act = newAction("symbols-update", tr("Update from file..."), this, SLOT(updateSymbolsClicked()));  // foom
@@ -1813,6 +1814,7 @@ void MapEditorController::createMenuAndToolbars()
 	tools_menu->addAction(select_group_act);  // foom
 	tools_menu->addAction(clip_area_act);
 	tools_menu->addAction(erase_area_act);
+	tools_menu->addAction(crop_act);  // foom
 	tools_menu->addAction(distribute_points_act);
 	tools_menu->addAction(touch_cursor_action);
 	
