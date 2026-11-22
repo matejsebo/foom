@@ -182,7 +182,7 @@ void checkObjects(const Map& map, const MapPart& part, std::vector<Issue>& issue
 		case Object::Text:
 			if (object->asText()->getText().trimmed().isEmpty())
 				issues.push_back(objectIssue(rule::text_empty, Issue::Warning, *object, tr("The text object is empty.")));
-			else if (object->asText()->followsPath())
+			else if (object->asText()->followsPath() && object->getRawCoordinateVector().size() >= 2)  // a single anchor is drawn as ordinary text
 			{
 				auto const layout = static_cast<const TextSymbol*>(symbol)->layoutPathText(object->asText());
 				if (layout.overflow)

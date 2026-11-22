@@ -862,6 +862,8 @@ public slots:
 	int selectDuplicates();
 	int selectSelfIntersecting();
 	int selectInvalid();
+	/** foom: Selects the line texts whose path is too short for their text; returns their number. */
+	int selectLineTextTooShort();
 	int selectByDate(int kind, qint64 from, qint64 to);
 	int selectByProperty(const PropertyQuery& query);
 	int selectByIndex(int number);
@@ -1527,6 +1529,7 @@ private:
 	QAction* dem_hypsometric_act = {};  // foom
 	QAction* dem_profile_act = {};  // foom
 	QAction* select_duplicates_act = {};  // foom
+	QAction* select_line_text_too_short_act = {};  // foom
 	QAction* select_self_intersecting_act = {};  // foom
 	QAction* select_invalid_act = {};  // foom
 	QAction* select_by_date_act = {};  // foom

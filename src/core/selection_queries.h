@@ -47,6 +47,14 @@ std::vector<Object*> findSelfIntersecting(const MapPart& part);
 /// Paths with too few distinct coordinates or a broken curve, and texts without text.
 std::vector<Object*> findInvalid(const MapPart& part);
 
+/**
+ * Line text objects whose text is longer than their path (the layout
+ * overflows, as for the map check's text-path-overflow); empty texts and
+ * line texts with a single anchor are left out.
+ * See the design notes, "Selecting line text whose line is too short".
+ */
+std::vector<Object*> findLineTextTooShort(const MapPart& part);
+
 enum class DateKind { Created, Modified };
 
 /// Objects created, or last modified, from one time to another (seconds since the epoch), both included.
