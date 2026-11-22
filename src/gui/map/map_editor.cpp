@@ -9284,7 +9284,7 @@ void MapEditorController::elevationFeaturesClicked()
 
 void MapEditorController::mapRotateMagneticClicked()
 {
-	MagneticNorthDialog dialog(map->getGeoreferencing(), window);
+	MagneticNorthDialog dialog(map->getGeoreferencing(), window, map);  // foom: with the map of the surroundings
 	if (dialog.exec() == QDialog::Accepted)
 		rotateMapToMagneticNorth(dialog.declination(), dialog.keepSelectedSymbols(), dialog.keepLayout());
 }

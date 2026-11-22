@@ -19,7 +19,10 @@
 
 #include "map_transform_dialogs.h"
 
+#include <cstddef>
+
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDate>
 #include <QDesktopServices>
 #include <QDialogButtonBox>
@@ -30,7 +33,9 @@
 #include <QLatin1String>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSettings>
 #include <QString>
+#include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QVBoxLayout>
@@ -47,6 +52,11 @@
 #include "core/map.h"
 #include "core/map_transform.h"
 #include "gui/widgets/crs_selector.h"
+
+#ifdef MAPPER_USE_GDAL
+#include "gdal/map_service.h"
+#include "gdal/tile_map_widget.h"
+#endif
 
 
 namespace OpenOrienteering {
@@ -204,13 +214,15 @@ std::vector<QString> ReprojectDialog::crsParameters() const { return selector->p
 
 
 
-MagneticNorthDialog::MagneticNorthDialog(const Georeferencing& georef, QWidget* parent)
+MagneticNorthDialog::MagneticNorthDialog(const Georeferencing& georef, QWidget* parent, const Map* map)
 : QDialog(parent)
 , georef(std::make_unique<Georeferencing>(georef))
 {
 	setWindowTitle(tr("Rotate map to magnetic north"));
 	auto* form = new QFormLayout();
 	auto const geospatial = georef.getState() == Georeferencing::Geospatial;
+	if (geospatial && map)
+		addSurroundings(form, *map);
 	if (geospatial)
 	{
 		auto const lat_lon = georef.getGeographicRefPoint();
@@ -243,6 +255,59 @@ MagneticNorthDialog::MagneticNorthDialog(const Georeferencing& georef, QWidget* 
 }
 
 MagneticNorthDialog::~MagneticNorthDialog() = default;
+
+// the design notes, "The map of the surroundings".
+void MagneticNorthDialog::addSurroundings(QFormLayout* form, const Map& map)
+{
+#ifdef MAPPER_USE_GDAL
+	auto const area = mapSurroundings(map);
+	if (area.extent.isNull())
+		return;
+	surroundings_ = new TileMapWidget();
+	surroundings_->setMinimumSize(320, 240);
+	surroundings_->setCrs(map.getGeoreferencing().getProjectedCRSSpec());
+	surroundings_->setExtent(area.extent);
+	surroundings_->setOutline(area.outline);
+	surroundings_->setPlaceholderText(tr("The map of the surroundings is fetched from the chosen map service."));
+	service_box = new QComboBox();
+	for (auto const& service : MapService::fromSettings())
+		service_box->addItem(service.name);
+	show_map_button = new QPushButton(tr("Show map"));
+	show_map_button->setEnabled(service_box->count() > 0);
+	auto* row = new QHBoxLayout();
+	row->addWidget(new QLabel(tr("Map:")));
+	row->addWidget(service_box, 1);
+	row->addWidget(show_map_button);
+	form->addRow(surroundings_);
+	form->addRow(row);
+	surroundingsServiceChanged();
+	connect(service_box, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MagneticNorthDialog::surroundingsServiceChanged);
+	connect(show_map_button, &QPushButton::clicked, this, &MagneticNorthDialog::showSurroundings);
+	if (show_map_button->isEnabled() && QSettings().value(QStringLiteral("MagneticNorthDialog/showSurroundings")).toBool())
+		QTimer::singleShot(0, surroundings_, &TileMapWidget::load);  // after the layout has its size
+#else
+	Q_UNUSED(form)
+	Q_UNUSED(map)
+#endif
+}
+
+void MagneticNorthDialog::showSurroundings()
+{
+#ifdef MAPPER_USE_GDAL
+	QSettings().setValue(QStringLiteral("MagneticNorthDialog/showSurroundings"), true);
+	surroundings_->load();
+#endif
+}
+
+void MagneticNorthDialog::surroundingsServiceChanged()
+{
+#ifdef MAPPER_USE_GDAL
+	auto const services = MapService::fromSettings();
+	auto const index = service_box->currentIndex();
+	if (index >= 0 && std::size_t(index) < services.size())
+		surroundings_->setService(services[std::size_t(index)]);
+#endif
+}
 
 double MagneticNorthDialog::declination() const { return declination_edit->value(); }
 bool MagneticNorthDialog::keepSelectedSymbols() const { return symbols_check->isChecked(); }

@@ -298,12 +298,21 @@ void TileWorker::work()
 
 bool TileWorker::fetch(const TileKey& key, QImage& image, QString& error)
 {
+	return renderWindow(TilePyramid::tileRect(r0, key), TilePyramid::tile_size, TilePyramid::tile_size, image, error);
+}
+
+bool TileWorker::renderWindow(const QRectF& rect, int width, int height, QImage& image, QString& error)
+{
 	if (!dataset)
 	{
 		error = QStringLiteral("The service is not open.");
 		return false;
 	}
-	auto const rect = TilePyramid::tileRect(r0, key);
+	if (width < 1 || height < 1 || !rect.isValid())
+	{
+		error = QStringLiteral("Nothing to render.");
+		return false;
+	}
 
 	char** argv = nullptr;
 	argv = CSLAddString(argv, "-of");
@@ -316,8 +325,8 @@ bool TileWorker::fetch(const TileKey& key, QImage& image, QString& error)
 	argv = CSLAddString(argv, number(rect.right()));
 	argv = CSLAddString(argv, number(rect.bottom()));
 	argv = CSLAddString(argv, "-ts");
-	argv = CSLAddString(argv, QByteArray::number(TilePyramid::tile_size));
-	argv = CSLAddString(argv, QByteArray::number(TilePyramid::tile_size));
+	argv = CSLAddString(argv, QByteArray::number(width));
+	argv = CSLAddString(argv, QByteArray::number(height));
 	argv = CSLAddString(argv, "-r");
 	argv = CSLAddString(argv, "bilinear");
 	if (!has_alpha)
@@ -341,7 +350,7 @@ bool TileWorker::fetch(const TileKey& key, QImage& image, QString& error)
 		return false;
 	}
 
-	auto const ok = readImage(result, TilePyramid::tile_size, TilePyramid::tile_size, image, error);
+	auto const ok = readImage(result, width, height, image, error);
 	GDALClose(result);
 	return ok;
 }

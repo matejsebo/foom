@@ -230,6 +230,8 @@ if (Mapper_USE_GDAL)
 	add_system_test(tile_template_t)  # foom: tile service templates, needs the GDAL WMS driver
 	target_include_directories(tile_template_t SYSTEM PRIVATE ${GDAL_INCLUDE_DIRS})
 	target_link_libraries(tile_template_t PRIVATE ${GDAL_LIBRARIES} Qt5::Network)
+	add_system_test(tile_map_widget_t)  # foom: the map of the surroundings, the design notes
+	target_link_libraries(tile_map_widget_t PRIVATE Qt5::Network)
 	add_system_test(geodata_import_t)  # foom: import options, the design notes
 	target_include_directories(geodata_import_t SYSTEM PRIVATE ${GDAL_INCLUDE_DIRS})
 	target_link_libraries(geodata_import_t PRIVATE ${GDAL_LIBRARIES})
