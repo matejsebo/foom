@@ -465,6 +465,7 @@ set(Mapper_Common_HEADERS
   fileformats/file_import_export.h  # translations
   fileformats/ocd_datetime.h
   fileformats/ocd_bookmark.h
+  fileformats/ocd_guide.h
   core/bookmarks.h
   fileformats/ocd_file_import.h     # translations
   fileformats/ocd_types.h

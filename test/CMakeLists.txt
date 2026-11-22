@@ -339,6 +339,7 @@ add_system_test(line_taper_t)
 add_system_test(area_pattern_t)
 add_system_test(foreign_data_t)
 add_system_test(ocd_layout_image_t)  # foom: the design notes, OCD embedded images
+add_system_test(ocd_guide_t)  # foom: the design notes, OCD string type 26
 add_system_test(ocd2018_t)
 add_system_test(template_t)
 add_system_test(tools_t)

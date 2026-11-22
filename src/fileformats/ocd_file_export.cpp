@@ -89,6 +89,7 @@
 #include "fileformats/ocd_file_format.h"
 #include "fileformats/ocd_georef_fields.h"
 #include "fileformats/ocd_icon.h"
+#include "fileformats/ocd_guide.h"  // foom
 #include "fileformats/ocd_layout_image.h"  // foom
 #include "fileformats/ocd_types.h"
 #include "fileformats/ocd_types_v8.h"
@@ -3220,6 +3221,9 @@ void OcdFileExport::exportForeignStrings(OcdFile<Format>& file)
 		// Nor the settings of the route analysis.
 		if (string.type == 1088 && !map->courseData().route.isDefault())
 			continue;
+		// Nor guides kept by an older FOOM, when the map has guides: exportExtras() writes those.
+		if (string.type == ocd_guide_string_type && !map->guides().list.empty())
+			continue;
 		Ocd::ParameterStringIndexEntry entry = { 0, quint32(string.data.size()), string.type, string.object_index };
 		file.strings().insert(string.data, entry);
 	}
@@ -3625,6 +3629,18 @@ void OcdFileExport::exportExtras()
 	}
 	if (left_out > 0)
 		addWarning(tr("%n image(s) are not saved: OCD files of this version cannot hold images.", nullptr, left_out));
+	
+	// foom: guides, the design notes, "OCD string type 26".
+	auto const& guides = map->guides().list;
+	if (ocd_version >= 12)
+	{
+		for (auto const& guide : guides)
+			addParameterString(ocd_guide_string_type, ocdGuideString(guide, area_offset));
+	}
+	else if (!guides.empty())
+	{
+		addWarning(tr("%n guide(s) are not saved: OCD files of this version cannot hold guides.", nullptr, int(guides.size())));
+	}
 }
 
 

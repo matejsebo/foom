@@ -129,7 +129,26 @@ void loadColours(Map* map, QWidget* parent)
 	                                          QStringList{ replace, append }, 0, false, &ok);
 	if (!ok)
 		return;
-	auto const report = loadColoursFrom(*map, source, choice == append ? ColourLoadMode::Append : ColourLoadMode::Replace);
+	// the design notes, "Loading through a cross-reference table"
+	ColourCrt crt;
+	auto const use_crt = QMessageBox::question(parent, title, tr("Go through a cross-reference table of colour numbers?"),
+	                                           QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes;
+	if (use_crt)
+	{
+		auto const crt_path = QFileDialog::getOpenFileName(parent, title, {},
+		                                                   tr("Cross-reference tables") + QLatin1String(" (*.ocdCrt *.crt *.txt);;")
+		                                                   + tr("All files") + QLatin1String(" (*.*)"));
+		if (crt_path.isEmpty())
+			return;
+		QString message;
+		crt = readColourCrtFile(crt_path, &message);
+		if (!message.isEmpty())
+			QMessageBox::warning(parent, title, message);
+		if (crt.rows.empty())
+			return;
+	}
+	auto const report = loadColoursFrom(*map, source, choice == append ? ColourLoadMode::Append : ColourLoadMode::Replace,
+	                                    use_crt ? &crt : nullptr);
 	showReport(parent, title,
 	           tr("Changed: %1, added: %2").arg(report.changed.size()).arg(report.added.size()),
 	           report.text());

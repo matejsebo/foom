@@ -252,6 +252,12 @@ protected:
 	
 	void importBookmark(const QString& param_string);
 	
+	// foom: guides from type 26 strings
+	template< class F >
+	void importGuides(const OcdFile< F >& file);
+	
+	void importGuide(const QString& param_string);
+	
 	// foom: image objects from type 27 strings
 	template< class F >
 	void importLayoutImages(const OcdFile< F >& file);

@@ -120,6 +120,7 @@ MapColor* MapColor::duplicate() const
 	copy->components = components;
 	copy->colour_group = colour_group;  // foom
 	copy->blend_mode = blend_mode;  // foom
+	copy->number = number;  // foom
 	return copy;
 }
 
