@@ -72,6 +72,16 @@ public:
 	/** The extents taken from background maps, which the map gets when the dialog is accepted. */
 	const std::vector<Extent>& loadedExtents() const { return loaded_extents; }
 	
+	/**
+	 * Reads a canvas XML file in the place of the canvases of the dialog;
+	 * the rectangles of their extents become extents which the map gets when the dialog is accepted.
+	 * False for a file which cannot be read or has no canvases.
+	 */
+	bool loadXml(const QString& path);
+
+	/** Writes the canvases as a canvas XML file, with the rectangles of their extents. */
+	bool saveXml(const QString& path) const;
+
 	/** The text of an entry of the list of courses: "Map Exchange - Map exchange #1". */
 	static QString entryText(const CanvasCourse& entry);
 	
@@ -84,6 +94,9 @@ private:
 	void newClicked();
 	void renameClicked();
 	void backgroundExtentChosen(int index);
+	void keepLoadedExtent(const Extent& extent);
+	void loadXmlClicked();
+	void saveXmlClicked();
 	
 	const Map* map;
 	CourseCanvases data;

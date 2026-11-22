@@ -28,6 +28,7 @@
 #include <QChar>
 #include <QLatin1Char>
 #include <QLatin1String>
+#include <QPointF>
 #include <QRectF>
 #include <QStringRef>
 #include <QTextCodec>
@@ -71,9 +72,11 @@ void readNames(QXmlStreamReader& xml, const QLatin1String& child, QStringList* a
 	}
 }
 
-CourseCanvas readOcdCanvas(QXmlStreamReader& xml)
+CourseCanvas readOcdCanvas(QXmlStreamReader& xml, std::vector<Extent>* extents)
 {
 	CourseCanvas canvas;
+	QRectF rectangle;
+	auto has_rectangle = false;
 	while (xml.readNextStartElement())
 	{
 		auto const name = xml.name();
@@ -133,13 +136,47 @@ CourseCanvas readOcdCanvas(QXmlStreamReader& xml)
 				canvas.courses.push_back(course);
 			}
 		}
+		else if (name == QLatin1String("ExportRectangleFrontside") && extents)
+		{
+			// The rectangle of the extent, in mm of the map with y upwards, in the file of Save as XML.
+			double l = 0.0, b = 0.0, r = 0.0, t = 0.0;
+			auto found = 0;
+			while (xml.readNextStartElement())
+			{
+				auto const side = xml.name().toString();
+				auto const value = xml.readElementText().toDouble();
+				if (side == QLatin1String("L"))
+					l = value, found |= 1;
+				else if (side == QLatin1String("B"))
+					b = value, found |= 2;
+				else if (side == QLatin1String("R"))
+					r = value, found |= 4;
+				else if (side == QLatin1String("T"))
+					t = value, found |= 8;
+			}
+			has_rectangle = found == 15;
+			rectangle = QRectF(QPointF(std::min(l, r), -std::max(b, t)), QPointF(std::max(l, r), -std::min(b, t)));
+		}
 		else
 		{
-			// The rectangle of the extent, which the map has by its name, and what is not known.
+			// What is not known; the rectangle where it is not asked for: the map has the extent by its name.
 			xml.skipCurrentElement();
 		}
 	}
+	if (extents && has_rectangle && !canvas.extent.isEmpty())
+	{
+		Extent extent;
+		extent.name = canvas.extent;
+		extent.rect_mm = rectangle;
+		extents->push_back(extent);
+	}
 	return canvas;
+}
+
+/// A number of the rectangle as Save as XML writes it, without a sign for zero.
+QString rectangleNumber(double value)
+{
+	return QString::number(std::abs(value) < 0.005 ? 0.0 : value, 'f', 2);
 }
 
 void append(QString& text, const char* element, const QString& content, const QString& attributes = {})
@@ -148,6 +185,9 @@ void append(QString& text, const char* element, const QString& content, const QS
 	        + content.toHtmlEscaped()
 	        + QLatin1String("</") + QLatin1String(element) + QLatin1String(">\r\n");
 }
+
+bool readOcdCanvases(const QByteArray& bytes, CourseCanvases& canvases, std::vector<Extent>* extents);
+QString writeOcdCanvases(const CourseCanvases& canvases, const std::vector<Extent>* extents);
 
 }  // namespace
 
@@ -333,6 +373,24 @@ CourseCanvases loadCanvases(QXmlStreamReader& xml)
 
 bool canvasesFromOcdXml(const QByteArray& bytes, CourseCanvases& canvases)
 {
+	return readOcdCanvases(bytes, canvases, nullptr);
+}
+
+
+bool canvasesFromXmlScript(const QByteArray& bytes, CourseCanvases& canvases, std::vector<Extent>& extents)
+{
+	std::vector<Extent> read;
+	if (!readOcdCanvases(bytes, canvases, &read))
+		return false;
+	extents = read;
+	return true;
+}
+
+
+namespace {
+
+bool readOcdCanvases(const QByteArray& bytes, CourseCanvases& canvases, std::vector<Extent>* extents)
+{
 	auto const end = bytes.indexOf('\0');
 	auto const size = end < 0 ? bytes.size() : end;
 	QTextCodec::ConverterState state;
@@ -362,7 +420,7 @@ bool canvasesFromOcdXml(const QByteArray& bytes, CourseCanvases& canvases)
 			else if (name == QLatin1String("UsedBackgroundMaps"))
 				readNames(xml, QLatin1String("BackgroundMap"), &result.used_templates, nullptr);
 			else if (name == QLatin1String("Canvas"))
-				result.canvases.push_back(readOcdCanvas(xml));
+				result.canvases.push_back(readOcdCanvas(xml, extents));
 			else
 				xml.skipCurrentElement();  // the export folder, a path of another machine
 		}
@@ -372,8 +430,26 @@ bool canvasesFromOcdXml(const QByteArray& bytes, CourseCanvases& canvases)
 	return false;
 }
 
+}  // namespace
+
 
 QString canvasesToOcdXml(const CourseCanvases& canvases)
+{
+	return writeOcdCanvases(canvases, nullptr);
+}
+
+
+QByteArray canvasesToXmlScript(const CourseCanvases& canvases, const std::vector<Extent>& extents)
+{
+	auto const text = writeOcdCanvases(canvases, &extents);
+	auto* codec = QTextCodec::codecForName("Windows-1252");
+	return codec ? codec->fromUnicode(text) : text.toLatin1();
+}
+
+
+namespace {
+
+QString writeOcdCanvases(const CourseCanvases& canvases, const std::vector<Extent>* extents)
 {
 	auto text = QStringLiteral("<?xml version=\"1.0\"?>\r\n<OcadScript>\r\n<CsCanvas>\r\n");
 	append(text, "ExportFolder", {});
@@ -391,6 +467,20 @@ QString canvasesToOcdXml(const CourseCanvases& canvases)
 		text += QLatin1String("<Canvas>\r\n");
 		append(text, "Name", canvas.name);
 		append(text, "ExportRectangleName", canvas.extent, QLatin1String(" pageStatus=\"") + canvas.page_status.toHtmlEscaped() + QLatin1Char('"'));
+		if (extents && !canvas.extent.isEmpty())
+		{
+			auto const named = std::find_if(begin(*extents), end(*extents), [&canvas](const Extent& extent) { return extent.name == canvas.extent; });
+			if (named != end(*extents))
+			{
+				auto const& rect = named->rect_mm;
+				text += QLatin1String("<ExportRectangleFrontside>\r\n");
+				append(text, "L", rectangleNumber(rect.left()));
+				append(text, "B", rectangleNumber(-rect.bottom()));
+				append(text, "R", rectangleNumber(rect.right()));
+				append(text, "T", rectangleNumber(-rect.top()));
+				text += QLatin1String("</ExportRectangleFrontside>\r\n");
+			}
+		}
 		append(text, "ExportScale", QString::number(canvas.scale));
 		append(text, "CdSymbolsSize", QString::number(canvas.box_size, 'f', 1));
 		append(text, "CdMaxLength", QString::number(canvas.max_rows));
@@ -417,6 +507,8 @@ QString canvasesToOcdXml(const CourseCanvases& canvases)
 	text += QLatin1String("</CsCanvas>\r\n</OcadScript>\r\n");
 	return text;
 }
+
+}  // namespace
 
 
 bool extentFromOcdRecord(const QString& record, Extent& extent)
