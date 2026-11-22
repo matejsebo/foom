@@ -34,6 +34,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QIODevice>
+#include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -43,6 +44,8 @@
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QObject>
+#include <QPageLayout>
+#include <QPageSize>
 #include <QPushButton>
 #include <QPainter>
 #include <QPrinter>
@@ -60,7 +63,9 @@
 #include "core/map.h"
 #include "core/map_color.h"
 #include "core/map_coord.h"
+#include "core/map_part.h"
 #include "core/map_printer.h"
+#include "core/map_view.h"
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
 #include "core/renderables/renderable.h"
@@ -71,11 +76,15 @@
 #include "course/course_canvas.h"
 #include "course/course_data.h"
 #include "course/course_map.h"
+#include "course/course_preview.h"
 #include "course/course_relay.h"
 #include "course/course_storage.h"
 #include "fileformats/file_import_export.h"
 #include "fileformats/xml_file_format.h"
+#include "gui/map/course_canvases_dialog.h"
 #include "gui/map/course_maps_dialog.h"
+#include "templates/template.h"
+#include "templates/template_image.h"
 #include "undo/object_undo.h"
 #include "undo/undo.h"
 
@@ -269,6 +278,35 @@ std::vector<QSize> pagesOf(const QString& path)
 	return pages;
 }
 
+/// The objects of a map whose symbol has the number, in all map parts.
+std::vector<const Object*> objectsOf(const Map& map, int number, int second = -1)
+{
+	std::vector<const Object*> found;
+	for (int p = 0; p < map.getNumParts(); ++p)
+	{
+		auto const* part = map.getPart(std::size_t(p));
+		for (int i = 0; i < part->getNumObjects(); ++i)
+		{
+			auto const* object = part->getObject(i);
+			auto const* symbol = object->getSymbol();
+			if (symbol && symbol->getNumberComponent(0) == number && (second < 0 || symbol->getNumberComponent(1) == second))
+				found.push_back(object);
+		}
+	}
+	return found;
+}
+
+QStringList textsOf(const Map& map, int number)
+{
+	QStringList texts;
+	for (auto const* object : objectsOf(map, number))
+	{
+		if (object->getType() == Object::Text)
+			texts.push_back(object->asText()->getText());
+	}
+	return texts;
+}
+
 QStringList hiddenSymbols(const Map& map)
 {
 	QStringList numbers;
@@ -303,6 +341,11 @@ private slots:
 	void runnerTest();
 	void canvasExportTest();
 	void dialogTest();
+	void mapFilesTest();
+	void printTest();
+	void previewTest();
+	void canvasBackgroundTest();
+	void canvasFrameTest();
 };
 
 
@@ -621,6 +664,11 @@ void CourseMapTest::runnerTest()
 		                             { QStringLiteral("courses"), QJsonArray{ QStringLiteral("X"), QStringLiteral("R") } },
 		                             { QStringLiteral("relay"), QStringLiteral("variants") },
 		                             { QStringLiteral("extent"), QStringLiteral("Sheet") } });
+		// Course maps as map files, Accept (8)
+		steps.push_back(QJsonObject{ { QStringLiteral("step"), QStringLiteral("export-course-maps") },
+		                             { QStringLiteral("folder"), QStringLiteral("files") },
+		                             { QStringLiteral("courses"), QJsonArray{ QStringLiteral("X") } },
+		                             { QStringLiteral("format"), QStringLiteral("ocd") } });
 		QFile job_file(job_path);
 		QVERIFY(job_file.open(QIODevice::WriteOnly | QIODevice::Truncate));
 		job_file.write(QJsonDocument(QJsonObject{ { QStringLiteral("steps"), steps } }).toJson());
@@ -640,6 +688,10 @@ void CourseMapTest::runnerTest()
 	for (auto const* name : { "event.X_1.pdf", "event.X_2.pdf", "event.R.1A.pdf", "event.R.1B.pdf", "event.R.2A.pdf", "event.R.2B.pdf" })
 		QVERIFY2(maps.exists(QString::fromLatin1(name)), name);
 	QCOMPARE(pagesOf(maps.absoluteFilePath(QStringLiteral("event.X_1.pdf"))), std::vector<QSize>{ QSize(283, 227) });
+	auto const files = QDir(QDir(dir.path()).absoluteFilePath(QStringLiteral("files")));
+	QVERIFY2(output.contains("\"files\":2"), output.constData());
+	for (auto const* name : { "event.X.1.ocd", "event.X.2.ocd" })
+		QVERIFY2(files.exists(QString::fromLatin1(name)), name);
 }
 
 
@@ -798,9 +850,399 @@ void CourseMapTest::dialogTest()
 	QVERIFY(!buttons->button(QDialogButtonBox::Ok)->isEnabled());
 	folder->setText(QStringLiteral("C:/out"));
 	QVERIFY(buttons->button(QDialogButtonBox::Ok)->isEnabled());
+	// Course maps as map files, Accept (8)
+	auto* format = dialog.findChild<QComboBox*>(QStringLiteral("course-maps-format"));
+	QVERIFY(format);
+	QCOMPARE(format->count(), 3);
+	QVERIFY(options.map_format.isEmpty());
+	QVERIFY(extent->isEnabled());
+	format->setCurrentIndex(2);
+	QCOMPARE(dialog.options().map_format, QStringLiteral("OCD2018"));
+	QVERIFY(!extent->isEnabled());
+	format->setCurrentIndex(1);
+	QCOMPARE(dialog.options().map_format, QStringLiteral("XML"));
+	format->setCurrentIndex(0);
+	QVERIFY(extent->isEnabled());
+	
 	for (int i = 0; i < courses->count(); ++i)
 		courses->item(i)->setCheckState(Qt::Unchecked);
 	QVERIFY(!buttons->button(QDialogButtonBox::Ok)->isEnabled());
+}
+
+
+/// Course maps as map files, Accept (8)
+void CourseMapTest::mapFilesTest()
+{
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	Map map;
+	fillMap(map);
+	auto data = map.courseData();
+	data.options.setValue(QLatin1Char('t'), QStringLiteral("2"));
+	changeCourseData(map, data);
+	map.setHasUnsavedChanges(false);
+	auto const objects_before = map.getNumObjects();
+	
+	CourseMapExportOptions options;
+	options.folder = QDir(dir.path()).absoluteFilePath(QStringLiteral("files"));
+	options.base_name = QStringLiteral("m");
+	options.courses = QStringList{ QStringLiteral("X"), QStringLiteral("Flip"), QStringLiteral("Plain"), QStringLiteral("R"), QStringLiteral("Nobody") };
+	options.map_format = QStringLiteral("XML");
+	auto report = exportCourseMaps(map, options);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.skipped, QStringList{ QStringLiteral("Nobody") });
+	QStringList names;
+	for (auto const& file : report.files)
+		names.push_back(QFileInfo(file).fileName());
+	QCOMPARE(names, (QStringList{ QStringLiteral("m.X.1.foom"), QStringLiteral("m.X.2.foom"),
+	                              QStringLiteral("m.Flip.1.foom"), QStringLiteral("m.Flip.2.foom"),
+	                              QStringLiteral("m.Plain.foom"),
+	                              QStringLiteral("m.R.1A.foom"), QStringLiteral("m.R.1B.foom"), QStringLiteral("m.R.2A.foom"), QStringLiteral("m.R.2B.foom") }));
+	
+	// The second part of X: its own items, legs and numbers, and the title of the part.
+	{
+		Map part;
+		QVERIFY(part.loadFrom(report.files[1]));
+		QCOMPARE(int(objectsOf(part, 701).size()), 1);
+		QCOMPARE(objectsOf(part, 701).front()->asPoint()->getCoordF(), MapCoordF(20.0, 10.0));
+		QCOMPARE(int(objectsOf(part, 703).size()), 2);
+		QCOMPARE(int(objectsOf(part, 706).size()), 1);
+		QCOMPARE(int(objectsOf(part, 705).size()), 3);
+		QCOMPARE(textsOf(part, 704), (QStringList{ QStringLiteral("3"), QStringLiteral("4") }));
+		QCOMPARE(textsOf(part, 721), QStringList{ QStringLiteral("X (2)") });
+		QVERIFY(objectsOf(part, 722, 1).empty());
+		QVERIFY(objectsOf(part, 720).empty());
+		// What is no item stays.
+		QCOMPARE(int(objectsOf(part, 101).size()), 1);
+		QVERIFY(part.courseData().courses.empty());
+		QVERIFY(hiddenSymbols(part).isEmpty());
+		QCOMPARE(part.getNumSymbols(), map.getNumSymbols());
+	}
+	// A variant of the relay has its code.
+	{
+		Map variant;
+		QVERIFY(variant.loadFrom(report.files[6]));
+		QCOMPARE(int(objectsOf(variant, 703).size()), 2);
+		QCOMPARE(textsOf(variant, 722), QStringList{ QStringLiteral("1B") });
+		QCOMPARE(textsOf(variant, 721), QStringList{ QStringLiteral("R") });
+	}
+	
+	// The map itself is as it was.
+	QVERIFY(hiddenSymbols(map).isEmpty());
+	QVERIFY(!map.hasUnsavedChanges());
+	QCOMPARE(map.getNumObjects(), objects_before);
+	QCOMPARE(int(map.courseData().courses.size()), 4);
+	
+	// OCD files.
+	options.courses = QStringList{ QStringLiteral("Plain") };
+	options.map_format = QStringLiteral("OCD2018");
+	report = exportCourseMaps(map, options);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.files.size(), 1);
+	QCOMPARE(QFileInfo(report.files[0]).fileName(), QStringLiteral("m.Plain.ocd"));
+	{
+		Map plain;
+		QVERIFY(plain.loadFrom(report.files[0]));
+		QCOMPARE(int(objectsOf(plain, 703).size()), 3);
+		QCOMPARE(int(objectsOf(plain, 701).size()), 1);
+	}
+	
+	// A format which cannot be written.
+	options.map_format = QStringLiteral("NoSuchFormat");
+	report = exportCourseMaps(map, options);
+	QVERIFY(!report.ok);
+	QVERIFY(!report.error.isEmpty());
+	QCOMPARE(courseMapFileName(QStringLiteral("m"), QStringLiteral("A/B"), QStringLiteral("ocd")), QStringLiteral("m.A_B.ocd"));
+}
+
+
+/// Printing the course maps, Accept (9)
+void CourseMapTest::printTest()
+{
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	Map map;
+	fillMap(map);
+	map.getSymbol(8)->setHidden(true);  // the plain symbol 101
+	map.setHasUnsavedChanges(false);
+	
+	// A printer which writes a PDF file stands for the printer of the print dialog.
+	auto const path = QDir(dir.path()).absoluteFilePath(QStringLiteral("printed.pdf"));
+	QPrinter printer(QPrinter::HighResolution);
+	printer.setOutputFormat(QPrinter::PdfFormat);
+	printer.setOutputFileName(path);
+	printer.setPageSize(QPageSize(QPageSize::A4));
+	printer.setPageOrientation(QPageLayout::Portrait);
+	
+	CourseMapExportOptions options;
+	options.courses = QStringList{ QStringLiteral("Flip"), QStringLiteral("Nobody") };
+	options.extent = QStringLiteral("Sheet");
+	auto report = printCourseMaps(map, options, &printer);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.files, QStringList{ QStringLiteral("Flip") });
+	QCOMPARE(report.skipped, QStringList{ QStringLiteral("Nobody") });
+	// The paper is that of the printer, a side a page.
+	QCOMPARE(pagesOf(path), (std::vector<QSize>{ QSize(595, 842), QSize(595, 842) }));
+	QCOMPARE(hiddenSymbols(map), QStringList{ QStringLiteral("101") });
+	QVERIFY(!map.hasUnsavedChanges());
+	
+	// A course with a map exchange is two print jobs, one for every sheet; the file has the last.
+	options.courses = QStringList{ QStringLiteral("X") };
+	report = printCourseMaps(map, options, &printer);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.files, (QStringList{ QStringLiteral("X_1"), QStringLiteral("X_2") }));
+	QCOMPARE(pagesOf(path), std::vector<QSize>{ QSize(595, 842) });
+	
+	// Landscape paper, and the canvases.
+	auto data = map.courseData();
+	CourseCanvas canvas;
+	canvas.name = QStringLiteral("A");
+	canvas.extent = QStringLiteral("Sheet");
+	CanvasCourse entry;
+	entry.course = QStringLiteral("Plain");
+	canvas.courses.push_back(entry);
+	data.canvases.canvases = { canvas };
+	changeCourseData(map, data);
+	printer.setPageOrientation(QPageLayout::Landscape);
+	options.courses = QStringList{ QStringLiteral("Plain"), QStringLiteral("X") };
+	options.use_canvases = true;
+	report = printCourseMaps(map, options, &printer);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.files, QStringList{ QStringLiteral("A.Plain") });
+	QCOMPARE(report.skipped, (QStringList{ QStringLiteral("X_1"), QStringLiteral("X_2") }));
+	QCOMPARE(pagesOf(path), std::vector<QSize>{ QSize(842, 595) });
+	QCOMPARE(hiddenSymbols(map), QStringList{ QStringLiteral("101") });
+	
+	// The dialog for printing asks for no folder and no kind of file.
+	CourseMapsDialog dialog(&map, QString{}, nullptr, CourseMapsDialog::Print);
+	auto* folder = dialog.findChild<QLineEdit*>(QStringLiteral("course-maps-folder"));
+	auto* format = dialog.findChild<QComboBox*>(QStringLiteral("course-maps-format"));
+	auto* buttons = dialog.findChild<QDialogButtonBox*>();
+	QVERIFY(folder && format && buttons);
+	QVERIFY(!folder->isVisibleTo(&dialog));
+	QVERIFY(!format->isVisibleTo(&dialog));
+	QVERIFY(buttons->button(QDialogButtonBox::Ok)->isEnabled());
+	QVERIFY(dialog.options().map_format.isEmpty());
+	QCOMPARE(dialog.windowTitle(), CourseMapsDialog::tr("Print course maps"));
+}
+
+
+/// The preview of a course map, Accept (10)
+void CourseMapTest::previewTest()
+{
+	Map map;
+	fillMap(map);
+	map.getSymbol(8)->setHidden(true);  // the plain symbol 101
+	map.setHasUnsavedChanges(false);
+	auto data = map.courseData();
+	auto const course_symbols = QStringList{ QStringLiteral("701"), QStringLiteral("703"), QStringLiteral("706"),
+	                                         QStringLiteral("720"), QStringLiteral("721"), QStringLiteral("722.1"), QStringLiteral("101") };
+	{
+		CourseMapPreview preview(map);
+		QCOMPARE(hiddenSymbols(map), QStringList{ QStringLiteral("101") });
+		QVERIFY(!preview.draw().drawn);
+
+		// The second part of X alone, as its map shows it.
+		QVERIFY(preview.setSide(data, QStringLiteral("X"), 1));
+		QCOMPARE(hiddenSymbols(map), course_symbols);
+		auto drawing = preview.draw();
+		QVERIFY(drawing.drawn);
+		QCOMPARE(drawing.items.join(QLatin1Char(' ')), QStringLiteral("S2 33 34 F1"));
+		QCOMPARE(drawing.texts, QStringList{ QStringLiteral("X (2)") });
+		for (auto const& object : drawing.objects)
+			QVERIFY(!object->getSymbol()->isHidden());
+		// The same again changes nothing which is hidden; another course neither.
+		QVERIFY(!preview.setSide(data, QStringLiteral("X"), 1));
+		QVERIFY(!preview.setSide(data, QStringLiteral("Plain"), -1));
+		QCOMPARE(preview.course(), QStringLiteral("Plain"));
+		QCOMPARE(preview.draw().items.join(QLatin1Char(' ')), QStringLiteral("S1 31 32 33 F1"));
+
+		// No course, or one which is not there: the map as it is.
+		QVERIFY(preview.setSide(data, QString{}, -1));
+		QCOMPARE(hiddenSymbols(map), QStringList{ QStringLiteral("101") });
+		QVERIFY(!preview.setSide(data, QStringLiteral("Nobody"), -1));
+		QVERIFY(preview.course().isEmpty());
+		QVERIFY(!preview.draw().drawn);
+
+		// With the canvases active, what the canvas hides is hidden too and not drawn.
+		CourseCanvas canvas;
+		canvas.name = QStringLiteral("A");
+		canvas.hidden_symbols = QStringList{ QStringLiteral("704.000") };
+		CanvasCourse entry;
+		entry.course = QStringLiteral("Plain");
+		canvas.courses.push_back(entry);
+		data.canvases.canvases = { canvas };
+		QVERIFY(preview.setSide(data, QStringLiteral("Plain"), -1));
+		QVERIFY(!preview.canvas());
+		QVERIFY(!hiddenSymbols(map).contains(QStringLiteral("704")));
+		data.canvases.active = true;
+		QVERIFY(preview.setSide(data, QStringLiteral("Plain"), -1));
+		QVERIFY(preview.canvas());
+		QCOMPARE(preview.canvas()->name, QStringLiteral("A"));
+		QCOMPARE(preview.canvasSymbols(), QStringList{ QStringLiteral("704.000") });
+		QVERIFY(hiddenSymbols(map).contains(QStringLiteral("704")));
+		drawing = preview.draw();
+		for (auto const& object : drawing.objects)
+			QVERIFY(object->getSymbol()->getNumberComponent(0) != 704);
+		// A course which no canvas has: the course symbols alone.
+		QVERIFY(preview.setSide(data, QStringLiteral("X"), -1));
+		QVERIFY(!preview.canvas());
+		QCOMPARE(hiddenSymbols(map), course_symbols);
+	}
+	// Afterwards as before.
+	QCOMPARE(hiddenSymbols(map), QStringList{ QStringLiteral("101") });
+	QVERIFY(!map.hasUnsavedChanges());
+}
+
+
+/// Canvases: the background maps, Accept (8)
+void CourseMapTest::canvasBackgroundTest()
+{
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	Map map;
+	fillMap(map);
+	map.addTemplate(0, std::make_unique<TemplateImage>(QDir(dir.path()).absoluteFilePath(QStringLiteral("north.png")), &map));
+	map.addTemplate(1, std::make_unique<TemplateImage>(QDir(dir.path()).absoluteFilePath(QStringLiteral("south.png")), &map));
+	auto* north = map.getTemplate(0);
+	auto* south = map.getTemplate(1);
+	QCOMPARE(south->getTemplateFilename(), QStringLiteral("south.png"));
+	MapView view(&map);
+	view.setTemplateVisibility(north, { 1.0, true });
+	view.setTemplateVisibility(south, { 0.5, true });
+
+	CourseCanvas canvas;
+	canvas.name = QStringLiteral("A");
+	canvas.extent = QStringLiteral("Sheet");
+	canvas.hidden_templates = QStringList{ QStringLiteral("south.png"), QStringLiteral("elsewhere.ocd") };
+
+	// The view of the print: as the view of the editor, without what the canvas hides.
+	auto print_view = canvasPrintView(map, &view, canvas);
+	QVERIFY(bool(print_view));
+	QVERIFY(print_view->getTemplateVisibility(north).visible);
+	QVERIFY(!print_view->getTemplateVisibility(south).visible);
+	QVERIFY(view.getTemplateVisibility(south).visible);
+	print_view = canvasPrintView(map, nullptr, canvas);
+	QVERIFY(print_view->getTemplateVisibility(north).visible);
+	QVERIFY(!print_view->getTemplateVisibility(south).visible);
+	// A canvas which hides no background map of the map needs no view of its own.
+	CourseCanvas plain_canvas;
+	plain_canvas.hidden_templates = QStringList{ QStringLiteral("elsewhere.ocd") };
+	QVERIFY(!canvasPrintView(map, &view, plain_canvas));
+
+	// The export by the canvas; the view of the editor is as it was.
+	auto data = map.courseData();
+	data.canvases.active = true;
+	data.canvases.used_templates = QStringList{ QStringLiteral("south.png") };
+	CanvasCourse entry;
+	entry.course = QStringLiteral("Plain");
+	canvas.courses.push_back(entry);
+	data.canvases.canvases = { canvas };
+	changeCourseData(map, data);
+	map.setHasUnsavedChanges(false);
+	CourseMapExportOptions options;
+	options.folder = QDir(dir.path()).absoluteFilePath(QStringLiteral("out"));
+	options.base_name = QStringLiteral("m");
+	options.courses = QStringList{ QStringLiteral("Plain") };
+	options.use_canvases = true;
+	options.view = &view;
+	auto const report = exportCourseMaps(map, options);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.files.size(), 1);
+	QVERIFY(view.getTemplateVisibility(south).visible);
+
+	// The preview hides it in the view while the course is shown, and puts it back as it was.
+	{
+		CourseMapPreview preview(map, &view);
+		QVERIFY(preview.setSide(map.courseData(), QStringLiteral("Plain"), -1));
+		QVERIFY(!view.getTemplateVisibility(south).visible);
+		QVERIFY(view.getTemplateVisibility(north).visible);
+		QVERIFY(preview.setSide(map.courseData(), QStringLiteral("X"), -1));
+		QVERIFY(view.getTemplateVisibility(south).visible);
+		QCOMPARE(view.getTemplateVisibility(south).opacity, 0.5);
+		QVERIFY(preview.setSide(map.courseData(), QStringLiteral("Plain"), -1));
+		QVERIFY(!view.getTemplateVisibility(south).visible);
+	}
+	QVERIFY(view.getTemplateVisibility(south).visible);
+	QCOMPARE(view.getTemplateVisibility(south).opacity, 0.5);
+	QVERIFY(!map.hasUnsavedChanges());
+
+	// The dialog of the canvases lists the background maps of the map, and those which the canvases name.
+	CourseCanvasesDialog dialog(&map);
+	auto* templates = dialog.findChild<QListWidget*>(QStringLiteral("canvas-templates"));
+	QVERIFY(templates);
+	QCOMPARE(templates->count(), 3);
+	QCOMPARE(templates->item(0)->text(), QStringLiteral("north.png"));
+	QCOMPARE(templates->item(1)->text(), QStringLiteral("south.png"));
+	QCOMPARE(templates->item(2)->text(), QStringLiteral("elsewhere.ocd"));
+	QCOMPARE(dialog.currentCanvas(), 0);
+	QCOMPARE(templates->item(0)->checkState(), Qt::Unchecked);
+	QCOMPARE(templates->item(1)->checkState(), Qt::Checked);
+	QCOMPARE(templates->item(2)->checkState(), Qt::Checked);
+	templates->item(0)->setCheckState(Qt::Checked);
+	templates->item(1)->setCheckState(Qt::Unchecked);
+	QCOMPARE(dialog.canvases().canvases[0].hidden_templates, (QStringList{ QStringLiteral("elsewhere.ocd"), QStringLiteral("north.png") }));
+	QVERIFY(dialog.canvases().used_templates.contains(QStringLiteral("north.png")));
+	QVERIFY(dialog.canvases().used_templates.contains(QStringLiteral("south.png")));
+}
+
+
+/// Canvases: the frame of the extent, Accept (9)
+void CourseMapTest::canvasFrameTest()
+{
+	Map map;
+	fillMap(map);
+	auto data = map.courseData();
+	CourseCanvas a;
+	a.name = QStringLiteral("A");
+	a.extent = QStringLiteral("Sheet");
+	CanvasCourse entry;
+	entry.course = QStringLiteral("X");
+	entry.part = 0;
+	a.courses.push_back(entry);
+	CourseCanvas b;
+	b.name = QStringLiteral("B");
+	b.extent = QStringLiteral("Gone");
+	entry = {};
+	entry.course = QStringLiteral("Plain");
+	b.courses.push_back(entry);
+	data.canvases.canvases = { a, b };
+
+	// Only with the canvases active.
+	QVERIFY(!courseCanvasFrame(map, data, QStringLiteral("X"), 0).shown);
+	data.canvases.active = true;
+	auto frame = courseCanvasFrame(map, data, QStringLiteral("X"), 0);
+	QVERIFY(frame.shown);
+	QCOMPARE(frame.name, QStringLiteral("Sheet"));
+	QCOMPARE(frame.canvas, QStringLiteral("A"));
+	QCOMPARE(frame.rect, QRectF(-40.0, -40.0, 100.0, 80.0));
+	// All parts with the canvas of the first part; a part without a canvas, an extent which the map has not, no course: none.
+	QVERIFY(courseCanvasFrame(map, data, QStringLiteral("X"), -1).shown);
+	QVERIFY(!courseCanvasFrame(map, data, QStringLiteral("X"), 1).shown);
+	QVERIFY(!courseCanvasFrame(map, data, QStringLiteral("Plain"), -1).shown);
+	QVERIFY(!courseCanvasFrame(map, data, QString{}, -1).shown);
+	QVERIFY(!courseCanvasFrame(map, data, QStringLiteral("Nobody"), -1).shown);
+
+	// Painted in red over the map: 1 pixel for a mm, the map's origin in the middle of the image.
+	QImage image(200, 200, QImage::Format_ARGB32_Premultiplied);
+	image.fill(Qt::white);
+	{
+		QPainter painter(&image);
+		painter.translate(100.0, 100.0);
+		paintCanvasFrame(&painter, frame, 1.0);
+	}
+	auto const left = QColor(image.pixel(60, 100));
+	QVERIFY2(left.red() > 200 && left.green() < 120 && left.blue() < 120, qPrintable(left.name()));
+	auto const inside = QColor(image.pixel(100, 120));
+	QCOMPARE(inside, QColor(Qt::white));
+	// A frame which is not shown paints nothing.
+	QImage empty(200, 200, QImage::Format_ARGB32_Premultiplied);
+	empty.fill(Qt::white);
+	{
+		QPainter painter(&empty);
+		paintCanvasFrame(&painter, CanvasFrame{}, 1.0);
+	}
+	QCOMPARE(QColor(empty.pixel(60, 100)), QColor(Qt::white));
 }
 
 

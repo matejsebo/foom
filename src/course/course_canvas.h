@@ -123,6 +123,22 @@ bool canvasesFromOcdXml(const QByteArray& bytes, CourseCanvases& canvases);
 /** Writes the text of the canvases, as it stands in the parameter string 1093. */
 QString canvasesToOcdXml(const CourseCanvases& canvases);
 
+/**
+ * Reads a canvas XML file: the canvases, and for every canvas
+ * whose element ExportRectangleFrontside is there the rectangle as an extent
+ * of the name of the extent of the canvas. False for bytes without CsCanvas.
+ *
+ * See the design notes, "Canvases: the XML files".
+ */
+bool canvasesFromXmlScript(const QByteArray& bytes, CourseCanvases& canvases, std::vector<Extent>& extents);
+
+/**
+ * Writes a canvas XML file: the text of the parameter string
+ * 1093 with, behind the name of the extent of every canvas which is among
+ * the extents, its rectangle in mm of the map with y upwards; in Windows-1252.
+ */
+QByteArray canvasesToXmlScript(const CourseCanvases& canvases, const std::vector<Extent>& extents);
+
 /** Reads a named extent, the parameter string 29 of an OCD file. */
 bool extentFromOcdRecord(const QString& record, Extent& extent);
 

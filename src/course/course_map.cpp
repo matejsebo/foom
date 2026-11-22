@@ -42,12 +42,14 @@
 #include <QUuid>
 #ifdef QT_PRINTSUPPORT_LIB
 #  include <QPrinter>
+#  include <QPrinterInfo>
 #endif
 
 #include "core/extent_printing.h"
 #include "core/extents.h"
 #include "core/map.h"
 #include "core/map_coord.h"
+#include "core/map_view.h"
 #include "core/map_printer.h"
 #include "mapper_config.h"
 #include "core/objects/object.h"
@@ -59,6 +61,7 @@
 #include "course/course_parts.h"
 #include "course/course_render.h"
 #include "course/route_course.h"
+#include "templates/template.h"
 
 namespace OpenOrienteering {
 
@@ -118,7 +121,7 @@ std::vector<CourseMapSheet> sheetsOfParts(const Course& course)
 class ShownSymbols
 {
 public:
-	explicit ShownSymbols(std::vector<std::unique_ptr<Symbol>>& store) : store(store) {}
+	ShownSymbols(std::vector<std::unique_ptr<Symbol>>& store, std::vector<const Symbol*>& sources) : store(store), sources(sources) {}
 	
 	const Symbol* get(const Symbol* symbol)
 	{
@@ -126,6 +129,7 @@ public:
 		if (!copy)
 		{
 			store.push_back(duplicate(*symbol));
+			sources.push_back(symbol);
 			copy = store.back().get();
 			copy->setHidden(false);
 		}
@@ -134,6 +138,7 @@ public:
 	
 private:
 	std::vector<std::unique_ptr<Symbol>>& store;
+	std::vector<const Symbol*>& sources;
 	std::map<const Symbol*, Symbol*> copies;
 };
 
@@ -260,7 +265,7 @@ CourseMapDrawing drawCourseMap(const Map& map, const CourseData& original, const
 	if (!course_drawing.drawn)
 		return result;
 	result.drawn = true;
-	ShownSymbols shown(result.symbols);
+	ShownSymbols shown(result.symbols, result.symbol_sources);
 	
 	// The objects of the items.
 	for (auto const& stop : courseStops(map, data, *course))
@@ -357,6 +362,12 @@ void paintCourseMap(QPainter* painter, Map* map, const CourseMapDrawing& drawing
 
 
 
+bool isDrawnByCourseMap(const Symbol& symbol)
+{
+	return isHiddenRole(symbol.courseRole());
+}
+
+
 CourseSymbolsHider::CourseSymbolsHider(Map& map, const QStringList& numbers)
 {
 	for (int i = 0; i < map.getNumSymbols(); ++i)
@@ -380,9 +391,40 @@ CourseSymbolsHider::~CourseSymbolsHider()
 
 
 
+// the design notes, "Canvases: the background maps"
+std::unique_ptr<MapView> canvasPrintView(Map& map, const MapView* view, const CourseCanvas& canvas)
+{
+	auto hides = false;
+	for (int i = 0; i < map.getNumTemplates() && !hides; ++i)
+		hides = canvas.hidden_templates.contains(map.getTemplate(i)->getTemplateFilename());
+	if (!hides)
+		return {};
+	auto print_view = std::make_unique<MapView>(&map);
+	if (view)
+	{
+		print_view->setMapVisibility(view->getMapVisibility());
+		print_view->setAllTemplatesHidden(view->areAllTemplatesHidden());
+	}
+	for (int i = 0; i < map.getNumTemplates(); ++i)
+	{
+		auto* temp = map.getTemplate(i);
+		auto visibility = view ? view->getTemplateVisibility(temp) : TemplateVisibility{ 1.0, true };
+		if (canvas.hidden_templates.contains(temp->getTemplateFilename()))
+			visibility.visible = false;
+		print_view->setTemplateVisibility(temp, visibility);
+	}
+	return print_view;
+}
+
+
 QString courseMapFileName(const QString& base_name, const QString& sheet)
 {
-	auto name = QString(base_name + QLatin1Char('.') + sheet + QLatin1String(".pdf"));
+	return courseMapFileName(base_name, sheet, QStringLiteral("pdf"));
+}
+
+QString courseMapFileName(const QString& base_name, const QString& sheet, const QString& extension)
+{
+	auto name = QString(base_name + QLatin1Char('.') + sheet + QLatin1Char('.') + extension);
 	for (auto& character : name)
 	{
 		if (character < QLatin1Char(' ') || QStringLiteral("\\/:*?\"<>|").contains(character))
@@ -425,22 +467,20 @@ void paintCourseRoutes(QPainter* painter, const CourseRoutes& routes)
 
 
 
-CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& options)
+#ifdef QT_PRINTSUPPORT_LIB
+
+namespace {
+
+/**
+ * Sets up a printer for every sheet of the options and gives it to the
+ * output while the symbols which the sheet draws itself are hidden.
+ * False, with the error in the report, when the sheets cannot be printed
+ * or when the output says so.
+ */
+bool printSheets(Map& map, const CourseMapExportOptions& options, const QPrinterInfo* target, CourseMapExportReport& report,
+                 const std::function<bool(const QString&, MapPrinter&)>& output)
 {
-	CourseMapExportReport report;
-#ifndef QT_PRINTSUPPORT_LIB
-	Q_UNUSED(map)
-	Q_UNUSED(options)
-	report.error = tr("This build cannot write PDF files.");
-	return report;
-#else
 	auto const& data = map.courseData();
-	QDir folder(options.folder);
-	if (options.folder.isEmpty() || !folder.mkpath(QStringLiteral(".")))
-	{
-		report.error = tr("Cannot write into the folder \"%1\".").arg(options.folder);
-		return report;
-	}
 	const Extent* extent = nullptr;
 	if (!options.extent.isEmpty())
 	{
@@ -449,18 +489,18 @@ CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& o
 		if (named == end(extents))
 		{
 			report.error = tr("The map has no extent \"%1\".").arg(options.extent);
-			return report;
+			return false;
 		}
 		extent = &*named;
 	}
-	
+
 	auto courses = options.courses;
 	if (courses.isEmpty())
 	{
 		for (auto const& course : data.courses)
 			courses.push_back(course.name);
 	}
-	
+
 	for (auto const& course : qAsConst(courses))
 	{
 		auto const sheets = courseMapSheets(data, course, options.relay_maps);
@@ -490,7 +530,7 @@ CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& o
 				if (named == end(extents))
 				{
 					report.error = tr("No extent found for the canvas \"%1\". Define its extent first.").arg(canvas->name);
-					return report;
+					return false;
 				}
 				sheet_extent = &*named;
 				sheet_scale = canvas->scale;
@@ -501,7 +541,7 @@ CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& o
 				if (canvas->max_rows > 0)
 					sheet_data.options.setValue(QLatin1Char('i'), QString::number(canvas->max_rows));
 			}
-			
+
 			// Drawn before the symbols are hidden: the copies are of symbols as the map shows them.
 			std::vector<CourseMapDrawing> sides;
 			for (auto const& side : sheet.sides)
@@ -518,9 +558,11 @@ CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& o
 						side_routes.push_back(storedCourseRoutes(map, sheet_data, side.course, side.part));
 				}
 			}
-			
-			MapPrinter printer(map, options.view);
-			printer.setTarget(MapPrinter::pdfTarget());
+
+			// The background maps which the canvas hides are not printed.
+			auto const sheet_view = canvas ? canvasPrintView(map, options.view, *canvas) : std::unique_ptr<MapView>{};
+			MapPrinter printer(map, sheet_view ? sheet_view.get() : options.view);
+			printer.setTarget(target);
 			printer.setMode(MapPrinterOptions::Vector);
 			printer.setPrintTemplates(true);
 			if (sheet_extent)
@@ -544,29 +586,92 @@ CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& o
 				if (side >= 0 && std::size_t(side) < side_routes.size())
 					paintCourseRoutes(painter, side_routes[std::size_t(side)]);
 			}, int(sides.size()));
-			
-			auto const path = folder.absoluteFilePath(courseMapFileName(options.base_name, sheet_name));
-			auto qprinter = printer.makePrinter();
-			auto written = false;
-			if (qprinter)
-			{
-				qprinter->setOutputFormat(QPrinter::PdfFormat);
-				qprinter->setOutputFileName(path);
-				qprinter->setCreator(QString::fromLatin1("FOOM " APP_VERSION));
-				qprinter->setDocName(QFileInfo(path).completeBaseName());
-				const CourseSymbolsHider hider(map, hidden_numbers);
-				written = printer.printMap(qprinter.get());
-			}
-			if (!written)
-			{
-				QFile::remove(path);
-				report.error = tr("Cannot write the file \"%1\".").arg(path);
-				return report;
-			}
-			report.files.push_back(path);
+
+			const CourseSymbolsHider hider(map, hidden_numbers);
+			if (!output(sheet_name, printer))
+				return false;
 		}
 	}
-	report.ok = true;
+	return true;
+}
+
+}  // namespace
+
+#endif
+
+
+CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& options)
+{
+	if (!options.map_format.isEmpty())
+		return exportCourseMapFiles(map, options);
+	CourseMapExportReport report;
+#ifndef QT_PRINTSUPPORT_LIB
+	Q_UNUSED(map)
+	Q_UNUSED(options)
+	report.error = tr("This build cannot write PDF files.");
+	return report;
+#else
+	QDir folder(options.folder);
+	if (options.folder.isEmpty() || !folder.mkpath(QStringLiteral(".")))
+	{
+		report.error = tr("Cannot write into the folder \"%1\".").arg(options.folder);
+		return report;
+	}
+	report.ok = printSheets(map, options, MapPrinter::pdfTarget(), report, [&](const QString& sheet_name, MapPrinter& printer) {
+		auto const path = folder.absoluteFilePath(courseMapFileName(options.base_name, sheet_name));
+		auto qprinter = printer.makePrinter();
+		auto written = false;
+		if (qprinter)
+		{
+			qprinter->setOutputFormat(QPrinter::PdfFormat);
+			qprinter->setOutputFileName(path);
+			qprinter->setCreator(QString::fromLatin1("FOOM " APP_VERSION));
+			qprinter->setDocName(QFileInfo(path).completeBaseName());
+			written = printer.printMap(qprinter.get());
+		}
+		if (!written)
+		{
+			QFile::remove(path);
+			report.error = tr("Cannot write the file \"%1\".").arg(path);
+			return false;
+		}
+		report.files.push_back(path);
+		return true;
+	});
+	return report;
+#endif
+}
+
+
+// the design notes, "Printing the course maps"
+CourseMapExportReport printCourseMaps(Map& map, const CourseMapExportOptions& options, QPrinter* printer)
+{
+	CourseMapExportReport report;
+#ifndef QT_PRINTSUPPORT_LIB
+	Q_UNUSED(map)
+	Q_UNUSED(options)
+	Q_UNUSED(printer)
+	report.error = tr("This build cannot print.");
+	return report;
+#else
+	if (!printer)
+	{
+		report.error = tr("No printer.");
+		return report;
+	}
+	// A printer which writes a file prints as the PDF export does; the paper is that of the printer either way.
+	const QPrinterInfo info(*printer);
+	auto const* target = printer->outputFormat() == QPrinter::PdfFormat ? MapPrinter::pdfTarget() : &info;
+	report.ok = printSheets(map, options, target, report, [&](const QString& sheet_name, MapPrinter& map_printer) {
+		printer->setDocName(sheet_name);
+		if (!map_printer.printMap(printer))
+		{
+			report.error = tr("Cannot print the map of \"%1\".").arg(sheet_name);
+			return false;
+		}
+		report.files.push_back(sheet_name);
+		return true;
+	});
 	return report;
 #endif
 }

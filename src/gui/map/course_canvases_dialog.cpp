@@ -30,9 +30,13 @@
 #include <QColor>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QDoubleSpinBox>
+#include <QFile>
+#include <QFileDialog>
 #include <QFormLayout>
 #include <QHBoxLayout>
+#include <QIODevice>
 #include <QInputDialog>
 #include <QLabel>
 #include <QLatin1Char>
@@ -41,6 +45,7 @@
 #include <QListWidgetItem>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSaveFile>
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QVBoxLayout>
@@ -52,6 +57,7 @@
 #include "core/symbols/symbol.h"
 #include "course/course_data.h"
 #include "course/course_parts.h"
+#include "templates/template.h"
 
 namespace OpenOrienteering {
 
@@ -116,6 +122,14 @@ CourseCanvasesDialog::CourseCanvasesDialog(const Map* map, QWidget* parent)
 	list_layout->addWidget(new_button);
 	list_layout->addWidget(rename_button);
 	list_layout->addWidget(delete_button);
+	// the design notes, "Canvases: the XML files"
+	auto* load_xml_button = new QPushButton(tr("Load from XML..."));
+	load_xml_button->setObjectName(QStringLiteral("canvases-load-xml"));
+	auto* save_xml_button = new QPushButton(tr("Save as XML..."));
+	save_xml_button->setObjectName(QStringLiteral("canvases-save-xml"));
+	list_layout->addSpacing(8);
+	list_layout->addWidget(load_xml_button);
+	list_layout->addWidget(save_xml_button);
 	
 	scale_edit = new QSpinBox();
 	scale_edit->setObjectName(QStringLiteral("canvas-scale"));
@@ -173,6 +187,38 @@ CourseCanvasesDialog::CourseCanvasesDialog(const Map* map, QWidget* parent)
 		item->setData(Qt::UserRole, canvasSymbolNumber(first, symbol->getNumberComponent(1)));
 	}
 	
+	// the design notes, "Canvases: the background maps"
+	template_list = new QListWidget();
+	template_list->setObjectName(QStringLiteral("canvas-templates"));
+	template_list->setToolTip(tr("The background maps which are checked are not printed on the maps of this canvas."));
+	QStringList template_names;
+	for (int i = 0; i < map->getNumTemplates(); ++i)
+	{
+		auto const& name = map->getTemplate(i)->getTemplateFilename();
+		if (!template_names.contains(name))
+			template_names.push_back(name);
+	}
+	// Those which the canvases of a file name, whether the map has them or not.
+	for (auto const& name : data.used_templates)
+	{
+		if (!template_names.contains(name))
+			template_names.push_back(name);
+	}
+	for (auto const& canvas : data.canvases)
+	{
+		for (auto const& name : canvas.hidden_templates)
+		{
+			if (!template_names.contains(name))
+				template_names.push_back(name);
+		}
+	}
+	for (auto const& name : template_names)
+	{
+		auto* item = new QListWidgetItem(name, template_list);
+		item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+		item->setCheckState(Qt::Unchecked);
+	}
+
 	auto* form = new QFormLayout();
 	form->addRow(tr("Export scale:"), scale_edit);
 	form->addRow(tr("Extent:"), extent_box);
@@ -186,6 +232,8 @@ CourseCanvasesDialog::CourseCanvasesDialog(const Map* map, QWidget* parent)
 	auto* symbols_layout = new QVBoxLayout();
 	symbols_layout->addWidget(new QLabel(tr("Hidden course symbols:")));
 	symbols_layout->addWidget(symbol_list, 1);
+	symbols_layout->addWidget(new QLabel(tr("Hidden background maps:")));
+	symbols_layout->addWidget(template_list, 1);
 	lists->addLayout(courses_layout, 1);
 	lists->addLayout(symbols_layout, 1);
 	canvas_panel = new QWidget();
@@ -210,6 +258,8 @@ CourseCanvasesDialog::CourseCanvasesDialog(const Map* map, QWidget* parent)
 	connect(new_button, &QPushButton::clicked, this, &CourseCanvasesDialog::newClicked);
 	connect(rename_button, &QPushButton::clicked, this, &CourseCanvasesDialog::renameClicked);
 	connect(delete_button, &QPushButton::clicked, this, [this]() { removeCanvas(currentCanvas()); });
+	connect(load_xml_button, &QPushButton::clicked, this, &CourseCanvasesDialog::loadXmlClicked);
+	connect(save_xml_button, &QPushButton::clicked, this, &CourseCanvasesDialog::saveXmlClicked);
 	connect(scale_edit, QOverload<int>::of(&QSpinBox::valueChanged), this, &CourseCanvasesDialog::valuesChanged);
 	connect(extent_box, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &CourseCanvasesDialog::valuesChanged);
 	connect(load_extent_box, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &CourseCanvasesDialog::backgroundExtentChosen);
@@ -217,6 +267,7 @@ CourseCanvasesDialog::CourseCanvasesDialog(const Map* map, QWidget* parent)
 	connect(rows_edit, QOverload<int>::of(&QSpinBox::valueChanged), this, &CourseCanvasesDialog::valuesChanged);
 	connect(course_list, &QListWidget::itemChanged, this, &CourseCanvasesDialog::courseChanged);
 	connect(symbol_list, &QListWidget::itemChanged, this, &CourseCanvasesDialog::symbolChanged);
+	connect(template_list, &QListWidget::itemChanged, this, &CourseCanvasesDialog::templateChanged);
 	
 	refreshList(data.canvases.empty() ? -1 : 0);
 }
@@ -328,6 +379,11 @@ void CourseCanvasesDialog::refreshCanvas()
 		auto* item = symbol_list->item(i);
 		item->setCheckState(canvas.hidden_symbols.contains(item->data(Qt::UserRole).toString()) ? Qt::Checked : Qt::Unchecked);
 	}
+	for (int i = 0; i < template_list->count(); ++i)
+	{
+		auto* item = template_list->item(i);
+		item->setCheckState(canvas.hidden_templates.contains(item->text()) ? Qt::Checked : Qt::Unchecked);
+	}
 	refreshing = false;
 }
 
@@ -383,23 +439,113 @@ void CourseCanvasesDialog::symbolChanged(QListWidgetItem* item)
 }
 
 
+// the design notes, "Canvases: the background maps"
+void CourseCanvasesDialog::templateChanged(QListWidgetItem* item)
+{
+	auto const index = currentCanvas();
+	if (refreshing || index < 0 || std::size_t(index) >= data.canvases.size())
+		return;
+	auto const name = item->text();
+	auto& hidden = data.canvases[std::size_t(index)].hidden_templates;
+	hidden.removeAll(name);
+	if (item->checkState() == Qt::Checked)
+	{
+		hidden.push_back(name);
+		// What a canvas hides is a background map which the canvases govern.
+		if (!data.used_templates.contains(name))
+			data.used_templates.push_back(name);
+	}
+}
+
+
 // the design notes, "Canvases: load extent from background map"
 void CourseCanvasesDialog::backgroundExtentChosen(int index)
 {
 	if (index < 1 || std::size_t(index) > background_extents.size())
 		return;
 	auto const& extent = background_extents[std::size_t(index - 1)].extent;
+	keepLoadedExtent(extent);
+	extent_box->setCurrentIndex(extent_box->findText(extent.name));
+	QSignalBlocker blocker(load_extent_box);
+	load_extent_box->setCurrentIndex(0);
+}
+
+void CourseCanvasesDialog::keepLoadedExtent(const Extent& extent)
+{
 	auto const same = std::find_if(loaded_extents.begin(), loaded_extents.end(), [&extent](const Extent& other) { return other.name == extent.name; });
 	if (same != loaded_extents.end())
 		*same = extent;
 	else
 		loaded_extents.push_back(extent);
 	if (extent_box->findText(extent.name) < 0)
+	{
+		const QSignalBlocker block(extent_box);
 		extent_box->addItem(extent.name);
-	extent_box->setCurrentIndex(extent_box->findText(extent.name));
-	QSignalBlocker blocker(load_extent_box);
-	load_extent_box->setCurrentIndex(0);
+	}
 }
+
+
+// the design notes, "Canvases: the XML files"
+bool CourseCanvasesDialog::loadXml(const QString& path)
+{
+	QFile file(path);
+	if (!file.open(QIODevice::ReadOnly))
+		return false;
+	CourseCanvases read;
+	std::vector<Extent> extents;
+	if (!canvasesFromXmlScript(file.readAll(), read, extents))
+		return false;
+	for (auto const& extent : extents)
+		keepLoadedExtent(extent);
+	data = read;
+	{
+		const QSignalBlocker block(active_check);
+		active_check->setChecked(data.active);
+	}
+	refreshList(data.canvases.empty() ? -1 : 0);
+	return true;
+}
+
+
+bool CourseCanvasesDialog::saveXml(const QString& path) const
+{
+	// The extents of the map, and those which the dialog took in.
+	auto extents = map->extents();
+	for (auto const& extent : loaded_extents)
+	{
+		auto const same = std::find_if(extents.begin(), extents.end(), [&extent](const Extent& other) { return other.name == extent.name; });
+		if (same != extents.end())
+			*same = extent;
+		else
+			extents.push_back(extent);
+	}
+	QSaveFile file(path);
+	if (!file.open(QIODevice::WriteOnly))
+		return false;
+	file.write(canvasesToXmlScript(data, extents));
+	return file.commit();
+}
+
+
+void CourseCanvasesDialog::loadXmlClicked()
+{
+	auto const path = QFileDialog::getOpenFileName(this, tr("Load from XML"), QString{}, tr("XML files (*.xml);;All files (*.*)"));
+	if (!path.isEmpty() && !loadXml(path))
+		QMessageBox::warning(this, tr("Load from XML"), tr("The file \"%1\" has no canvases which can be read.").arg(QDir::toNativeSeparators(path)));
+}
+
+
+void CourseCanvasesDialog::saveXmlClicked()
+{
+	auto path = QFileDialog::getSaveFileName(this, tr("Save as XML"), QString{}, tr("XML files (*.xml)"));
+	if (path.isEmpty())
+		return;
+	if (!path.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive))
+		path += QLatin1String(".xml");
+	if (!saveXml(path))
+		QMessageBox::warning(this, tr("Save as XML"), tr("Cannot write the file \"%1\".").arg(QDir::toNativeSeparators(path)));
+}
+
 
 void CourseCanvasesDialog::newClicked()
 {

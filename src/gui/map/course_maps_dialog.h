@@ -47,7 +47,10 @@ class CourseMapsDialog : public QDialog
 {
 Q_OBJECT
 public:
-	CourseMapsDialog(const Map* map, const QString& folder, QWidget* parent = nullptr);
+	/** What the maps are for: files, or the printer, for which neither folder nor kind of file is asked. */
+	enum Purpose { Export, Print };
+
+	CourseMapsDialog(const Map* map, const QString& folder, QWidget* parent = nullptr, Purpose purpose = Export);
 	~CourseMapsDialog() override;
 	
 	/** What was chosen; the name of the files is left to the caller. */
@@ -56,14 +59,19 @@ public:
 private:
 	void browse();
 	void updateButtons();
+	void updateEnabled();
 	
 	QListWidget* course_list;
+	QComboBox* format_box;
 	QComboBox* relay_box;
 	QComboBox* extent_box;
 	QCheckBox* canvases_check;
 	QCheckBox* routes_check;
 	QLineEdit* folder_edit;
 	QWidget* ok_button;
+	Purpose purpose;
+	bool has_routes = false;
+	bool has_canvases = false;
 };
 
 

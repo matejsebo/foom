@@ -28,15 +28,19 @@
 #include <QByteArray>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDir>
 #include <QDoubleSpinBox>
+#include <QFile>
 #include <QIODevice>
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QObject>
+#include <QPushButton>
 #include <QSpinBox>
 #include <QRectF>
 #include <QString>
 #include <QStringList>
+#include <QTemporaryDir>
 #include <QTextCodec>
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
@@ -169,6 +173,7 @@ private slots:
 	void ocdTest();
 	void canvasForTest();
 	void dialogTest();
+	void xmlScriptTest();
 };
 
 
@@ -525,6 +530,98 @@ void CourseCanvasTest::dialogTest()
 	QVERIFY(!maps.options().use_canvases);
 }
 
+
+/// Load from XML and Save as XML, Accept (7)
+void CourseCanvasTest::xmlScriptTest()
+{
+	// A canvas XML file: the rectangle of the extent is in it.
+	CourseCanvases read;
+	std::vector<Extent> extents;
+	QVERIFY(canvasesFromXmlScript(ocdText().toUtf8(), read, extents));
+	QCOMPARE(read, sampleCanvases());
+	QCOMPARE(int(extents.size()), 1);
+	auto const whole = wholeExtent();
+	QCOMPARE(extents[0].name, whole.name);
+	QVERIFY(qAbs(extents[0].rect_mm.left() - whole.rect_mm.left()) < 0.01);
+	QVERIFY(qAbs(extents[0].rect_mm.top() - whole.rect_mm.top()) < 0.01);
+	QVERIFY(qAbs(extents[0].rect_mm.width() - whole.rect_mm.width()) < 0.01);
+	QVERIFY(qAbs(extents[0].rect_mm.height() - whole.rect_mm.height()) < 0.01);
+
+	// Written as Save as XML writes it: in Windows-1252, with the rectangle behind the name of the extent.
+	auto const bytes = canvasesToXmlScript(sampleCanvases(), { whole });
+	QVERIFY(bytes.startsWith("<?xml version=\"1.0\"?>\r\n<OcadScript>\r\n<CsCanvas>\r\n"));
+	QVERIFY(bytes.contains("Forest Orienteering Map B\xfcrenflue.ocd"));
+	QVERIFY(!bytes.contains("B\xc3\xbcrenflue"));
+	QVERIFY(bytes.contains("<ExportRectangleName pageStatus=\"psSingle\">Whole</ExportRectangleName>\r\n"
+	                       "<ExportRectangleFrontside>\r\n<L>-142.03</L>\r\n<B>-291.03</B>\r\n<R>255.37</R>\r\n<T>77.26</T>\r\n</ExportRectangleFrontside>\r\n"));
+	QVERIFY(bytes.endsWith("</CsCanvas>\r\n</OcadScript>\r\n"));
+	read = {};
+	extents.clear();
+	QVERIFY(canvasesFromXmlScript(bytes, read, extents));
+	QCOMPARE(read, sampleCanvases());
+	QCOMPARE(int(extents.size()), 1);
+
+	// A canvas whose extent is not given has no rectangle; the record 1093 has none either.
+	auto const without = canvasesToXmlScript(sampleCanvases(), {});
+	QVERIFY(!without.contains("ExportRectangleFrontside"));
+	QVERIFY(!canvasesToOcdXml(sampleCanvases()).contains(QLatin1String("ExportRectangleFrontside")));
+	extents.clear();
+	QVERIFY(canvasesFromXmlScript(without, read, extents));
+	QVERIFY(extents.empty());
+	QVERIFY(!canvasesFromXmlScript("not xml", read, extents));
+
+	// In the dialog.
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	Map map;
+	map.setScaleDenominator(10000);
+	Extent sheet;
+	sheet.name = QStringLiteral("Sheet");
+	sheet.rect_mm = QRectF(0.0, 0.0, 100.0, 80.0);
+	map.setExtents({ sheet });
+	auto const path = QDir(dir.path()).absoluteFilePath(QStringLiteral("canvases.xml"));
+	{
+		CourseCanvasesDialog dialog(&map);
+		QVERIFY(dialog.findChild<QPushButton*>(QStringLiteral("canvases-load-xml")));
+		QVERIFY(dialog.findChild<QPushButton*>(QStringLiteral("canvases-save-xml")));
+		QVERIFY(dialog.addCanvas(QStringLiteral("A")));
+		auto* extent = dialog.findChild<QComboBox*>(QStringLiteral("canvas-extent"));
+		QVERIFY(extent);
+		extent->setCurrentIndex(extent->findText(QStringLiteral("Sheet")));
+		QVERIFY(dialog.saveXml(path));
+	}
+	QFile file(path);
+	QVERIFY(file.open(QIODevice::ReadOnly));
+	auto const saved = file.readAll();
+	file.close();
+	QVERIFY(saved.contains("<Name>A</Name>"));
+	QVERIFY(saved.contains("<L>0.00</L>\r\n<B>-80.00</B>\r\n<R>100.00</R>\r\n<T>0.00</T>"));
+
+	// Loaded into a dialog of a map which has not the extent: the canvases are replaced, the extent comes with them.
+	Map other;
+	other.setScaleDenominator(10000);
+	CourseCanvasesDialog loading(&other);
+	QVERIFY(loading.addCanvas(QStringLiteral("Old")));
+	QVERIFY(loading.loadXml(path));
+	QCOMPARE(int(loading.canvases().canvases.size()), 1);
+	QCOMPARE(loading.canvases().canvases[0].name, QStringLiteral("A"));
+	QCOMPARE(loading.canvases().canvases[0].extent, QStringLiteral("Sheet"));
+	QCOMPARE(loading.currentCanvas(), 0);
+	QCOMPARE(int(loading.loadedExtents().size()), 1);
+	QCOMPARE(loading.loadedExtents()[0].name, QStringLiteral("Sheet"));
+	QCOMPARE(loading.loadedExtents()[0].rect_mm, sheet.rect_mm);
+	auto* loaded_extent = loading.findChild<QComboBox*>(QStringLiteral("canvas-extent"));
+	QCOMPARE(loaded_extent->currentText(), QStringLiteral("Sheet"));
+	// A file which is none leaves the canvases as they are.
+	auto const bad = QDir(dir.path()).absoluteFilePath(QStringLiteral("bad.xml"));
+	QFile bad_file(bad);
+	QVERIFY(bad_file.open(QIODevice::WriteOnly));
+	bad_file.write("<OcadScript><File.Open/></OcadScript>");
+	bad_file.close();
+	QVERIFY(!loading.loadXml(bad));
+	QVERIFY(!loading.loadXml(QDir(dir.path()).absoluteFilePath(QStringLiteral("none.xml"))));
+	QCOMPARE(loading.canvases().canvases[0].name, QStringLiteral("A"));
+}
 
 /*
  * We don't need a real GUI window.

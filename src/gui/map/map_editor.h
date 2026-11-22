@@ -118,6 +118,7 @@ class MapView;
 class MapWidget;
 class PaintOnTemplateFeature;
 class CourseWidget;  // foom
+class CourseMapPreview;  // foom
 class RangefinderWidget;  // foom
 class PrintWidget;
 class ReopenTemplateDialog;
@@ -698,11 +699,14 @@ public slots:
 	/** foom: Writes which team runs which variant of the relays, as a text file. */
 	void exportRelayVariationsClicked();
 	void exportCourseMapsClicked();
+	void printCourseMapsClicked();  // foom
 	void courseCanvasesClicked();
 	void analyseCourseRoutesClicked();
 	void analyseAllCourseRoutesClicked();
 	void showCourseRoutesClicked();
 	void hideCourseRoutesClicked();
+	void coursePreviewClicked(bool checked);  // foom
+	void updateCourseMapPreview();  // foom
 	void deleteCourseRoutesClicked();
 	void exportCourseRoutesClicked();
 	void routeViaPointsClicked();
@@ -1460,6 +1464,7 @@ private:
 	QAction* course_import_geodata_act = {};  // foom
 	QAction* course_relay_variations_act = {};  // foom
 	QAction* course_export_maps_act = {};  // foom
+	QAction* course_print_maps_act = {};  // foom
 	QAction* course_canvases_act = {};  // foom
 	QAction* course_routes_analyse_act = {};  // foom
 	QAction* course_routes_analyse_all_act = {};  // foom
@@ -1474,6 +1479,9 @@ private:
 	bool show_course_routes = false;
 	QPointer<QWidget> course_dock_widget;  // foom
 	QPointer<CourseWidget> course_widget;  // foom
+	/** foom: the design notes, "The preview of a course map". */
+	QAction* course_preview_act = {};
+	std::unique_ptr<CourseMapPreview> course_map_preview;
 	QAction* rangefinder_act = {};  // foom
 	QAction* rangefinder_reference_act = {};  // foom
 	QPointer<RangefinderWidget> rangefinder_widget;  // foom

@@ -1187,7 +1187,7 @@ void StepRunner::validate(const Step& step, bool& map_open)
 	else if (name == QLatin1String("export-course-maps"))  // foom
 	{
 		p.requireMap(map_open);
-		p.checkKnown({ "folder", "courses", "relay", "extent", "scale", "canvases", "routes" });
+		p.checkKnown({ "folder", "courses", "relay", "extent", "scale", "canvases", "routes", "format" });
 		p.requireString("folder");
 		parseCourseNames(p);
 		parseRelayMaps(p);
@@ -1737,6 +1737,16 @@ StepResult StepRunner::exportCourseMapsStep(const Step& step)
 	options.scale = p.has("scale") ? p.requirePositiveInt("scale") : 0u;
 	options.use_canvases = p.optionalBool("canvases", false);
 	options.with_routes = p.optionalBool("routes", false);
+	// foom: the design notes, "Course maps as map files"
+	auto const file_format = p.optionalString("format").toLower();
+	if (!file_format.isEmpty() && file_format != QLatin1String("pdf"))
+	{
+		auto const* format = findFormat(file_format, &FileFormat::supportsFileSaveAs);
+		if (!format)
+			p.fail(QString::fromLatin1("unknown map file format \"%1\"").arg(file_format));
+		// "ocd" is OCD 2018.
+		options.map_format = file_format == QLatin1String("ocd") ? QStringLiteral("OCD2018") : QString::fromLatin1(format->id());
+	}
 	// The maps of the courses have their background maps.
 	loadTemplateFiles(*map);
 	auto const report = exportCourseMaps(*map, options);
