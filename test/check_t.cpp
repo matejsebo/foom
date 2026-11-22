@@ -77,6 +77,7 @@ private slots:
 	void mapCheckTest();
 	void mapCheckAssignTest();
 	void legibilityTest();
+	void legibilitySymbolGapTest();
 	void colourGroupTest();
 };
 
@@ -486,6 +487,96 @@ void CheckTest::legibilityTest()
 
 	map.setScaleDenominator(10000);
 	QCOMPARE(defaultGap(map), 0.23);
+}
+
+void CheckTest::legibilitySymbolGapTest()
+{
+	// the design notes, "Legibility", Accept (the minimum gap per symbol).
+	Map map;
+	map.setScaleDenominator(15000);
+	auto* black = new MapColor(QStringLiteral("Black"), 0);
+	black->setCmyk(MapColorCmyk(0.0f, 0.0f, 0.0f, 1.0f));
+	map.addColor(black, 0);
+	auto const line_symbol = [&map, black](int number, int minimum_gap) {
+		auto* symbol = new LineSymbol();
+		symbol->setColor(black);
+		symbol->setLineWidth(0.5);
+		symbol->setNumberComponent(0, number);
+		symbol->setMinimumGap(minimum_gap);
+		map.addSymbol(symbol, map.getNumSymbols());
+		return symbol;
+	};
+	auto* plain = line_symbol(501, 0);
+	auto* roomy = line_symbol(502, 2000);
+	auto* tight = line_symbol(503, 50);
+	QCOMPARE(plain->minimumGap(), 0);
+	QCOMPARE(roomy->minimumGap(), 2000);
+	plain->setMinimumGap(-5);
+	QCOMPARE(plain->minimumGap(), 0);
+
+	// Two plain lines 0.8 mm apart: gap 0.3, above the scan's 0.15.
+	addLine(map, plain, MapCoord(0.0, 0.0), MapCoord(10.0, 0.0));
+	addLine(map, plain, MapCoord(0.0, 0.8), MapCoord(10.0, 0.8));
+	// A plain and a roomy line 2 mm apart: gap 1.5, below the roomy symbol's 2.
+	auto* near_plain = addLine(map, plain, MapCoord(0.0, 100.0), MapCoord(10.0, 100.0));
+	auto* near_roomy = addLine(map, roomy, MapCoord(0.0, 102.0), MapCoord(10.0, 102.0));
+	// Two roomy lines 3 mm apart: gap 2.5, enough.
+	addLine(map, roomy, MapCoord(0.0, 200.0), MapCoord(10.0, 200.0));
+	addLine(map, roomy, MapCoord(0.0, 203.0), MapCoord(10.0, 203.0));
+	// Two tight lines 0.6 mm apart: gap 0.1, enough for their 0.05.
+	addLine(map, tight, MapCoord(0.0, 300.0), MapCoord(10.0, 300.0));
+	addLine(map, tight, MapCoord(0.0, 300.6), MapCoord(10.0, 300.6));
+	// A tight and a plain line 0.6 mm apart: the plain line's 0.15 counts, the larger.
+	auto* mixed_tight = addLine(map, tight, MapCoord(0.0, 400.0), MapCoord(10.0, 400.0));
+	addLine(map, plain, MapCoord(0.0, 400.6), MapCoord(10.0, 400.6));
+
+	LegibilityParams params;
+	params.gap_mm = 0.15;
+	auto const issues = checkLegibility(map, params);
+	QCOMPARE(countRule(issues, rule::gap), 2);
+	auto const* roomy_issue = findObjectIssue(issues, rule::gap, near_roomy);
+	QVERIFY(roomy_issue);
+	QVERIFY(roomy_issue->objects.contains(near_plain->uuid()));
+	QVERIFY(std::abs(roomy_issue->measured - 1.5) < 1e-6);
+	QCOMPARE(roomy_issue->limit, 2.0);
+	auto const* mixed_issue = findObjectIssue(issues, rule::gap, mixed_tight);
+	QVERIFY(mixed_issue);
+	QCOMPARE(mixed_issue->limit, 0.15);
+
+	// Without the symbols' gaps the scan's own gap applies to every pair.
+	roomy->setMinimumGap(0);
+	tight->setMinimumGap(0);
+	auto const plain_issues = checkLegibility(map, params);
+	QCOMPARE(countRule(plain_issues, rule::gap), 2);  // the tight pair and the mixed pair
+	QVERIFY(!findObjectIssue(plain_issues, rule::gap, near_roomy));
+	roomy->setMinimumGap(2000);
+
+	// Copies and equality.
+	auto copy = Symbol::duplicate(*roomy);
+	QCOMPARE(copy->minimumGap(), 2000);
+	QVERIFY(copy->equals(roomy));
+	copy->setMinimumGap(1000);
+	QVERIFY(!copy->equals(roomy));
+
+	// Saving and loading keeps the gap, and writes none for a symbol without one.
+	XMLFileFormat format;
+	QBuffer buffer;
+	QVERIFY(buffer.open(QIODevice::ReadWrite));
+	auto exporter = format.makeExporter({}, &map, nullptr);
+	exporter->setDevice(&buffer);
+	QVERIFY(exporter->doExport());
+	auto const data = QString::fromUtf8(buffer.data());
+	QCOMPARE(data.count(QLatin1String(" minimum_gap=")), 1);
+	QVERIFY(data.contains(QLatin1String(" minimum_gap=\"2000\"")));
+	QVERIFY(buffer.seek(0));
+	Map reloaded;
+	auto importer = format.makeImporter({}, &reloaded, nullptr);
+	importer->setDevice(&buffer);
+	QVERIFY(importer->doImport());
+	QCOMPARE(reloaded.getNumSymbols(), 3);
+	QCOMPARE(reloaded.getSymbol(0)->minimumGap(), 0);
+	QCOMPARE(reloaded.getSymbol(1)->minimumGap(), 2000);
+	QCOMPARE(reloaded.getSymbol(2)->minimumGap(), 0);
 }
 
 void CheckTest::colourGroupTest()

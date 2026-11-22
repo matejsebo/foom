@@ -131,6 +131,7 @@
 #include "global.h"
 #include "gui/main_window.h"
 #include "gui/map/map_editor.h"
+#include "gui/symbols/symbol_setting_dialog.h"  // foom
 #include "gui/map/map_find_feature.h"
 #include "gui/map/map_widget.h"
 #include "templates/paint_on_template_feature.h"
@@ -2869,6 +2870,25 @@ void ToolsTest::legibility()
 	QVERIFY(has_short_line());
 	editor.editor->runMapCheck();
 	QVERIFY(!has_short_line());
+	
+	// The minimum gap per symbol in the symbol editor.
+	{
+		SymbolSettingDialog symbol_dialog(map.line_symbol, map.map, nullptr);
+		auto* gap_edit = symbol_dialog.findChild<QDoubleSpinBox*>(QStringLiteral("minimum_gap_edit"));
+		QVERIFY(gap_edit);
+		QCOMPARE(gap_edit->value(), 0.0);
+		QVERIFY(!gap_edit->specialValueText().isEmpty());
+		QVERIFY(!symbol_dialog.isSymbolModified());
+		gap_edit->setValue(0.3);
+		QVERIFY(symbol_dialog.isSymbolModified());
+		QCOMPARE(symbol_dialog.getNewSymbol()->minimumGap(), 300);
+	}
+	map.line_symbol->setMinimumGap(450);
+	{
+		SymbolSettingDialog symbol_dialog(map.line_symbol, map.map, nullptr);
+		QCOMPARE(symbol_dialog.findChild<QDoubleSpinBox*>(QStringLiteral("minimum_gap_edit"))->value(), 0.45);
+	}
+	map.line_symbol->setMinimumGap(0);
 }
 
 void ToolsTest::drawingFeedback()

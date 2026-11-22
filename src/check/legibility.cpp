@@ -370,12 +370,19 @@ bool inScope(const Object& object, const LegibilityParams& params)
 	return true;
 }
 
+/** The gap the symbol asks for, or the scan's gap when it asks for none. */
+double symbolGap(const Symbol* symbol, const LegibilityParams& params)
+{
+	return (symbol && symbol->minimumGap() > 0) ? 0.001 * symbol->minimumGap() : params.gap_mm;
+}
+
 void checkPart(const MapPart& part, const LegibilityParams& params, std::vector<Issue>& issues)
 {
 	std::vector<Outline> outlines;
 	std::vector<Outline> cliffs;
 	std::unordered_map<const Object*, std::size_t> index_of;
 	auto widest = 0.0;
+	auto largest_gap = params.gap_mm;
 	for (int i = 0; i < part.getNumObjects(); ++i)
 	{
 		auto const* object = part.getObject(i);
@@ -396,6 +403,7 @@ void checkPart(const MapPart& part, const LegibilityParams& params, std::vector<
 		if (!outline.build(object))
 			continue;
 		widest = std::max(widest, outline.half_width);
+		largest_gap = std::max(largest_gap, symbolGap(outline.symbol, params));
 		index_of[object] = outlines.size();
 		if (outline.cliff)
 			cliffs.push_back(outline);
@@ -408,7 +416,8 @@ void checkPart(const MapPart& part, const LegibilityParams& params, std::vector<
 	for (std::size_t i = 0; i < outlines.size(); ++i)
 	{
 		auto const& a = outlines[i];
-		auto const grow = params.gap_mm + a.half_width + widest;
+		auto const a_gap = symbolGap(a.symbol, params);
+		auto const grow = largest_gap + a.half_width + widest;
 		candidates.clear();
 		part.query(a.extent.adjusted(-grow, -grow, grow, grow), candidates);
 		for (auto const* candidate : candidates)
@@ -422,7 +431,9 @@ void checkPart(const MapPart& part, const LegibilityParams& params, std::vector<
 			auto const contour_pair = a.contour && b.contour;
 			if (contour_pair && !params.between_contours)
 				continue;
-			auto const bound = params.gap_mm + a.half_width + b.half_width;
+			// the design notes, "Legibility": the larger gap of the two symbols.
+			auto const limit = std::max(a_gap, symbolGap(b.symbol, params));
+			auto const bound = limit + a.half_width + b.half_width;
 			if (boxDistance(a.extent.left(), a.extent.top(), a.extent.right(), a.extent.bottom(), b.extent.left(), b.extent.top(), b.extent.right(), b.extent.bottom()) >= bound)
 				continue;
 			if (sharesVertex(a, b))
@@ -441,7 +452,7 @@ void checkPart(const MapPart& part, const LegibilityParams& params, std::vector<
 				auto covered = false;
 				for (auto const& cliff : cliffs)
 				{
-					if (cliff.object != a.object && cliff.object != b.object && pointOutlineDistance(where, cliff) < cliff.half_width + params.gap_mm)
+					if (cliff.object != a.object && cliff.object != b.object && pointOutlineDistance(where, cliff) < cliff.half_width + limit)
 					{
 						covered = true;
 						break;
@@ -457,8 +468,8 @@ void checkPart(const MapPart& part, const LegibilityParams& params, std::vector<
 			issue.objects.append(b.object->uuid());
 			issue.where = where;
 			issue.measured = reduced;
-			issue.limit = params.gap_mm;
-			issue.message = tr("%1 mm between objects of symbols %2 and %3; the minimum is %4 mm.").arg(mm(reduced), a.symbol->getNumberAsString(), b.symbol->getNumberAsString(), mm(params.gap_mm));
+			issue.limit = limit;
+			issue.message = tr("%1 mm between objects of symbols %2 and %3; the minimum is %4 mm.").arg(mm(reduced), a.symbol->getNumberAsString(), b.symbol->getNumberAsString(), mm(limit));
 			issues.push_back(issue);
 		}
 	}

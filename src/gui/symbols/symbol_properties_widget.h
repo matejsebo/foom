@@ -31,6 +31,7 @@
 
 class QCheckBox;
 class QComboBox;
+class QDoubleSpinBox;
 class QLineEdit;
 class QPushButton;
 class QTextEdit;
@@ -106,6 +107,7 @@ protected:
 	QLineEdit* name_edit;
 	QTextEdit* description_edit;
 	QCheckBox* helper_symbol_check;
+	QDoubleSpinBox* minimum_gap_edit;  ///< foom
 	
 	IconPropertiesWidget* icon_widget;
 };
