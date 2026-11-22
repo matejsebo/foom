@@ -2767,7 +2767,7 @@ void PathObject::calcAllIntersectionsWith(const PathObject* other, PathObject::I
 			
 			for (size_t other_part_index = 0; other_part_index < other->path_parts.size(); ++other_part_index)
 			{
-				const PathPart& other_part = other->path_parts[part_index]; /// \todo FIXME: part_index or other_part_index ???
+				const PathPart& other_part = other->path_parts[other_part_index];  // foom: was part_index, which tested one part of other only
 				auto other_path_coord_end_index = other_part.path_coords.size() - 1;
 				for (auto k = PathCoordVector::size_type { 1 }; k <= other_path_coord_end_index; ++k)
 				{

@@ -25,6 +25,7 @@ if(ANDROID)
 else()
 	find_package(Qt5Network REQUIRED)
 	find_package(Qt5PrintSupport REQUIRED)
+	find_package(Qt5Svg REQUIRED)  # foom: SVG export
 endif()
 
 set(CMAKE_AUTOMOC ON)
@@ -162,6 +163,7 @@ set(Mapper_Common_SRCS
   core/ops/group.cpp
   core/ops/bounds.cpp
   core/ops/convert.cpp
+  core/ops/crop.cpp
   core/ops/interpolate.cpp
   core/ops/mirror.cpp
   core/ops/offset.cpp
@@ -217,6 +219,7 @@ set(Mapper_Common_SRCS
   core/object_groups.cpp
   core/ops/transform.cpp
   core/ops/vertex_type.cpp
+  core/ops/wkt.cpp
   
   core/renderables/renderable.cpp
   core/renderables/renderable_implementation.cpp
@@ -235,6 +238,7 @@ set(Mapper_Common_SRCS
   fileformats/file_format_registry.cpp
   fileformats/file_import_export.cpp
   fileformats/iof_course_export.cpp
+  fileformats/map_export.cpp
   fileformats/kml_course_export.cpp
   fileformats/ocd_file_export.cpp
   fileformats/ocd_file_format.cpp
@@ -271,6 +275,7 @@ set(Mapper_Common_SRCS
   gui/map/new_map_dialog.cpp
   gui/map/map_dialog_scale.cpp
   gui/map/map_editor.cpp
+  gui/map/map_editor_objects.cpp
   gui/map/map_editor_activity.cpp
   gui/map/bookmark_dialog.cpp
   gui/map/course_bulk_dialog.cpp  # foom
@@ -280,6 +285,7 @@ set(Mapper_Common_SRCS
   gui/map/course_report_dialog.cpp  # foom
   gui/map/course_statistics_dialog.cpp  # foom
   gui/map/route_settings_dialog.cpp  # foom
+  gui/map/crop_dialog.cpp
   gui/map/extent_dialog.cpp
   gui/map/elevation_dialogs.cpp
   gui/map/map_transform_dialogs.cpp
@@ -499,6 +505,7 @@ foreach(lib
   scaling-icon-engine
   Qt5::AndroidExtras
   Qt5::Network
+  Qt5::Svg
 )
 	if(TARGET ${lib})
 		target_link_libraries(Mapper_Common ${lib})

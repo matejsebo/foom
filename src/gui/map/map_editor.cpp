@@ -1160,6 +1160,9 @@ void MapEditorController::createActions()
 #endif
 	export_simple_course_act = newAction("export-simple-course", tr("Simple &course"), this, SLOT(exportSimpleCourse()), nullptr, QString{}, "file_menu.html");
 	export_pdf_act = newAction("export-pdf", tr("&PDF"), print_act_mapper, SLOT(map()), nullptr, QString{}, "file_menu.html");
+	export_svg_act = newAction("export-svg", tr("&SVG..."), this, SLOT(exportSvgClicked()), nullptr, tr("Write the print area as an SVG file."));  // foom
+	export_part_act = newAction("export-part", tr("Part of the map..."), this, SLOT(exportPartClicked()), nullptr, tr("Write the objects inside a boundary as a new map file."));  // foom
+	export_objects_act = newAction("export-objects", tr("Objects..."), this, SLOT(exportObjectsClicked()), nullptr, tr("Write the selection, or the objects of the selected symbols, as a new map file."));  // foom
 	print_act_mapper->setMapping(export_pdf_act, PrintWidget::EXPORT_PDF_TASK);
 #ifdef MAPPER_USE_GDAL
 	export_vector_act = newAction("export-vector", ::OpenOrienteering::ImportExport::tr("Geospatial vector data"), this, SLOT(exportVector()), nullptr, {}, "edit_menu.html");
@@ -1189,6 +1192,8 @@ void MapEditorController::createActions()
 	paste_original_act = newAction("paste-original", tr("Paste at original location"), paste_act_mapper, SLOT(map()), "paste-at-location.png", QString{}, "edit_menu.html");
 	paste_original_act->setMenuRole(QAction::TextHeuristicRole);
 	paste_act_mapper->setMapping(paste_original_act, 0);
+	copy_wkt_act = newAction("copy-wkt", tr("Copy as WKT"), this, SLOT(copyWktClicked()), nullptr, tr("Copy the selected objects as well-known text in projected coordinates."));  // foom
+	paste_wkt_act = newAction("paste-wkt", tr("Paste WKT"), this, SLOT(pasteWktClicked()), nullptr, tr("Add objects of the symbol selected in the symbol pane from the well-known text on the clipboard."));  // foom
 	delete_act = newAction("delete", tr("Delete"), this, SLOT(deleteClicked()), "delete.png", QString{}, "toolbars.html#delete");
 	select_all_act = newAction("select-all", tr("Select all"), this, SLOT(selectAll()), nullptr, QString{}, "edit_menu.html");
 	select_nothing_act = newAction("select-nothing", tr("Select nothing"), this, SLOT(selectNothing()), nullptr, QString{}, "edit_menu.html");
@@ -1401,6 +1406,7 @@ void MapEditorController::createActions()
 	mirror_act = newAction("mirror", tr("Mirror..."), this, SLOT(mirrorClicked()));  // foom
 	convert_to_point_act = newAction("convert-to-point", tr("Convert to point objects..."), this, SLOT(convertToPointsClicked()));  // foom
 	interpolate_act = newAction("interpolate", tr("Interpolate..."), this, SLOT(interpolateClicked()));  // foom
+	crop_act = newAction("crop", tr("Crop..."), this, SLOT(cropClicked()), nullptr, tr("Crop the objects to the selected lines and areas or to a rectangle, or crop a hole."));  // foom
 	export_descriptions_act = newAction("symbols-descriptions-export", tr("Export symbol descriptions..."), this, SLOT(exportSymbolDescriptionsClicked()));  // foom
 	import_descriptions_act = newAction("symbols-descriptions-import", tr("Import symbol descriptions..."), this, SLOT(importSymbolDescriptionsClicked()));  // foom
 	update_symbols_act = newAction("symbols-update", tr("Update from file..."), this, SLOT(updateSymbolsClicked()));  // foom
@@ -1639,6 +1645,9 @@ void MapEditorController::createMenuAndToolbars()
 	export_menu->menuAction()->setMenuRole(QAction::NoRole);
 	export_menu->addAction(export_image_act);
 	export_menu->addAction(export_pdf_act);
+	export_menu->addAction(export_svg_act);  // foom
+	export_menu->addAction(export_part_act);  // foom
+	export_menu->addAction(export_objects_act);  // foom
 	export_menu->addAction(export_kmz_act);
 	export_menu->addAction(export_simple_course_act);
 	if (export_vector_act)
@@ -1657,6 +1666,8 @@ void MapEditorController::createMenuAndToolbars()
 	edit_menu->addAction(copy_act);
 	edit_menu->addAction(paste_act);
 	edit_menu->addAction(paste_original_act);
+	edit_menu->addAction(copy_wkt_act);  // foom
+	edit_menu->addAction(paste_wkt_act);  // foom
 	edit_menu->addAction(delete_act);
 	edit_menu->addAction(to_layout_act);  // foom
 	edit_menu->addAction(to_map_act);  // foom
@@ -1863,6 +1874,7 @@ void MapEditorController::createMenuAndToolbars()
 	tools_menu->addAction(select_group_act);  // foom
 	tools_menu->addAction(clip_area_act);
 	tools_menu->addAction(erase_area_act);
+	tools_menu->addAction(crop_act);  // foom
 	tools_menu->addAction(distribute_points_act);
 	tools_menu->addAction(touch_cursor_action);
 	
@@ -3639,6 +3651,8 @@ void MapEditorController::updateObjectDependentActions()
 	// have_selection
 	cut_act->setEnabled(have_selection);
 	copy_act->setEnabled(have_selection);
+	if (copy_wkt_act)
+		copy_wkt_act->setEnabled(have_selection);  // foom
 	delete_act->setEnabled(have_selection);
 	delete_act->setStatusTip(tr("Deletes the selected objects.") + (delete_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select at least one object to activate this tool."))));
 	duplicate_act->setEnabled(have_selection);
@@ -7320,21 +7334,25 @@ void MapEditorController::interpolateClicked()
 	auto* form = new QFormLayout();
 	form->addRow(tr("Number of new objects:"), count_edit);
 	form->addRow(symbol_check);
+	auto* fit_check = new QCheckBox(tr("Fit curves"));  // foom: step 4 of the spec
+	fit_check->setChecked(true);
+	form->addRow(fit_check);
 	auto* layout = new QVBoxLayout(&dialog);
 	layout->addLayout(form);
 	layout->addWidget(buttons);
 	if (dialog.exec() == QDialog::Accepted)
-		interpolate(count_edit->value(), symbol_check->isEnabled() && symbol_check->isChecked());
+		interpolate(count_edit->value(), symbol_check->isEnabled() && symbol_check->isChecked(), fit_check->isChecked());
 }
 
 // foom
-void MapEditorController::interpolate(int count, bool use_selected_symbol)
+void MapEditorController::interpolate(int count, bool use_selected_symbol, bool curve_fit)
 {
 	// the design notes, "Interpolate".
 	auto const& selection = map->selectedObjects();
 	std::vector<const Object*> in(begin(selection), end(selection));
 	ops::InterpolateParams params;
 	params.count = count;
+	params.curve_fit = curve_fit;
 	if (use_selected_symbol && symbol_widget)
 		params.symbol = symbol_widget->getSingleSelectedSymbol();
 	applyOpResult(ops::interpolate(*map, in, params));

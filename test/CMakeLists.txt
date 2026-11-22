@@ -214,6 +214,8 @@ add_system_test(object_query_t)
 add_system_test(check_t)
 add_system_test(colour_tools_t)  # foom: the design notes, Colours
 add_system_test(ops_t)
+add_system_test(object_commands_t)  # foom: the design notes, Object commands
+add_system_test(map_export_t)  # foom: the design notes, Export
 add_system_test(path_object_t)
 add_system_test(spatial_index_t)
 add_system_test(style_t)
