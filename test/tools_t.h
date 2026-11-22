@@ -59,6 +59,7 @@ private slots:
 	
 	/** foom: Tests giving a template a spot colour plate. */
 	void templateSeparationCommand();
+	void templateEffectsCommand();  // foom
 	
 	/** foom: Tests the stairway tool. */
 	void stairwayTool();

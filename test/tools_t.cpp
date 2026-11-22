@@ -144,11 +144,17 @@
 #include "gui/symbols/symbol_setting_dialog.h"  // foom
 #include "gui/map/map_find_feature.h"
 #include "gui/map/map_widget.h"
+#include "gui/widgets/template_list_widget.h"  // foom
 #include "templates/paint_on_template_feature.h"
 #include "tools/edit_point_tool.h"
 #include "tools/edit_tool.h"
 #include "undo/undo_manager.h"
 #include "util/util.h"
+#ifdef MAPPER_TEST_GDAL  // foom
+#  include <cpl_string.h>
+#  include <gdal.h>
+#  include "gdal/gdal_template.h"
+#endif
 
 using namespace OpenOrienteering;
 
@@ -621,6 +627,77 @@ void ToolsTest::templateSeparationCommand()
 	QVERIFY(!error.isEmpty());
 	QVERIFY(editor.editor->setTemplateSeparation(temp, nullptr, &error));
 	QVERIFY(!temp->separationColor());
+}
+
+
+void ToolsTest::templateEffectsCommand()
+{
+	// the design notes, "Block out, dim and colour infrared", Accept (editor).
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	auto const path = QDir(dir.path()).absoluteFilePath(QStringLiteral("a.png"));
+	QImage image(4, 4, QImage::Format_RGB32);
+	image.fill(Qt::green);
+	QVERIFY(image.save(path, "PNG"));
+
+	TestMap map;
+	TestMapEditor editor(map.map);
+	map.map->addTemplate(-1, std::make_unique<TemplateImage>(path, map.map));
+	auto* temp = map.map->getTemplate(0);
+	QVERIFY(temp->loadTemplateFile());
+	map.map->addTemplate(-1, std::make_unique<TemplateMap>(QDir(dir.path()).absoluteFilePath(QStringLiteral("b.omap")), map.map));
+	auto* map_template = map.map->getTemplate(1);
+
+	editor.editor->setTemplateBlockOut(temp, true);
+	QVERIFY(temp->isBlockOut());
+	editor.editor->setTemplateBlockOut(map_template, true);
+	QVERIFY(map_template->isBlockOut());
+
+	QString error;
+	QVERIFY2(editor.editor->setTemplateDim(temp, 0.3, &error), qPrintable(error));
+	QCOMPARE(temp->dim(), 0.3);
+	QVERIFY(!editor.editor->setTemplateDim(map_template, 0.3, &error));
+	QVERIFY(!error.isEmpty());
+	QCOMPARE(map_template->dim(), 0.0);
+
+	error.clear();
+	QVERIFY(!editor.editor->setTemplateInfrared(temp, true, &error));
+	QVERIFY(!error.isEmpty());
+	QVERIFY(!TemplateListWidget::infraredOffered(temp));
+#ifdef MAPPER_TEST_GDAL
+	auto const write_tiff = [](const QString& tiff, int bands) {
+		GDALAllRegister();
+		char** options = nullptr;
+		options = CSLSetNameValue(options, "PHOTOMETRIC", "RGB");
+		if (bands == 4)
+			options = CSLSetNameValue(options, "ALPHA", "UNSPECIFIED");
+		auto dataset = GDALCreate(GDALGetDriverByName("GTiff"), tiff.toUtf8().constData(), 4, 4, bands, GDT_Byte, options);
+		CSLDestroy(options);
+		if (!dataset)
+			return false;
+		if (bands == 4)
+			GDALSetRasterColorInterpretation(GDALGetRasterBand(dataset, 4), GCI_Undefined);
+		GDALClose(dataset);
+		return true;
+	};
+	auto const cir = QDir(dir.path()).absoluteFilePath(QStringLiteral("cir.tif"));
+	auto const rgb = QDir(dir.path()).absoluteFilePath(QStringLiteral("rgb.tif"));
+	QVERIFY(write_tiff(cir, 4));
+	QVERIFY(write_tiff(rgb, 3));
+	map.map->addTemplate(-1, std::make_unique<GdalTemplate>(cir, map.map));
+	auto* four = map.map->getTemplate(2);
+	QVERIFY(four->loadTemplateFile());
+	map.map->addTemplate(-1, std::make_unique<GdalTemplate>(rgb, map.map));
+	auto* three = map.map->getTemplate(3);
+	QVERIFY(three->loadTemplateFile());
+	QVERIFY(TemplateListWidget::infraredOffered(four));
+	QVERIFY(!TemplateListWidget::infraredOffered(three));
+	error.clear();
+	QVERIFY2(editor.editor->setTemplateInfrared(four, true, &error), qPrintable(error));
+	QVERIFY(four->isInfrared());
+	QVERIFY(!editor.editor->setTemplateInfrared(three, true, &error));
+	QVERIFY(!three->isInfrared());
+#endif
 }
 
 
@@ -3227,6 +3304,23 @@ void ToolsTest::mapCheck()
 		QVERIFY(issue.rule != rule::symbol_wrong_type);
 	auto* dock_widget = editor.window->findChild<QPushButton*>(QStringLiteral("assign_symbol_button"));
 	QVERIFY(dock_widget);
+
+	// foom: the relink fix of template-missing.
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	auto const found = QDir(dir.path()).absoluteFilePath(QStringLiteral("a.png"));
+	QImage image(4, 4, QImage::Format_RGB32);
+	image.fill(Qt::green);
+	QVERIFY(image.save(found, "PNG"));
+	map.map->addTemplate(-1, std::make_unique<TemplateImage>(QDir(dir.path()).absoluteFilePath(QStringLiteral("gone/a.png")), map.map));
+	map.map->getTemplate(map.map->getNumTemplates() - 1)->setTemplateState(Template::Invalid);
+	editor.editor->runMapCheck();
+	editor.editor->issueModel()->setRuleFilter(rule::template_missing);
+	QCOMPARE(editor.editor->issueModel()->rowCount(), 1);
+	QVERIFY(editor.editor->relinkIssueRow(0, found));
+	QCOMPARE(map.map->getTemplate(map.map->getNumTemplates() - 1)->getTemplateState(), Template::Loaded);
+	for (auto const& issue : editor.editor->issueModel()->issues())
+		QVERIFY(issue.rule != rule::template_missing);
 }
 
 void ToolsTest::legibility()
@@ -3263,6 +3357,22 @@ void ToolsTest::legibility()
 	// Check again repeats the legibility scan, not the map check.
 	editor.editor->checkAgain();
 	QVERIFY(has_short_line());
+	// foom: the results as selections and markers.
+	auto const has_selection = [&map](const char* name) {
+		for (auto const& selection : map.map->savedSelections())
+		{
+			if (selection.name == QLatin1String(name))
+				return true;
+		}
+		return false;
+	};
+	QVERIFY(has_selection("Legibility: short lines"));
+	map.map->addObject(new PathObject(map.line_symbol, { MapCoord(100.0, 0.0), MapCoord(110.0, 0.0) }));
+	map.map->addObject(new PathObject(map.line_symbol, { MapCoord(105.0, 1.1), MapCoord(105.0, 10.0) }));
+	editor.editor->runLegibilityCheck(params);
+	QVERIFY(has_selection("Legibility: gaps"));
+	QVERIFY(map.map->findPartIndexWithRole(MapPart::Role::Issues) >= 0);
+	QVERIFY(map.map->getPart(std::size_t(map.map->findPartIndexWithRole(MapPart::Role::Issues)))->getNumObjects() >= 2);
 	editor.editor->runMapCheck();
 	QVERIFY(!has_short_line());
 	
