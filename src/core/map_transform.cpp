@@ -458,6 +458,10 @@ bool warpMap(Map& map, const std::function<bool (const MapCoordF&)>& inside,
 				auto* path = object->asPath();
 				for (std::size_t k = 0; k < original.size(); ++k)
 				{
+					// A closed part's closing coordinate follows its first one: setCoordinate()
+					// would copy the closing flags onto the first coordinate and break the parts.
+					if (original[k].isClosePoint())
+						continue;
 					auto const at = MapCoordF(original[vertex[k]]);
 					if (!inside(at))
 						continue;

@@ -989,6 +989,53 @@ private slots:
 	}
 	
 	
+	void rubbersheetClosedPartsTest()
+	{
+		// Accept (12): the crash seen on 2026-11-21, a second perimeter polygon over a map of closed areas.
+		RubbersheetParams params;
+		params.perimeter = { { MapCoordF(-100, -100), MapCoordF(100, -100), MapCoordF(100, 100), MapCoordF(-100, 100) },
+		                     { MapCoordF(-90, -90), MapCoordF(-60, -90), MapCoordF(-60, -60), MapCoordF(-90, -60) } };
+		params.pairs = { { MapCoordF(-80, -80), MapCoordF(-75, -78) }, { MapCoordF(50, 50), MapCoordF(50, 50) } };
+		Map map;
+		auto* line = new LineSymbol();
+		map.addSymbol(line, 0);
+		auto* area = new PathObject(line, MapCoordVector{ MapCoord(-85.0, -85.0), MapCoord(-20.0, -85.0), MapCoord(-20.0, -20.0), MapCoord(-85.0, -20.0) });
+		area->closeAllParts();
+		PathObject hole(line, MapCoordVector{ MapCoord(-70.0, -70.0), MapCoord(-30.0, -70.0), MapCoord(-30.0, -30.0) });
+		hole.closeAllParts();
+		area->appendPath(&hole);
+		map.addObject(area);
+		auto const before = area->getRawCoordinateVector();
+		QCOMPARE(area->parts().size(), std::size_t(2));
+	
+		WarpReport report;
+		QVERIFY(rubbersheetMap(map, params, &report));
+		auto const& after = area->getRawCoordinateVector();
+		QCOMPARE(after.size(), before.size());
+		for (std::size_t i = 0; i < after.size(); ++i)
+		{
+			QCOMPARE(after[i].isClosePoint(), before[i].isClosePoint());
+			QCOMPARE(after[i].isHolePoint(), before[i].isHolePoint());
+			QCOMPARE(after[i].isCurveStart(), before[i].isCurveStart());
+		}
+		QCOMPARE(area->parts().size(), std::size_t(2));
+		for (auto const& part : area->parts())
+		{
+			QVERIFY(part.isClosed());
+			QCOMPARE(after[part.last_index].x(), after[part.first_index].x());
+			QCOMPARE(after[part.last_index].y(), after[part.first_index].y());
+		}
+		QVERIFY(!near(MapCoordF(after[0]), MapCoordF(before[0])));
+		// Each closing coordinate follows its part's first one and is not counted.
+		QCOMPARE(report.count, 7);
+	
+		QVERIFY(map.undoManager().undo());
+		auto const* restored = map.getCurrentPart()->getObject(0)->asPath();
+		QCOMPARE(restored->getRawCoordinateVector().size(), before.size());
+		QCOMPARE(restored->parts().size(), std::size_t(2));
+	}
+	
+	
 	void reprojectOffsetTest()
 	{
 		// Accept (6).
