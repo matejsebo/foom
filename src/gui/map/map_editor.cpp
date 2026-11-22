@@ -1458,6 +1458,7 @@ void MapEditorController::createActions()
 	course_routes_leg_act = newToolAction("course-routes-leg", tr("Draw leg and analyse route"), this, SLOT(routeFreeLegClicked()), "draw-point.png", tr("Search the fastest route between two places: drag from the one to the other."));
 	course_routes_delete_act = newAction("course-routes-delete", tr("Delete routes"), this, SLOT(deleteCourseRoutesClicked()), nullptr, tr("Take the routes of the analysis out of the map."));
 	course_routes_export_act = newAction("course-routes-export", tr("Export routes..."), this, SLOT(exportCourseRoutesClicked()), nullptr, tr("Write the lengths and the times of the routes of all courses as a text file."));
+	course_routes_alternatives_act = newAction("course-routes-alternatives", tr("Search alternative routes of the course"), this, SLOT(searchAlternativeRoutesClicked()), nullptr, tr("Search routes beside the fastest route of every leg of the course which is chosen in the course dock, and keep them in the map."));
 	course_routes_settings_act = newAction("course-routes-settings", tr("Route settings..."), this, SLOT(routeSettingsClicked()), nullptr, tr("The base pace of the route analysis, whether it uses runnability and elevation, and the runnability of the symbols."));
 	course_export_maps_act = newAction("course-export-maps", tr("Export course maps (PDF)..."), this, SLOT(exportCourseMapsClicked()), nullptr, tr("Write a PDF file with the map of every course, of every part of a course with a map exchange, and of every variant or runner of a relay."));
 	course_relay_variations_act = newAction("course-relay-variations", tr("Export relay variations..."), this, SLOT(exportRelayVariationsClicked()), nullptr, tr("Write which team runs which variant of the relays, as a text file."));
@@ -1961,6 +1962,7 @@ void MapEditorController::createMenuAndToolbars()
 	courses_menu->addSeparator();
 	courses_menu->addAction(course_routes_analyse_act);
 	courses_menu->addAction(course_routes_analyse_all_act);
+	courses_menu->addAction(course_routes_alternatives_act);
 	courses_menu->addAction(course_routes_show_act);
 	courses_menu->addAction(course_routes_hide_act);
 	courses_menu->addAction(course_routes_via_act);
@@ -5974,6 +5976,39 @@ void MapEditorController::analyseAllCourseRoutesClicked()
 	QMessageBox box(QMessageBox::Information, title, message, QMessageBox::Ok, window);
 	box.setDetailedText(text);
 	box.exec();
+}
+
+
+// the design notes, "Route analysis: alternative routes"
+void MapEditorController::searchAlternativeRoutesClicked()
+{
+	auto const title = tr("Alternative routes");
+	auto const course = course_widget && course_dock_widget && !course_dock_widget->isHidden() ? course_widget->currentCourse() : QString{};
+	if (course.isEmpty())
+	{
+		QMessageBox::information(window, title, tr("Choose a course in the course dock first."));
+		return;
+	}
+	auto ok = false;
+	auto const count = QInputDialog::getInt(window, title, tr("Alternative routes for every leg:"), 2, 1, 5, 1, &ok);
+	if (!ok)
+		return;
+	QApplication::setOverrideCursor(Qt::WaitCursor);
+	auto const settings = map->courseData().route;
+	auto const terrain = buildRouteTerrain(*map, settings);
+	RouteSearch search(terrain, settings, map->getScaleDenominator());
+	setRouteHeights(search, *map);
+	auto data = map->courseData();
+	auto const added = addCourseAlternatives(*map, course_widget->previewData(), course, course_widget->previewPart(), search, data.routes, count);
+	QApplication::restoreOverrideCursor();
+	if (data != map->courseData())
+		changeCourseData(*map, std::move(data));
+	show_course_routes = true;
+	map_widget->update();
+	if (added == 0)
+		QMessageBox::information(window, title, tr("No alternative route was found. Only the legs whose fastest routes are kept get alternatives: analyse the routes of the course first."));
+	else
+		QMessageBox::information(window, title, tr("%n alternative route(s) were found and are kept in the map.", nullptr, added));
 }
 
 

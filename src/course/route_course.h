@@ -137,6 +137,18 @@ ViaRouteAdded addViaRoute(StoredRoutes& store, RouteSearch& search, const QStrin
  * The leg whose route passes nearest to a place, within a reach in mm of
  * the map; -1 when there is none. A marked route is no leg.
  */
+/**
+ * Searches up to count alternatives to the kept fastest route of a leg and
+ * keeps them in the place of its earlier alternatives; the routes over via
+ * points stay. Returns how many were kept: none for a leg whose fastest
+ * route is not kept, or was searched with other heights. See
+ * the design notes, "Route analysis: alternative routes".
+ */
+int addAlternativeRoutes(StoredRoutes& store, RouteSearch& search, const QString& from, const QString& to, int count);
+
+/** addAlternativeRoutes() for every leg of a course whose fastest route is kept; returns how many were kept. */
+int addCourseAlternatives(const Map& map, const CourseData& data, const QString& course, int part, RouteSearch& search, StoredRoutes& store, int count);
+
 int routeLegAt(const CourseRoutes& routes, const MapCoordF& place, double reach);
 
 /** The same for the routes over via points: the leg, and which of its routes. False when there is none. */
@@ -150,6 +162,8 @@ struct AllCourseRoutes
 	std::vector<CourseRoutes> tables;
 	/** The relays which were left out for a fault of their variations. */
 	QStringList skipped;
+	/** How many alternative routes were kept. */
+	int alternatives = 0;
 };
 
 /**
@@ -168,7 +182,7 @@ AllCourseRoutes storedAllRoutes(const Map& map, const CourseData& data);
  * its terrain and the heights of its terrain model. The store is emptied
  * first.
  */
-AllCourseRoutes analyseAllRoutesOfMap(Map& map, StoredRoutes& store);
+AllCourseRoutes analyseAllRoutesOfMap(Map& map, StoredRoutes& store, int alternatives = 0);
 
 /**
  * The heights of the terrain model of a map for the search, by the

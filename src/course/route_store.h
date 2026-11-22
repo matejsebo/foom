@@ -58,6 +58,8 @@ struct StoredRoute
 	std::vector<MapCoordF> points;
 	/** The places over which the route was led, in their order; none for the fastest route. */
 	std::vector<MapCoordF> via;
+	/** An alternative to the fastest route of its leg, with an index from 1 on and no via points; the design notes, "Route analysis: alternative routes". */
+	bool alternative = false;
 	
 	bool isMarkedRoute() const { return from == to; }
 	
@@ -112,6 +114,12 @@ inline bool operator!=(const StoredRoutes& lhs, const StoredRoutes& rhs) { retur
 
 
 /** Writes the element <routes> of the map file. */
+/** Points as the text of a <route>: "x y;x y", in mm with three decimals. */
+QString routePointsText(const std::vector<MapCoordF>& points);
+
+/** Reads such a text; false when it is not one. */
+bool routePointsFromText(const QString& text, std::vector<MapCoordF>& points);
+
 void saveStoredRoutes(const StoredRoutes& routes, QXmlStreamWriter& xml);
 
 /** Reads the element <routes> on which the reader stands. */

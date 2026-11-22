@@ -67,6 +67,20 @@ constexpr double slope_half_distance_m = 5.0;
 /// From this runnability on, as on roads, tracks and footpaths, running across a slope costs nothing extra.
 constexpr int path_runnability = 93;
 
+// the design notes, "Route analysis: alternative routes" (Proposed).
+/** A route makes the pixels near it dearer by this factor for the next search. */
+constexpr double alternative_penalty = 1.5;
+/** How near, in pixels. */
+constexpr int alternative_corridor = 4;
+/** An alternative keeps farther than this from the other routes, in m... */
+constexpr double alternative_distance_m = 20.0;
+/** ...over more than this share of its length. */
+constexpr double alternative_share = 0.2;
+/** And it takes at most this times the time of the fastest route. */
+constexpr double alternative_slowest = 1.25;
+/** The searches for every alternative which is wanted. */
+constexpr int alternative_tries = 3;
+
 }  // namespace
 
 
@@ -166,6 +180,10 @@ struct RouteSearch::Data
 	std::vector<float> gradient_y;     ///< per m to the south
 	std::vector<quint8> gradient_known;  ///< 0 not asked, 1 known, 2 not known
 	std::vector<std::size_t> touched;
+	/** For every pixel, by how many routes it is made dearer; empty when none is. */
+	std::vector<quint8> penalty;
+	/** The factor of a number of penalties. */
+	std::vector<double> penalty_factor;
 	
 	Data(const RouteTerrain& terrain, const RouteSettings& settings, unsigned int scale_denominator)
 	: terrain(terrain)
@@ -296,7 +314,69 @@ struct RouteSearch::Data
 			}
 			time += sideSlopeTime(x, y, nx, ny, step);
 		}
+		if (!penalty.empty())
+			time *= penalty_factor[penalty[indexOf(nx, ny)]];
 		return time;
+	}
+
+	/// Makes the pixels near a route dearer, every pixel once for the route.
+	void penalise(const std::vector<MapCoordF>& points)
+	{
+		if (penalty.empty())
+		{
+			penalty.assign(terrain.runnability.size(), 0);
+			penalty_factor.resize(256);
+			for (std::size_t n = 0; n < penalty_factor.size(); ++n)
+				penalty_factor[n] = std::pow(alternative_penalty, double(n));
+		}
+		std::vector<std::size_t> near;
+		for (std::size_t p = 1; p < points.size(); ++p)
+		{
+			auto const& a = points[p - 1];
+			auto const& b = points[p];
+			auto const pieces = std::max(1, int(std::ceil(std::hypot(b.x() - a.x(), b.y() - a.y()) / terrain.pixel * 2)));
+			for (int k = 0; k <= pieces; ++k)
+			{
+				auto const t = double(k) / pieces;
+				auto const cx = int(std::floor((a.x() + t * (b.x() - a.x()) - terrain.area.left()) / terrain.pixel));
+				auto const cy = int(std::floor((a.y() + t * (b.y() - a.y()) - terrain.area.top()) / terrain.pixel));
+				for (int dy = -alternative_corridor; dy <= alternative_corridor; ++dy)
+				{
+					for (int dx = -alternative_corridor; dx <= alternative_corridor; ++dx)
+					{
+						if (dx * dx + dy * dy <= alternative_corridor * alternative_corridor && inside(cx + dx, cy + dy))
+							near.push_back(indexOf(cx + dx, cy + dy));
+					}
+				}
+			}
+		}
+		std::sort(near.begin(), near.end());
+		near.erase(std::unique(near.begin(), near.end()), near.end());
+		for (auto const i : near)
+		{
+			if (penalty[i] < 255)
+				++penalty[i];
+		}
+	}
+
+	/// The time along a chain of pixels without the penalties.
+	double timeOf(const std::vector<std::size_t>& chain)
+	{
+		std::vector<quint8> saved;
+		saved.swap(penalty);
+		auto total = 0.0;
+		for (std::size_t p = 1; p < chain.size(); ++p)
+		{
+			auto const x = int(chain[p - 1] % std::size_t(terrain.width));
+			auto const y = int(chain[p - 1] / std::size_t(terrain.width));
+			auto const dx = int(chain[p] % std::size_t(terrain.width)) - x;
+			auto const dy = int(chain[p] / std::size_t(terrain.width)) - y;
+			auto const found = std::find_if(std::begin(steps), std::end(steps), [dx, dy](const Step& step) { return step.dx == dx && step.dy == dy; });
+			if (found != std::end(steps))
+				total += std::max(0.0, stepTime(x, y, *found));
+		}
+		saved.swap(penalty);
+		return total;
 	}
 	
 	bool pixelOf(const MapCoordF& place, int& x, int& y) const
@@ -428,6 +508,12 @@ double RouteSearch::straightTime(const MapCoordF& from, const MapCoordF& to) con
 
 RouteResult RouteSearch::fastest(const MapCoordF& from, const MapCoordF& to)
 {
+	return search(from, to, nullptr);
+}
+
+
+RouteResult RouteSearch::search(const MapCoordF& from, const MapCoordF& to, std::vector<std::size_t>* chain)
+{
 	RouteResult result;
 	auto const& terrain = d->terrain;
 	if (terrain.isEmpty())
@@ -508,6 +594,8 @@ RouteResult RouteSearch::fastest(const MapCoordF& from, const MapCoordF& to)
 			break;
 	}
 	std::reverse(begin(pixels), end(pixels));
+	if (chain)
+		*chain = pixels;
 	auto const xOf = [&terrain](std::size_t i) { return int(i % std::size_t(terrain.width)); };
 	auto const yOf = [&terrain](std::size_t i) { return int(i / std::size_t(terrain.width)); };
 	result.found = true;
@@ -541,6 +629,86 @@ RouteResult RouteSearch::fastest(const MapCoordF& from, const MapCoordF& to)
 	}
 	result.points.push_back(to);
 	return result;
+}
+
+
+namespace {
+
+/// How far a place is from a line of points, in mm.
+double distanceToLine(const std::vector<MapCoordF>& points, const MapCoordF& place)
+{
+	auto best = std::numeric_limits<double>::max();
+	for (std::size_t i = 1; i < points.size(); ++i)
+	{
+		auto const ax = points[i - 1].x();
+		auto const ay = points[i - 1].y();
+		auto const dx = points[i].x() - ax;
+		auto const dy = points[i].y() - ay;
+		auto const length2 = dx * dx + dy * dy;
+		auto t = length2 > 0.0 ? ((place.x() - ax) * dx + (place.y() - ay) * dy) / length2 : 0.0;
+		t = std::max(0.0, std::min(1.0, t));
+		best = std::min(best, std::hypot(place.x() - ax - t * dx, place.y() - ay - t * dy));
+	}
+	return best;
+}
+
+/// The share of the length of a route which lies farther than a distance in mm from all others.
+double distinctShare(const std::vector<MapCoordF>& route, const std::vector<const std::vector<MapCoordF>*>& others, double distance)
+{
+	auto total = 0.0;
+	auto distinct = 0.0;
+	for (std::size_t i = 1; i < route.size(); ++i)
+	{
+		auto const length = std::hypot(route[i].x() - route[i - 1].x(), route[i].y() - route[i - 1].y());
+		auto const pieces = std::max(1, int(std::ceil(length / (distance / 4))));
+		for (int p = 0; p < pieces; ++p)
+		{
+			auto const t = (p + 0.5) / pieces;
+			auto const place = MapCoordF(route[i - 1].x() + t * (route[i].x() - route[i - 1].x()),
+			                             route[i - 1].y() + t * (route[i].y() - route[i - 1].y()));
+			total += length / pieces;
+			auto const far = std::all_of(others.begin(), others.end(), [&place, distance](const std::vector<MapCoordF>* other) {
+				return distanceToLine(*other, place) > distance;
+			});
+			if (far)
+				distinct += length / pieces;
+		}
+	}
+	return total > 0.0 ? distinct / total : 0.0;
+}
+
+}  // namespace
+
+
+std::vector<RouteResult> RouteSearch::alternatives(const MapCoordF& from, const MapCoordF& to, const RouteResult& fastest, int count)
+{
+	std::vector<RouteResult> found;
+	if (!fastest.found || fastest.points.size() < 2 || count <= 0 || d->terrain.isEmpty())
+		return found;
+	auto const distance = alternative_distance_m / d->pixel_m * d->terrain.pixel;  // in mm of the map
+	d->penalise(fastest.points);
+	auto tries = alternative_tries * count;
+	while (int(found.size()) < count && tries-- > 0)
+	{
+		std::vector<std::size_t> chain;
+		auto route = search(from, to, &chain);
+		if (!route.found)
+			break;
+		route.time_s = d->timeOf(chain);
+		// A route which is not kept is made dear all the same, so that the next search goes elsewhere.
+		d->penalise(route.points);
+		if (route.time_s > alternative_slowest * fastest.time_s)
+			break;
+		std::vector<const std::vector<MapCoordF>*> others = { &fastest.points };
+		for (auto const& other : found)
+			others.push_back(&other.points);
+		if (distinctShare(route.points, others, distance) > alternative_share)
+			found.push_back(std::move(route));
+	}
+	d->penalty.clear();
+	d->penalty.shrink_to_fit();
+	std::stable_sort(found.begin(), found.end(), [](const RouteResult& a, const RouteResult& b) { return a.time_s < b.time_s; });
+	return found;
 }
 
 

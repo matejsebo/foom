@@ -81,6 +81,20 @@ bool pointsFromText(const QString& text, std::vector<MapCoordF>& points)
 
 
 
+QString routePointsText(const std::vector<MapCoordF>& points)
+{
+	return pointsText(points);
+}
+
+
+bool routePointsFromText(const QString& text, std::vector<MapCoordF>& points)
+{
+	points.clear();
+	return pointsFromText(text, points);
+}
+
+
+
 bool StoredRoute::fits(const MapCoordF& begin, const MapCoordF& end) const
 {
 	return points.size() >= 2 && closeTo(points.front(), begin) && closeTo(points.back(), end);
@@ -89,7 +103,7 @@ bool StoredRoute::fits(const MapCoordF& begin, const MapCoordF& end) const
 
 bool operator==(const StoredRoute& lhs, const StoredRoute& rhs)
 {
-	if (lhs.from != rhs.from || lhs.to != rhs.to || lhs.index != rhs.index || lhs.found != rhs.found
+	if (lhs.from != rhs.from || lhs.to != rhs.to || lhs.index != rhs.index || lhs.found != rhs.found || lhs.alternative != rhs.alternative
 	    || lhs.points.size() != rhs.points.size() || lhs.via.size() != rhs.via.size())
 		return false;
 	// What the file keeps: tenths of a metre and of a second, thousandths of a millimetre.
@@ -228,6 +242,8 @@ void saveStoredRoutes(const StoredRoutes& routes, QXmlStreamWriter& xml)
 			xml.writeAttribute(QStringLiteral("climb"), QString::number(route.climb_m, 'f', 1));
 		if (!route.via.empty())
 			xml.writeAttribute(QStringLiteral("via"), pointsText(route.via));
+		if (route.alternative)
+			xml.writeAttribute(QStringLiteral("alternative"), QStringLiteral("true"));
 		xml.writeCharacters(pointsText(route.points));
 		xml.writeEndElement();
 	}
@@ -255,6 +271,7 @@ StoredRoutes loadStoredRoutes(QXmlStreamReader& xml)
 		route.time_s = attributes.value(QLatin1String("time")).toDouble();
 		route.climb_m = attributes.value(QLatin1String("climb")).toDouble();
 		route.index = qMax(0, attributes.value(QLatin1String("index")).toInt());
+		route.alternative = route.index > 0 && attributes.value(QLatin1String("alternative")) == QLatin1String("true");
 		auto ok = pointsFromText(attributes.value(QLatin1String("via")).toString(), route.via);
 		ok = pointsFromText(xml.readElementText(), route.points) && ok;
 		// A route which cannot be read is as if it had not been searched.

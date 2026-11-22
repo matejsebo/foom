@@ -357,14 +357,31 @@ AllCourseRoutes storedAllRoutes(const Map& map, const CourseData& data)
 }
 
 
-AllCourseRoutes analyseAllRoutesOfMap(Map& map, StoredRoutes& store)
+AllCourseRoutes analyseAllRoutesOfMap(Map& map, StoredRoutes& store, int alternatives)
 {
 	store = {};
 	auto const settings = map.courseData().route;
 	auto const terrain = buildRouteTerrain(map, settings);
 	RouteSearch search(terrain, settings, map.getScaleDenominator());
 	setRouteHeights(search, map);
-	return analyseAllRoutes(map, map.courseData(), search, store);
+	auto all = analyseAllRoutes(map, map.courseData(), search, store);
+	if (alternatives > 0)
+	{
+		// Every leg once, however many courses run it.
+		std::vector<std::pair<QString, QString>> done;
+		for (auto const& table : all.tables)
+		{
+			for (auto const& leg : table.legs)
+			{
+				auto const key = std::make_pair(leg.from, leg.to);
+				if (leg.marked || !leg.route.found || std::find(done.begin(), done.end(), key) != done.end())
+					continue;
+				done.push_back(key);
+				all.alternatives += addAlternativeRoutes(store, search, leg.from, leg.to, alternatives);
+			}
+		}
+	}
+	return all;
 }
 
 
@@ -403,6 +420,47 @@ ViaRouteAdded addViaRoute(StoredRoutes& store, RouteSearch& search, const QStrin
 	added.reason = ViaRouteAdded::Added;
 	// The fastest route is no longer looked at after this: the store may move it.
 	store.put(std::move(stored));
+	return added;
+}
+
+
+int addAlternativeRoutes(StoredRoutes& store, RouteSearch& search, const QString& from, const QString& to, int count)
+{
+	auto const* kept = store.find(from, to);
+	if (!kept || !kept->found || kept->isMarkedRoute() || kept->points.size() < 2 || search.usesHeights() != store.with_heights)
+		return 0;
+	auto const fastest = resultOf(*kept);
+	// The earlier alternatives of the leg go; the routes over via points stay.
+	store.routes.erase(std::remove_if(store.routes.begin(), store.routes.end(), [&from, &to](const StoredRoute& route) {
+		return route.alternative && route.from == from && route.to == to;
+	}), store.routes.end());
+	auto const found = search.alternatives(fastest.points.front(), fastest.points.back(), fastest, count);
+	for (auto const& route : found)
+	{
+		StoredRoute stored;
+		stored.from = from;
+		stored.to = to;
+		stored.index = store.nextIndex(from, to);
+		stored.alternative = true;
+		stored.points = route.points;
+		stored.length_m = route.length_m;
+		stored.time_s = route.time_s;
+		stored.climb_m = route.climb_m;
+		store.put(std::move(stored));
+	}
+	return int(found.size());
+}
+
+
+int addCourseAlternatives(const Map& map, const CourseData& data, const QString& course, int part, RouteSearch& search, StoredRoutes& store, int count)
+{
+	auto const routes = routesOf(map, data, course, part, &store, nullptr, nullptr);
+	auto added = 0;
+	for (auto const& leg : routes.legs)
+	{
+		if (!leg.marked && leg.known && leg.route.found)
+			added += addAlternativeRoutes(store, search, leg.from, leg.to, count);
+	}
 	return added;
 }
 

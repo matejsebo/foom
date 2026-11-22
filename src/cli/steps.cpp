@@ -1176,8 +1176,15 @@ void StepRunner::validate(const Step& step, bool& map_open)
 	else if (name == QLatin1String("analyse-routes"))  // foom
 	{
 		p.requireMap(map_open);
-		p.checkKnown({ "out" });
+		p.checkKnown({ "out", "alternatives" });
 		p.optionalString("out");
+		if (p.has("alternatives"))
+		{
+			// the design notes, "Route analysis: alternative routes"
+			auto const v = p.value("alternatives");
+			if (!v.isDouble() || v.toDouble() != double(v.toInt()) || v.toInt() < 0 || v.toInt() > 5)
+				p.fail(QLatin1String("parameter \"alternatives\" must be a whole number from 0 to 5"));
+		}
 	}
 	else if (name == QLatin1String("save-as"))
 	{
@@ -1717,10 +1724,11 @@ StepResult StepRunner::analyseRoutesStep(const Step& step)
 {
 	Params p(step);
 	auto const out = p.optionalString("out");
+	auto const alternatives = p.has("alternatives") ? p.value("alternatives").toInt() : 0;
 	// The terrain is that of the map and of its background maps.
 	loadTemplateFiles(*map);
 	StoredRoutes store;
-	auto const all = analyseAllRoutesOfMap(*map, store);
+	auto const all = analyseAllRoutesOfMap(*map, store, alternatives);
 	auto missing = 0;
 	for (auto const& route : store.routes)
 		missing += route.found ? 0 : 1;
@@ -1743,6 +1751,8 @@ StepResult StepRunner::analyseRoutesStep(const Step& step)
 	result.details.insert(QLatin1String("tables"), int(all.tables.size()));
 	result.details.insert(QLatin1String("routes"), int(store.routes.size()));
 	result.details.insert(QLatin1String("missing"), missing);
+	if (alternatives > 0)
+		result.details.insert(QLatin1String("alternatives"), all.alternatives);
 	if (!all.skipped.isEmpty())
 		result.details.insert(QLatin1String("skipped"), QJsonArray::fromStringList(all.skipped));
 	return result;
