@@ -57,6 +57,7 @@
 #include "core/symbols/symbol.h"
 #include "elevation/contours.h"
 #include "elevation/elevation_model.h"
+#include "elevation/elevation_commands.h"  // foom
 #include "elevation/elevation_set.h"
 #include "elevation/elevation_wizard.h"
 #include "elevation/landforms.h"
@@ -679,6 +680,98 @@ private slots:
 		bad = wizard;
 		bad.insert(QStringLiteral("files"), QJsonArray{ QStringLiteral("absent.asc") });
 		QCOMPARE(run({ open, bad }, nullptr), 1);
+	}
+
+	// foom: the design notes, "Background maps and point clouds in the runner", Accept (15).
+	void pointCloudStep()
+	{
+		if (!PointCloud::supported())
+			QSKIP("Built without LASzip");
+		auto const executable = QString::fromUtf8(FOOM_CLI_EXECUTABLE);
+		QTemporaryDir dir;
+		QVERIFY(QDir(dir.path()).mkpath(QStringLiteral("r")));
+		QVERIFY(QDir(dir.path()).mkpath(QStringLiteral("w")));
+		auto const cloud_r = dir.filePath(QStringLiteral("r/plane.laz"));
+		auto const cloud_w = dir.filePath(QStringLiteral("w/plane.laz"));
+		QString error;
+		QVERIFY2(PointCloud::write(cloud_r, cloudPoints(), {}, 0, &error), qPrintable(error));
+		QVERIFY(QFile::copy(cloud_r, cloud_w));
+		auto const map_path = dir.filePath(QStringLiteral("r/map.foom"));
+		{
+			Map map;
+			QFile file(map_path);
+			QVERIFY(file.open(QIODevice::WriteOnly));
+			QVERIFY(map.exportToIODevice(file));
+		}
+		auto const run = [&](const QJsonArray& steps, QByteArray* out) {
+			auto const job_path = dir.filePath(QStringLiteral("r/cloud.json"));
+			QFile file(job_path);
+			if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+				return -1;
+			file.write(QJsonDocument(QJsonObject{ { QStringLiteral("steps"), steps } }).toJson());
+			file.close();
+			QProcess process;
+			auto env = QProcessEnvironment::systemEnvironment();
+			env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
+			process.setProcessEnvironment(env);
+			process.start(executable, { QStringLiteral("--run"), job_path });
+			if (!process.waitForFinished(300000))
+				return -1;
+			if (out)
+				*out = process.readAllStandardOutput();
+			return process.exitCode();
+		};
+		auto const open = QJsonObject{ { QStringLiteral("step"), QStringLiteral("open") }, { QStringLiteral("path"), QStringLiteral("map.foom") } };
+		auto const cloud = QJsonObject{ { QStringLiteral("step"), QStringLiteral("point-cloud") }, { QStringLiteral("files"), QJsonArray{ QStringLiteral("plane.laz") } } };
+		auto const save = QJsonObject{ { QStringLiteral("step"), QStringLiteral("save-as") }, { QStringLiteral("path"), QStringLiteral("out.foom") } };
+		QByteArray out;
+		QCOMPARE(run({ open, cloud, save }, &out), 0);
+		auto const line = QJsonDocument::fromJson(out.split('\n').value(1)).object();
+		QCOMPARE(line.value(QStringLiteral("step")).toString(), QStringLiteral("point-cloud"));
+		QCOMPARE(line.value(QStringLiteral("grids")).toArray().size(), 2);
+		QCOMPARE(line.value(QStringLiteral("files")).toArray().size(), 3);
+
+		// The same through the commands of the editor, on a second copy.
+		Map expected;
+		auto const job = ElevationWizardJob::defaults(ElevationWizardJob::PointCloud);
+		auto products = job.cloud;
+		products.vegetation_height = false;
+		QStringList grids;
+		QStringList files;
+		auto const expected_path = dir.filePath(QStringLiteral("w/map.foom"));
+		QVERIFY2(ElevationCommands::importPointClouds(expected, expected_path, { cloud_w }, job.gridding, products, true, &grids, &files, &error), qPrintable(error));
+		QVERIFY(!ElevationCommands::writeVegetationHeightMap(expected, expected_path, job.vegetation_height_options, true, &error).isEmpty());
+		for (auto const* name : { "map_DTM.tif", "map_DSM.tif", "map_vegetation.tif", "map_intensity.tif", "map_vegetation_height.tif" })
+		{
+			auto const a = dir.filePath(QLatin1String("r/") + QLatin1String(name));
+			auto const b = dir.filePath(QLatin1String("w/") + QLatin1String(name));
+			QVERIFY2(QFileInfo::exists(a), name);
+			QVERIFY2(sameFile(a, b), name);
+		}
+		Map saved;
+		QVERIFY(saved.loadFrom(dir.filePath(QStringLiteral("r/out.foom"))));
+		QVERIFY(!saved.elevationSet().href(ElevationSet::Terrain).isEmpty());
+		QVERIFY(!saved.elevationSet().href(ElevationSet::Surface).isEmpty());
+		QCOMPARE(saved.getNumTemplates(), 3);
+
+		// Half of the cloud by the box.
+		auto half = cloud;
+		half.insert(QStringLiteral("box"), QJsonArray{ 1000.0, 2000.0, 1020.0, 2040.0 });
+		half.insert(QStringLiteral("products"), QJsonArray{});
+		QCOMPARE(run({ open, half, save }, nullptr), 0);
+		Map halved;
+		QVERIFY(halved.loadFrom(dir.filePath(QStringLiteral("r/out.foom"))));
+		auto const* model = halved.elevationSet().model(ElevationSet::Terrain);
+		QVERIFY(model);
+		QVERIFY2(std::abs(model->extent().width() - 20.0) <= 1.0, qPrintable(QString::number(model->extent().width())));
+
+		// Faults.
+		auto outside = cloud;
+		outside.insert(QStringLiteral("box"), QJsonArray{ 0.0, 0.0, 10.0, 10.0 });
+		QCOMPARE(run({ open, outside }, nullptr), 1);
+		auto contours = cloud;
+		contours.insert(QStringLiteral("products"), QJsonArray{ QStringLiteral("contours") });
+		QCOMPARE(run({ open, contours }, nullptr), 2);
 	}
 };
 

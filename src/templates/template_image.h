@@ -139,6 +139,16 @@ public:
 	
 	bool canChangeTemplateGeoreferenced() const override;
 	bool trySetTemplateGeoreferenced(bool value, QWidget* dialog_parent) override;
+
+	/**
+	 * foom: Georeferences a loaded image by the georeferencing of its file,
+	 * as the dialogs do when *Georeferenced* is chosen, without asking: the
+	 * coordinates are in crs_spec, or, when it is empty, in the CRS which the
+	 * file names, else in the map's. Returns false when the file brings no
+	 * georeferencing or the map is not georeferenced.
+	 * See "Background maps and point clouds in the runner" in the design notes.
+	 */
+	bool setGeoreferencedByFile(const QString& crs_spec);
 	
 	// foom: the design notes, "Embedded raster templates"
 	

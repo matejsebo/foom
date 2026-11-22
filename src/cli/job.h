@@ -96,7 +96,7 @@ public:
 	 *
 	 * @throws JobError when the file cannot be read, parsed or validated.
 	 */
-	static Job load(const QString& path);
+	static Job load(const QString& path, bool strict = false);
 	
 	/**
 	 * Returns the folder which relative paths in the job refer to.
@@ -126,6 +126,7 @@ public:
 private:
 	QDir base_dir;
 	std::vector<Step> job_steps;
+	QJsonObject script_report;  ///< foom: for an XML script, the first line of the log.
 };
 
 

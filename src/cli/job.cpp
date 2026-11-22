@@ -32,8 +32,10 @@
 #include <QJsonParseError>
 #include <QJsonValue>
 #include <QLatin1String>
+#include <QStringList>
 #include <QTextStream>
 
+#include "xml_script.h"  // foom
 #include "steps.h"
 
 
@@ -51,16 +53,36 @@ QString Step::prefix() const
 
 
 // static
-Job Job::load(const QString& path)
+Job Job::load(const QString& path, bool strict)
 {
 	QFile file(path);
 	if (!file.open(QIODevice::ReadOnly))
 		throw JobError(QLatin1String("cannot read the job file: ") + file.errorString());
+	auto const bytes = file.readAll();
 	
-	QJsonParseError parse_error;
-	auto const document = QJsonDocument::fromJson(file.readAll(), &parse_error);
-	if (document.isNull())
-		throw JobError(QLatin1String("the job file is not JSON: ") + parse_error.errorString());
+	// foom: the design notes
+	QJsonObject script_report;
+	QJsonDocument document;
+	if (isXmlScript(bytes))
+	{
+		auto const script = readXmlScript(bytes);
+		if (strict && !script.unsupported.empty())
+		{
+			QStringList names;
+			for (auto const& entry : script.unsupported)
+				names.push_back(QString::fromLatin1("%1 (line %2: %3)").arg(entry.command, QString::number(entry.line), entry.reason));
+			throw JobError(QLatin1String("unsupported commands: ") + names.join(QLatin1String(", ")));
+		}
+		script_report = script.report(path);
+		document = QJsonDocument(script.steps);
+	}
+	else
+	{
+		QJsonParseError parse_error;
+		document = QJsonDocument::fromJson(bytes, &parse_error);
+		if (document.isNull())
+			throw JobError(QLatin1String("the job file is not JSON: ") + parse_error.errorString());
+	}
 	
 	QJsonArray steps;
 	if (document.isArray())
@@ -81,6 +103,7 @@ Job Job::load(const QString& path)
 	
 	Job job;
 	job.base_dir = QFileInfo(path).absoluteDir();
+	job.script_report = script_report;
 	job.job_steps.reserve(std::size_t(steps.size()));
 	
 	auto map_open = false;
@@ -114,6 +137,11 @@ QString Job::resolvePath(const QString& path) const
 
 int Job::run(QTextStream& log) const
 {
+	if (!script_report.isEmpty())  // foom
+	{
+		log << QString::fromUtf8(QJsonDocument(script_report).toJson(QJsonDocument::Compact)) << '\n';
+		log.flush();
+	}
 	StepRunner runner(*this);
 	for (auto const& step : job_steps)
 	{

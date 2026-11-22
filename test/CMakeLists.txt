@@ -320,6 +320,9 @@ add_dependencies(route_print_t foom-cli)
 add_system_test(runner_template_t)  # foom: the design notes, Headless runner: the files of the templates
 target_compile_definitions(runner_template_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
 add_dependencies(runner_template_t foom-cli)
+add_system_test(runner_background_t)  # foom: the design notes, Background maps and point clouds in the runner; XML scripts
+target_compile_definitions(runner_background_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
+add_dependencies(runner_background_t foom-cli)
 add_system_test(runner_check_t)  # foom: the design notes, Headless runner: check and course-statistics
 target_compile_definitions(runner_check_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
 add_dependencies(runner_check_t foom-cli)
