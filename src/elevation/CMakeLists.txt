@@ -28,8 +28,10 @@ set(CMAKE_AUTOMOC ON)
 set(MAPPER_ELEVATION_SOURCES
   cliffs.cpp
   contours.cpp
+  elevation_commands.cpp
   elevation_model.cpp
   elevation_set.cpp
+  elevation_wizard.cpp
   embedded_grid.cpp
   landforms.cpp
   point_cloud.cpp

@@ -79,6 +79,7 @@
 #include "core/symbols/private_symbol.h"
 #include "core/symbols/symbol.h"
 #include "core/sync_record.h"
+#include "elevation/elevation_wizard.h"  // foom
 #include "fileformats/file_format.h"
 #include "fileformats/file_format_registry.h"
 #include "fileformats/file_import_export.h"
@@ -1261,6 +1262,14 @@ void StepRunner::validate(const Step& step, bool& map_open)
 		p.checkKnown({ "id" });
 		p.optionalString("id");
 	}
+	else if (name == QLatin1String("elevation-wizard"))  // foom: the design notes, "Wizard"
+	{
+		p.requireMap(map_open);
+		ElevationWizardJob wizard_job;
+		QString message;
+		if (!elevationWizardJobFromJson(step.params, &wizard_job, &message))
+			p.fail(message);
+	}
 	else if (isGeneratorStep(name))  // foom
 	{
 		validateGeneratorStep(step, map_open);
@@ -1307,6 +1316,8 @@ StepResult StepRunner::run(const Step& step)
 		return exportCoursesStep(step);
 	if (name == QLatin1String("import-courses"))  // foom
 		return importCoursesStep(step);
+	if (name == QLatin1String("elevation-wizard"))  // foom
+		return elevationWizardStep(step);
 	if (isGeneratorStep(name))  // foom
 		return runGeneratorStep(*map, step);
 	if (name == QLatin1String("field-copy-create"))
@@ -1957,6 +1968,28 @@ StepResult StepRunner::courseStatisticsStep(const Step& step)
 	result.details.insert(QLatin1String("courses"), statistics.course_count);
 	result.details.insert(QLatin1String("controls"), statistics.control_count);
 	result.details.insert(QLatin1String("classes"), statistics.class_count);
+	return result;
+}
+
+
+// foom: the design notes, "Wizard"
+StepResult StepRunner::elevationWizardStep(const Step& step)
+{
+	ElevationWizardJob wizard_job;
+	QString message;
+	if (!elevationWizardJobFromJson(step.params, &wizard_job, &message))
+		return failure(message);  // validate() prevents this
+	for (auto& file : wizard_job.files)
+		file = job.resolvePath(file);
+	auto const outcome = runElevationWizard(*map, map_path, wizard_job);
+	if (!outcome.ok)
+		return failure(outcome.error);
+	
+	StepResult result;
+	result.details.insert(QLatin1String("contours"), outcome.contours);
+	result.details.insert(QLatin1String("features"), outcome.features);
+	result.details.insert(QLatin1String("grids"), QJsonArray::fromStringList(outcome.grids));
+	result.details.insert(QLatin1String("files"), QJsonArray::fromStringList(outcome.files));
 	return result;
 }
 

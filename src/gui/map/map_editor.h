@@ -907,6 +907,8 @@ public slots:
 	void simplifyBuildings(const ops::SimplifyBuildingParams& params);
 	/** foom: Replaces the selected closed paths by rectangles. */
 	void buildingRectangles(const ops::RectangleParams& params);
+	/** foom: Runs the elevation wizard (dem-wizard); see the design notes, "Wizard". */
+	void elevationWizardClicked();
 	/** foom: Asks for a grid file and options, then sets it as the map's elevation grid (dem-open). */
 	void elevationOpenClicked();
 	/** foom: Shows extent, cell size, minimum, maximum and void count of the terrain grid (dem-info). */
@@ -1612,6 +1614,7 @@ private:
 	QAction* topo_smooth_act = {};  // foom
 	QAction* make_rectangular_act = {};  // foom
 	QAction* generalize_buildings_act = {};  // foom
+	QAction* dem_wizard_act = {};  // foom
 	QAction* dem_open_act = {};  // foom
 	QAction* map_move_act = {};  // foom
 	QAction* map_stretch_act = {};  // foom

@@ -136,6 +136,8 @@
 #include "tools/local_warp_tool.h"  // foom
 #include "tools/rubbersheet_tool.h"  // foom
 #include "elevation/raster_products.h"  // foom
+#include "elevation/elevation_commands.h"  // foom
+#include "elevation/elevation_wizard.h"  // foom
 #include "core/ops/align.h"
 #include "core/ops/apply_op.h"
 #include "core/ops/gradient.h"  // foom
@@ -211,7 +213,8 @@
 #include "check/map_check.h"
 #include "gui/map/extent_dialog.h"
 #include "gui/map/legibility_dialog.h"
-#include "gui/map/elevation_dialogs.h"  // foom
+#include "gui/map/elevation_dialogs.h"
+#include "gui/map/elevation_wizard_dialog.h"  // foom
 #include "gui/map/selection_dialogs.h"  // foom
 #include "core/selection_queries.h"  // foom
 #include "core/object_information.h"  // foom
@@ -1238,6 +1241,7 @@ void MapEditorController::createActions()
 	topo_smooth_act = newAction("topo-smooth", tr("Smooth..."), this, SLOT(smoothClicked()));  // foom
 	make_rectangular_act = newAction("make-rectangular", tr("Make rectangular..."), this, SLOT(makeRectangularClicked()));  // foom
 	generalize_buildings_act = newAction("generalize-buildings", tr("Generalize buildings..."), this, SLOT(generalizeBuildingsClicked()));  // foom
+	dem_wizard_act = newAction("dem-wizard", tr("Elevation wizard..."), this, SLOT(elevationWizardClicked()));  // foom: the design notes, "Wizard"
 	dem_open_act = newAction("dem-open", tr("Import elevation data..."), this, SLOT(elevationOpenClicked()));  // foom
 	if (PointCloud::supported())
 		dem_point_cloud_act = newAction("dem-point-cloud", tr("Import point cloud..."), this, SLOT(elevationPointCloudClicked()));  // foom
@@ -1982,6 +1986,8 @@ void MapEditorController::createMenuAndToolbars()
 	template_menu->addAction(relink_templates_act);  // foom
 	
 	QMenu* elevation_menu = window->menuBar()->addMenu(tr("&Elevation"));  // foom: the design notes, "Menu placement"
+	elevation_menu->addAction(dem_wizard_act);  // foom: the design notes, "Wizard"
+	elevation_menu->addSeparator();
 	elevation_menu->addAction(dem_open_act);
 	if (dem_point_cloud_act)
 		elevation_menu->addAction(dem_point_cloud_act);  // foom
@@ -9144,29 +9150,38 @@ void MapEditorController::elevationOpenClicked()
 	ElevationOpenDialog dialog(window);
 	if (dialog.exec() != QDialog::Accepted)
 		return;
-	auto options = dialog.options();
-	options.target_crs = map->getGeoreferencing().getProjectedCRSSpec();
-	auto grid = ElevationModel::open(path, options);
-	if (!grid)
+	QString href;
+	QString error;
+	if (!ElevationCommands::importGrid(*map, window->currentPath(), path, dialog.kind(), dialog.options(), &href, &error))
 	{
-		QMessageBox::warning(window, tr("Import elevation data"), ElevationModel::lastError());
+		QMessageBox::warning(window, tr("Import elevation data"), error);
 		return;
 	}
-	auto href = path;
-	if (options.feet_to_metres || options.millimetres_to_metres || options.shift_below_sea_level)
-	{
-		// The converted grid is kept beside the map, so that it reloads as imported.
-		href = productPath(window->currentPath(), path, ElevationSet::kindName(dialog.kind()));
-		if (!grid->save(href))
-		{
-			QMessageBox::warning(window, tr("Import elevation data"), ElevationModel::lastError());
-			return;
-		}
-	}
-	auto const info = grid->info();
-	map->elevationSet().setModel(dialog.kind(), std::move(grid), href);
-	map->setHasUnsavedChanges(true);
+	auto const info = map->elevationSet().model(dialog.kind())->info();
 	window->showStatusBarMessage(tr("Elevation grid %1: %2 to %3 m").arg(QFileInfo(href).fileName(), QString::number(info.minimum, 'f', 1), QString::number(info.maximum, 'f', 1)), 5000);
+}
+
+// foom: the design notes, "Wizard".
+void MapEditorController::elevationWizardClicked()
+{
+	ElevationWizardDialog wizard(window->currentPath(), window);
+	if (wizard.exec() != QDialog::Accepted)
+		return;
+	QApplication::setOverrideCursor(Qt::WaitCursor);
+	auto const result = runElevationWizard(*map, window->currentPath(), wizard.job());
+	QApplication::restoreOverrideCursor();
+	if (!result.ok)
+	{
+		QMessageBox::warning(window, tr("Elevation wizard"), result.error);
+		return;
+	}
+	if (result.templates > 0)
+	{
+		hideAllTemplates(false);
+		showTemplateWindow(true);
+	}
+	window->showStatusBarMessage(tr("Elevation wizard: %1 file(s) written, %2 contour line(s) and %3 feature(s) added")
+	                             .arg(result.files.size()).arg(result.contours).arg(result.features), 8000);
 }
 
 void MapEditorController::elevationInfoClicked()
@@ -9464,119 +9479,24 @@ void MapEditorController::elevationPointCloudClicked()
 // foom: the design notes, "Reading point clouds and gridding them".
 bool MapEditorController::importPointClouds(const QStringList& paths, const GriddingParams& params, const PointCloudProducts& products, QString* error)
 {
-	if (paths.isEmpty())
+	QStringList grids;
+	QStringList rasters;
+	if (!ElevationCommands::importPointClouds(*map, window ? window->currentPath() : QString{}, paths, params, products, true, &grids, &rasters, error))
 		return false;
-	auto grid_params = params;
-	grid_params.dtm = params.dtm || products.vegetation_height || products.vegetation_map
-	                  || products.feature_map || products.intensity_map || products.classification_map;
-	grid_params.dsm = params.dsm || products.vegetation_height;
-	auto result = PointCloud::grid(paths, grid_params);
-	if (!result.error.isEmpty())
-	{
-		*error = result.error;
-		return false;
-	}
-	auto const map_path = window ? window->currentPath() : QString{};
-	auto const target_crs = map->getGeoreferencing().getProjectedCRSSpec();
-	QStringList names;
-	auto const store = [&](std::unique_ptr<ElevationModel> grid, ElevationSet::Kind kind, const QString& suffix) {
-		if (!grid)
-			return true;
-		auto const href = productPath(map_path, paths.front(), suffix);
-		if (!grid->save(href))
-		{
-			*error = ElevationModel::lastError();
-			return false;
-		}
-		if (!grid->crsSpec().isEmpty() && !target_crs.isEmpty() && !ElevationModel::sameCrs(grid->crsSpec(), target_crs))
-		{
-			// Warped into the map's system, as an imported grid is.
-			ElevationModel::OpenOptions options;
-			options.target_crs = target_crs;
-			grid = ElevationModel::open(href, options);
-			if (!grid)
-			{
-				*error = ElevationModel::lastError();
-				return false;
-			}
-		}
-		map->elevationSet().setModel(kind, std::move(grid), href);
-		names.push_back(QFileInfo(href).fileName());
-		return true;
-	};
-	// The products, from the grids in the clouds' system.
-	auto const product = [&](const RasterProduct& raster, const QString& suffix) {
-		if (!raster.error.isEmpty())
-		{
-			*error = raster.error;
-			return false;
-		}
-		auto const path = productPath(map_path, paths.front(), suffix);
-		if (!writeGeoTiff(raster, path, error) || !attachProductTemplate(*map, path, error))
-			return false;
-		names.push_back(QFileInfo(path).fileName());
-		return true;
-	};
-	if (products.vegetation_height && result.dtm && result.dsm)
-	{
-		auto const heights = ElevationModel::difference(*result.dsm, *result.dtm);
-		if (!heights || !product(vegetationHeightRaster(*heights, defaultHeightClasses()), QStringLiteral("vegetation_height")))
-		{
-			if (!heights)
-				*error = tr("The surface and terrain models do not overlap.");
-			return false;
-		}
-	}
-	if (products.vegetation_map && result.dtm
-	    && !product(PointCloud::vegetationBaseMap(paths, *result.dtm, products.vegetation), QStringLiteral("vegetation")))
-		return false;
-	// foom: "Feature map, intensity and classification maps".
-	if (products.feature_map && result.dtm)
-	{
-		FeatureMapParams features;
-		features.cell = params.cell;
-		features.band_from = products.feature_from;
-		features.band_to = products.feature_to;
-		if (!product(featureMap(paths, *result.dtm, features), QStringLiteral("features")))
-			return false;
-	}
-	if (products.intensity_map && result.dtm
-	    && !product(intensityMap(paths, *result.dtm, params.cell), QStringLiteral("intensity")))
-		return false;
-	if (products.classification_map && result.dtm
-	    && !product(classificationMap(paths, *result.dtm, params.cell), QStringLiteral("classes")))
-		return false;
-	if (!params.dtm)
-		result.dtm.reset();
-	if (!params.dsm)
-		result.dsm.reset();
-	if (!store(std::move(result.dtm), ElevationSet::Terrain, QStringLiteral("DTM"))
-	    || !store(std::move(result.dsm), ElevationSet::Surface, QStringLiteral("DSM")))
-		return false;
-	map->setHasUnsavedChanges(true);
 	if (window)
+	{
+		QStringList names;
+		for (auto const& path : rasters + grids)
+			names.push_back(QFileInfo(path).fileName());
 		window->showStatusBarMessage(tr("Point cloud gridded: %1").arg(names.join(QLatin1String(", "))), 5000);
+	}
 	return true;
 }
 
 // foom: the design notes, "Grid commands".
 bool MapEditorController::storeElevationGrid(int kind, std::unique_ptr<ElevationModel> grid, QString* error)
 {
-	auto const set_kind = ElevationSet::Kind(kind);
-	auto& set = map->elevationSet();
-	auto base = set.href(set_kind);
-	if (base.isEmpty())
-		base = set.href(ElevationSet::Terrain);
-	auto const path = productPath(window ? window->currentPath() : QString{}, base, ElevationSet::kindName(set_kind));
-	if (!grid->save(path))
-	{
-		if (error)
-			*error = ElevationModel::lastError();
-		return false;
-	}
-	set.setModel(set_kind, std::move(grid), path);
-	map->setHasUnsavedChanges(true);
-	return true;
+	return ElevationCommands::storeGrid(*map, window ? window->currentPath() : QString{}, ElevationSet::Kind(kind), std::move(grid), error);
 }
 
 bool MapEditorController::mergeElevationFiles(const QStringList& paths, QString* error)
@@ -9793,62 +9713,19 @@ void MapEditorController::elevationCloseClicked()
 // foom: the design notes, "Knolls and small depressions".
 int MapEditorController::extractLandforms(const LandformParams& params)
 {
-	auto const* model = map->elevationSet().model(ElevationSet::Terrain, map->getGeoreferencing().getProjectedCRSSpec());
-	if (!model)
+	auto features = ElevationCommands::findFeatures(*map, params);
+	if (features.trees_without_surface && window)
+		window->showStatusBarMessage(tr("Trees need a surface model; import a point cloud with the surface model first."), 5000);
+	if (features.objects.empty())
 		return 0;
-	auto const landforms = findLandforms(*model, params);
-	// the design notes, "Cliffs from the slope gradient".
-	std::vector<CliffArea> cliffs;
-	if (params.cliffs)
-	{
-		CliffParams cliff_params;
-		cliff_params.threshold = params.cliff_threshold;
-		cliff_params.min_area = params.cliff_min_area;
-		cliff_params.min_length = params.cliff_min_length;
-		cliffs = findCliffs(*model, cliff_params);
-	}
-	// the design notes, "Trees": from the surface less the terrain.
-	std::vector<Tree> trees;
-	if (params.trees)
-	{
-		auto const* surface = map->elevationSet().model(ElevationSet::Surface, map->getGeoreferencing().getProjectedCRSSpec());
-		auto const heights = surface ? ElevationModel::difference(*surface, *model) : nullptr;
-		if (heights)
-		{
-			TreeParams tree_params;
-			tree_params.min_height = params.tree_min_height;
-			trees = findTrees(*heights, tree_params);
-		}
-		else if (window)
-		{
-			window->showStatusBarMessage(tr("Trees need a surface model; import a point cloud with the surface model first."), 5000);
-		}
-	}
-	if (landforms.empty() && cliffs.empty() && trees.empty())
-		return 0;
-	auto const knolls = int(std::count_if(landforms.begin(), landforms.end(), [](const Landform& l) { return l.kind == Landform::Knoll; }));
-	std::vector<std::unique_ptr<Object>> objects;
-	if (!landforms.empty())
-		objects = makeLandformObjects(*map, landforms, landformSymbols(*map));
-	auto const landform_count = int(objects.size());
-	if (!cliffs.empty())
-	{
-		auto cliff_objects = makeCliffObjects(*map, cliffs, cliffSymbol(*map));
-		std::move(cliff_objects.begin(), cliff_objects.end(), std::back_inserter(objects));
-	}
-	if (!trees.empty())
-	{
-		auto tree_objects = makeTreeObjects(*map, trees, treeSymbol(*map));
-		std::move(tree_objects.begin(), tree_objects.end(), std::back_inserter(objects));
-	}
-	auto const count = int(objects.size());
-	addContours(*map, std::move(objects));
+	auto const count = int(features.objects.size());
+	addContours(*map, std::move(features.objects));
 	if (window)
 	{
 		if (params.cliffs || params.trees)
-			window->showStatusBarMessage(tr("%1 knoll(s), %2 small depression(s), %3 cliff(s) and %4 tree(s) extracted").arg(knolls).arg(landform_count - knolls).arg(int(cliffs.size())).arg(int(trees.size())), 5000);
+			window->showStatusBarMessage(tr("%1 knoll(s), %2 small depression(s), %3 cliff(s) and %4 tree(s) extracted").arg(features.knolls).arg(features.depressions).arg(features.cliffs).arg(features.trees), 5000);
 		else
-			window->showStatusBarMessage(tr("%1 knoll(s) and %2 small depression(s) extracted").arg(knolls).arg(count - knolls), 5000);
+			window->showStatusBarMessage(tr("%1 knoll(s) and %2 small depression(s) extracted").arg(features.knolls).arg(features.depressions), 5000);
 	}
 	return count;
 }
@@ -9861,41 +9738,7 @@ QString MapEditorController::writeVegetationHeightMap(bool attach, QString* erro
 
 QString MapEditorController::writeVegetationHeightMap(const VegetationHeightOptions& options, bool attach, QString* error)
 {
-	auto const crs = map->getGeoreferencing().getProjectedCRSSpec();
-	auto& set = map->elevationSet();
-	std::unique_ptr<ElevationModel> difference;
-	auto const* heights = set.model(ElevationSet::Canopy, crs);
-	if (!heights)
-	{
-		auto const* surface = set.model(ElevationSet::Surface, crs);
-		auto const* terrain = set.model(ElevationSet::Terrain, crs);
-		if (surface && terrain)
-			difference = ElevationModel::difference(*surface, *terrain);
-		heights = difference.get();
-	}
-	if (!heights)
-	{
-		if (error)
-			*error = tr("The map needs a canopy grid, or a surface grid and a terrain grid.");
-		return {};
-	}
-	auto base = set.href(ElevationSet::Terrain);
-	if (base.isEmpty())
-		base = set.href(ElevationSet::Canopy);
-	auto const path = productPath(window ? window->currentPath() : QString{}, base, QStringLiteral("vegetation_height"));
-	auto const product = vegetationHeightProduct(*heights, options);
-	QString message = product.error;
-	if (message.isEmpty() && !writeGeoTiff(product, path, &message))
-		message = tr("Cannot write %1: %2").arg(path, message);
-	if (message.isEmpty() && attach && !attachProductTemplate(*map, path, &message))
-		message = tr("Cannot attach %1: %2").arg(path, message);
-	if (!message.isEmpty())
-	{
-		if (error)
-			*error = message;
-		return {};
-	}
-	return path;
+	return ElevationCommands::writeVegetationHeightMap(*map, window ? window->currentPath() : QString{}, options, attach, error);
 }
 
 void MapEditorController::elevationVegetationHeightClicked()
@@ -10102,27 +9945,7 @@ void MapEditorController::elevationProfileClicked()
 // foom: the design notes, "Hypsometric map".
 QString MapEditorController::writeHypsometricMap(const HypsometricParams& params, bool attach, QString* error)
 {
-	auto const* model = map->elevationSet().model(ElevationSet::Terrain, map->getGeoreferencing().getProjectedCRSSpec());
-	if (!model)
-	{
-		if (error)
-			*error = tr("The map has no terrain grid.");
-		return {};
-	}
-	auto const product = hypsometricRaster(*model, params);
-	auto const path = productPath(window ? window->currentPath() : QString{}, map->elevationSet().href(ElevationSet::Terrain), QStringLiteral("hypsometric"));
-	QString message = product.error;
-	if (message.isEmpty() && !writeGeoTiff(product, path, &message))
-		message = tr("Cannot write %1: %2").arg(path, message);
-	if (message.isEmpty() && attach && !attachProductTemplate(*map, path, &message))
-		message = tr("Cannot attach %1: %2").arg(path, message);
-	if (!message.isEmpty())
-	{
-		if (error)
-			*error = message;
-		return {};
-	}
-	return path;
+	return ElevationCommands::writeHypsometricMap(*map, window ? window->currentPath() : QString{}, params, attach, error);
 }
 
 void MapEditorController::elevationHypsometricClicked()

@@ -242,13 +242,15 @@ private slots:
 		QCOMPARE(visit(wizard), (QList<int>{ P::ContoursPage, P::HillShadePage, P::SlopePage, P::HypsometricPage, P::FeaturesPage, P::OutputPage }));
 
 		// No product: straight to the output.
-		wizard.restart();
-		wizard.setFiles({ fixture("moved/test.asc") });
-		wizard.next();
-		wizard.next();
+		ElevationWizardDialog none(QString{}, nullptr);
+		none.restart();
+		none.setFiles({ fixture("moved/test.asc") });
+		none.next();
+		none.next();
+		QCOMPARE(none.currentId(), int(P::ProductsPage));
 		for (auto const* name : { "contours_check", "hillshade_check", "slope_check" })
-			button(wizard, name)->setChecked(false);
-		QCOMPARE(visit(wizard), (QList<int>{ P::OutputPage }));
+			button(none, name)->setChecked(false);
+		QCOMPARE(visit(none), (QList<int>{ P::OutputPage }));
 
 		// A file which is not a grid does not pass the settings page.
 		QTemporaryDir dir;
@@ -345,7 +347,7 @@ private slots:
 		wizard.next();
 		QCOMPARE(wizard.currentId(), int(P::SettingsPage));
 		auto const report = wizard.findChild<QLabel*>(QStringLiteral("report_label"))->text();
-		QVERIFY2(report.contains(QLocale().toString(qlonglong(points.size()))), qPrintable(report));
+		QVERIFY2(report.contains(QString::number(points.size()) + QLatin1String(" points")), qPrintable(report));
 		wizard.next();
 		QCOMPARE(wizard.currentId(), int(P::ProductsPage));
 		QVERIFY(button(wizard, "vegetation_height_check")->isEnabled());
@@ -442,7 +444,7 @@ private slots:
 			QVERIFY2(sameObject(part_a->getObject(int(i)), contours.objects[i].get()), qPrintable(QString::number(i)));
 		auto const features = editor.controller->extractLandforms(job.landforms);
 		QCOMPARE(result.features, features);
-		QCOMPARE(part_a->getObjectCount(), result.contours + result.features);
+		QCOMPARE(part_a->getNumObjects(), result.contours + result.features);
 
 		// One undo takes everything away.
 		QVERIFY(map_a.undoManager().undo());
@@ -524,7 +526,7 @@ private slots:
 		job.landforms.trees = true;
 		auto const result = runElevationWizard(map_a, QString{}, job);
 		QVERIFY2(result.ok, qPrintable(result.error));
-		QCOMPARE(map_a.getNumTemplates(), 6);
+		QCOMPARE(map_a.getNumTemplates(), 5);
 
 		auto* map_b = new Map;
 		Editor editor(map_b);
@@ -540,7 +542,7 @@ private slots:
 		QVERIFY(writeGeoTiff(slopeRaster(*model, job.slope_params), slope_path, &error));
 
 		for (auto const* name : { "plane_DTM.tif", "plane_DSM.tif", "plane_vegetation.tif", "plane_intensity.tif",
-		                          "plane_vegetation_height.tif", "plane_DTM_hillshade.tif", "plane_DTM_slope.tif" })
+		                          "plane_DTM_vegetation_height.tif", "plane_DTM_hillshade.tif", "plane_DTM_slope.tif" })
 		{
 			auto const a = dir.filePath(QLatin1String("a/") + QLatin1String(name));
 			auto const b = dir.filePath(QLatin1String("b/") + QLatin1String(name));
@@ -647,7 +649,9 @@ private slots:
 		// The same job through the wizard's function.
 		ElevationWizardJob job;
 		QString error;
-		QVERIFY2(elevationWizardJobFromJson(wizard, &job, &error), qPrintable(error));
+		auto params = wizard;
+		params.remove(QStringLiteral("step"));  // the runner takes it out before the step's parameters are read
+		QVERIFY2(elevationWizardJobFromJson(params, &job, &error), qPrintable(error));
 		job.files = QStringList{ grid_w };
 		Map expected;
 		georeference(expected);
