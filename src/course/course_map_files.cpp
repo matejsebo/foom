@@ -19,6 +19,7 @@
 
 
 
+#include <algorithm>
 #include <cstddef>
 #include <iterator>
 #include <memory>
@@ -32,8 +33,10 @@
 #include <QFile>
 #include <QIODevice>
 #include <QLatin1Char>
+#include <QRectF>
 
 #include "core/map.h"
+#include "core/map_coord.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
 #include "core/symbols/symbol.h"
@@ -68,13 +71,11 @@ QString courseMapFileSide(const CourseMapSheet& sheet, const CourseMapSide& side
 }
 
 
-bool makeCourseMapFile(Map& map, const CourseMapSide& side)
+namespace {
+
+/** Removes the objects which a course map draws itself, wherever they are; returns the part where the first was. */
+int removeDrawnObjects(Map& map)
 {
-	auto drawing = drawCourseMap(map, map.courseData(), side);
-	if (!drawing.drawn)
-		return false;
-	
-	// The objects which the side draws itself go, wherever they are.
 	auto part_index = int(map.getCurrentPartIndex());
 	auto first = true;
 	for (int p = map.getNumParts() - 1; p >= 0; --p)
@@ -91,8 +92,15 @@ bool makeCourseMapFile(Map& map, const CourseMapSide& side)
 			part->deleteObject(i);
 		}
 	}
-	
-	// What the side draws, with the symbols of the map; the scaled symbols of the description become symbols of the map.
+	return part_index;
+}
+
+/**
+ * Puts what a side draws into the map, moved by the offset, with the symbols
+ * of the map; the scaled symbols of the description become symbols of the map.
+ */
+void insertDrawing(Map& map, CourseMapDrawing& drawing, int part_index, const MapCoord& offset)
+{
 	auto const symbolOf = [&map, &drawing](const Symbol* symbol) -> const Symbol* {
 		for (std::size_t i = 0; i < drawing.symbols.size(); ++i)
 		{
@@ -110,7 +118,7 @@ bool makeCourseMapFile(Map& map, const CourseMapSide& side)
 		}
 		return symbol;
 	};
-	auto const insert = [&map, &symbolOf, part_index](std::vector<std::unique_ptr<Object>>& objects) {
+	auto const insert = [&map, &symbolOf, part_index, &offset](std::vector<std::unique_ptr<Object>>& objects) {
 		for (auto& object : objects)
 		{
 			auto const* symbol = symbolOf(object->getSymbol());
@@ -120,6 +128,7 @@ bool makeCourseMapFile(Map& map, const CourseMapSide& side)
 			// The map may have them hidden, for instance while the editor shows a preview.
 			map.getSymbol(index)->setHidden(false);
 			object->setSymbol(symbol, true);
+			object->move(offset);
 			map.addObject(object.release(), part_index);
 		}
 		objects.clear();
@@ -127,10 +136,87 @@ bool makeCourseMapFile(Map& map, const CourseMapSide& side)
 	// The description first: its ground lies below the course.
 	insert(drawing.description.objects);
 	insert(drawing.objects);
-	
+}
+
+/** The box of what a drawing has, in mm; invalid for nothing. */
+QRectF extentOf(const CourseMapDrawing& drawing)
+{
+	QRectF box;
+	for (auto const* objects : { &drawing.description.objects, &drawing.objects })
+	{
+		for (auto const& object : *objects)
+		{
+			object->update();
+			if (object->getExtent().isValid())
+				box = box.isValid() ? box.united(object->getExtent()) : object->getExtent();
+		}
+	}
+	return box;
+}
+
+}  // namespace
+
+
+bool makeCourseMapFile(Map& map, const CourseMapSide& side)
+{
+	auto drawing = drawCourseMap(map, map.courseData(), side);
+	if (!drawing.drawn)
+		return false;
+	auto const part_index = removeDrawnObjects(map);
+	insertDrawing(map, drawing, part_index, MapCoord{});
 	// A course map is a plain map.
 	map.setCourseData(CourseData{});
 	return true;
+}
+
+
+// the design notes, "Several courses in one file"
+std::vector<bool> makeCourseMapsFile(Map& map, const std::vector<CourseMapSide>& sides, CourseMapPlacing placing)
+{
+	std::vector<bool> drawn;
+	std::vector<CourseMapDrawing> drawings;
+	auto box = map.calculateExtent();
+	for (auto const& side : sides)
+	{
+		auto drawing = drawCourseMap(map, map.courseData(), side);
+		drawn.push_back(drawing.drawn);
+		if (!drawing.drawn)
+			continue;
+		auto const extent = extentOf(drawing);
+		if (extent.isValid())
+			box = box.isValid() ? box.united(extent) : extent;
+		drawings.push_back(std::move(drawing));
+	}
+
+	auto const part_index = removeDrawnObjects(map);
+	// The copy k of the map lies k steps to the right or downwards.
+	auto const gap = 10.0;
+	auto const step = placing == CourseMapPlacing::Beside ? MapCoordF(box.width() + gap, 0.0)
+	                : placing == CourseMapPlacing::Below ? MapCoordF(0.0, box.height() + gap)
+	                : MapCoordF(0.0, 0.0);
+	auto const repeated = placing == CourseMapPlacing::Beside || placing == CourseMapPlacing::Below;
+	if (repeated && drawings.size() > 1)
+	{
+		for (int p = 0; p < map.getNumParts(); ++p)
+		{
+			auto* part = map.getPart(std::size_t(p));
+			auto const count = part->getNumObjects();
+			for (std::size_t k = 1; k < drawings.size(); ++k)
+			{
+				auto const offset = MapCoord(step * double(k));
+				for (int i = 0; i < count; ++i)
+				{
+					auto* copy = part->getObject(i)->duplicate();
+					copy->move(offset);
+					map.addObject(copy, p);
+				}
+			}
+		}
+	}
+	for (std::size_t k = 0; k < drawings.size(); ++k)
+		insertDrawing(map, drawings[k], part_index, repeated ? MapCoord(step * double(k)) : MapCoord{});
+	map.setCourseData(CourseData{});
+	return drawn;
 }
 
 
@@ -141,6 +227,17 @@ CourseMapExportReport exportCourseMapFiles(Map& map, const CourseMapExportOption
 	if (!format || !format->supportsFileSaveAs())
 	{
 		report.error = tr("Map files of the format \"%1\" cannot be written.").arg(options.map_format);
+		return report;
+	}
+	auto const options_error = courseMapOptionsError(options);
+	if (!options_error.isEmpty())
+	{
+		report.error = options_error;
+		return report;
+	}
+	if (options.placing == CourseMapPlacing::Pages)
+	{
+		report.error = tr("A page for every map is for PDF files; map files place the maps beside or below each other, or at their place.");
 		return report;
 	}
 	QDir folder(options.folder);
@@ -161,6 +258,30 @@ CourseMapExportReport exportCourseMapFiles(Map& map, const CourseMapExportOption
 		}
 	}
 	
+	auto const write = [&](const QString& name, Map& copy) {
+		auto const path = folder.absoluteFilePath(courseMapFileName(options.base_name, name, format->primaryExtension()));
+		auto exporter = format->makeExporter(path, &copy, nullptr);
+		if (!exporter || !exporter->doExport())
+		{
+			QFile::remove(path);
+			report.error = tr("Cannot write the file \"%1\".").arg(path);
+			if (exporter && !exporter->warnings().empty())
+				report.error += QLatin1Char('\n') + exporter->warnings().back();
+			return false;
+		}
+		report.files.push_back(path);
+		return true;
+	};
+	auto const copyOfMap = [&](Map& copy) {
+		QBuffer buffer(&bytes);
+		if (!buffer.open(QIODevice::ReadOnly) || !copy.importFromIODevice(buffer))
+		{
+			report.error = tr("Cannot copy the map.");
+			return false;
+		}
+		return true;
+	};
+
 	auto const& data = map.courseData();
 	auto courses = options.courses;
 	if (courses.isEmpty())
@@ -168,44 +289,58 @@ CourseMapExportReport exportCourseMapFiles(Map& map, const CourseMapExportOption
 		for (auto const& course : data.courses)
 			courses.push_back(course.name);
 	}
+	// Every side with the name of its own file.
+	std::vector<std::pair<QString, CourseMapSide>> sides;
 	for (auto const& course : qAsConst(courses))
 	{
 		auto const sheets = courseMapSheets(data, course, options.relay_maps);
 		if (sheets.empty())
-		{
 			report.skipped.push_back(course);
-			continue;
-		}
 		for (auto const& sheet : sheets)
 		{
 			for (auto const& side : sheet.sides)
-			{
-				Map copy;
-				QBuffer buffer(&bytes);
-				if (!buffer.open(QIODevice::ReadOnly) || !copy.importFromIODevice(buffer))
-				{
-					report.error = tr("Cannot copy the map.");
-					return report;
-				}
-				auto const name = courseMapFileSide(sheet, side);
-				if (!makeCourseMapFile(copy, side))
-				{
-					report.skipped.push_back(name);
-					continue;
-				}
-				auto const path = folder.absoluteFilePath(courseMapFileName(options.base_name, name, format->primaryExtension()));
-				auto exporter = format->makeExporter(path, &copy, nullptr);
-				if (!exporter || !exporter->doExport())
-				{
-					QFile::remove(path);
-					report.error = tr("Cannot write the file \"%1\".").arg(path);
-					if (exporter && !exporter->warnings().empty())
-						report.error += QLatin1Char('\n') + exporter->warnings().back();
-					return report;
-				}
-				report.files.push_back(path);
-			}
+				sides.emplace_back(courseMapFileSide(sheet, side), side);
 		}
+	}
+
+	if (options.placing != CourseMapPlacing::Separate)
+	{
+		// the design notes, "Several courses in one file"
+		if (sides.empty())
+		{
+			report.ok = true;
+			return report;
+		}
+		std::vector<CourseMapSide> one;
+		for (auto const& side : sides)
+			one.push_back(side.second);
+		Map copy;
+		if (!copyOfMap(copy))
+			return report;
+		auto const drawn = makeCourseMapsFile(copy, one, options.placing);
+		for (std::size_t i = 0; i < drawn.size(); ++i)
+		{
+			if (!drawn[i])
+				report.skipped.push_back(sides[i].first);
+		}
+		if (std::find(drawn.begin(), drawn.end(), true) != drawn.end() && !write(courseMapsOneFileName(), copy))
+			return report;
+		report.ok = true;
+		return report;
+	}
+
+	for (auto const& side : sides)
+	{
+		Map copy;
+		if (!copyOfMap(copy))
+			return report;
+		if (!makeCourseMapFile(copy, side.second))
+		{
+			report.skipped.push_back(side.first);
+			continue;
+		}
+		if (!write(side.first, copy))
+			return report;
 	}
 	report.ok = true;
 	return report;

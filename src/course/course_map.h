@@ -35,6 +35,7 @@
 #include "course/course_description.h"
 #include "course/course_relay.h"
 
+class QImage;
 class QPainter;
 class QPrinter;
 
@@ -125,8 +126,18 @@ CourseMapDrawing drawCourseMap(const Map& map, const CourseData& data, const Cou
  *
  * @param bounding_box  the part of the map which is painted, in mm
  * @param scaling       pixels per mm
+ * @param opacity       of everything painted: the intensity of the print
  */
-void paintCourseMap(QPainter* painter, Map* map, const CourseMapDrawing& drawing, const QRectF& bounding_box, qreal scaling);
+void paintCourseMap(QPainter* painter, Map* map, const CourseMapDrawing& drawing, const QRectF& bounding_box, qreal scaling, qreal opacity = 1.0);
+
+/**
+ * Scales the line widths of the symbols which a side draws: the width of a
+ * line symbol and of its borders, the outer width of a point symbol and of
+ * the elements of a point symbol; not texts, not the description.
+ *
+ * See the design notes, "Course only, intensity, line width and the control descriptions".
+ */
+void scaleCourseLineWidths(CourseMapDrawing& drawing, double factor);
 
 /**
  * Paints the routes of a course with a painter which is set up for map
@@ -168,6 +179,40 @@ private:
 };
 
 
+/**
+ * Where the maps go: a file for every map, or all maps in one file.
+ *
+ * See the design notes, "Several courses in one file".
+ */
+enum class CourseMapPlacing
+{
+	/** A file for every map. */
+	Separate,
+	/** PDF files and printing: one file, a page for every map. */
+	Pages,
+	/** Map files: one file, the map repeated for every map, each copy to the right of the one before. */
+	Beside,
+	/** Map files: the same, each copy below the one before. */
+	Below,
+	/** One file with all maps at their place, one over the other: one page, or the map once. */
+	Original,
+};
+
+/**
+ * What a page of a course map shows.
+ *
+ * See the design notes, "Course only, intensity, line width and the control descriptions".
+ */
+enum class CourseMapContent
+{
+	/** The map with the course over it. */
+	Map,
+	/** The course alone, for printing on a map which was printed before. */
+	CourseOnly,
+	/** The control descriptions alone, a page for every side. */
+	Descriptions,
+};
+
 struct CourseMapExportOptions
 {
 	/** The folder into which the files are written. */
@@ -196,6 +241,24 @@ struct CourseMapExportOptions
 	 * See the design notes, "Course maps as map files".
 	 */
 	QString map_format;
+	/** A file for every map, or all maps in one file named by courseMapsOneFileName(). */
+	CourseMapPlacing placing = CourseMapPlacing::Separate;
+	
+	// the design notes, "Course only, intensity, line width and the control descriptions"
+	/** What a page shows; another than Map for PDF files and printing only. */
+	CourseMapContent content = CourseMapContent::Map;
+	/** The opacity of the course in percent, 10 to 100. */
+	int intensity = 100;
+	/** The line widths of the course in percent, 50 to 200. */
+	int line_width = 100;
+	/** Course only: the stretch in percent, 90 to 110, about the bottom left corner of the print area. */
+	double stretch_x = 100.0;
+	double stretch_y = 100.0;
+	/** Course only: left and right swapped about the middle of the print area. */
+	bool mirror = false;
+	/** Course only: the adjustment to the right and upwards, in mm, -25 to 25. */
+	double offset_x = 0.0;
+	double offset_y = 0.0;
 };
 
 struct CourseMapExportReport
@@ -218,6 +281,12 @@ struct CourseMapExportReport
  */
 std::unique_ptr<MapView> canvasPrintView(Map& map, const MapView* view, const CourseCanvas& canvas);
 
+/** Why the options cannot be printed or written; empty when they can. */
+QString courseMapOptionsError(const CourseMapExportOptions& options);
+
+/** What names the one file of all maps in place of a sheet: "Courses". */
+QString courseMapsOneFileName();
+
 /** A name of a sheet as a part of a file name. */
 QString courseMapFileName(const QString& base_name, const QString& sheet);
 
@@ -238,6 +307,13 @@ QString courseMapFileSide(const CourseMapSheet& sheet, const CourseMapSide& side
  */
 bool makeCourseMapFile(Map& map, const CourseMapSide& side);
 
+/**
+ * Makes a map into the one map file of several sides, placed as given
+ * (Beside, Below or Original); see the design notes,
+ * "Several courses in one file". Returns for every side whether it was drawn.
+ */
+std::vector<bool> makeCourseMapsFile(Map& map, const std::vector<CourseMapSide>& sides, CourseMapPlacing placing);
+
 /** Writes the maps of the courses as PDF files, or as map files when the options have a map format. */
 CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& options);
 
@@ -250,6 +326,13 @@ CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& o
  * See the design notes, "Printing the course maps".
  */
 CourseMapExportReport printCourseMaps(Map& map, const CourseMapExportOptions& options, QPrinter* printer);
+
+/**
+ * The first side of every sheet as an image with the given pixels per mm,
+ * the page as the PDF export has it; empty, with the error in the report,
+ * when the options cannot be printed.
+ */
+std::vector<QImage> courseMapImages(Map& map, const CourseMapExportOptions& options, double pixel_per_mm, CourseMapExportReport* report = nullptr);
 
 /** Writes the maps of the courses as map files; exportCourseMaps() calls it for options with a map format. */
 CourseMapExportReport exportCourseMapFiles(Map& map, const CourseMapExportOptions& options);

@@ -1228,7 +1228,7 @@ CourseDescriptionDrawing drawCourseDescriptions(const Map& map, const CourseData
 }
 
 
-void paintCourseDescriptions(QPainter* painter, Map* map, const CourseDescriptionDrawing& drawing, const QRectF& bounding_box, qreal scaling)
+void paintCourseDescriptions(QPainter* painter, Map* map, const CourseDescriptionDrawing& drawing, const QRectF& bounding_box, qreal scaling, qreal opacity)
 {
 	if (!drawing.drawn)
 		return;
@@ -1236,7 +1236,12 @@ void paintCourseDescriptions(QPainter* painter, Map* map, const CourseDescriptio
 	for (std::size_t i = 0; i < drawing.layouts.size(); ++i)
 	{
 		if (drawing.plain[i])
+		{
+			painter->save();
+			painter->setOpacity(opacity);
 			paintPlain(painter, drawing.layouts[i]);
+			painter->restore();
+		}
 	}
 	
 	if (drawing.objects.empty())
@@ -1247,7 +1252,7 @@ void paintCourseDescriptions(QPainter* painter, Map* map, const CourseDescriptio
 		object->update();
 		renderables.insertRenderablesOfObject(object.get());
 	}
-	RenderConfig config = { *map, bounding_box, scaling, RenderConfig::Tool, 1.0 };
+	RenderConfig config = { *map, bounding_box, scaling, RenderConfig::Tool, opacity };
 	renderables.draw(painter, config);
 	for (auto const& object : drawing.objects)
 		renderables.removeRenderablesOfObject(object.get(), false);
