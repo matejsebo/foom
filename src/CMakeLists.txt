@@ -25,6 +25,7 @@ if(ANDROID)
 else()
 	find_package(Qt5Network REQUIRED)
 	find_package(Qt5PrintSupport REQUIRED)
+	find_package(Qt5Svg REQUIRED)  # foom: SVG export
 endif()
 
 set(CMAKE_AUTOMOC ON)
@@ -224,6 +225,7 @@ set(Mapper_Common_SRCS
   fileformats/file_format_registry.cpp
   fileformats/file_import_export.cpp
   fileformats/iof_course_export.cpp
+  fileformats/map_export.cpp
   fileformats/kml_course_export.cpp
   fileformats/ocd_file_export.cpp
   fileformats/ocd_file_format.cpp
@@ -479,6 +481,7 @@ foreach(lib
   scaling-icon-engine
   Qt5::AndroidExtras
   Qt5::Network
+  Qt5::Svg
 )
 	if(TARGET ${lib})
 		target_link_libraries(Mapper_Common ${lib})

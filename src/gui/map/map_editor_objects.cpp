@@ -25,22 +25,38 @@
 
 #include "map_editor.h"
 
+#include <algorithm>
 #include <vector>
 
 #include <QApplication>
 #include <QClipboard>
+#include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDoubleSpinBox>
+#include <QFileInfo>
+#include <QFormLayout>
 #include <QChar>
 #include <QMessageBox>
+#include <QPushButton>
+#include <QRadioButton>
 #include <QRectF>
 #include <QString>
+#include <QVBoxLayout>
 
+#include "core/extents.h"
 #include "core/map.h"
+#include "core/map_printer.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
 #include "core/ops/apply_op.h"
 #include "core/ops/crop.h"
 #include "core/ops/wkt.h"
 #include "core/symbols/symbol.h"
+#include "fileformats/file_format.h"
+#include "fileformats/file_format_registry.h"
+#include "fileformats/map_export.h"
+#include "gui/file_dialog.h"
 #include "gui/main_window.h"
 #include "gui/map/crop_dialog.h"
 #include "gui/widgets/symbol_widget.h"
@@ -148,6 +164,29 @@ bool MapEditorController::pasteWkt(const QString& text, bool projected)
 	if (!ops::applyOp(*map, std::move(result)))
 		return false;
 	window->showStatusBarMessage(tr("Pasted %n object(s)", nullptr, count), 2000);
+	return true;
+}
+
+void MapEditorController::exportSvgClicked()
+{
+	auto path = FileDialog::getSaveFileName(window, tr("Export SVG"), {}, tr("SVG") + QLatin1String(" (*.svg)"));
+	if (path.isEmpty())
+		return;
+	if (!path.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive))
+		path += QLatin1String(".svg");
+	if (exportSvg(path))
+		window->showStatusBarMessage(tr("Exported successfully to %1").arg(path), 4000);
+}
+
+bool MapEditorController::exportSvg(const QString& path)
+{
+	// the design notes, "SVG export".
+	QString error;
+	if (!OpenOrienteering::exportSvg(*map, path, map->printerConfig().print_area, &error))
+	{
+		QMessageBox::warning(window, tr("Error"), error);
+		return false;
+	}
 	return true;
 }
 

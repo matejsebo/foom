@@ -1138,6 +1138,7 @@ void MapEditorController::createActions()
 #endif
 	export_simple_course_act = newAction("export-simple-course", tr("Simple &course"), this, SLOT(exportSimpleCourse()), nullptr, QString{}, "file_menu.html");
 	export_pdf_act = newAction("export-pdf", tr("&PDF"), print_act_mapper, SLOT(map()), nullptr, QString{}, "file_menu.html");
+	export_svg_act = newAction("export-svg", tr("&SVG..."), this, SLOT(exportSvgClicked()), nullptr, tr("Write the print area as an SVG file."));  // foom
 	print_act_mapper->setMapping(export_pdf_act, PrintWidget::EXPORT_PDF_TASK);
 #ifdef MAPPER_USE_GDAL
 	export_vector_act = newAction("export-vector", ::OpenOrienteering::ImportExport::tr("Geospatial vector data"), this, SLOT(exportVector()), nullptr, {}, "edit_menu.html");
@@ -1597,6 +1598,7 @@ void MapEditorController::createMenuAndToolbars()
 	export_menu->menuAction()->setMenuRole(QAction::NoRole);
 	export_menu->addAction(export_image_act);
 	export_menu->addAction(export_pdf_act);
+	export_menu->addAction(export_svg_act);  // foom
 	export_menu->addAction(export_kmz_act);
 	export_menu->addAction(export_simple_course_act);
 	if (export_vector_act)

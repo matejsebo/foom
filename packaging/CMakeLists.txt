@@ -347,6 +347,7 @@ if(Mapper_PACKAGE_QT)
 	  PrintSupport
 	  Sensors
 	  Sql
+	  Svg
 	  Widgets
 	)
 
