@@ -31,6 +31,7 @@
 #include <QByteArray>  // foom
 #include <QColor>
 #include <QFile>
+#include <QDateTime>  // foom
 #include <QFileInfo>
 #include <QImage>
 #include <QIODevice>
@@ -71,6 +72,7 @@
 #include "course/route_print.h"  // foom
 #include "course/route_store.h"  // foom
 #include "core/map.h"
+#include "core/open_backup.h"  // foom
 #include "core/map_coord.h"
 #include "core/map_printer.h"
 #include "core/print_output.h"
@@ -1261,6 +1263,15 @@ void StepRunner::validate(const Step& step, bool& map_open)
 		p.checkKnown({ "id" });
 		p.optionalString("id");
 	}
+	else if (name == QLatin1String("backup"))  // foom
+	{
+		// the design notes, "Manual backup"
+		p.requireMap(map_open);
+		p.checkKnown({ "keep", "compress" });
+		if (p.has("keep"))
+			p.requirePositiveInt("keep");
+		p.optionalBool("compress", false);
+	}
 	else if (isGeneratorStep(name))  // foom
 	{
 		validateGeneratorStep(step, map_open);
@@ -1315,6 +1326,8 @@ StepResult StepRunner::run(const Step& step)
 		return mergeFromFile(step);
 	if (name == QLatin1String("field-copy-close"))
 		return fieldCopyClose(step);
+	if (name == QLatin1String("backup"))  // foom
+		return backupStep(step);
 	return failure(QString::fromLatin1("unknown step \"%1\"").arg(name));  // validate() prevents this
 }
 
@@ -2252,6 +2265,28 @@ StepResult StepRunner::fieldCopyClose(const Step& step)
 	return result;
 }
 
+
+// foom: the design notes, "Manual backup"
+StepResult StepRunner::backupStep(const Step& step)
+{
+	Params p(step);
+	if (map_path.isEmpty())
+		return failure(QStringLiteral("needs a map opened from a file"));
+	OpenBackupOptions options;
+	if (p.has("keep"))
+		options.keep = int(p.requirePositiveInt("keep"));
+	options.compress = p.optionalBool("compress", false);
+	auto const* format = findFormat(QFileInfo(map_path).suffix().toLower(), &FileFormat::supportsFileSave);
+	QString error;
+	std::vector<QString> warnings;
+	auto const backup = makeMapBackup(*map, nullptr, map_path, format, options, QDateTime::currentDateTime(), &error, &warnings);
+	if (backup.isEmpty())
+		return failure(error);
+	StepResult result;
+	result.details.insert(QLatin1String("path"), backup);
+	addWarnings(result, warnings);
+	return result;
+}
 
 }  // namespace Cli
 

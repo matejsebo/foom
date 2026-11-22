@@ -112,6 +112,7 @@
 #include "settings.h"
 #include "core/georeferencing.h"
 #include "core/map.h"
+#include "core/open_backup.h"  // foom
 #include "core/map_coord.h"
 #include "core/map_part.h"
 #include "core/map_printer.h"  // foom
@@ -817,6 +818,27 @@ bool MapEditorController::exportTo(const QString& path, const FileFormat& format
 	}
 	
 	return true;
+}
+
+
+// foom: the design notes, "Manual backup"
+QString MapEditorController::makeBackup(const QString& path, const FileFormat* format, int keep, bool compress, QString* error, std::vector<QString>* warnings)
+{
+	if (!map)
+		return {};
+	if (editing_in_progress)
+	{
+		if (error)
+			*error = tr("The map is currently being edited. "
+			            "Please finish the edit operation before saving.");
+		return {};
+	}
+	if (course_map_preview)
+		coursePreviewClicked(false);
+	OpenBackupOptions options;
+	options.keep = keep;
+	options.compress = compress;
+	return makeMapBackup(*map, main_view, path, format, options, QDateTime::currentDateTime(), error, warnings);
 }
 
 

@@ -447,6 +447,13 @@ void MainWindow::createFileMenu()
 	save_as_act->setWhatsThis(Util::makeWhatThis("file_menu.html"));
 	connect(save_as_act, &QAction::triggered, this, &MainWindow::showSaveAsDialog);
 	
+	// foom: the design notes, "Manual backup"
+	auto backup_act = new QAction(tr("&Backup now"), this);
+	backup_act->setObjectName(QString::fromLatin1("file-backup"));
+	backup_act->setMenuRole(QAction::NoRole);
+	backup_act->setStatusTip(tr("Write the map as it is now to the folder \"backup\" beside its file"));
+	connect(backup_act, &QAction::triggered, this, &MainWindow::backupNow);
+	
 	settings_act = new QAction(tr("Settings..."), this);
 	settings_act->setMenuRole(QAction::PreferencesRole);
 	settings_act->setShortcut(QKeySequence::Preferences);
@@ -484,6 +491,7 @@ void MainWindow::createFileMenu()
 	file_menu->addAction(open_act);
 	file_menu->addAction(save_act);
 	file_menu->addAction(save_as_act);
+	file_menu->addAction(backup_act);  // foom
 	file_menu->addSeparator();
 	file_menu->addAction(settings_act);
 	file_menu->addSeparator();
@@ -498,6 +506,7 @@ void MainWindow::createFileMenu()
 	
 	save_act->setEnabled(has_opened_file);
 	save_as_act->setEnabled(has_opened_file);
+	backup_act->setEnabled(has_opened_file);  // foom
 	close_act->setEnabled(has_opened_file);
 	updateRecentFileActions();
 }
@@ -1206,6 +1215,32 @@ bool MainWindow::save()
 	}
 	
 	return saveTo(path, *currentFormat());
+}
+
+// foom: the design notes, "Manual backup"
+QString MainWindow::makeManualBackup(QString* error)
+{
+	if (error)
+		error->clear();
+	auto* editor = qobject_cast<MapEditorController*>(controller);
+	if (!editor)
+		return {};
+	auto const options = OpenBackupOptions::load(QSettings());
+	std::vector<QString> warnings;
+	return editor->makeBackup(currentPath(), currentFormat(), options.keep, options.compress, error, &warnings);
+}
+
+void MainWindow::backupNow()
+{
+	QString error;
+	auto const backup = makeManualBackup(&error);
+	if (backup.isEmpty())
+	{
+		if (!error.isEmpty())
+			QMessageBox::warning(this, tr("Backup now"), tr("No backup was made: %1").arg(error));
+		return;
+	}
+	showStatusBarMessage(tr("Backup written: %1").arg(QDir::toNativeSeparators(backup)), 5000);
 }
 
 bool MainWindow::saveTo(const QString &path, const FileFormat& format)

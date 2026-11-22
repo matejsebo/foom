@@ -24,10 +24,16 @@
 #include <QString>
 #include <QStringList>
 
+#include <vector>
+
 class QDateTime;
 class QSettings;
 
 namespace OpenOrienteering {
+
+class FileFormat;
+class Map;
+class MapView;
 
 /**
  * The settings of the backup which is made when a file is opened.
@@ -72,6 +78,25 @@ QStringList openBackups(const QString& path);
  * given, says why (it stays empty when nothing was to be done).
  */
 QString makeOpenBackup(const QString& path, const OpenBackupOptions& options, const QDateTime& now, QString* error = nullptr);
+
+/**
+ * Writes the map as it is, unsaved changes included, to the backup folder of
+ * path, named as makeOpenBackup() names its copies, and removes the oldest
+ * backups of that series beyond options.keep. options.enabled is ignored.
+ *
+ * The map is written by format, the format of the file, when it can save;
+ * otherwise in FOOM's own format, and the backup is then named with ".foom".
+ * The file at path is not read or written.
+ *
+ * Returns the path of the backup, or an empty string, and then error says why:
+ * when path is empty (a map which was never saved), the folder cannot be made
+ * or the map not written. warnings, if given, receives the exporter's warnings.
+ *
+ * See the design notes, "Manual backup".
+ */
+QString makeMapBackup(const Map& map, const MapView* view, const QString& path, const FileFormat* format,
+                      const OpenBackupOptions& options, const QDateTime& now,
+                      QString* error = nullptr, std::vector<QString>* warnings = nullptr);
 
 /** Returns the content of a backup, decompressed when its name ends in ".gz". */
 QByteArray readBackup(const QString& backup_path, bool* ok = nullptr);

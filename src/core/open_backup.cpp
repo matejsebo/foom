@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <vector>
 
+#include <QBuffer>
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
@@ -34,6 +35,11 @@
 #include <QVariant>
 
 #include <zlib.h>
+
+#include "core/map.h"
+#include "fileformats/file_format.h"
+#include "fileformats/file_format_registry.h"
+#include "fileformats/file_import_export.h"
 
 
 namespace OpenOrienteering {
@@ -56,6 +62,47 @@ QRegularExpression backupPattern(const QFileInfo& info)
 	return QRegularExpression(QLatin1Char('^') + QRegularExpression::escape(info.completeBaseName())
 	                          + QStringLiteral("_(\\d{8}-\\d{6})(?:-(\\d+))?") + suffix + QStringLiteral("(?:\\.gz)?$"),
 	                          QRegularExpression::CaseInsensitiveOption);
+}
+
+/**
+ * Writes data as the next backup of path (which need not exist) and removes
+ * the oldest backups beyond options.keep. Returns the backup's path, or an
+ * empty string and the reason in error.
+ */
+QString writeBackup(const QString& path, QByteArray data, const OpenBackupOptions& options, const QDateTime& now, QString* error)
+{
+	auto const info = QFileInfo(path);
+	QDir folder(openBackupFolder(path));
+	if (!folder.exists() && !QDir().mkpath(folder.path()))
+	{
+		if (error)
+			*error = tr("Cannot create the folder %1.").arg(QDir::toNativeSeparators(folder.path()));
+		return {};
+	}
+	if (options.compress)
+		data = gzipCompress(data);
+
+	auto const stamp = now.toString(QStringLiteral("yyyyMMdd-HHmmss"));
+	QString const suffix = (info.suffix().isEmpty() ? QString() : QLatin1Char('.') + info.suffix())
+	                    + (options.compress ? QStringLiteral(".gz") : QString());
+	QString name = info.completeBaseName() + QLatin1Char('_') + stamp + suffix;
+	for (int counter = 2; QFileInfo::exists(folder.filePath(name)); ++counter)
+		name = info.completeBaseName() + QLatin1Char('_') + stamp + QLatin1Char('-') + QString::number(counter) + suffix;
+
+	QSaveFile target(folder.filePath(name));
+	if (!target.open(QIODevice::WriteOnly) || target.write(data) != data.size() || !target.commit())
+	{
+		if (error)
+			*error = target.errorString();
+		return {};
+	}
+
+	auto backups = openBackups(path);
+	auto const keep = std::max(1, options.keep);
+	while (backups.size() > keep)
+		QFile::remove(backups.takeFirst());
+
+	return folder.filePath(name);
 }
 
 }  // namespace
@@ -117,15 +164,6 @@ QString makeOpenBackup(const QString& path, const OpenBackupOptions& options, co
 	if (path.isEmpty() || path.startsWith(QLatin1Char(':')) || scheme.match(path).hasMatch() || !QFileInfo(path).isFile())
 		return {};
 
-	auto const info = QFileInfo(path);
-	QDir folder(openBackupFolder(path));
-	if (!folder.exists() && !QDir().mkpath(folder.path()))
-	{
-		if (error)
-			*error = tr("Cannot create the folder %1.").arg(QDir::toNativeSeparators(folder.path()));
-		return {};
-	}
-
 	QFile source(path);
 	if (!source.open(QIODevice::ReadOnly))
 	{
@@ -133,32 +171,52 @@ QString makeOpenBackup(const QString& path, const OpenBackupOptions& options, co
 			*error = source.errorString();
 		return {};
 	}
-	auto data = source.readAll();
+	auto const data = source.readAll();
 	source.close();
-	if (options.compress)
-		data = gzipCompress(data);
+	return writeBackup(path, data, options, now, error);
+}
 
-	auto const stamp = now.toString(QStringLiteral("yyyyMMdd-HHmmss"));
-	QString const suffix = (info.suffix().isEmpty() ? QString() : QLatin1Char('.') + info.suffix())
-	                    + (options.compress ? QStringLiteral(".gz") : QString());
-	QString name = info.completeBaseName() + QLatin1Char('_') + stamp + suffix;
-	for (int counter = 2; QFileInfo::exists(folder.filePath(name)); ++counter)
-		name = info.completeBaseName() + QLatin1Char('_') + stamp + QLatin1Char('-') + QString::number(counter) + suffix;
-
-	QSaveFile target(folder.filePath(name));
-	if (!target.open(QIODevice::WriteOnly) || target.write(data) != data.size() || !target.commit())
+QString makeMapBackup(const Map& map, const MapView* view, const QString& path, const FileFormat* format,
+                      const OpenBackupOptions& options, const QDateTime& now,
+                      QString* error, std::vector<QString>* warnings)
+{
+	if (error)
+		error->clear();
+	if (path.isEmpty())
 	{
 		if (error)
-			*error = target.errorString();
+			*error = tr("Save the map first: backups are kept in the folder \"backup\" beside the map file.");
 		return {};
 	}
 
-	auto backups = openBackups(path);
-	auto const keep = std::max(1, options.keep);
-	while (backups.size() > keep)
-		QFile::remove(backups.takeFirst());
+	auto series_path = path;
+	if (!format || !format->supportsFileSave())
+	{
+		format = FileFormats.findFormat(FileFormats.defaultFormat());
+		auto const info = QFileInfo(path);
+		series_path = info.dir().filePath(info.completeBaseName() + QStringLiteral(".foom"));
+	}
+	auto exporter = format ? format->makeExporter(series_path, &map, view) : nullptr;
+	if (!exporter || !exporter->supportsQIODevice())
+	{
+		if (error)
+			*error = tr("The map cannot be written as a backup.");
+		return {};
+	}
 
-	return folder.filePath(name);
+	QBuffer buffer;
+	buffer.open(QIODevice::WriteOnly);
+	exporter->setDevice(&buffer);
+	auto const ok = exporter->doExport();
+	if (warnings)
+		*warnings = exporter->warnings();
+	if (!ok)
+	{
+		if (error)
+			*error = exporter->warnings().empty() ? tr("The map cannot be written as a backup.") : exporter->warnings().back();
+		return {};
+	}
+	return writeBackup(series_path, buffer.data(), options, now, error);
 }
 
 QByteArray readBackup(const QString& backup_path, bool* ok)

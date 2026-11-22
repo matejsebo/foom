@@ -360,6 +360,19 @@ public slots:
 	 */
 	bool save();
 	
+	/**
+	 * foom: Writes the map as it is now, unsaved changes included, to the
+	 * folder "backup" beside its file, with the settings Backup/Keep and
+	 * Backup/Compress. Shows no dialog.
+	 *
+	 * Returns the backup's path, or an empty string and the reason in error.
+	 * See the design notes, "Manual backup".
+	 */
+	QString makeManualBackup(QString* error = nullptr);
+	
+	/** foom: File > Backup now: makeManualBackup() with its messages. */
+	void backupNow();
+	
 	/** Save the current content to the current path.
 	 */
 	Autosave::AutosaveResult autosave() override;
