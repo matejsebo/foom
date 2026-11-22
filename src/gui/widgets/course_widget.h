@@ -36,6 +36,7 @@ class QDoubleSpinBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QScrollArea;
 class QSpinBox;
 class QTableWidget;
 class QTreeWidget;
@@ -43,6 +44,7 @@ class QTreeWidgetItem;
 
 namespace OpenOrienteering {
 
+class CourseDiagramWidget;
 class Map;
 
 
@@ -164,6 +166,8 @@ private:
 	void refreshCourseValues();
 	void updateLength();
 	void refreshItems(int current, int top = -1);
+	/** The branch diagram, which stands in the place of the list for a course with variations. */
+	void refreshDiagram();
 	void refreshClasses();
 	void updateButtons();
 	void fillCellLists();
@@ -222,6 +226,9 @@ private:
 	QSpinBox* climb_edit;
 	QDoubleSpinBox* extra_edit;
 	QTreeWidget* item_list;
+	QScrollArea* diagram_area;
+	CourseDiagramWidget* diagram_view;
+	QCheckBox* diagram_check;
 	QTableWidget* class_table;
 	QPushButton* code_button;
 	QPushButton* delete_object_button;

@@ -113,6 +113,7 @@ set(Mapper_Common_SRCS
   course/course_compose.cpp  # foom
   course/course_data.cpp  # foom
   course/course_description.cpp  # foom
+  course/course_diagram.cpp  # foom
   course/course_edit.cpp  # foom
   course/course_interchange.cpp  # foom
   course/course_map.cpp  # foom
@@ -322,6 +323,7 @@ set(Mapper_Common_SRCS
   gui/widgets/key_button_bar.cpp
   gui/widgets/mapper_proxystyle.cpp
   gui/widgets/measure_widget.cpp
+  gui/widgets/course_diagram_widget.cpp  # foom
   gui/widgets/course_widget.cpp  # foom
   gui/widgets/rangefinder_widget.cpp  # foom
   gui/widgets/paint_on_template_settings_page.cpp
