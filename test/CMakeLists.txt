@@ -346,6 +346,7 @@ add_system_test(import_points_t)  # foom: the design notes, Delimited text
 add_system_test(map_import_policy_t)  # foom: the design notes, Map import policies
 add_system_test(text_symbol_t)
 add_system_test(line_taper_t)
+add_system_test(editing_view_t)  # foom: corner and virtual gap vertices, selection rule, glyphs, curve entry, draft view, highlights
 add_system_test(area_pattern_t)
 add_system_test(foreign_data_t)
 add_system_test(ocd_layout_image_t)  # foom: the design notes, OCD embedded images

@@ -147,6 +147,7 @@ private slots:
 	void reshapeTest();
 	void offsetTest();
 	void vertexTypeTest();
+	void vertexTypeCornerGapTest();  // foom
 	void groupTest();
 	void replaceTextTest();
 	void topologyTest();
@@ -935,7 +936,7 @@ void OpsTest::vertexTypeTest()
 	};
 	auto const apply = [&map](const Object* object, bool dash, bool keep_ends) {
 		ops::VertexTypeParams params;
-		params.dash = dash;
+		params.type = dash ? ops::VertexType::Dash : ops::VertexType::Normal;
 		params.keep_ends = keep_ends;
 		return ops::setVertexType(map, { object }, params);
 	};
@@ -976,12 +977,66 @@ void OpsTest::vertexTypeTest()
 	auto* point = new PointObject(point_symbol);
 	map.addObject(point);
 	ops::VertexTypeParams params;
-	params.dash = true;
+	params.type = ops::VertexType::Dash;
 	auto mixed = ops::setVertexType(map, { point, line }, params);
 	QVERIFY(mixed.error.isEmpty());
 	QCOMPARE(mixed.out.size(), std::size_t(1));
 	QVERIFY(!ops::setVertexType(map, { point }, params).error.isEmpty());
 	QVERIFY(!ops::setVertexType(map, {}, params).error.isEmpty());
+}
+
+
+// the design notes, "Corner and virtual gap vertices", Accept (1)
+void OpsTest::vertexTypeCornerGapTest()
+{
+	Map map;
+	auto* symbol = new LineSymbol();
+	map.addSymbol(symbol, 0);
+	auto const flags = [](const Object* object, MapCoord::Flag flag) {
+		std::vector<int> result;
+		for (auto const& coord : object->asPath()->getRawCoordinateVector())
+			result.push_back(int((coord.flags() & flag) != 0));
+		return result;
+	};
+	auto const apply = [&map](const Object* object, ops::VertexType type, bool keep_ends) {
+		ops::VertexTypeParams params;
+		params.type = type;
+		params.keep_ends = keep_ends;
+		return ops::setVertexType(map, { object }, params);
+	};
+	
+	auto curve_start = MapCoord(20.0, 0.0);
+	curve_start.setCurveStart(true);
+	auto* line = new PathObject(symbol, { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0), curve_start, MapCoord(22.0, 3.0), MapCoord(28.0, 3.0), MapCoord(30.0, 0.0), MapCoord(40.0, 0.0) });
+	map.addObject(line);
+	auto const inner = std::vector<int>{ 0, 1, 1, 0, 0, 1, 0 };
+	auto const none = std::vector<int>(7, 0);
+	
+	auto corner = apply(line, ops::VertexType::Corner, true);
+	QVERIFY2(corner.error.isEmpty(), corner.error.toLatin1());
+	QCOMPARE(corner.out.size(), std::size_t(1));
+	auto const* cornered = corner.out.front().get();
+	QCOMPARE(flags(cornered, MapCoord::CornerPoint), inner);
+	QCOMPARE(flags(cornered, MapCoord::DashPoint), inner);
+	QVERIFY(cornered->asPath()->getRawCoordinateVector()[2].isCurveStart());
+	QVERIFY(apply(cornered, ops::VertexType::Corner, true).out.empty());
+	
+	auto dash = apply(cornered, ops::VertexType::Dash, true);
+	QCOMPARE(dash.out.size(), std::size_t(1));
+	QCOMPARE(flags(dash.out.front().get(), MapCoord::CornerPoint), none);
+	QCOMPARE(flags(dash.out.front().get(), MapCoord::DashPoint), inner);
+	
+	auto gap = apply(dash.out.front().get(), ops::VertexType::VirtualGap, true);
+	QCOMPARE(gap.out.size(), std::size_t(1));
+	auto const* gapped = gap.out.front().get();
+	QCOMPARE(flags(gapped, MapCoord::DashPoint), none);
+	QCOMPARE(flags(gapped, MapCoord::CornerPoint), none);
+	QCOMPARE(flags(gapped, MapCoord::VirtualGap), inner);
+	
+	auto normal = apply(gapped, ops::VertexType::Normal, false);
+	QCOMPARE(normal.out.size(), std::size_t(1));
+	for (auto flag : { MapCoord::DashPoint, MapCoord::CornerPoint, MapCoord::VirtualGap })
+		QCOMPARE(flags(normal.out.front().get(), flag), none);
 }
 
 
