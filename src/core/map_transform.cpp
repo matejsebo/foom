@@ -772,6 +772,44 @@ QPointF proposedMapOffset(const Map& map)
 	return { std::round(centre.x() / 1000.0) * 1000.0, std::round(centre.y() / 1000.0) * 1000.0 };
 }
 
+MapSurroundings mapSurroundings(const Map& map)
+{
+	// the design notes, "The map of the surroundings".
+	MapSurroundings result;
+	auto const& georef = map.getGeoreferencing();
+	if (georef.getState() != Georeferencing::Geospatial)
+		return result;
+	// QRectF drops empty rectangles when uniting, so the box is kept by hand.
+	auto x0 = std::numeric_limits<double>::max(), y0 = x0;
+	auto x1 = std::numeric_limits<double>::lowest(), y1 = x1;
+	map.applyOnAllObjects([&](const Object* object) {
+		for (auto const& coord : object->getRawCoordinateVector())
+		{
+			auto const point = MapCoordF(coord);
+			x0 = std::min(x0, point.x());
+			y0 = std::min(y0, point.y());
+			x1 = std::max(x1, point.x());
+			y1 = std::max(y1, point.y());
+		}
+	});
+	if (x0 > x1)
+	{
+		auto const centre = georef.getProjectedRefPoint();
+		result.extent = QRectF(centre - QPointF(1000.0, 1000.0), centre + QPointF(1000.0, 1000.0));
+		return result;
+	}
+	// Paper y points south: the top of the box is its smaller y.
+	for (auto const& corner : { MapCoordF(x0, y0), MapCoordF(x1, y0), MapCoordF(x1, y1), MapCoordF(x0, y1) })
+		result.outline << georef.toProjectedCoords(corner);
+	auto bounds = result.outline.boundingRect();
+	auto margin = 0.5 * std::max(bounds.width(), bounds.height());
+	bounds.adjust(-margin, -margin, margin, margin);
+	auto const grow_x = std::max(0.0, 1000.0 - bounds.width()) / 2;
+	auto const grow_y = std::max(0.0, 1000.0 - bounds.height()) / 2;
+	result.extent = bounds.adjusted(-grow_x, -grow_y, grow_x, grow_y);
+	return result;
+}
+
 bool centerMap(Map& map, const QPointF& offset)
 {
 	// the design notes, "Rotation to magnetic north and centring".

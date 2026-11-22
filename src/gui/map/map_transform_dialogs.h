@@ -29,7 +29,9 @@
 #include <QString>
 
 class QCheckBox;
+class QComboBox;
 class QDoubleSpinBox;
+class QFormLayout;
 class QLabel;
 class QNetworkAccessManager;
 class QPushButton;
@@ -41,6 +43,7 @@ class CRSSelector;
 class Georeferencing;
 struct GeomagneticField;
 class Map;
+class TileMapWidget;
 
 
 /**
@@ -128,8 +131,14 @@ class MagneticNorthDialog : public QDialog
 {
 Q_OBJECT
 public:
-	MagneticNorthDialog(const Georeferencing& georef, QWidget* parent);
+	/// With a map whose system is projected, the dialog shows the map of its surroundings (when built with GDAL).
+	MagneticNorthDialog(const Georeferencing& georef, QWidget* parent, const Map* map = nullptr);
 	~MagneticNorthDialog() override;
+	
+	/// The map of the surroundings, null when there is none.
+	TileMapWidget* surroundings() const { return surroundings_; }
+	QComboBox* surroundingsServiceBox() const { return service_box; }
+	QPushButton* showMapButton() const { return show_map_button; }
 	
 	double declination() const;
 	bool keepSelectedSymbols() const;
@@ -141,6 +150,9 @@ public:
 private:
 	void updateAngles();
 	void lookUpDeclination();
+	void addSurroundings(QFormLayout* form, const Map& map);
+	void showSurroundings();
+	void surroundingsServiceChanged();
 	
 	std::unique_ptr<Georeferencing> georef;
 	QDoubleSpinBox* declination_edit;
@@ -151,6 +163,9 @@ private:
 	QCheckBox* symbols_check;
 	QCheckBox* layout_check;
 	QNetworkAccessManager* network = nullptr;
+	TileMapWidget* surroundings_ = nullptr;
+	QComboBox* service_box = nullptr;
+	QPushButton* show_map_button = nullptr;
 };
 
 

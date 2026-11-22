@@ -24,6 +24,8 @@
 
 #include <QByteArray>
 #include <QPointF>
+#include <QPolygonF>
+#include <QRectF>
 #include <QString>
 #include <QTransform>
 
@@ -121,6 +123,20 @@ QPointF mapOffset(const Map& map);
 
 /// The projected coordinates of the centre of the objects' coordinates' bounding box, rounded to whole kilometres.
 QPointF proposedMapOffset(const Map& map);
+
+/**
+ * The map's area and its surroundings in projected coordinates, for a map of the surroundings.
+ *
+ * See the design notes, "The map of the surroundings".
+ */
+struct MapSurroundings
+{
+	QPolygonF outline;  ///< The corners of the objects' bounding box: top left, top right, bottom right, bottom left on paper; empty without objects
+	QRectF extent;      ///< The area to show (left/top = min x/y); null without a projected system
+};
+
+/// The outline of the map's objects and the extent around it, both projected.
+MapSurroundings mapSurroundings(const Map& map);
 
 /**
  * Moves everything so that the projected point comes to the map's origin, and the

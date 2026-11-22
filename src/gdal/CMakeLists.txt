@@ -46,6 +46,7 @@ set(MAPPER_GDAL_SOURCES
   new_map_wizard.cpp
   ogr_file_format.cpp
   ogr_template.cpp
+  tile_map_widget.cpp
   tile_pyramid.cpp
   tile_service_template.cpp
   tile_worker.cpp

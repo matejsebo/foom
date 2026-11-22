@@ -76,6 +76,12 @@ public:
 	/** Writes the window to a GeoTIFF; reports through downloadProgress and downloadFinished. */
 	Q_INVOKABLE void download(const QRectF& projected_rect, int width, int height, const QString& path);
 
+	/**
+	 * Renders the projected rectangle (left/top = min x/y, in the map's system)
+	 * at width by height pixels, north up, into image. Runs in the caller's thread.
+	 */
+	bool renderWindow(const QRectF& projected_rect, int width, int height, QImage& image, QString& error);
+	
 	double baseResolution() const { return r0; }
 
 signals:
