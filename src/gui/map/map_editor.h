@@ -56,6 +56,7 @@
 #include "core/ops/topology.h"  // foom
 #include "tools/distribute_points_tool.h"  // foom
 #include "core/ops/transform.h"  // foom
+#include "elevation/grid_frame.h"  // foom
 #include "gui/main_window_controller.h"
 
 class QAction;
@@ -283,6 +284,11 @@ public:
 	
 	/** foom: Draws the lines and numbers of the course which is chosen in the course dock. */
 	void drawCoursePreview(QPainter* painter, MapWidget* widget) const;
+	
+	/** foom: Draws the frames of the elevation grids while dem-show-frame is on. */
+	void drawElevationFrames(QPainter* painter, MapWidget* widget) const;
+	/** foom: The outlines which the view draws for dem-show-frame, in map coordinates; empty while it is off. */
+	std::vector<ElevationFrame> shownElevationFrames() const;
 	
 	/** foom: Returns the issue model of the Issues window. */
 	IssueModel* issueModel() const { return issue_model; }
@@ -1015,6 +1021,8 @@ public slots:
 	void elevationSmoothClicked();
 	/** foom: Asks, then removes every elevation grid from the map (dem-close). */
 	void elevationCloseClicked();
+	/** foom: Turns the frames of the elevation grids on or off (dem-show-frame); see the design notes, "The grid's frame". */
+	void elevationShowFrameClicked(bool checked);
 	/** foom: The grid commands without asking; see the design notes, "Grid commands". */
 	bool mergeElevationFiles(const QStringList& paths, QString* error);
 	bool elevationDifference(QString* error);
@@ -1656,6 +1664,9 @@ private:
 	QAction* dem_resize_act = {};  // foom
 	QAction* dem_smooth_act = {};  // foom
 	QAction* dem_close_act = {};  // foom
+	QAction* dem_show_frame_act = {};  // foom
+	mutable std::vector<ElevationFrame> elevation_frames;  // foom: the cache of shownElevationFrames()
+	mutable QString elevation_frames_key;  // foom
 	QAction* dem_embed_act = {};  // foom
 	QAction* dem_remove_embedded_act = {};  // foom
 	QAction* check_legibility_act = {};  // foom

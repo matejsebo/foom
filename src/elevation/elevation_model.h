@@ -48,6 +48,13 @@ class ElevationModel
 	Q_DECLARE_TR_FUNCTIONS(OpenOrienteering::ElevationModel)
 
 public:
+	/// How values between cell centres are found.
+	enum class Interpolation
+	{
+		Bilinear,
+		Bicubic
+	};
+	
 	struct OpenOptions
 	{
 		bool feet_to_metres = false;          ///< Multiply the heights by 0.3048.
@@ -115,11 +122,25 @@ public:
 	/// Bilinear interpolation between cell centres; NaN outside the extent or over a void cell.
 	double at(const QPointF& projected) const;
 
+	/**
+	 * Keys' cubic convolution (a = -0.5) over the 4 by 4 cell centres around the point;
+	 * the bilinear value when a neighbour with a weight is void; NaN outside the extent.
+	 * See the design notes, "Bicubic resampling for hill shading".
+	 */
+	double atBicubic(const QPointF& projected) const;
+
 	/// Horn's 3 by 3 gradient (dz/dx, dz/dy) of the cell holding the point; NaN components when undefined.
 	QPointF gradient(const QPointF& projected) const;
 
 	/// Horn's 3 by 3 gradient of a cell, the neighbours clamped to the grid.
 	QPointF gradientAt(int col, int row) const;
+	
+	/**
+	 * The gradient (dz/dx, dz/dy) at the corner shared by the cells (col, row) and (col + 1, row + 1):
+	 * the mean of the two differences along each axis; NaN components when one of the cells is void.
+	 * See the design notes, "The gradient on the corners of 2 by 2 cells".
+	 */
+	QPointF cornerGradientAt(int col, int row) const;
 
 	Info info() const;
 
@@ -145,8 +166,8 @@ public:
 	/// The cells which intersect the box.
 	std::unique_ptr<ElevationModel> cropped(const QRectF& box) const;
 
-	/// The same extent at another cell size, values by bilinear interpolation.
-	std::unique_ptr<ElevationModel> resampled(double cell_size) const;
+	/// The same extent at another cell size, values by bilinear or bicubic interpolation.
+	std::unique_ptr<ElevationModel> resampled(double cell_size, Interpolation interpolation = Interpolation::Bilinear) const;
 
 	/// A mosaic of grids of equal cell size on the first grid's lattice; later grids win in overlaps.
 	static std::unique_ptr<ElevationModel> merge(const std::vector<const ElevationModel*>& grids);

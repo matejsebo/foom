@@ -70,6 +70,9 @@
 #include "course/route_course.h"  // foom
 #include "course/route_print.h"  // foom
 #include "course/route_store.h"  // foom
+#include "elevation/elevation_model.h"  // foom
+#include "elevation/elevation_set.h"  // foom
+#include "elevation/raster_products.h"  // foom
 #include "core/map.h"
 #include "core/map_coord.h"
 #include "core/map_printer.h"
@@ -588,6 +591,58 @@ CourseFileKind parseImportCourseKind(const Params& p, const QString& path)
 		p.fail(QLatin1String("\"classes\" applies to IOF XML only: GPX, KML and KMZ have no classes"));
 	return kind;
 }
+
+/// The parameters of the step hill-shade; see the design notes, "Bicubic resampling for hill shading".
+HillShadeParams parseHillShadeParams(const Params& p)
+{
+	HillShadeParams params;
+	auto const method = p.optionalString("method", QStringLiteral("oblique"));
+	if (method == QLatin1String("oblique"))
+		params.method = HillShadeParams::Oblique;
+	else if (method == QLatin1String("slope"))
+		params.method = HillShadeParams::SlopeShading;
+	else if (method == QLatin1String("combined"))
+		params.method = HillShadeParams::Combined;
+	else
+		p.fail(QString::fromLatin1("parameter \"method\" must be \"oblique\", \"slope\" or \"combined\""));
+	params.multi_directional = p.optionalBool("multi_directional", params.multi_directional);
+	if (p.has("azimuth"))
+		params.azimuth_deg = p.requireNumber("azimuth");
+	if (p.has("elevation"))
+	{
+		params.elevation_deg = p.requireNumber("elevation");
+		if (params.elevation_deg <= 0.0 || params.elevation_deg > 90.0)
+			p.fail(QLatin1String("parameter \"elevation\" must be above 0 and at most 90"));
+	}
+	if (p.has("exaggeration"))
+	{
+		params.exaggeration = p.requireNumber("exaggeration");
+		if (params.exaggeration <= 0.0)
+			p.fail(QLatin1String("parameter \"exaggeration\" must be positive"));
+	}
+	if (p.has("cell_size"))
+	{
+		params.cell_size = p.requireNumber("cell_size");
+		if (params.cell_size <= 0.0)
+			p.fail(QLatin1String("parameter \"cell_size\" must be positive"));
+	}
+	auto const resampling = p.optionalString("resampling", QStringLiteral("bicubic"));
+	if (resampling == QLatin1String("bicubic"))
+		params.resampling = HillShadeParams::Bicubic;
+	else if (resampling == QLatin1String("bilinear"))
+		params.resampling = HillShadeParams::Bilinear;
+	else
+		p.fail(QString::fromLatin1("parameter \"resampling\" must be \"bicubic\" or \"bilinear\""));
+	auto const gradient = p.optionalString("gradient", QStringLiteral("corners"));
+	if (gradient == QLatin1String("corners"))
+		params.gradient = GradientMethod::Corners;
+	else if (gradient == QLatin1String("horn"))
+		params.gradient = GradientMethod::Horn;
+	else
+		p.fail(QString::fromLatin1("parameter \"gradient\" must be \"corners\" or \"horn\""));
+	return params;
+}
+
 
 QJsonArray jsonList(const QStringList& list)
 {
@@ -1129,6 +1184,14 @@ void StepRunner::validate(const Step& step, bool& map_open)
 		p.checkKnown({ "path", "format", "course", "per_course", "dpi", "tiles", "templates" });
 		validateExportCourses(p);
 	}
+	else if (name == QLatin1String("hill-shade"))  // foom
+	{
+		p.requireMap(map_open);
+		p.checkKnown({ "out", "method", "multi_directional", "azimuth", "elevation", "exaggeration", "cell_size", "resampling", "gradient", "attach" });
+		parseHillShadeParams(p);
+		p.optionalString("out");
+		p.optionalBool("attach", false);
+	}
 	else if (name == QLatin1String("import-courses"))  // foom
 	{
 		p.requireMap(map_open);
@@ -1307,6 +1370,8 @@ StepResult StepRunner::run(const Step& step)
 		return exportCoursesStep(step);
 	if (name == QLatin1String("import-courses"))  // foom
 		return importCoursesStep(step);
+	if (name == QLatin1String("hill-shade"))  // foom
+		return hillShadeStep(step);
 	if (isGeneratorStep(name))  // foom
 		return runGeneratorStep(*map, step);
 	if (name == QLatin1String("field-copy-create"))
@@ -1944,6 +2009,36 @@ StepResult StepRunner::checkStep(const Step& step)
 
 
 // foom: the design notes, "Statistics and the consistency check"
+// foom: the design notes, "Bicubic resampling for hill shading"
+StepResult StepRunner::hillShadeStep(const Step& step)
+{
+	Params p(step);
+	auto const params = parseHillShadeParams(p);
+	auto& set = map->elevationSet();
+	auto const href = set.href(ElevationSet::Terrain);
+	if (href.isEmpty())
+		return failure(QLatin1String("the map has no terrain grid"));
+	auto const* model = set.model(ElevationSet::Terrain, map->getGeoreferencing().getProjectedCRSSpec());
+	if (!model)
+		return failure(QString::fromLatin1("cannot open the terrain grid \"%1\": %2").arg(href, ElevationModel::lastError()));
+	auto const path = p.has("out") ? job.resolvePath(p.requireString("out")) : productPath(map_path, href, QStringLiteral("hillshade"));
+	auto const product = hillShade(*model, params);
+	if (!product.error.isEmpty())
+		return failure(product.error);
+	QString error;
+	if (!writeGeoTiff(product, path, &error))
+		return failure(QString::fromLatin1("cannot write \"%1\": %2").arg(path, error));
+	if (p.optionalBool("attach", false) && !attachProductTemplate(*map, path, &error))
+		return failure(QString::fromLatin1("cannot attach \"%1\": %2").arg(path, error));
+
+	StepResult result;
+	result.details.insert(QLatin1String("path"), path);
+	result.details.insert(QLatin1String("width"), product.image.width());
+	result.details.insert(QLatin1String("height"), product.image.height());
+	return result;
+}
+
+
 StepResult StepRunner::courseStatisticsStep(const Step& step)
 {
 	Params p(step);

@@ -48,6 +48,7 @@
 #include <QTemporaryDir>
 
 #include <gdal.h>
+#include <ogr_srs_api.h>
 
 #include "global.h"
 #include "core/georeferencing.h"
@@ -65,6 +66,7 @@
 #include "elevation/contours.h"
 #include "elevation/elevation_model.h"
 #include "elevation/embedded_grid.h"
+#include "elevation/grid_frame.h"
 #include "elevation/elevation_set.h"
 #include "elevation/landforms.h"
 #include "elevation/profile.h"
@@ -567,6 +569,7 @@ private slots:
 		auto flat = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double, double) { return 100.0; });
 
 		HillShadeParams params;
+		params.gradient = GradientMethod::Horn;  // The lattice of the cells; Corners: cornerGradientTest().
 		params.method = HillShadeParams::Oblique;
 		params.azimuth_deg = 315.0;
 		params.elevation_deg = 45.0;
@@ -605,6 +608,7 @@ private slots:
 		auto flat = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double, double) { return 100.0; });
 
 		SlopeParams params;
+		params.gradient = GradientMethod::Horn;
 		params.binary = false;
 		params.threshold_deg = 45.0;
 		auto product = OpenOrienteering::slopeRaster(*inclined, params);
@@ -736,6 +740,7 @@ private slots:
 		grid->setCrsSpec(map.getGeoreferencing().getProjectedCRSSpec());
 
 		HillShadeParams params;
+		params.gradient = GradientMethod::Horn;  // The grid's extent.
 		auto product = hillShade(*grid, params);
 		QVERIFY(product.error.isEmpty());
 		QCOMPARE(product.crs_spec, grid->crsSpec());
@@ -1395,6 +1400,279 @@ private slots:
 		QVERIFY(refused("from;to;from_colour;to_colour\n0;2;#000000;#ffffff\n1;5;#000000;#ffffff\n"));
 		QVERIFY(refused("from;to;from_colour;to_colour\n"));
 		QVERIFY(!refused("from;to;from_colour;to_colour\n0;2;#000000;#ffffff\n2;5;#000000;#ffffff\n"));
+	}
+
+	/// the design notes, "Bicubic resampling for hill shading", Accept (1) to (6).
+	void bicubicTest()
+	{
+		auto const nan = std::numeric_limits<double>::quiet_NaN();
+		auto const column = makeGrid(8, 8, 0.0, 8.0, 1.0, [](double x, double) { return x > 3.0 && x < 4.0 ? 16.0 : 0.0; });
+
+		// (1) Weights.
+		struct { double x; double bicubic; double bilinear; } const along[] = {
+		    { 3.0, 9.0, 8.0 }, { 2.0, -1.0, 0.0 }, { 2.75, 3.625, 4.0 }, { 3.25, 13.875, 12.0 } };
+		for (auto const& c : along)
+		{
+			QVERIFY2(qAbs(column->atBicubic(QPointF(c.x, 4.5)) - c.bicubic) < 1e-5, qPrintable(QString::number(c.x)));
+			QVERIFY2(qAbs(column->at(QPointF(c.x, 4.5)) - c.bilinear) < 1e-5, qPrintable(QString::number(c.x)));
+		}
+
+		// (2) Two dimensions.
+		auto const spike = makeGrid(8, 8, 0.0, 8.0, 1.0, [](double x, double y) { return x > 3.0 && x < 4.0 && y > 4.0 && y < 5.0 ? 16.0 : 0.0; });
+		QVERIFY(qAbs(spike->atBicubic(QPointF(3.0, 5.0)) - 5.0625) < 1e-5);
+		QVERIFY(qAbs(spike->atBicubic(QPointF(2.0, 5.0)) + 0.5625) < 1e-5);
+
+		// (3) Planes.
+		auto const plane = makeGrid(10, 10, 0.0, 10.0, 1.0, [](double x, double y) { return 2.0 * x + 3.0 * y + 1.0; });
+		for (double y = 2.0; y <= 8.0; y += 0.37)
+			for (double x = 2.0; x <= 8.0; x += 0.37)
+				QVERIFY2(qAbs(plane->atBicubic(QPointF(x, y)) - (2.0 * x + 3.0 * y + 1.0)) < 1e-4,
+				         qPrintable(QString::fromLatin1("%1 %2").arg(x).arg(y)));
+
+		// (4) Voids.
+		auto voided = makeGrid(10, 10, 0.0, 10.0, 1.0, [](double, double) { return 5.0; });
+		voided->setValue(5, 5, float(nan));
+		QVERIFY(qAbs(voided->atBicubic(QPointF(4.2, 6.0)) - 5.0) < 1e-5);
+		QVERIFY(std::isnan(voided->atBicubic(QPointF(5.2, 4.8))));
+		QVERIFY(std::isnan(voided->atBicubic(QPointF(-0.5, 4.8))));
+		QVERIFY(std::isnan(voided->atBicubic(QPointF(4.0, 10.5))));
+
+		// (5) Resampling.
+		auto const cubic = column->resampled(0.5, ElevationModel::Interpolation::Bicubic);
+		auto const linear = column->resampled(0.5);
+		for (auto const* grid : { cubic.get(), linear.get() })
+		{
+			QCOMPARE(grid->width(), 16);
+			QCOMPARE(grid->height(), 16);
+			QCOMPARE(grid->extent(), column->extent());
+		}
+		struct { int col; double bicubic; double bilinear; } const cells[] = {
+		    { 4, -1.125, 0.0 }, { 5, 3.625, 4.0 }, { 6, 13.875, 12.0 } };
+		for (auto const& c : cells)
+		{
+			QCOMPARE(cubic->cellCenter(c.col, 0).x(), 0.25 + 0.5 * c.col);
+			for (int r = 0; r < 16; ++r)
+			{
+				QVERIFY2(qAbs(cubic->value(c.col, r) - c.bicubic) < 1e-4, qPrintable(QString::fromLatin1("%1 %2").arg(c.col).arg(r)));
+				QVERIFY2(qAbs(linear->value(c.col, r) - c.bilinear) < 1e-4, qPrintable(QString::fromLatin1("%1 %2").arg(c.col).arg(r)));
+			}
+		}
+
+		// (6) Hill shading.
+		QCOMPARE(HillShadeParams().resampling, HillShadeParams::Bicubic);
+		HillShadeParams params;
+		params.cell_size = 0.5;
+		auto const shaded = OpenOrienteering::hillShade(*column, params);
+		QVERIFY2(shaded.error.isEmpty(), qPrintable(shaded.error));
+		HillShadeParams native = params;
+		native.cell_size = 0.0;
+		auto const reference = OpenOrienteering::hillShade(*cubic, native);
+		QCOMPARE(shaded.image.size(), QSize(15, 15));
+		QVERIFY(shaded.image == reference.image);
+		params.resampling = HillShadeParams::Bilinear;
+		auto const bilinear_shaded = OpenOrienteering::hillShade(*column, params);
+		QVERIFY(bilinear_shaded.image == OpenOrienteering::hillShade(*linear, native).image);
+		QVERIFY(bilinear_shaded.image != shaded.image);
+
+		auto const inclined = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double, double y) { return 100.0 + 0.1 * y; });
+		HillShadeParams fine;
+		fine.cell_size = 0.5;
+		auto const fine_product = OpenOrienteering::hillShade(*inclined, fine);
+		QCOMPARE(fine_product.image.size(), QSize(201, 201));
+		for (int r = 4; r < 198; ++r)
+			for (int c = 4; c < 198; ++c)
+				QVERIFY2(qAbs(int(fine_product.image.constScanLine(r)[c]) - 120) <= 1,
+				         qPrintable(QString::fromLatin1("%1 %2: %3").arg(r).arg(c).arg(fine_product.image.constScanLine(r)[c])));
+	}
+
+	/// the design notes, "The gradient on the corners of 2 by 2 cells", Accept (1) to (3).
+	void cornerGradientTest()
+	{
+		auto const nan = std::numeric_limits<float>::quiet_NaN();
+		auto const small = [](bool voided) {
+			std::vector<float> values = { 10, 12, 16, 11, 15, 17, 13, 14, 20 };
+			if (voided)
+				values[4] = std::numeric_limits<float>::quiet_NaN();
+			return std::make_unique<ElevationModel>(3, 3, QPointF(0.0, 6.0), 2.0, std::move(values));
+		};
+
+		// (1) The formula.
+		auto const grid = small(false);
+		struct { int col; int row; double gx; double gy; } const corners[] = {
+		    { 0, 0, 1.5, -1.0 }, { 1, 0, 1.5, -1.0 }, { 0, 1, 1.25, -0.25 }, { 1, 1, 2.0, -0.5 } };
+		for (auto const& c : corners)
+		{
+			auto const g = grid->cornerGradientAt(c.col, c.row);
+			QVERIFY2(qAbs(g.x() - c.gx) < 1e-9 && qAbs(g.y() - c.gy) < 1e-9, qPrintable(QString::fromLatin1("%1 %2").arg(c.col).arg(c.row)));
+		}
+		auto const voided = small(true);
+		for (auto const& c : corners)
+		{
+			auto const g = voided->cornerGradientAt(c.col, c.row);
+			QVERIFY(std::isnan(g.x()) && std::isnan(g.y()));
+		}
+
+		// (2) The lattice.
+		SlopeParams slope;
+		slope.threshold_deg = 80.0;
+		QCOMPARE(slope.gradient, GradientMethod::Corners);
+		auto product = slopeRaster(*grid, slope);
+		QVERIFY2(product.error.isEmpty(), qPrintable(product.error));
+		QCOMPARE(product.image.size(), QSize(2, 2));
+		QCOMPARE(product.extent, QRectF(1.0, 1.0, 4.0, 4.0));
+		QVERIFY(qAbs(int(product.image.constScanLine(1)[0]) - 90) <= 1);
+		QVERIFY(qAbs(int(product.image.constScanLine(1)[1]) - 51) <= 1);
+		product = slopeRaster(*voided, slope);
+		for (int r = 0; r < 2; ++r)
+			for (int c = 0; c < 2; ++c)
+				QCOMPARE(int(product.image.constScanLine(r)[c]), 0);
+		auto const narrow = std::make_unique<ElevationModel>(1, 3, QPointF(0.0, 6.0), 2.0, std::vector<float>{ 1, 2, 3 });
+		product = slopeRaster(*narrow, slope);
+		QVERIFY(!product.error.isEmpty());
+		QVERIFY(product.image.isNull());
+		QVERIFY(!hillShade(*narrow, HillShadeParams()).error.isEmpty());
+		slope.gradient = GradientMethod::Horn;
+		product = slopeRaster(*grid, slope);
+		QCOMPARE(product.image.size(), QSize(3, 3));
+		QCOMPARE(product.extent, grid->extent());
+
+		// (3) Planes.
+		auto inclined = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double, double y) { return 100.0 + 0.1 * y; });
+		auto flat = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double, double) { return 100.0; });
+		auto steep = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double, double y) { return 100.0 + 1.7320508 * y; });
+		auto const everywhere = [](const RasterProduct& p, int expected) {
+			if (p.image.size() != QSize(100, 100))
+				return false;
+			for (int r = 0; r < 100; ++r)
+				for (int c = 0; c < 100; ++c)
+					if (qAbs(int(p.image.constScanLine(r)[c]) - expected) > 1)
+						return false;
+			return true;
+		};
+		HillShadeParams hill;
+		QCOMPARE(hill.gradient, GradientMethod::Corners);
+		struct { HillShadeParams::Method method; bool multi; int expected; } const cases[] = {
+		    { HillShadeParams::Oblique, false, 120 },
+		    { HillShadeParams::Oblique, true, 167 },
+		    { HillShadeParams::SlopeShading, false, 193 },
+		    { HillShadeParams::Combined, false, 91 } };
+		for (auto const& c : cases)
+		{
+			hill.method = c.method;
+			hill.multi_directional = c.multi;
+			QVERIFY2(everywhere(hillShade(*inclined, hill), c.expected), qPrintable(QString::number(c.expected)));
+		}
+		hill.method = HillShadeParams::Oblique;
+		hill.multi_directional = false;
+		QVERIFY(everywhere(hillShade(*flat, hill), 180));
+		hill.method = HillShadeParams::SlopeShading;
+		QVERIFY(everywhere(hillShade(*flat, hill), 255));
+		SlopeParams plane_slope;
+		QVERIFY(everywhere(slopeRaster(*inclined, plane_slope), 223));
+		QVERIFY(everywhere(slopeRaster(*steep, plane_slope), 0));
+		QVERIFY(everywhere(slopeRaster(*flat, plane_slope), 255));
+		plane_slope.binary = true;
+		QVERIFY(everywhere(slopeRaster(*inclined, plane_slope), 255));
+		QVERIFY(everywhere(slopeRaster(*steep, plane_slope), 0));
+	}
+	
+	/// the design notes, "The grid's frame", Accept (1) to (4).
+	void gridFootprintTest()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		auto const path = dir.filePath(QStringLiteral("utm14.tif"));
+		auto grid = makeGrid(20, 10, 500000.0, 5200050.0, 5.0, [](double, double) { return 400.0; });
+		grid->setCrsSpec(QStringLiteral("EPSG:32614"));
+		QVERIFY(grid->save(path));
+
+		auto const near = [](const QPointF& a, const QPointF& b, double tolerance) {
+			return qAbs(a.x() - b.x()) <= tolerance && qAbs(a.y() - b.y()) <= tolerance;
+		};
+
+		// (1) Same system.
+		auto const same = gridFootprint(path, QStringLiteral("EPSG:32614"));
+		QCOMPARE(same.size(), 64);
+		QVERIFY(near(same[0], QPointF(500000.0, 5200050.0), 0.001));
+		QVERIFY(near(same[8], QPointF(500050.0, 5200050.0), 0.001));
+		QVERIFY(near(same[16], QPointF(500100.0, 5200050.0), 0.001));
+		QVERIFY(near(same[32], QPointF(500100.0, 5200000.0), 0.001));
+		QVERIFY(near(same[48], QPointF(500000.0, 5200000.0), 0.001));
+		for (auto const& p : same)
+		{
+			auto const on_x = qAbs(p.x() - 500000.0) <= 0.001 || qAbs(p.x() - 500100.0) <= 0.001;
+			auto const on_y = qAbs(p.y() - 5200000.0) <= 0.001 || qAbs(p.y() - 5200050.0) <= 0.001;
+			QVERIFY(on_x || on_y);
+			QVERIFY(p.x() >= 500000.0 - 0.001 && p.x() <= 500100.0 + 0.001);
+			QVERIFY(p.y() >= 5200000.0 - 0.001 && p.y() <= 5200050.0 + 0.001);
+		}
+
+		// (2) Another system.
+		auto const other = gridFootprint(path, QStringLiteral("EPSG:32615"));
+		QCOMPARE(other.size(), 64);
+		auto source = OSRNewSpatialReference(nullptr);
+		auto target = OSRNewSpatialReference(nullptr);
+		QCOMPARE(OSRSetFromUserInput(source, "EPSG:32614"), OGRERR_NONE);
+		QCOMPARE(OSRSetFromUserInput(target, "EPSG:32615"), OGRERR_NONE);
+		OSRSetAxisMappingStrategy(source, OAMS_TRADITIONAL_GIS_ORDER);
+		OSRSetAxisMappingStrategy(target, OAMS_TRADITIONAL_GIS_ORDER);
+		auto transform = OCTNewCoordinateTransformation(source, target);
+		QVERIFY(transform);
+		for (auto const index : { 0, 8, 16, 32, 48 })
+		{
+			double x = same[index].x(), y = same[index].y();
+			QVERIFY(OCTTransform(transform, 1, &x, &y, nullptr));
+			QVERIFY2(near(other[index], QPointF(x, y), 0.001), qPrintable(QString::number(index)));
+		}
+		OCTDestroyCoordinateTransformation(transform);
+		OSRDestroySpatialReference(source);
+		OSRDestroySpatialReference(target);
+		QVERIFY(qAbs(other[0].y() - other[16].y()) > 1.0);
+		double area = 0.0;
+		for (int i = 0; i < other.size(); ++i)
+		{
+			auto const& a = other[i];
+			auto const& b = other[(i + 1) % other.size()];
+			area += a.x() * b.y() - b.x() * a.y();
+		}
+		QVERIFY2(qAbs(qAbs(area) / 2.0 - 5000.0) < 50.0, qPrintable(QString::number(qAbs(area) / 2.0)));
+
+		// (3) No system, no file.
+		auto const plain_path = dir.filePath(QStringLiteral("plain.asc"));
+		QVERIFY(makeGrid(20, 10, 1000.0, 2050.0, 5.0, [](double, double) { return 1.0; })->save(plain_path));
+		QVERIFY(!QFileInfo::exists(dir.filePath(QStringLiteral("plain.prj"))));
+		auto const plain = gridFootprint(plain_path, QStringLiteral("EPSG:32615"));
+		QCOMPARE(plain.size(), 64);
+		QVERIFY(near(plain[0], QPointF(1000.0, 2050.0), 0.001));
+		QVERIFY(near(plain[8], QPointF(1050.0, 2050.0), 0.001));
+		QVERIFY(near(plain[16], QPointF(1100.0, 2050.0), 0.001));
+		QVERIFY(near(plain[32], QPointF(1100.0, 2000.0), 0.001));
+		QVERIFY(near(plain[48], QPointF(1000.0, 2000.0), 0.001));
+		QVERIFY(gridFootprint(dir.filePath(QStringLiteral("missing.tif")), QStringLiteral("EPSG:32614")).isEmpty());
+
+		// (4) The map.
+		Map map;
+		auto georef = utm32Georeferencing();
+		georef.setProjectedCRS(QStringLiteral("UTM 14"), QStringLiteral("+proj=utm +zone=14 +datum=WGS84"));
+		georef.setProjectedRefPoint(QPointF(500000.0, 5200000.0), false, false);
+		georef.setGrivation(0.0);
+		georef.setCombinedScaleFactor(1.0);
+		map.setGeoreferencing(georef);
+		QVERIFY(elevationFrames(map).empty());
+		map.elevationSet().setHref(ElevationSet::Terrain, path);
+		auto frames = elevationFrames(map);
+		QCOMPARE(int(frames.size()), 1);
+		QCOMPARE(frames[0].kind, ElevationSet::Terrain);
+		QCOMPARE(frames[0].ring.size(), 64);
+		auto const& map_georef = map.getGeoreferencing();
+		for (int i = 0; i < 64; ++i)
+			QVERIFY2(near(frames[0].ring[i], map_georef.toMapCoordF(same[i]), 0.001), qPrintable(QString::number(i)));
+		QVERIFY(near(frames[0].ring[0], QPointF(0.0, -5.0), 0.01));
+		QVERIFY(near(frames[0].ring[32], QPointF(10.0, 0.0), 0.01));
+		map.elevationSet().setHref(ElevationSet::Surface, path);
+		frames = elevationFrames(map);
+		QCOMPARE(int(frames.size()), 2);
+		QCOMPARE(frames[1].kind, ElevationSet::Surface);
 	}
 };
 

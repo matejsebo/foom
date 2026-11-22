@@ -573,6 +573,10 @@ HillShadeDialog::HillShadeDialog(double cell_size, QWidget* parent)
 	cell_edit->setRange(0.01, 1000.0);
 	cell_edit->setSuffix(QStringLiteral(" m"));
 	cell_edit->setValue(cell_size);
+	bicubic_check = new QCheckBox(tr("Bicubic resampling"));  // foom: the design notes, "Bicubic resampling for hill shading"
+	bicubic_check->setChecked(defaults.resampling == HillShadeParams::Bicubic);
+	corners_check = new QCheckBox(tr("Gradient on cell corners (legacy mode)"));  // foom: the design notes, "The gradient on the corners of 2 by 2 cells"
+	corners_check->setChecked(defaults.gradient == GradientMethod::Corners);
 	attach_check = new QCheckBox(tr("Attach as template"));
 	attach_check->setChecked(true);
 
@@ -593,6 +597,8 @@ HillShadeDialog::HillShadeDialog(double cell_size, QWidget* parent)
 	layout->addRow(tr("Sun elevation:"), elevation_edit);
 	layout->addRow(tr("Vertical exaggeration:"), exaggeration_edit);
 	layout->addRow(tr("Cell size:"), cell_edit);
+	layout->addRow(bicubic_check);
+	layout->addRow(corners_check);
 	layout->addRow(attach_check);
 	auto* main_layout = new QVBoxLayout(this);
 	main_layout->addLayout(layout);
@@ -610,6 +616,8 @@ HillShadeParams HillShadeDialog::params() const
 	params.elevation_deg = elevation_edit->value();
 	params.exaggeration = exaggeration_edit->value();
 	params.cell_size = cell_edit->value();
+	params.resampling = bicubic_check->isChecked() ? HillShadeParams::Bicubic : HillShadeParams::Bilinear;
+	params.gradient = corners_check->isChecked() ? GradientMethod::Corners : GradientMethod::Horn;
 	return params;
 }
 
@@ -638,6 +646,8 @@ SlopeDialog::SlopeDialog(double cell_size, QWidget* parent)
 	cell_edit->setRange(0.01, 1000.0);
 	cell_edit->setSuffix(QStringLiteral(" m"));
 	cell_edit->setValue(cell_size);
+	corners_check = new QCheckBox(tr("Gradient on cell corners (legacy mode)"));  // foom
+	corners_check->setChecked(defaults.gradient == GradientMethod::Corners);
 	attach_check = new QCheckBox(tr("Attach as template"));
 	attach_check->setChecked(true);
 
@@ -646,6 +656,7 @@ SlopeDialog::SlopeDialog(double cell_size, QWidget* parent)
 	layout->addRow(binary_button);
 	layout->addRow(tr("Threshold:"), threshold_edit);
 	layout->addRow(tr("Cell size:"), cell_edit);
+	layout->addRow(corners_check);
 	layout->addRow(attach_check);
 	auto* main_layout = new QVBoxLayout(this);
 	main_layout->addLayout(layout);
@@ -660,6 +671,7 @@ SlopeParams SlopeDialog::params() const
 	params.binary = binary_button->isChecked();
 	params.threshold_deg = threshold_edit->value();
 	params.cell_size = cell_edit->value();
+	params.gradient = corners_check->isChecked() ? GradientMethod::Corners : GradientMethod::Horn;
 	return params;
 }
 

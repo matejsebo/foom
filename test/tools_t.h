@@ -140,6 +140,12 @@ private slots:
 	/** foom: Tests the grid commands of the Elevation menu. */
 	void demGridCommands();
 	
+	/** foom: Tests the frame of the elevation grids. */
+	void demShowFrame();
+	
+	/** foom: Tests the resampling choice of the hill shading dialog. */
+	void demHillShadeDialog();
+	
 	/** foom: Tests the hypsometric map command. */
 	void demHypsometric();
 	

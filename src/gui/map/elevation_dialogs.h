@@ -212,6 +212,8 @@ private:
 	QDoubleSpinBox* elevation_edit;
 	QDoubleSpinBox* exaggeration_edit;
 	QDoubleSpinBox* cell_edit;
+	QCheckBox* bicubic_check;  // foom
+	QCheckBox* corners_check;  // foom
 	QCheckBox* attach_check;
 };
 
@@ -234,6 +236,7 @@ private:
 	QRadioButton* binary_button;
 	QDoubleSpinBox* threshold_edit;
 	QDoubleSpinBox* cell_edit;
+	QCheckBox* corners_check;  // foom
 	QCheckBox* attach_check;
 };
 

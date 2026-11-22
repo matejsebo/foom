@@ -124,6 +124,7 @@
 #include "elevation/contours.h"  // foom
 #include "elevation/elevation_model.h"  // foom
 #include "elevation/elevation_set.h"  // foom
+#include "elevation/grid_frame.h"  // foom
 #include "elevation/cliffs.h"  // foom
 #include "elevation/landforms.h"  // foom
 #include "elevation/profile.h"  // foom
@@ -963,7 +964,7 @@ void MapEditorController::attach(MainWindow* window)
 	map_widget->setZoomDisplay(zoom_display_function);
 	recordView();  // foom: the opening view is the first entry of the view history
 	view_aids = new ViewAids(this, map, map_widget);  // foom
-	map_widget->setOverlay([this](QPainter* painter, MapWidget* widget) { drawActiveExtent(painter, widget); drawTemplateAttributions(painter, widget); drawRangefinder(painter, widget); drawCoursePreview(painter, widget); });  // foom
+	map_widget->setOverlay([this](QPainter* painter, MapWidget* widget) { drawActiveExtent(painter, widget); drawTemplateAttributions(painter, widget); drawRangefinder(painter, widget); drawCoursePreview(painter, widget); drawElevationFrames(painter, widget); });  // foom
 	
 	// Create menu and toolbar together, so actions can be inserted into one or both
 	if (mode == MapEditor)
@@ -1258,6 +1259,7 @@ void MapEditorController::createActions()
 	dem_resize_act = newAction("dem-resize", tr("Crop elevation grid..."), this, SLOT(elevationResizeClicked()));  // foom
 	dem_smooth_act = newAction("dem-smooth", tr("Smooth elevation grid..."), this, SLOT(elevationSmoothClicked()));  // foom
 	dem_close_act = newAction("dem-close", tr("Close elevation grids"), this, SLOT(elevationCloseClicked()));  // foom
+	dem_show_frame_act = newCheckAction("dem-show-frame", tr("Show grid frame"), this, SLOT(elevationShowFrameClicked(bool)), nullptr, tr("Draws the outline of the elevation grids on the map."));  // foom
 	dem_embed_act = newAction("dem-embed", tr("Embed grid for course setting..."), this, SLOT(elevationEmbedClicked()));  // foom
 	dem_remove_embedded_act = newAction("dem-remove-embedded", tr("Remove embedded grid"), this, SLOT(elevationRemoveEmbeddedClicked()));  // foom
 	issues_window_act = newCheckAction("issueswindow", tr("Issues window"), this, SLOT(showIssuesWindow(bool)));  // foom
@@ -1986,6 +1988,7 @@ void MapEditorController::createMenuAndToolbars()
 	if (dem_point_cloud_act)
 		elevation_menu->addAction(dem_point_cloud_act);  // foom
 	elevation_menu->addAction(dem_info_act);
+	elevation_menu->addAction(dem_show_frame_act);  // foom
 	elevation_menu->addAction(dem_export_act);
 	elevation_menu->addAction(dem_close_act);
 	elevation_menu->addSeparator();
@@ -9780,6 +9783,78 @@ void MapEditorController::elevationSmoothClicked()
 		QMessageBox::warning(window, tr("Smooth elevation grid"), error);
 	else
 		window->showStatusBarMessage(tr("Elevation grid smoothed"), 5000);
+}
+
+// foom: the design notes, "The grid's frame".
+namespace {
+
+/// What the frames depend on: the map's system, the grids' paths and the extents of the loaded grids.
+QString elevationFramesKey(Map& map)
+{
+	QString key = map.getGeoreferencing().getProjectedCRSSpec();
+	auto const& set = map.elevationSet();
+	for (int k = 0; k < ElevationSet::kind_count; ++k)
+	{
+		auto const kind = ElevationSet::Kind(k);
+		key += QLatin1Char('\n');
+		key += set.href(kind);
+		if (auto const* model = set.loadedModel(kind))
+		{
+			auto const extent = model->extent();
+			key += QString::fromLatin1(" %1 %2 %3 %4 %5").arg(extent.left(), 0, 'g', 17).arg(extent.top(), 0, 'g', 17)
+			       .arg(extent.width(), 0, 'g', 17).arg(extent.height(), 0, 'g', 17).arg(model->cellSize(), 0, 'g', 17);
+		}
+	}
+	return key;
+}
+
+}  // namespace
+
+std::vector<ElevationFrame> MapEditorController::shownElevationFrames() const
+{
+	if (!map || !dem_show_frame_act || !dem_show_frame_act->isChecked())
+		return {};
+	if (elevationFramesKey(*map) != elevation_frames_key)
+	{
+		elevation_frames = elevationFrames(*map);
+		// elevationFrames() may load a grid, so the key is taken afterwards.
+		elevation_frames_key = elevationFramesKey(*map);
+	}
+	return elevation_frames;
+}
+
+void MapEditorController::drawElevationFrames(QPainter* painter, MapWidget* widget) const
+{
+	auto const frames = shownElevationFrames();
+	if (frames.empty())
+		return;
+	painter->save();
+	painter->setRenderHint(QPainter::Antialiasing);
+	painter->setBrush(Qt::NoBrush);
+	for (auto const& frame : frames)
+	{
+		QPolygonF outline;
+		outline.reserve(frame.ring.size());
+		for (auto const& point : frame.ring)
+			outline.append(widget->mapToViewport(point));
+		painter->setPen(QPen(Qt::white, Util::mmToPixelLogical(1.0)));
+		painter->drawPolygon(outline);
+		auto const color = frame.kind == ElevationSet::Terrain ? QColor(0, 139, 139)
+		                   : frame.kind == ElevationSet::Surface ? QColor(0, 150, 0) : QColor(255, 140, 0);
+		QPen pen(color, Util::mmToPixelLogical(0.5));
+		pen.setStyle(Qt::DashLine);
+		painter->setPen(pen);
+		painter->drawPolygon(outline);
+	}
+	painter->restore();
+}
+
+void MapEditorController::elevationShowFrameClicked(bool checked)
+{
+	if (checked && map->elevationSet().isEmpty() && window)
+		window->showStatusBarMessage(tr("The map has no elevation grid."), 5000);
+	if (map_widget)
+		map_widget->update();
 }
 
 void MapEditorController::elevationCloseClicked()

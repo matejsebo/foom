@@ -66,18 +66,47 @@ quint8 grey(double shade)
 
 /// A raster product from a per-cell shade function of the gradient (dz/dx, dz/dy).
 template <typename Shade>
-RasterProduct makeProduct(const ElevationModel& input, double cell_size, Shade shade)
+RasterProduct makeProduct(const ElevationModel& input, double cell_size, ElevationModel::Interpolation interpolation, GradientMethod gradient, Shade shade)
 {
 	RasterProduct product;
 	std::unique_ptr<ElevationModel> resampled;
 	auto const* grid = &input;
 	if (cell_size > 0.0 && qAbs(cell_size - input.cellSize()) > 1e-9 * input.cellSize())
 	{
-		resampled = input.resampled(cell_size);
+		resampled = input.resampled(cell_size, interpolation);
 		grid = resampled.get();
 	}
-	product.extent = grid->extent();
 	product.crs_spec = grid->crsSpec();
+	if (gradient == GradientMethod::Corners)
+	{
+		// the design notes, "The gradient on the corners of 2 by 2 cells":
+		// one pixel of the grid's cell size centred on each interior corner.
+		if (grid->width() < 2 || grid->height() < 2)
+		{
+			product.error = ElevationModel::tr("The grid is too small");
+			return product;
+		}
+		auto const half = grid->cellSize() / 2;
+		auto const extent = grid->extent();
+		product.extent = extent.adjusted(half, half, -half, -half);
+		product.image = QImage(grid->width() - 1, grid->height() - 1, QImage::Format_Grayscale8);
+		if (product.image.isNull())
+		{
+			product.error = ElevationModel::tr("The raster is too large");
+			return product;
+		}
+		for (int r = 0; r + 1 < grid->height(); ++r)
+		{
+			auto* line = product.image.scanLine(r);
+			for (int c = 0; c + 1 < grid->width(); ++c)
+			{
+				auto const g = grid->cornerGradientAt(c, r);
+				line[c] = std::isnan(g.x()) || std::isnan(g.y()) ? 0 : grey(shade(g.x(), g.y()));
+			}
+		}
+		return product;
+	}
+	product.extent = grid->extent();
 	product.image = QImage(grid->width(), grid->height(), QImage::Format_Grayscale8);
 	if (product.image.isNull())
 	{
@@ -161,7 +190,8 @@ RasterProduct hillShade(const ElevationModel& grid, const HillShadeParams& param
 	auto const exaggeration = qMax(params.exaggeration, 1e-9);
 	auto const method = params.method;
 	auto const multi = params.multi_directional;
-	return makeProduct(grid, params.cell_size, [=](double dzdx, double dzdy) {
+	auto const interpolation = params.resampling == HillShadeParams::Bicubic ? ElevationModel::Interpolation::Bicubic : ElevationModel::Interpolation::Bilinear;
+	return makeProduct(grid, params.cell_size, interpolation, params.gradient, [=](double dzdx, double dzdy) {
 		auto const slope = std::atan(exaggeration * std::hypot(dzdx, dzdy));
 		auto const slope_shading = 1.0 - slope / (pi / 2);
 		if (method == HillShadeParams::SlopeShading)
@@ -196,7 +226,7 @@ RasterProduct slopeRaster(const ElevationModel& grid, const SlopeParams& params)
 {
 	auto const threshold = qDegreesToRadians(qMax(params.threshold_deg, 1e-9));
 	auto const binary = params.binary;
-	return makeProduct(grid, params.cell_size, [=](double dzdx, double dzdy) {
+	return makeProduct(grid, params.cell_size, ElevationModel::Interpolation::Bilinear, params.gradient, [=](double dzdx, double dzdy) {
 		auto const slope = std::atan(std::hypot(dzdx, dzdy));
 		if (binary)
 			return slope < threshold ? 1.0 : 0.0;

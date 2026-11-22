@@ -31,6 +31,7 @@ set(MAPPER_ELEVATION_SOURCES
   elevation_model.cpp
   elevation_set.cpp
   embedded_grid.cpp
+  grid_frame.cpp
   landforms.cpp
   point_cloud.cpp
   point_cloud_products.cpp

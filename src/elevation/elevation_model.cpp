@@ -385,6 +385,75 @@ double ElevationModel::at(const QPointF& projected) const
 }
 
 
+namespace {
+
+/// Keys' cubic convolution kernel with a = -0.5 of the distance in cells.
+double keysWeight(double d)
+{
+	d = std::abs(d);
+	if (d <= 1.0)
+		return (1.5 * d - 2.5) * d * d + 1.0;
+	if (d < 2.0)
+		return ((-0.5 * d + 2.5) * d - 4.0) * d + 2.0;
+	return 0.0;
+}
+
+}  // namespace
+
+
+double ElevationModel::atBicubic(const QPointF& projected) const
+{
+	auto const fx = (projected.x() - top_left.x()) / cell;
+	auto const fy = (top_left.y() - projected.y()) / cell;
+	if (fx < 0.0 || fy < 0.0 || fx > grid_width || fy > grid_height)
+		return std::numeric_limits<double>::quiet_NaN();
+
+	// As at(): constant beyond the outermost centres; neighbours beyond the edge repeat it.
+	auto const cx = qBound(0.0, fx - 0.5, double(grid_width - 1));
+	auto const cy = qBound(0.0, fy - 0.5, double(grid_height - 1));
+	auto const c0 = qMin(int(std::floor(cx)), grid_width - 1);
+	auto const r0 = qMin(int(std::floor(cy)), grid_height - 1);
+	auto const tx = cx - c0;
+	auto const ty = cy - r0;
+	double wx[4], wy[4];
+	for (int i = 0; i < 4; ++i)
+	{
+		wx[i] = keysWeight(tx - (i - 1));
+		wy[i] = keysWeight(ty - (i - 1));
+	}
+
+	double sum = 0.0;
+	for (int j = 0; j < 4; ++j)
+	{
+		if (wy[j] == 0.0)
+			continue;
+		auto const row = qBound(0, r0 + j - 1, grid_height - 1);
+		for (int i = 0; i < 4; ++i)
+		{
+			if (wx[i] == 0.0)
+				continue;
+			auto const v = value(qBound(0, c0 + i - 1, grid_width - 1), row);
+			if (std::isnan(v))
+				return at(projected);
+			sum += wx[i] * wy[j] * v;
+		}
+	}
+	return sum;
+}
+
+
+QPointF ElevationModel::cornerGradientAt(int col, int row) const
+{
+	auto const a = double(value(col, row));          // north-west
+	auto const b = double(value(col + 1, row));      // north-east
+	auto const c = double(value(col, row + 1));      // south-west
+	auto const d = double(value(col + 1, row + 1));  // south-east
+	if (std::isnan(a) || std::isnan(b) || std::isnan(c) || std::isnan(d))
+		return QPointF(std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN());
+	return QPointF(((b + d) - (a + c)) / (2.0 * cell), ((a + b) - (c + d)) / (2.0 * cell));
+}
+
+
 QPointF ElevationModel::gradient(const QPointF& projected) const
 {
 	int col, row;
@@ -645,7 +714,7 @@ std::unique_ptr<ElevationModel> ElevationModel::cropped(const QRectF& box) const
 }
 
 
-std::unique_ptr<ElevationModel> ElevationModel::resampled(double cell_size) const
+std::unique_ptr<ElevationModel> ElevationModel::resampled(double cell_size, Interpolation interpolation) const
 {
 	if (cell_size <= 0.0 || qAbs(cell_size - cell) < 1e-9 * cell)
 		return std::make_unique<ElevationModel>(*this);
@@ -654,7 +723,10 @@ std::unique_ptr<ElevationModel> ElevationModel::resampled(double cell_size) cons
 	auto result = std::make_unique<ElevationModel>(width, height, top_left, cell_size, std::vector<float>{}, crs);
 	for (int r = 0; r < height; ++r)
 		for (int c = 0; c < width; ++c)
-			result->setValue(c, r, float(at(result->cellCenter(c, r))));
+		{
+			auto const center = result->cellCenter(c, r);
+			result->setValue(c, r, float(interpolation == Interpolation::Bicubic ? atBicubic(center) : at(center)));
+		}
 	return result;
 }
 

@@ -35,6 +35,17 @@ class Template;
 
 
 /**
+ * Where the gradient of a raster product is taken, see the design notes,
+ * "The gradient on the corners of 2 by 2 cells".
+ */
+enum class GradientMethod
+{
+	Horn,       ///< Horn's 3 by 3 at the cell centres; the product has the grid's cells.
+	Corners     ///< 2 by 2 at the interior corners; the product has one pixel per corner.
+};
+
+
+/**
  * Hill shading parameters, see the design notes, "Raster products".
  */
 struct HillShadeParams
@@ -52,6 +63,15 @@ struct HillShadeParams
 	double elevation_deg = 45.0;      ///< Sun elevation.
 	double exaggeration = 4.0;        ///< Multiplies the gradient.
 	double cell_size = 0.0;           ///< Output cell size; 0 for the grid's.
+	
+	/// How the grid is resampled to another output cell size.
+	enum Resampling
+	{
+		Bilinear,
+		Bicubic         ///< See "Bicubic resampling for hill shading".
+	};
+	Resampling resampling = Bicubic;
+	GradientMethod gradient = GradientMethod::Corners;  ///< The lattice of corners.
 };
 
 
@@ -63,6 +83,7 @@ struct SlopeParams
 	bool binary = false;              ///< White below the threshold, black above; else grey 1 - slope / threshold.
 	double threshold_deg = 45.0;
 	double cell_size = 0.0;
+	GradientMethod gradient = GradientMethod::Corners;  ///< The lattice of corners.
 };
 
 

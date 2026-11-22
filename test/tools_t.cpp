@@ -2083,6 +2083,96 @@ void ToolsTest::demGridCommands()
 }
 
 
+void ToolsTest::demShowFrame()
+{
+	// the design notes, "The grid's frame", Accept (5).
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* action = editor.editor->getAction("dem-show-frame");
+	QVERIFY(action);
+	QVERIFY(action->isCheckable());
+	QVERIFY(!action->isChecked());
+	QVERIFY(editor.editor->shownElevationFrames().empty());
+
+	auto georef = map.map->getGeoreferencing();
+	georef.setScaleDenominator(10000);
+	georef.setProjectedCRS(QStringLiteral("UTM 14"), QStringLiteral("+proj=utm +zone=14 +datum=WGS84"));
+	georef.setProjectedRefPoint(QPointF(500000.0, 5200000.0), false, false);
+	georef.setMapRefPoint(MapCoord(0, 0));
+	georef.setGrivation(0.0);
+	georef.setCombinedScaleFactor(1.0);
+	map.map->setGeoreferencing(georef);
+
+	std::vector<float> values(20 * 10, 400.0f);
+	auto grid = std::make_unique<ElevationModel>(20, 10, QPointF(500000.0, 5200050.0), 5.0, std::move(values), QStringLiteral("EPSG:32614"));
+	auto const path = dir.filePath(QStringLiteral("utm14.tif"));
+	QVERIFY(grid->save(path));
+	map.map->elevationSet().setHref(ElevationSet::Terrain, path);
+	map.map->setHasUnsavedChanges(false);
+	auto const objects = map.map->getNumObjects();
+
+	action->trigger();
+	QVERIFY(action->isChecked());
+	auto const frames = editor.editor->shownElevationFrames();
+	QCOMPARE(int(frames.size()), 1);
+	QCOMPARE(frames[0].kind, ElevationSet::Terrain);
+	QCOMPARE(frames[0].ring.size(), 64);
+	QVERIFY(qAbs(frames[0].ring[0].x()) < 0.01 && qAbs(frames[0].ring[0].y() + 5.0) < 0.01);
+	QVERIFY(qAbs(frames[0].ring[32].x() - 10.0) < 0.01 && qAbs(frames[0].ring[32].y()) < 0.01);
+	editor.map_widget->repaint();  // The overlay draws without trouble.
+	QCOMPARE(map.map->getNumObjects(), objects);
+	QVERIFY(!map.map->hasUnsavedChanges());
+
+	editor.editor->closeElevation();
+	QVERIFY(action->isChecked());
+	QVERIFY(editor.editor->shownElevationFrames().empty());
+
+	map.map->elevationSet().setHref(ElevationSet::Terrain, path);
+	QCOMPARE(int(editor.editor->shownElevationFrames().size()), 1);
+	action->trigger();
+	QVERIFY(!action->isChecked());
+	QVERIFY(editor.editor->shownElevationFrames().empty());
+}
+
+
+void ToolsTest::demHillShadeDialog()
+{
+	// the design notes, "Bicubic resampling for hill shading", Accept (6).
+	HillShadeDialog dialog(2.0, nullptr);
+	QCOMPARE(dialog.params().resampling, HillShadeParams::Bicubic);
+	QCheckBox* bicubic = nullptr;
+	for (auto* check : dialog.findChildren<QCheckBox*>())
+		if (check->text() == QLatin1String("Bicubic resampling"))
+			bicubic = check;
+	QVERIFY(bicubic);
+	QVERIFY(bicubic->isChecked());
+	bicubic->setChecked(false);
+	QCOMPARE(dialog.params().resampling, HillShadeParams::Bilinear);
+
+	// the design notes, "The gradient on the corners of 2 by 2 cells", Accept (5).
+	auto const corners_check = [](QDialog& d) -> QCheckBox* {
+		for (auto* check : d.findChildren<QCheckBox*>())
+			if (check->text() == QLatin1String("Gradient on cell corners (legacy mode)"))
+				return check;
+		return nullptr;
+	};
+	QCOMPARE(dialog.params().gradient, GradientMethod::Corners);
+	auto* corners = corners_check(dialog);
+	QVERIFY(corners);
+	QVERIFY(corners->isChecked());
+	corners->setChecked(false);
+	QCOMPARE(dialog.params().gradient, GradientMethod::Horn);
+	SlopeDialog slope_dialog(2.0, nullptr);
+	QCOMPARE(slope_dialog.params().gradient, GradientMethod::Corners);
+	corners = corners_check(slope_dialog);
+	QVERIFY(corners);
+	corners->setChecked(false);
+	QCOMPARE(slope_dialog.params().gradient, GradientMethod::Horn);
+}
+
+
 void ToolsTest::demHypsometric()
 {
 	// the design notes, "Hypsometric map", Accept (4).
