@@ -23,14 +23,20 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include <QtGlobal>
 #include <QtMath>
 #include <QByteArray>
+#include <QColor>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QLatin1Char>
 #include <QLatin1String>
+#include <QRegularExpression>
+#include <QStringList>
 #include <QStringLiteral>
 
 #include <cpl_conv.h>
@@ -374,6 +380,143 @@ RasterProduct vegetationHeightRaster(const ElevationModel& heights, const std::v
 	product.extent = heights.extent();
 	product.crs_spec = heights.crsSpec();
 	return product;
+}
+
+
+RasterProduct vegetationHeightGreyscale(const ElevationModel& heights, VegetationHeightOptions::GreyMapping mapping, double max_height)
+{
+	// the design notes, "Vegetation height in grey and its classes in files".
+	RasterProduct product;
+	if (!(max_height > 0))
+	{
+		product.error = ElevationModel::tr("The maximum height must be positive");
+		return product;
+	}
+	product.image = QImage(heights.width(), heights.height(), QImage::Format_Grayscale8);
+	for (int row = 0; row < heights.height(); ++row)
+	{
+		auto* line = product.image.scanLine(row);
+		for (int col = 0; col < heights.width(); ++col)
+		{
+			auto const h = heights.value(col, row);
+			if (std::isnan(h))
+			{
+				line[col] = 0;
+				continue;
+			}
+			auto const t = qBound(0.0, double(h) / max_height, 1.0);
+			double value;
+			switch (mapping)
+			{
+			case VegetationHeightOptions::QuadraticNegative:
+				value = (1.0 - t) * (1.0 - t);
+				break;
+			case VegetationHeightOptions::QuadraticPositive:
+				value = 1.0 - t * t;
+				break;
+			case VegetationHeightOptions::Linear:
+			default:
+				value = 1.0 - t;
+			}
+			line[col] = grey(value);
+		}
+	}
+	product.extent = heights.extent();
+	product.crs_spec = heights.crsSpec();
+	return product;
+}
+
+
+RasterProduct vegetationHeightProduct(const ElevationModel& heights, const VegetationHeightOptions& options)
+{
+	if (options.greyscale)
+		return vegetationHeightGreyscale(heights, options.mapping, options.max_height);
+	return vegetationHeightRaster(heights, options.classes);
+}
+
+
+namespace {
+
+const char* const height_class_header = "from;to;from_colour;to_colour";
+
+}  // namespace
+
+
+bool saveHeightClasses(const QString& path, const std::vector<HeightClass>& classes, QString* error)
+{
+	QFile file(path);
+	if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+	{
+		if (error)
+			*error = file.errorString();
+		return false;
+	}
+	QByteArray text = height_class_header;
+	text += '\n';
+	auto const colour = [](QRgb rgb) {
+		return QColor(rgb).name().toLatin1();   // #rrggbb
+	};
+	for (auto const& c : classes)
+	{
+		text += QByteArray::number(c.from, 'g', 15) + ';' + QByteArray::number(c.to, 'g', 15) + ';'
+		        + colour(c.from_color) + ';' + colour(c.to_color) + '\n';
+	}
+	if (file.write(text) != text.size())
+	{
+		if (error)
+			*error = file.errorString();
+		return false;
+	}
+	return true;
+}
+
+
+bool loadHeightClasses(const QString& path, std::vector<HeightClass>& classes, QString* error)
+{
+	auto const fail = [error](const QString& message) {
+		if (error)
+			*error = message;
+		return false;
+	};
+	QFile file(path);
+	if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+		return fail(file.errorString());
+	auto const lines = QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'));
+	if (lines.isEmpty() || lines.front().trimmed() != QLatin1String(height_class_header))
+		return fail(ElevationModel::tr("Line 1 must read \"%1\".").arg(QLatin1String(height_class_header)));
+	std::vector<HeightClass> result;
+	QRegularExpression const colour_pattern(QStringLiteral("^#[0-9A-Fa-f]{6}$"));
+	for (int i = 1; i < lines.size(); ++i)
+	{
+		auto const line = lines[i].trimmed();
+		if (line.isEmpty())
+			continue;
+		auto const fields = line.split(QLatin1Char(';'));
+		auto const bad = [&fail, i]() {
+			return fail(ElevationModel::tr("Line %1 is not a class of the form from;to;#rrggbb;#rrggbb.").arg(i + 1));
+		};
+		if (fields.size() != 4)
+			return bad();
+		bool ok_from = false, ok_to = false;
+		HeightClass c;
+		c.from = fields[0].trimmed().toDouble(&ok_from);
+		c.to = fields[1].trimmed().toDouble(&ok_to);
+		auto const from_colour = fields[2].trimmed();
+		auto const to_colour = fields[3].trimmed();
+		if (!ok_from || !ok_to || !colour_pattern.match(from_colour).hasMatch() || !colour_pattern.match(to_colour).hasMatch())
+			return bad();
+		c.from_color = QColor(from_colour).rgb();
+		c.to_color = QColor(to_colour).rgb();
+		if (!(c.from < c.to))
+			return fail(ElevationModel::tr("Line %1: the class must begin below its end.").arg(i + 1));
+		if (!result.empty() && c.from < result.back().to)
+			return fail(ElevationModel::tr("Line %1: the class begins below the end of the one before.").arg(i + 1));
+		result.push_back(c);
+	}
+	if (result.empty())
+		return fail(ElevationModel::tr("The file holds no class."));
+	classes = std::move(result);
+	return true;
 }
 
 

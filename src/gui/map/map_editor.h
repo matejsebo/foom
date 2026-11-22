@@ -101,6 +101,7 @@ struct PropertyQuery;  // foom
 struct Profile;  // foom
 struct GriddingParams;  // foom
 struct PointCloudProducts;  // foom
+struct VegetationHeightOptions;  // foom
 struct PointPair;  // foom
 struct RubbersheetParams;  // foom
 struct LocalWarpParams;  // foom
@@ -886,6 +887,8 @@ public slots:
 	void elevationVegetationHeightClicked();
 	/** foom: Writes the vegetation height raster beside the map; returns its path, empty on failure. */
 	QString writeVegetationHeightMap(bool attach, QString* error);
+	/** foom: The same with grey mappings or other classes (the design notes, "Vegetation height in grey and its classes in files"). */
+	QString writeVegetationHeightMap(const VegetationHeightOptions& options, bool attach, QString* error);
 	/** foom: Writes the hypsometric map of the terrain grid beside the map; returns its path, empty on failure. */
 	QString writeHypsometricMap(const HypsometricParams& params, bool attach, QString* error);
 	/** foom: Asks for the minimum height and depth, then extracts knolls and small depressions (dem-features). */

@@ -1135,6 +1135,87 @@ private slots:
 		QCOMPARE(int(index), 2);
 		GDALClose(dataset);
 	}
+
+
+	void vegetationHeightGreyscale()
+	{
+		// the design notes, "Vegetation height in grey and its classes in files", Accept (1).
+		auto const nan = std::numeric_limits<float>::quiet_NaN();
+		ElevationModel heights(6, 1, QPointF(950000.0, 500001.0), 1.0, { 0.0f, 15.0f, 30.0f, 40.0f, -1.0f, nan }, QStringLiteral("EPSG:26954"));
+		struct Expected { VegetationHeightOptions::GreyMapping mapping; int at15; };
+		Expected const mappings[] = {
+		    { VegetationHeightOptions::Linear, 128 },
+		    { VegetationHeightOptions::QuadraticPositive, 191 },
+		    { VegetationHeightOptions::QuadraticNegative, 64 },
+		};
+		for (auto const& m : mappings)
+		{
+			auto const product = OpenOrienteering::vegetationHeightGreyscale(heights, m.mapping, 30.0);
+			QVERIFY2(product.error.isEmpty(), qPrintable(product.error));
+			QCOMPARE(product.image.format(), QImage::Format_Grayscale8);
+			QCOMPARE(product.extent, heights.extent());
+			auto const grey = [&product](int col) { return qGray(product.image.pixel(col, 0)); };
+			QCOMPARE(grey(0), 255);
+			QVERIFY2(std::abs(grey(1) - m.at15) <= 1, qPrintable(QString::number(grey(1))));
+			QCOMPARE(grey(2), 0);
+			QCOMPARE(grey(3), 0);
+			QCOMPARE(grey(4), 255);
+			QCOMPARE(grey(5), 0);
+		}
+		// The options choose the raster.
+		VegetationHeightOptions options;
+		QCOMPARE(vegetationHeightProduct(heights, options).image.format(), QImage::Format_RGB32);
+		options.greyscale = true;
+		QCOMPARE(vegetationHeightProduct(heights, options).image.format(), QImage::Format_Grayscale8);
+	}
+
+
+	void heightClassFiles()
+	{
+		// Accept (2).
+		QTemporaryDir dir;
+		auto const path = dir.filePath(QStringLiteral("classes.txt"));
+		auto const defaults = defaultHeightClasses();
+		QString error;
+		QVERIFY2(saveHeightClasses(path, defaults, &error), qPrintable(error));
+		{
+			QFile file(path);
+			QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+			QCOMPARE(QString::fromUtf8(file.readLine()).trimmed(), QStringLiteral("from;to;from_colour;to_colour"));
+		}
+		std::vector<HeightClass> loaded;
+		QVERIFY2(loadHeightClasses(path, loaded, &error), qPrintable(error));
+		QCOMPARE(loaded.size(), defaults.size());
+		for (std::size_t i = 0; i < defaults.size(); ++i)
+		{
+			QVERIFY(std::abs(loaded[i].from - defaults[i].from) < 1e-9);
+			QVERIFY(std::abs(loaded[i].to - defaults[i].to) < 1e-9);
+			QCOMPARE(loaded[i].from_color, defaults[i].from_color);
+			QCOMPARE(loaded[i].to_color, defaults[i].to_color);
+		}
+
+		auto const refused = [&dir, &defaults](const char* content) {
+			auto const bad = dir.filePath(QStringLiteral("bad.txt"));
+			QFile file(bad);
+			if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+				return false;
+			file.write(content);
+			file.close();
+			auto classes = defaults;
+			QString message;
+			auto const ok = loadHeightClasses(bad, classes, &message);
+			auto unchanged = classes.size() == defaults.size();
+			for (std::size_t i = 0; unchanged && i < classes.size(); ++i)
+				unchanged = classes[i].from == defaults[i].from && classes[i].to_color == defaults[i].to_color;
+			return !ok && !message.isEmpty() && unchanged;
+		};
+		QVERIFY(refused("0;2;#000000;#ffffff\n"));
+		QVERIFY(refused("from;to;from_colour;to_colour\n5;2;#000000;#ffffff\n"));
+		QVERIFY(refused("from;to;from_colour;to_colour\n0;2;#12345;#ffffff\n"));
+		QVERIFY(refused("from;to;from_colour;to_colour\n0;2;#000000;#ffffff\n1;5;#000000;#ffffff\n"));
+		QVERIFY(refused("from;to;from_colour;to_colour\n"));
+		QVERIFY(!refused("from;to;from_colour;to_colour\n0;2;#000000;#ffffff\n2;5;#000000;#ffffff\n"));
+	}
 };
 
 

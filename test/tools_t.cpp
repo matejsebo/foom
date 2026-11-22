@@ -32,6 +32,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QEvent>
+#include <QFile>
 #include <QFileInfo>
 #include <QImage>
 #include <QJsonArray>  // foom
@@ -2022,6 +2023,29 @@ void ToolsTest::demVegetationHeight()
 	QVERIFY(canopy);
 	QCOMPARE(int(canopy->value(5, 5)), qRed(vegetationHeightRaster(*flat(20.0), defaultHeightClasses()).image.pixel(5, 5)));
 	QVERIFY(qRed(four) != qRed(vegetationHeightRaster(*flat(20.0), defaultHeightClasses()).image.pixel(5, 5)));
+	
+	// "Vegetation height in grey and its classes in files", Accept (3).
+	set.clear();
+	set.setModel(ElevationSet::Terrain, flat(1.0), dir.filePath(QStringLiteral("dtm.asc")));
+	set.setModel(ElevationSet::Surface, flat(16.0), dir.filePath(QStringLiteral("dsm.asc")));
+	VegetationHeightOptions options;
+	options.greyscale = true;
+	QVERIFY(!editor.editor->writeVegetationHeightMap(options, false, &error).isEmpty());
+	auto grey = ElevationModel::open(path);
+	QVERIFY(grey);
+	QVERIFY2(std::abs(grey->value(5, 5) - 128.0) <= 1.0, qPrintable(QString::number(grey->value(5, 5))));
+	auto const class_file = dir.filePath(QStringLiteral("classes.txt"));
+	{
+		QFile file(class_file);
+		QVERIFY(file.open(QIODevice::WriteOnly));
+		file.write("from;to;from_colour;to_colour\n0;30;#000000;#ffffff\n");
+	}
+	options = {};
+	QVERIFY2(loadHeightClasses(class_file, options.classes, &error), qPrintable(error));
+	QVERIFY(!editor.editor->writeVegetationHeightMap(options, false, &error).isEmpty());
+	auto ramp = ElevationModel::open(path);
+	QVERIFY(ramp);
+	QVERIFY2(std::abs(ramp->value(5, 5) - 128.0) <= 1.0, qPrintable(QString::number(ramp->value(5, 5))));
 }
 
 

@@ -132,6 +132,42 @@ std::vector<HeightClass> defaultHeightClasses();
  */
 RasterProduct vegetationHeightRaster(const ElevationModel& heights, const std::vector<HeightClass>& classes);
 
+/**
+ * The vegetation height raster in grey or in colour classes.
+ *
+ * See the design notes, "Vegetation height in grey and its classes in files".
+ */
+struct VegetationHeightOptions
+{
+	enum GreyMapping
+	{
+		Linear,              ///< 255 (1 - t)
+		QuadraticNegative,   ///< 255 (1 - t)^2
+		QuadraticPositive,   ///< 255 (1 - t^2)
+	};
+	
+	bool greyscale = false;
+	GreyMapping mapping = Linear;
+	double max_height = 30.0;          ///< t = height / max_height, clamped to 0..1.
+	std::vector<HeightClass> classes = defaultHeightClasses();
+};
+
+/// The heights in grey, white at the ground; Grayscale8, void cells black.
+RasterProduct vegetationHeightGreyscale(const ElevationModel& heights, VegetationHeightOptions::GreyMapping mapping, double max_height);
+
+/// vegetationHeightRaster() or vegetationHeightGreyscale() as the options say.
+RasterProduct vegetationHeightProduct(const ElevationModel& heights, const VegetationHeightOptions& options);
+
+/**
+ * Writes height classes as text: "from;to;from_colour;to_colour", then one class per line.
+ */
+bool saveHeightClasses(const QString& path, const std::vector<HeightClass>& classes, QString* error = nullptr);
+
+/**
+ * Reads height classes written by saveHeightClasses(); classes is left unchanged on failure.
+ */
+bool loadHeightClasses(const QString& path, std::vector<HeightClass>& classes, QString* error = nullptr);
+
 /// Writes the product as a GeoTIFF (DEFLATE, tiled): one Byte band, with the palette for Indexed8; three for RGB32.
 bool writeGeoTiff(const RasterProduct& product, const QString& path, QString* error = nullptr);
 

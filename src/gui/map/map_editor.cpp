@@ -9243,6 +9243,11 @@ int MapEditorController::extractLandforms(const LandformParams& params)
 // foom: the design notes, "Vegetation height from the map's grids".
 QString MapEditorController::writeVegetationHeightMap(bool attach, QString* error)
 {
+	return writeVegetationHeightMap(VegetationHeightOptions(), attach, error);
+}
+
+QString MapEditorController::writeVegetationHeightMap(const VegetationHeightOptions& options, bool attach, QString* error)
+{
 	auto const crs = map->getGeoreferencing().getProjectedCRSSpec();
 	auto& set = map->elevationSet();
 	std::unique_ptr<ElevationModel> difference;
@@ -9265,7 +9270,7 @@ QString MapEditorController::writeVegetationHeightMap(bool attach, QString* erro
 	if (base.isEmpty())
 		base = set.href(ElevationSet::Canopy);
 	auto const path = productPath(window ? window->currentPath() : QString{}, base, QStringLiteral("vegetation_height"));
-	auto const product = vegetationHeightRaster(*heights, defaultHeightClasses());
+	auto const product = vegetationHeightProduct(*heights, options);
 	QString message = product.error;
 	if (message.isEmpty() && !writeGeoTiff(product, path, &message))
 		message = tr("Cannot write %1: %2").arg(path, message);
@@ -9282,13 +9287,12 @@ QString MapEditorController::writeVegetationHeightMap(bool attach, QString* erro
 
 void MapEditorController::elevationVegetationHeightClicked()
 {
-	auto const answer = QMessageBox::question(window, tr("Vegetation height"), tr("Attach the vegetation height raster as a template?"),
-	                                          QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel, QMessageBox::Yes);
-	if (answer == QMessageBox::Cancel)
+	VegetationHeightDialog dialog(window);
+	if (dialog.exec() != QDialog::Accepted)
 		return;
-	auto const attach = answer == QMessageBox::Yes;
+	auto const attach = dialog.attach();
 	QString error;
-	auto const path = writeVegetationHeightMap(attach, &error);
+	auto const path = writeVegetationHeightMap(dialog.options(), attach, &error);
 	if (path.isEmpty())
 	{
 		QMessageBox::warning(window, tr("Vegetation height"), error);
