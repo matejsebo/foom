@@ -264,6 +264,10 @@ if(TARGET mapper-elevation)
 	target_include_directories(point_cloud_t SYSTEM PRIVATE ${GDAL_INCLUDE_DIRS})
 	target_compile_definitions(point_cloud_t PRIVATE "FOOM_FIXTURES_DIR=\"${FOOM_FIXTURES_DIR}\"")
 	target_include_directories(elevation_t SYSTEM PRIVATE ${GDAL_INCLUDE_DIRS})
+	add_system_test(elevation_wizard_t)  # foom: the design notes, Wizard
+	target_link_libraries(elevation_wizard_t PRIVATE mapper-elevation)
+	target_compile_definitions(elevation_wizard_t PRIVATE "FOOM_FIXTURES_DIR=\"${FOOM_FIXTURES_DIR}\"" "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
+	add_dependencies(elevation_wizard_t foom-cli)
 endif()
 add_system_test(map_part_role_t)  # foom: the design notes, Map part roles
 add_system_test(private_symbol_t)  # foom: the design notes, Private symbols
