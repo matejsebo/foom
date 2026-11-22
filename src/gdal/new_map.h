@@ -24,6 +24,7 @@
 #include <memory>
 
 #include <QPolygonF>
+#include <QRectF>
 #include <QString>
 #include <QStringList>
 
@@ -71,6 +72,12 @@ QString newMapDefaultEndpoint();
 /** foom: Returns the box's corners in the map's coordinates, in millimetres. */
 QPolygonF newMapBoxPolygon(const Map& map, const GeoBox& box);
 
+/**
+ * foom: Returns the bounding rectangle of the box's outline in the map's
+ * projected system (left, bottom, width, height), every edge sampled at 16 points.
+ */
+QRectF newMapProjectedArea(const Map& map, const GeoBox& box);
+
 
 /**
  * foom: The parameters of createNewMap().
@@ -92,6 +99,8 @@ struct NewMapParams
 	int retry_delay_ms = 30000;       ///< Before the one retry after HTTP 429 or 504.
 	QString crt_file;                 ///< Empty: OSM-<symbol set id>.crt from the symbol sets.
 	QString tile_service;             ///< The name of a map service to add as template; empty: none.
+	QString elevation_path;           ///< A grid or a point cloud (.las, .laz); empty: none. Needs map_path.
+	double elevation_cell = 1.0;      ///< The cell size for gridding a point cloud, in metres.
 	QString map_path;                 ///< Where the map is saved; the download goes beside it. Empty: not saved.
 };
 

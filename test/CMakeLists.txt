@@ -247,7 +247,7 @@ if (Mapper_USE_GDAL)
 	add_dependencies(print_output_t foom-cli)
 	add_system_test(image_object_t)  # foom: the design notes, Image object
 	target_compile_definitions(image_object_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
-	target_link_libraries(new_map_t PRIVATE Qt5::Network)
+	target_link_libraries(new_map_t PRIVATE Qt5::Network mapper-elevation)
 	target_compile_definitions(new_map_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
 endif()
 if(TARGET mapper-elevation)
