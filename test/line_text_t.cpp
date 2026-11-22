@@ -30,11 +30,14 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QEvent>
+#include <QFontMetrics>
 #include <QImage>
+#include <QLabel>
 #include <QMouseEvent>
 #include <QObject>
 #include <QPoint>
 #include <QSettings>
+#include <QStatusBar>
 #include <QString>
 #include <QTemporaryDir>
 
@@ -43,6 +46,7 @@
 #include "core/map_color.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
+#include "core/map_view.h"
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
 #include "core/ops/line_text.h"
@@ -50,6 +54,7 @@
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/text_symbol.h"
 #include "gui/main_window.h"
+#include "gui/map/lengthen_line_text_dialog.h"
 #include "gui/map/map_editor.h"
 #include "gui/map/map_widget.h"
 #include "gui/symbols/symbol_setting_dialog.h"
@@ -74,9 +79,11 @@ Q_OBJECT
 private slots:
 	void initTestCase();
 	void symbolEditor();
+	void symbolEditorPreview();
 	void drawTool();
 	void lengthenOp();
 	void lengthenEditor();
+	void lengthenDialog();
 
 private:
 	static TextSymbol* makeSymbol(Map& map, bool follows_path, int alignment);
@@ -251,6 +258,53 @@ void LineTextTest::symbolEditor()
 }
 
 
+void LineTextTest::symbolEditorPreview()
+{
+	// the design notes, "Line text in the symbol editor", Accept:
+	// the preview arc holds the whole text and the preview shows the whole arc.
+	Map map;
+	addBlack(map);
+	auto const check_preview = [](SymbolSettingDialog& dialog) {
+		const TextObject* preview_text = nullptr;
+		dialog.getPreviewMap()->getCurrentPart()->applyOnAllObjects([&preview_text](const Object* object) {
+			if (object->getType() == Object::Text)
+				preview_text = object->asText();
+		});
+		QVERIFY(preview_text);
+		QVERIFY(preview_text->getRawCoordinateVector().size() > 1);
+		auto const* symbol = preview_text->getSymbol()->asText();
+		QVERIFY(symbol->followsPath());
+		QVERIFY(!symbol->layoutPathText(preview_text).overflow);
+
+		// The preview pane is at least 300 pixels wide, centred on the origin.
+		auto const* view = dialog.getPreviewController()->getMainWidget()->getMapView();
+		auto const extent = preview_text->getExtent();
+		QVERIFY(extent.isValid());
+		auto const left = view->mapToView(extent.topLeft()).x();
+		auto const right = view->mapToView(extent.bottomRight()).x();
+		QVERIFY2(left >= -150.0 && right <= 150.0, qPrintable(QString::fromLatin1("%1 %2").arg(left).arg(right)));
+	};
+
+	for (auto const points : { 12.0, 40.0 })
+	{
+		auto* symbol = makeSymbol(map, true, 0);
+		symbol->setFontSize(qRound(points / 72.0 * 25.4 * 1000.0));
+		SymbolSettingDialog dialog(symbol, &map, nullptr);
+		check_preview(dialog);
+		if (QTest::currentTestFailed())
+			return;
+	}
+
+	auto* plain = makeSymbol(map, false, 0);
+	plain->setFontSize(qRound(40.0 / 72.0 * 25.4 * 1000.0));
+	SymbolSettingDialog dialog(plain, &map, nullptr);
+	auto* check = dialog.findChild<QCheckBox*>(QStringLiteral("follows_path_check"));
+	QVERIFY(check);
+	check->click();
+	check_preview(dialog);
+}
+
+
 void LineTextTest::drawTool()
 {
 	// the design notes, "Drawing line text", Accept.
@@ -270,7 +324,12 @@ void LineTextTest::drawTool()
 
 	auto* part = map->getCurrentPart();
 	auto const objects_before = part->getNumObjects();
+	auto const* status = editor.window->statusBar()->findChild<QLabel*>();
+	QVERIFY(status);
 	editor.click(10.0, 10.0);
+	// Return finishes the path open, and the hint says so (screen check 2026-11-21).
+	QVERIFY2(status->text().contains(QLatin1String("Finish the path")), qPrintable(status->text()));
+	QVERIFY2(!status->text().contains(QLatin1String("Close the path")), qPrintable(status->text()));
 	editor.click(30.0, 10.0);
 	editor.click(50.0, 10.0);
 	QTest::keyClick(editor.widget, Qt::Key_Return);
@@ -458,6 +517,18 @@ void LineTextTest::lengthenEditor()
 	QVERIFY(restored);
 	QVERIFY(near(restored->getRawCoordinateVector().back(), 20.0, 0.0, 0.001));
 	editor.editor->setTool(nullptr);
+}
+
+
+void LineTextTest::lengthenDialog()
+{
+	// The title is not cut off (screen check 2026-11-21): room for the title
+	// and the title bar buttons.
+	LengthenLineTextDialog dialog(ops::LengthenLineTextParams{}, nullptr);
+	dialog.adjustSize();
+	QFontMetrics const metrics(dialog.font());
+	auto const needed = metrics.boundingRect(dialog.windowTitle()).width() + 10 * metrics.height();
+	QVERIFY2(dialog.width() >= needed, qPrintable(QString::fromLatin1("%1 < %2").arg(dialog.width()).arg(needed)));
 }
 
 

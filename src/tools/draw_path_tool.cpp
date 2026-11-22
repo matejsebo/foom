@@ -101,7 +101,8 @@ void DrawPathTool::init()
 		// Create key replacement bar
 		key_button_bar = new KeyButtonBar(editor->getMainWidget());
 		key_button_bar->addKeyButton(Qt::Key_Return, Qt::ControlModifier, tr("Finish"));
-		key_button_bar->addKeyButton(Qt::Key_Return, tr("Close"));
+		if (allow_closing_paths)  // foom: Return finishes when closing is not allowed
+			key_button_bar->addKeyButton(Qt::Key_Return, tr("Close"));
 		key_button_bar->addModifierButton(Qt::ShiftModifier, tr("Snap", "Snap to existing objects"));
 		key_button_bar->addModifierButton(Qt::ControlModifier, tr("Angle", "Using constrained angles"));
 		azimuth_button = key_button_bar->addKeyButton(Qt::Key_Space, Qt::ControlModifier, tr("Info", "Show segment azimuth and length"));
@@ -1264,10 +1265,14 @@ void DrawPathTool::updateStatusText()
 			{
 				modifier_keys.append(ModifierKey::control());
 				
-				text += tr("<b>Click</b>: Draw a straight line. <b>Drag</b>: Draw a curve. "
-				           "<b>Right or double click</b>: Finish the path. "
-				           "<b>%1</b>: Close the path. ").arg(ModifierKey::return_key())
-				        + ::OpenOrienteering::DrawLineAndAreaTool::tr("<b>%1</b>: Undo last point. ").arg(ModifierKey::backspace())
+				if (allow_closing_paths)  // foom: without closing, Return finishes the path open
+					text += tr("<b>Click</b>: Draw a straight line. <b>Drag</b>: Draw a curve. "
+					           "<b>Right or double click</b>: Finish the path. "
+					           "<b>%1</b>: Close the path. ").arg(ModifierKey::return_key());
+				else
+					text += tr("<b>Click</b>: Draw a straight line. <b>Drag</b>: Draw a curve. "
+					           "<b>Right or double click</b>, <b>%1</b>: Finish the path. ").arg(ModifierKey::return_key());
+				text += ::OpenOrienteering::DrawLineAndAreaTool::tr("<b>%1</b>: Undo last point. ").arg(ModifierKey::backspace())
 				        + ::OpenOrienteering::MapEditorTool::tr("<b>%1</b>: Abort. ").arg(ModifierKey::escape());
 			}
 		}

@@ -23,9 +23,11 @@
 #include <QAbstractButton>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QFontMetrics>
 #include <QFormLayout>
 #include <QRadioButton>
 #include <QString>
+#include <QtGlobal>
 #include <QVBoxLayout>
 
 
@@ -73,6 +75,10 @@ LengthenLineTextDialog::LengthenLineTextDialog(const ops::LengthenLineTextParams
 	auto* layout = new QVBoxLayout(this);
 	layout->addLayout(form);
 	layout->addWidget(buttons);
+
+	// Room for the title and the title bar buttons.
+	QFontMetrics const metrics(font());
+	setMinimumWidth(qMax(minimumSizeHint().width(), metrics.boundingRect(windowTitle()).width() + 12 * metrics.height()));
 }
 
 LengthenLineTextDialog::~LengthenLineTextDialog() = default;

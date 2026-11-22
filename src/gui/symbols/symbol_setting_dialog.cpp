@@ -21,6 +21,9 @@
 
 #include "symbol_setting_dialog.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include <QColorDialog>
 #include <QDialogButtonBox>
 #include <QGridLayout>
@@ -33,10 +36,12 @@
 #include <QVBoxLayout>
 
 #include "core/map.h"
+#include "core/map_view.h"
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
 #include "core/symbols/combined_symbol.h"
 #include "core/symbols/line_symbol.h"
+#include "core/symbols/path_text_layout.h"
 #include "core/symbols/symbol.h"
 #include "core/symbols/text_symbol.h"
 #include "gui/main_window.h"
@@ -50,6 +55,45 @@
 
 
 namespace OpenOrienteering {
+
+namespace {
+
+/**
+ * foom: Fits the arc of a line text preview to the text, so that the whole
+ * text fits the arc, and zooms the view out until the whole arc fits into
+ * the preview's minimum width.
+ */
+void fitLineTextPreview(const Symbol& symbol, const std::vector<Object*>& objects, MapView* view)
+{
+	if (symbol.getType() != Symbol::Text || !symbol.asText()->followsPath())
+		return;
+	
+	for (auto* object : objects)
+	{
+		if (object->getType() != Object::Text || object->getRawCoordinateVector().size() < 2)
+			continue;
+		
+		auto* text = object->asText();
+		auto const advance = symbol.asText()->layoutPathText(text).text_advance;
+		auto const half = std::max(10.0, 0.55 * advance);
+		auto start = MapCoord(-half, 0.25 * half);
+		start.setCurveStart(true);
+		text->setAnchorPath({ start, MapCoord(-0.375 * half, -0.25 * half), MapCoord(0.375 * half, -0.25 * half), MapCoord(half, 0.25 * half) });
+		text->update();
+		
+		auto const extent = text->getExtent();
+		if (!view || !extent.isValid())
+			continue;
+		auto const span = 2.0 * std::max(std::abs(extent.left()), std::abs(extent.right()));
+		auto const pixels = view->lengthToPixel(1000.0 * span);
+		auto const available = 280.0;  // of the minimum width, 300
+		if (pixels > available)
+			view->setZoom(view->getZoom() * available / pixels);
+	}
+}
+
+}  // namespace
+
 
 SymbolSettingDialog::SymbolSettingDialog(const Symbol* source_symbol, Map* source_map, QWidget* parent)
 : QDialog(parent, Qt::CustomizeWindowHint | Qt::WindowTitleHint | Qt::WindowMaximizeButtonHint)
@@ -95,6 +139,7 @@ SymbolSettingDialog::SymbolSettingDialog(const Symbol* source_symbol, Map* sourc
 	else if (symbol->getType() == Symbol::Line || symbol->getType() == Symbol::Combined)
 		zoom_factor = 2;
 	preview_map_view->setZoom(zoom_factor * preview_map_view->getZoom());
+	fitLineTextPreview(*symbol, preview_objects, preview_map_view);  // foom
 	
 	properties_widget.reset(symbol->createPropertiesWidget(this));
 	
@@ -188,6 +233,7 @@ void SymbolSettingDialog::updatePreview()
 {
 	symbol->resetIcon();
 	symbol_icon_label->setPixmap(QPixmap::fromImage(symbol->getIcon(source_map)));
+	fitLineTextPreview(*symbol, preview_objects, preview_map_view);  // foom
 	preview_map->updateAllObjects();
 }
 
