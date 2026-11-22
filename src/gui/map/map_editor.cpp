@@ -1858,6 +1858,8 @@ void MapEditorController::createMenuAndToolbars()
 	map_menu->addAction(check_map_act);  // foom
 	map_menu->addSeparator();  // foom: named extents
 	auto* extents_menu = map_menu->addMenu(tr("Extents"));
+	// Extents also come by undo, by import and from the canvas dialog.
+	connect(extents_menu, &QMenu::aboutToShow, this, &MapEditorController::updateExtentMenus);
 	extents_menu->addAction(extent_define_act);
 	extents_menu->addAction(extent_delete_act);
 	extents_menu->addAction(extent_import_act);

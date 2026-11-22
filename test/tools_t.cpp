@@ -1666,6 +1666,22 @@ void ToolsTest::extents()
 	QVERIFY(editor.editor->activeExtent().isEmpty());
 	QVERIFY(map.map->undoManager().undo());
 	QCOMPARE(map.map->extents().size(), std::size_t(1));
+	// Extents which come by undo, by import or from the canvas dialog: the Extents menu sees them when it opens.
+	QMenu* extents_menu = nullptr;
+	for (auto* widget : editor.editor->getAction("extent-delete")->associatedWidgets())
+	{
+		if (auto* menu = qobject_cast<QMenu*>(widget))
+			extents_menu = menu;
+	}
+	QVERIFY(extents_menu);
+	emit extents_menu->aboutToShow();
+	QVERIFY(editor.editor->getAction("extent-delete")->isEnabled());
+	map.map->setExtents({});
+	emit extents_menu->aboutToShow();
+	QVERIFY(!editor.editor->getAction("extent-delete")->isEnabled());
+	QCOMPARE(importExtents(*map.map, { sheet }), 1);
+	emit extents_menu->aboutToShow();
+	QVERIFY(editor.editor->getAction("extent-delete")->isEnabled());
 	
 	// The dialog's "From current view" is the map area the widget shows.
 	ExtentDialog dialog(editor.editor, Extent{}, editor.window);
