@@ -39,6 +39,8 @@
 #include <QPushButton>
 #include <QStringList>
 #include <QTableView>
+#include <QTableWidget>
+#include <QTableWidgetItem>
 #include <QVBoxLayout>
 
 #include "core/map.h"
@@ -283,6 +285,24 @@ void MergeModel::rejectIncoming()
 }
 
 
+void MergeModel::setSymbolAction(int index, MergeSymbolRow::Action action)
+{
+	if (index < 0 || index >= int(merge_plan.symbols.size()))
+		return;
+	merge_plan.symbols[std::size_t(index)].action = action;
+	emit decisionsChanged();
+}
+
+
+void MergeModel::setColorAction(int index, MergeSymbolRow::Action action)
+{
+	if (index < 0 || index >= int(merge_plan.colors.size()))
+		return;
+	merge_plan.colors[std::size_t(index)].action = action;
+	emit decisionsChanged();
+}
+
+
 // ### MergeFilterModel ###
 
 MergeFilterModel::MergeFilterModel(QObject* parent)
@@ -377,18 +397,56 @@ MergeDialog::MergeDialog(const Map& mine, const Map& theirs, const MergePlan& pl
 	decide_layout->addWidget(accept_button);
 	decide_layout->addWidget(reject_button);
 	
-	QStringList notes;
-	for (auto const& symbol : plan.symbols)
+	// The symbols and colours which are new or differ. A definition which differs can be taken.
+	definitions = new QTableWidget(0, 3);
+	definitions->setObjectName(QStringLiteral("definitions"));
+	definitions->setHorizontalHeaderLabels({ tr("Symbols and colours"), tr("Status"), tr("Use theirs") });
+	definitions->setSelectionMode(QAbstractItemView::NoSelection);
+	definitions->setEditTriggers(QAbstractItemView::NoEditTriggers);
+	definitions->verticalHeader()->hide();
+	definitions->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+	definitions->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+	for (std::size_t i = 0; i < plan.symbols.size(); ++i)
 	{
-		QString name = symbol.number;
+		auto const& symbol = plan.symbols[i];
+		QString name = tr("Symbol %1").arg(symbol.number);
 		name += QLatin1Char(' ');
 		name += symbol.name;
-		notes.append(symbol.status == MergeSymbolRow::New
-		             ? tr("Symbol %1 is new and will be imported when an object needs it.").arg(name)
-		             : tr("Symbol %1 differs in the copy. This map's definition is kept.").arg(name));
+		auto const differs = symbol.status == MergeSymbolRow::Differs;
+		auto const row = definitions->rowCount();
+		definitions->insertRow(row);
+		definitions->setItem(row, 0, new QTableWidgetItem(name.trimmed()));
+		definitions->setItem(row, 1, new QTableWidgetItem(differs ? tr("Differs") : tr("New, imported when an object needs it")));
+		auto* take = new QTableWidgetItem();
+		take->setData(Qt::UserRole, int(i));
+		take->setFlags(differs ? Qt::ItemIsEnabled | Qt::ItemIsUserCheckable : Qt::ItemFlags{});
+		if (differs)
+			take->setCheckState(symbol.action == MergeSymbolRow::KeepTheirs ? Qt::Checked : Qt::Unchecked);
+		definitions->setItem(row, 2, take);
 	}
-	notes.append(tr("Templates, extents, bookmarks, guides, course data and groups are not merged."));
-	auto* notes_label = new QLabel(notes.join(QLatin1Char('\n')));
+	for (std::size_t i = 0; i < plan.colors.size(); ++i)
+	{
+		auto const& color = plan.colors[i];
+		auto const differs = color.status == MergeColorRow::Differs;
+		auto name = tr("Colour %1").arg(color.name);
+		if (differs && color.own_name != color.name)
+			name = tr("Colour %1 (here: %2)").arg(color.name, color.own_name);
+		auto const row = definitions->rowCount();
+		definitions->insertRow(row);
+		definitions->setItem(row, 0, new QTableWidgetItem(name));
+		definitions->setItem(row, 1, new QTableWidgetItem(differs ? tr("Differs") : tr("New, appended below the colours")));
+		auto* take = new QTableWidgetItem();
+		take->setData(Qt::UserRole, int(i));
+		take->setData(Qt::UserRole + 1, true);
+		take->setFlags(differs ? Qt::ItemIsEnabled | Qt::ItemIsUserCheckable : Qt::ItemFlags{});
+		if (differs)
+			take->setCheckState(color.action == MergeSymbolRow::KeepTheirs ? Qt::Checked : Qt::Unchecked);
+		definitions->setItem(row, 2, take);
+	}
+	definitions->setVisible(definitions->rowCount() > 0);
+	definitions->setMaximumHeight(160);
+	
+	auto* notes_label = new QLabel(tr("Templates, extents, bookmarks, guides, course data and groups are not merged."));
 	notes_label->setObjectName(QStringLiteral("notes"));
 	notes_label->setWordWrap(true);
 	
@@ -404,6 +462,7 @@ MergeDialog::MergeDialog(const Map& mine, const Map& theirs, const MergePlan& pl
 	layout->addLayout(filter_layout);
 	layout->addWidget(view, 1);
 	layout->addLayout(decide_layout);
+	layout->addWidget(definitions);
 	layout->addWidget(notes_label);
 	layout->addWidget(buttons);
 	setLayout(layout);
@@ -422,6 +481,7 @@ MergeDialog::MergeDialog(const Map& mine, const Map& theirs, const MergePlan& pl
 	connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
 	connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 	connect(pause_button, &QPushButton::clicked, this, [this]() { done(Paused); });
+	connect(definitions, &QTableWidget::itemChanged, this, &MergeDialog::definitionChanged);
 	
 	updateState();
 }
@@ -450,6 +510,17 @@ void MergeDialog::updateState()
 	filter_model->invalidate();
 }
 
+void MergeDialog::definitionChanged(QTableWidgetItem* item)
+{
+	if (!item || item->column() != 2 || !(item->flags() & Qt::ItemIsUserCheckable))
+		return;
+	auto const action = item->checkState() == Qt::Checked ? MergeSymbolRow::KeepTheirs : MergeSymbolRow::KeepMine;
+	if (item->data(Qt::UserRole + 1).toBool())
+		model->setColorAction(item->data(Qt::UserRole).toInt(), action);
+	else
+		model->setSymbolAction(item->data(Qt::UserRole).toInt(), action);
+}
+
 void MergeDialog::currentRowChanged(const QModelIndex& current)
 {
 	if (!current.isValid())
@@ -457,6 +528,9 @@ void MergeDialog::currentRowChanged(const QModelIndex& current)
 	auto const extent = current.data(MergeModel::ExtentRole).toRectF();
 	if (extent.isValid())
 		emit showExtent(extent);
+	auto const row = filter_model->mapToSource(current).row();
+	if (row >= 0 && row < int(model->plan().rows.size()))
+		emit showVersions(model->plan().rows[std::size_t(row)].uuid);
 }
 
 

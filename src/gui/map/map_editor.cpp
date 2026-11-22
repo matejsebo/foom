@@ -172,7 +172,9 @@
 #include "gui/map/map_notes.h"
 #include "gui/map/map_widget.h"
 #include "gui/map/generator_dialog.h"  // foom
+#include "gui/map/field_copy_dialog.h"  // foom
 #include "gui/map/merge_dialog.h"  // foom
+#include "gui/map/merge_overlay.h"  // foom
 #include "gui/map/sketch_dialog.h"  // foom
 #include "gui/map/gradient_dialog.h"  // foom
 #include "gui/map/image_properties_dialog.h"  // foom
@@ -8507,6 +8509,12 @@ void MapEditorController::fieldCopyCreateClicked()
 		QMessageBox::information(window, tr("Create field copy"), tr("A field copy needs a map which is saved as a .foom, .omap or .xmap file. Save the map first."));
 		return;
 	}
+	auto const visible = map_widget->getMapView()->calculateViewedRect(map_widget->viewportToView(map_widget->rect()));
+	QRectF selected;
+	map->includeSelectionRect(selected);
+	FieldCopyDialog options_dialog(visible, selected, window);
+	if (options_dialog.exec() != QDialog::Accepted)
+		return;
 	const QFileInfo map_file(map_path);
 	QString suggestion = map_file.path();
 	suggestion += QLatin1Char('/');
@@ -8521,7 +8529,7 @@ void MapEditorController::fieldCopyCreateClicked()
 		filename += QLatin1String(".foom");
 	
 	QString error;
-	auto const id = createFieldCopy(*map, map_path, filename, &error);
+	auto const id = createFieldCopy(*map, map_path, filename, options_dialog.options(), &error);
 	if (id.isEmpty())
 	{
 		QMessageBox::warning(window, tr("Create field copy"), error);
@@ -8551,22 +8559,36 @@ void MapEditorController::mergeFromFileClicked()
 	
 	QString error;
 	MergeInput input;
-	if (!loadForMerge(*map, map_path, filename, input, &error))
+	auto loaded = loadForMerge(*map, map_path, filename, input, &error);
+	if (!loaded && input.other_frame
+	    && QMessageBox::question(window, tr("Merge changes"), error + QLatin1String("\n\n") + tr("Transform the objects of the copy?")) == QMessageBox::Yes)
+		loaded = loadForMerge(*map, map_path, filename, input, &error, true);
+	if (!loaded)
 	{
-		QMessageBox::warning(window, tr("Merge changes"), error);
+		if (!input.other_frame)
+			QMessageBox::warning(window, tr("Merge changes"), error);
 		return;
 	}
 	auto plan = compareMaps(input.base.get(), *map, *input.theirs);
 	auto const decisions_path = decisionsFilePath(map_path, input.copy.id);
 	loadDecisions(decisions_path, plan);
+	auto const differs = !plan.rows.empty() || !plan.symbols.empty() || !plan.colors.empty();
 	
-	if (!plan.rows.empty())
+	if (differs)
 	{
 		MergeDialog dialog(*map, *input.theirs, plan, window);
 		connect(&dialog, &MergeDialog::showExtent, this, [this](const QRectF& extent) {
 			map_widget->ensureVisibilityOfRect(extent, MapWidget::ContinuousZoom);
 		});
+		// Their version over the map, in a contrast colour, for the selected row.
+		auto* overlay = new MergeOverlayActivity(*map);
+		setEditorActivity(overlay);
+		connect(&dialog, &MergeDialog::showVersions, overlay, [overlay, &input](const QUuid& uuid) {
+			overlay->setObject(input.theirs->findObject(uuid));
+		});
 		auto const code = dialog.exec();
+		if (getEditorActivity() == overlay)
+			setEditorActivity(nullptr);
 		if (code == MergeDialog::Paused)
 		{
 			if (!saveDecisions(decisions_path, dialog.plan(), &error))
@@ -8595,7 +8617,7 @@ void MapEditorController::mergeFromFileClicked()
 	}
 	if (!refreshBase(map_path, filename, input.copy, &error))
 		QMessageBox::warning(window, tr("Merge changes"), error);
-	else if (plan.rows.empty())
+	else if (!differs)
 		QMessageBox::information(window, tr("Merge changes"), tr("The copy holds nothing which differs from this map."));
 	else
 		window->showStatusBarMessage(tr("Changes merged."), 4000);

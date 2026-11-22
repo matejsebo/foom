@@ -91,8 +91,30 @@ bool saveDecisions(const QString& path, const MergePlan& plan, QString* error)
 		entry.insert(QLatin1String("decided"), row.resolved);
 		rows.append(entry);
 	}
+	QJsonArray symbols;
+	for (auto const& symbol : plan.symbols)
+	{
+		if (symbol.status != MergeSymbolRow::Differs)
+			continue;
+		QJsonObject entry;
+		entry.insert(QLatin1String("number"), symbol.number);
+		entry.insert(QLatin1String("action"), symbol.action == MergeSymbolRow::KeepTheirs ? QLatin1String("theirs") : QLatin1String("mine"));
+		symbols.append(entry);
+	}
+	QJsonArray colors;
+	for (auto const& color : plan.colors)
+	{
+		if (color.status != MergeColorRow::Differs)
+			continue;
+		QJsonObject entry;
+		entry.insert(QLatin1String("name"), color.name);
+		entry.insert(QLatin1String("action"), color.action == MergeSymbolRow::KeepTheirs ? QLatin1String("theirs") : QLatin1String("mine"));
+		colors.append(entry);
+	}
 	QJsonObject document;
 	document.insert(QLatin1String("rows"), rows);
+	document.insert(QLatin1String("symbols"), symbols);
+	document.insert(QLatin1String("colors"), colors);
 	
 	QFile file(path);
 	if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write(QJsonDocument(document).toJson()) < 0)
@@ -109,7 +131,8 @@ int loadDecisions(const QString& path, MergePlan& plan)
 	QFile file(path);
 	if (!file.open(QIODevice::ReadOnly))
 		return 0;
-	auto const rows = QJsonDocument::fromJson(file.readAll()).object().value(QLatin1String("rows")).toArray();
+	auto const document = QJsonDocument::fromJson(file.readAll()).object();
+	auto const rows = document.value(QLatin1String("rows")).toArray();
 	auto taken = 0;
 	for (auto const& value : rows)
 	{
@@ -128,6 +151,30 @@ int loadDecisions(const QString& path, MergePlan& plan)
 				++taken;
 			}
 			break;
+		}
+	}
+	for (auto const& value : document.value(QLatin1String("symbols")).toArray())
+	{
+		auto const entry = value.toObject();
+		auto const number = entry.value(QLatin1String("number")).toString();
+		auto const action = entry.value(QLatin1String("action")).toString() == QLatin1String("theirs")
+		                    ? MergeSymbolRow::KeepTheirs : MergeSymbolRow::KeepMine;
+		for (auto& symbol : plan.symbols)
+		{
+			if (symbol.status == MergeSymbolRow::Differs && symbol.number == number)
+				symbol.action = action;
+		}
+	}
+	for (auto const& value : document.value(QLatin1String("colors")).toArray())
+	{
+		auto const entry = value.toObject();
+		auto const name = entry.value(QLatin1String("name")).toString();
+		auto const action = entry.value(QLatin1String("action")).toString() == QLatin1String("theirs")
+		                    ? MergeSymbolRow::KeepTheirs : MergeSymbolRow::KeepMine;
+		for (auto& color : plan.colors)
+		{
+			if (color.status == MergeColorRow::Differs && color.name == name)
+				color.action = action;
 		}
 	}
 	return taken;

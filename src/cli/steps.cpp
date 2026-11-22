@@ -1230,17 +1230,30 @@ void StepRunner::validate(const Step& step, bool& map_open)
 	{
 		// the design notes, "Merge changes from file"
 		p.requireMap(map_open);
-		p.checkKnown({ "path" });
+		p.checkKnown({ "path", "extent", "templates_dpi", "review" });
 		p.requireString("path");
+		if (p.has("extent"))
+		{
+			auto const numbers = p.numberArray(p.value("extent"), 4, QLatin1String("\"extent\""));
+			if (numbers[2] <= 0 || numbers[3] <= 0)
+				p.fail(QLatin1String("the extent needs a positive width and height"));
+		}
+		if (p.has("templates_dpi"))
+			p.requirePositiveInt("templates_dpi");
+		p.optionalBool("review", false);
 	}
 	else if (name == QLatin1String("merge-from-file"))
 	{
 		p.requireMap(map_open);
-		p.checkKnown({ "path", "conflicts" });
+		p.checkKnown({ "path", "conflicts", "definitions", "transform" });
+		p.optionalBool("transform", false);
 		p.requireString("path");
 		auto const conflicts = p.optionalString("conflicts", QStringLiteral("fail"));
 		if (!QStringList{ QStringLiteral("fail"), QStringLiteral("mine"), QStringLiteral("theirs"), QStringLiteral("both"), QStringLiteral("prefilled") }.contains(conflicts))
 			p.fail(QString::fromLatin1("unknown conflicts \"%1\": expected \"fail\", \"mine\", \"theirs\", \"both\" or \"prefilled\"").arg(conflicts));
+		auto const definitions = p.optionalString("definitions", QStringLiteral("mine"));
+		if (definitions != QLatin1String("mine") && definitions != QLatin1String("theirs"))
+			p.fail(QString::fromLatin1("unknown definitions \"%1\": expected \"mine\" or \"theirs\"").arg(definitions));
 	}
 	else if (name == QLatin1String("field-copy-close"))
 	{
@@ -2129,8 +2142,17 @@ StepResult StepRunner::fieldCopyCreate(const Step& step)
 	if (!problem.isEmpty())
 		return failure(problem);
 	
+	FieldCopyOptions options;
+	if (p.has("extent"))
+	{
+		auto const numbers = p.numberArray(p.value("extent"), 4, QLatin1String("\"extent\""));
+		options.extent = QRectF(numbers[0], numbers[1], numbers[2], numbers[3]);
+	}
+	if (p.has("templates_dpi"))
+		options.template_dpi = int(p.requirePositiveInt("templates_dpi"));
+	options.review = p.optionalBool("review", false);
 	QString error;
-	auto const id = createFieldCopy(*map, map_path, path, &error);
+	auto const id = createFieldCopy(*map, map_path, path, options, &error);
 	if (id.isEmpty())
 		return failure(error);
 	problem = saveWorkingMap(*map, map_path);
@@ -2155,10 +2177,12 @@ StepResult StepRunner::mergeFromFile(const Step& step)
 	
 	QString error;
 	MergeInput input;
-	if (!loadForMerge(*map, map_path, path, input, &error))
-		return failure(error);
+	if (!loadForMerge(*map, map_path, path, input, &error, p.optionalBool("transform", false)))
+		return failure(input.other_frame ? error + QLatin1String(" Set \"transform\" to true to do so.") : error);
 	auto plan = compareMaps(input.base.get(), *map, *input.theirs);
 	auto const conflict_count = plan.count(MergeRow::Conflict);
+	if (p.optionalString("definitions", QStringLiteral("mine")) == QLatin1String("theirs"))
+		plan.resolveDefinitions(MergeSymbolRow::KeepTheirs);
 	if (conflicts == QLatin1String("mine"))
 		plan.resolveConflicts(MergeRow::KeepMine);
 	else if (conflicts == QLatin1String("theirs"))
@@ -2185,6 +2209,7 @@ StepResult StepRunner::mergeFromFile(const Step& step)
 	result.details.insert(QLatin1String("path"), path);
 	result.details.insert(QLatin1String("id"), input.copy.id);
 	result.details.insert(QLatin1String("two_way"), plan.two_way);
+	result.details.insert(QLatin1String("transformed"), input.transformed);
 	result.details.insert(QLatin1String("incoming"), plan.count(MergeRow::Incoming));
 	result.details.insert(QLatin1String("outgoing"), plan.count(MergeRow::Outgoing));
 	result.details.insert(QLatin1String("conflicts"), conflict_count);
@@ -2193,11 +2218,18 @@ StepResult StepRunner::mergeFromFile(const Step& step)
 	result.details.insert(QLatin1String("deleted"), merged.deleted);
 	result.details.insert(QLatin1String("symbols"), merged.symbols);
 	result.details.insert(QLatin1String("parts"), merged.parts);
+	result.details.insert(QLatin1String("colors"), merged.colors);
+	result.details.insert(QLatin1String("definitions"), merged.definitions);
 	std::vector<QString> warnings;
 	for (auto const& symbol : plan.symbols)
 	{
-		if (symbol.status == MergeSymbolRow::Differs)
+		if (symbol.status == MergeSymbolRow::Differs && symbol.action == MergeSymbolRow::KeepMine)
 			warnings.push_back(QString::fromLatin1("symbol %1 %2 differs in the copy; the map's definition is kept").arg(symbol.number, symbol.name));
+	}
+	for (auto const& color : plan.colors)
+	{
+		if (color.status == MergeColorRow::Differs && color.action == MergeSymbolRow::KeepMine)
+			warnings.push_back(QString::fromLatin1("colour %1 differs in the copy; the map's definition is kept").arg(color.name));
 	}
 	addWarnings(result, warnings);
 	return result;

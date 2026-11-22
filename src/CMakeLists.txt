@@ -288,8 +288,10 @@ set(Mapper_Common_SRCS
   gui/map/selection_dialogs.cpp
   gui/map/gradient_dialog.cpp
   gui/map/image_properties_dialog.cpp
+  gui/map/field_copy_dialog.cpp
   gui/map/object_style_dialog.cpp
   gui/map/merge_dialog.cpp
+  gui/map/merge_overlay.cpp
   gui/map/sketch_dialog.cpp
   gui/map/import_points_dialog.cpp
   gui/map/rectangle_box_dialog.cpp

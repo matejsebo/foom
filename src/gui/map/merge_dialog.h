@@ -30,6 +30,7 @@
 #include <QRectF>
 #include <QSortFilterProxyModel>
 #include <QString>
+#include <QUuid>
 #include <QVariant>
 
 #include "sync/merge.h"
@@ -38,6 +39,8 @@ class QComboBox;
 class QLabel;
 class QPushButton;
 class QTableView;
+class QTableWidget;
+class QTableWidgetItem;
 class QWidget;
 
 namespace OpenOrienteering {
@@ -83,6 +86,12 @@ public:
 	
 	/** Gives every incoming row "keep mine". */
 	void rejectIncoming();
+	
+	/** Chooses whose definition a symbol which differs keeps. */
+	void setSymbolAction(int index, MergeSymbolRow::Action action);
+	
+	/** Chooses whose definition a colour which differs keeps. */
+	void setColorAction(int index, MergeSymbolRow::Action action);
 	
 signals:
 	void decisionsChanged();
@@ -143,14 +152,19 @@ signals:
 	/** A row was selected: the extent of its object, to be shown in the map. */
 	void showExtent(const QRectF& extent);
 	
+	/** A row was selected: the uuid of its object, whose other version is to be overlaid. */
+	void showVersions(const QUuid& uuid);
+	
 private:
 	void decide(MergeRow::Action action);
 	void updateState();
 	void currentRowChanged(const QModelIndex& current);
+	void definitionChanged(QTableWidgetItem* item);
 	
 	MergeModel* model;
 	MergeFilterModel* filter_model;
 	QTableView* view;
+	QTableWidget* definitions;
 	QComboBox* filter_combo;
 	QLabel* summary_label;
 	QPushButton* apply_button;

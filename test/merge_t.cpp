@@ -28,31 +28,40 @@
 #include <QBrush>
 #include <QByteArray>
 #include <QColor>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDateTime>
 #include <QDialog>
 #include <QLabel>
 #include <QPointF>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QRectF>
 #include <QSignalSpy>
+#include <QSize>
+#include <QSpinBox>
 #include <QTableView>
+#include <QTableWidget>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
 #include <QIODevice>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLatin1String>
 #include <QObject>
+#include <QPainter>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QString>
 #include <QTemporaryDir>
+#include <QTransform>
 #include <QUuid>
 
 #include "global.h"
+#include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_color.h"
 #include "core/map_coord.h"
@@ -65,10 +74,14 @@
 #include "core/sync_record.h"
 #include "fileformats/file_import_export.h"
 #include "fileformats/xml_file_format.h"
+#include "gui/map/field_copy_dialog.h"
 #include "gui/map/merge_dialog.h"
+#include "gui/map/merge_overlay.h"
 #include "sync/field_copy.h"
 #include "sync/merge.h"
 #include "sync/merge_decisions.h"
+#include "templates/template.h"
+#include "templates/template_image.h"
 #include "undo/undo_manager.h"
 
 using namespace OpenOrienteering;
@@ -215,6 +228,18 @@ QByteArray bytes(const QString& path)
 	if (!file.open(QIODevice::ReadOnly))
 		return {};
 	return file.readAll();
+}
+
+Georeferencing utm14(int scale, const MapCoord& map_ref)
+{
+	Georeferencing georef;
+	georef.setScaleDenominator(scale);
+	georef.setProjectedCRS(QStringLiteral("UTM 14"), QStringLiteral("+proj=utm +zone=14 +datum=WGS84"));
+	georef.setProjectedRefPoint(QPointF(500000.0, 5300000.0), false, false);
+	georef.setMapRefPoint(map_ref);
+	georef.setGrivation(0.0);
+	georef.setCombinedScaleFactor(1.0);
+	return georef;
 }
 
 MergeRow::Status statusOf(const MergePlan& plan, char letter)
@@ -571,6 +596,208 @@ private slots:
 		QCOMPARE(symbolNumbered(*mine, 2)->asLine()->getLineWidth(), 300);
 	}
 	
+	/// Accept (18)
+	void symbolDefinitionTest()
+	{
+		loadThree();
+		// They widen symbol 2 and change nothing else.
+		const_cast<Symbol*>(symbolNumbered(*theirs, 2))->asLine()->setLineWidth(0.9);
+		auto plan = compareMaps(base.get(), *mine, *theirs);
+		QVERIFY(plan.rows.empty());
+		QCOMPARE(plan.symbols.size(), std::size_t(1));
+		QCOMPARE(plan.symbols[0].status, MergeSymbolRow::Differs);
+		QCOMPARE(plan.symbols[0].action, MergeSymbolRow::KeepMine);
+		
+		// Keep mine is the default and changes nothing.
+		auto const before = save(*mine);
+		MergeResult result;
+		QString error;
+		QVERIFY2(applyMerge(*mine, *theirs, plan, &result, &error), qPrintable(error));
+		QCOMPARE(result.definitions, 0);
+		QCOMPARE(save(*mine), before);
+		
+		// Keep theirs: their definition, my number and place, my colour.
+		auto const position = mine->findSymbolIndex(symbolNumbered(*mine, 2));
+		auto const symbols = mine->getNumSymbols();
+		auto const colors = mine->getNumColors();
+		auto const undo_steps = mine->undoManager().undoStepCount();
+		plan.resolveDefinitions(MergeSymbolRow::KeepTheirs);
+		QCOMPARE(plan.symbols[0].action, MergeSymbolRow::KeepTheirs);
+		QVERIFY2(applyMerge(*mine, *theirs, plan, &result, &error), qPrintable(error));
+		QCOMPARE(result.definitions, 1);
+		QCOMPARE(result.symbols, 0);
+		QCOMPARE(mine->getNumSymbols(), symbols);
+		QCOMPARE(mine->getNumColors(), colors);
+		auto const* taken = symbolNumbered(*mine, 2);
+		QCOMPARE(mine->findSymbolIndex(taken), position);
+		QVERIFY(taken != symbolNumbered(*theirs, 2));
+		QCOMPARE(taken->asLine()->getLineWidth(), 900);
+		QCOMPARE(taken->asLine()->getColor(), mine->getColor(0));
+		QCOMPARE(find(*mine, 'c')->getSymbol(), taken);
+		QVERIFY(taken->equals(symbolNumbered(*theirs, 2)));
+		// No object changed, so there is no undo step.
+		QCOMPARE(mine->undoManager().undoStepCount(), undo_steps);
+		QVERIFY(compareMaps(base.get(), *mine, *theirs).symbols.empty());
+		
+		// With an incoming object of that symbol: the object uses the taken
+		// definition, and the definition stays after the undo.
+		loadThree();
+		const_cast<Symbol*>(symbolNumbered(*theirs, 2))->asLine()->setLineWidth(0.9);
+		change(*theirs, 'c', 40, 3000);
+		plan = compareMaps(base.get(), *mine, *theirs);
+		plan.resolveDefinitions(MergeSymbolRow::KeepTheirs);
+		QVERIFY2(applyMerge(*mine, *theirs, plan, &result, &error), qPrintable(error));
+		QCOMPARE(result.replaced, 1);
+		QCOMPARE(endX(*mine, 'c'), 40.0);
+		QCOMPARE(find(*mine, 'c')->getSymbol(), symbolNumbered(*mine, 2));
+		QCOMPARE(symbolNumbered(*mine, 2)->asLine()->getLineWidth(), 900);
+		QVERIFY(mine->undoManager().undo());
+		QCOMPARE(endX(*mine, 'c'), 20.0);
+		QCOMPARE(find(*mine, 'c')->getSymbol(), symbolNumbered(*mine, 2));
+		QCOMPARE(symbolNumbered(*mine, 2)->asLine()->getLineWidth(), 900);
+		
+		// A new symbol whose colour has the name of one of mine takes mine,
+		// although the two colours differ.
+		loadThree();
+		auto* their_black = theirs->getMapColor(0);
+		their_black->setCmyk({ 0.0f, 0.0f, 0.0f, 0.5f });
+		addLine(*theirs, QStringLiteral("New line"), 9, their_black);
+		addObject(*theirs, 'e', 9, -1, 3000);
+		plan = compareMaps(base.get(), *mine, *theirs);
+		QVERIFY2(applyMerge(*mine, *theirs, plan, &result, &error), qPrintable(error));
+		QCOMPARE(result.symbols, 1);
+		QCOMPARE(mine->getNumColors(), colors);
+		QCOMPARE(symbolNumbered(*mine, 9)->asLine()->getColor(), mine->getColor(0));
+		QCOMPARE(find(*mine, 'e')->getSymbol(), symbolNumbered(*mine, 9));
+	}
+	
+	/// Accept (19)
+	void definitionDecisionsTest()
+	{
+		loadThree();
+		const_cast<Symbol*>(symbolNumbered(*theirs, 2))->asLine()->setLineWidth(0.9);
+		auto const* red = addColor(*theirs, QStringLiteral("Red"), 1.0f);
+		addLine(*theirs, QStringLiteral("New line"), 9, red);
+		addObject(*theirs, 'e', 9, -1, 3000);
+		
+		MergeDialog dialog(*mine, *theirs, compareMaps(base.get(), *mine, *theirs));
+		auto* definitions = dialog.findChild<QTableWidget*>(QStringLiteral("definitions"));
+		QVERIFY(definitions);
+		QVERIFY(!definitions->isHidden());
+		// The new red of the new symbol follows the symbols.
+		QCOMPARE(definitions->rowCount(), 3);
+		QCOMPARE(definitions->columnCount(), 3);
+		QCOMPARE(definitions->item(0, 0)->text(), QStringLiteral("Symbol 2 Other"));
+		QCOMPARE(definitions->item(1, 0)->text(), QStringLiteral("Symbol 9 New line"));
+		QCOMPARE(definitions->item(2, 0)->text(), QStringLiteral("Colour Red"));
+		QVERIFY(!(definitions->item(2, 2)->flags() & Qt::ItemIsUserCheckable));
+		// Only a definition which differs can be taken.
+		auto* differs = definitions->item(0, 2);
+		QVERIFY(differs->flags() & Qt::ItemIsUserCheckable);
+		QCOMPARE(differs->checkState(), Qt::Unchecked);
+		QVERIFY(!(definitions->item(1, 2)->flags() & Qt::ItemIsUserCheckable));
+		differs->setCheckState(Qt::Checked);
+		QCOMPARE(dialog.plan().symbols[0].action, MergeSymbolRow::KeepTheirs);
+		QCOMPARE(dialog.plan().symbols[1].action, MergeSymbolRow::KeepMine);
+		
+		// The decision is kept when the merge is paused.
+		auto const path = file("definitions.json");
+		QString error;
+		QVERIFY2(saveDecisions(path, dialog.plan(), &error), qPrintable(error));
+		auto fresh = compareMaps(base.get(), *mine, *theirs);
+		QCOMPARE(fresh.symbols[0].action, MergeSymbolRow::KeepMine);
+		loadDecisions(path, fresh);
+		QCOMPARE(fresh.symbols[0].action, MergeSymbolRow::KeepTheirs);
+		MergeDialog resumed(*mine, *theirs, fresh);
+		QCOMPARE(resumed.findChild<QTableWidget*>(QStringLiteral("definitions"))->item(0, 2)->checkState(), Qt::Checked);
+		
+		// Without definitions to list, the table is hidden.
+		loadThree();
+		MergeDialog empty(*mine, *theirs, compareMaps(base.get(), *mine, *theirs));
+		QVERIFY(empty.findChild<QTableWidget*>(QStringLiteral("definitions"))->isHidden());
+	}
+	
+	/// Accept (20)
+	void colorsTest()
+	{
+		loadThree();
+		// They darken my black, add a red for a new symbol, and a colour which nothing uses.
+		theirs->getMapColor(0)->setCmyk({ 0.0f, 0.0f, 0.0f, 0.5f });
+		auto const* red = addColor(*theirs, QStringLiteral("Red"), 1.0f);
+		addLine(*theirs, QStringLiteral("New line"), 9, red);
+		addObject(*theirs, 'e', 9, -1, 3000);
+		addColor(*theirs, QStringLiteral("Unused"), 0.5f);
+		
+		auto plan = compareMaps(base.get(), *mine, *theirs);
+		// A colour which differs does not make the symbols which use it differ.
+		QCOMPARE(plan.symbols.size(), std::size_t(1));
+		QCOMPARE(plan.symbols[0].status, MergeSymbolRow::New);
+		QCOMPARE(plan.colors.size(), std::size_t(2));
+		QCOMPARE(plan.colors[0].name, QStringLiteral("Black"));
+		QCOMPARE(plan.colors[0].status, MergeColorRow::Differs);
+		QCOMPARE(plan.colors[0].action, MergeSymbolRow::KeepMine);
+		QCOMPARE(plan.colors[1].name, QStringLiteral("Red"));
+		QCOMPARE(plan.colors[1].status, MergeColorRow::New);
+		
+		// Keep mine: my black stays, the red is appended below my colours.
+		auto const colors = mine->getNumColors();
+		MergeResult result;
+		QString error;
+		QVERIFY2(applyMerge(*mine, *theirs, plan, &result, &error), qPrintable(error));
+		QCOMPARE(result.colors, 1);
+		QCOMPARE(result.definitions, 0);
+		QCOMPARE(mine->getNumColors(), colors + 1);
+		QCOMPARE(mine->getColor(colors)->getName(), QStringLiteral("Red"));
+		QCOMPARE(mine->getColor(0)->getCmyk().k, 1.0f);
+		QCOMPARE(symbolNumbered(*mine, 9)->asLine()->getColor(), mine->getColor(colors));
+		
+		// Keep theirs: my black takes their definition, in its place.
+		loadThree();
+		theirs->getMapColor(0)->setCmyk({ 0.0f, 0.0f, 0.0f, 0.5f });
+		plan = compareMaps(base.get(), *mine, *theirs);
+		QCOMPARE(plan.colors.size(), std::size_t(1));
+		auto const* black = mine->getColor(0);
+		plan.resolveDefinitions(MergeSymbolRow::KeepTheirs);
+		QCOMPARE(plan.colors[0].action, MergeSymbolRow::KeepTheirs);
+		QVERIFY2(applyMerge(*mine, *theirs, plan, &result, &error), qPrintable(error));
+		QCOMPARE(result.definitions, 1);
+		QCOMPARE(mine->getColor(0), black);
+		QCOMPARE(black->getPriority(), 0);
+		QCOMPARE(black->getCmyk().k, 0.5f);
+		QCOMPARE(symbolNumbered(*mine, 1)->asLine()->getColor(), black);
+		QVERIFY(compareMaps(base.get(), *mine, *theirs).colors.empty());
+		
+		// A colour which they renamed is matched by its CMYK and listed under both names.
+		loadThree();
+		theirs->getMapColor(0)->setName(QStringLiteral("Schwarz"));
+		plan = compareMaps(base.get(), *mine, *theirs);
+		QCOMPARE(plan.colors.size(), std::size_t(1));
+		QCOMPARE(plan.colors[0].name, QStringLiteral("Schwarz"));
+		QCOMPARE(plan.colors[0].own_name, QStringLiteral("Black"));
+		QCOMPARE(plan.colors[0].status, MergeColorRow::Differs);
+		QVERIFY(plan.symbols.empty());
+		plan.resolveDefinitions(MergeSymbolRow::KeepTheirs);
+		QVERIFY2(applyMerge(*mine, *theirs, plan, &result, &error), qPrintable(error));
+		QCOMPARE(mine->getNumColors(), colors);
+		QCOMPARE(mine->getColor(0)->getName(), QStringLiteral("Schwarz"));
+		
+		// The dialog lists the colours below the symbols, and the choice is kept on pause.
+		loadThree();
+		theirs->getMapColor(0)->setCmyk({ 0.0f, 0.0f, 0.0f, 0.5f });
+		plan = compareMaps(base.get(), *mine, *theirs);
+		MergeDialog dialog(*mine, *theirs, plan);
+		auto* definitions = dialog.findChild<QTableWidget*>(QStringLiteral("definitions"));
+		QVERIFY(definitions);
+		QCOMPARE(definitions->rowCount(), 1);
+		QCOMPARE(definitions->item(0, 0)->text(), QStringLiteral("Colour Black"));
+		definitions->item(0, 2)->setCheckState(Qt::Checked);
+		QCOMPARE(dialog.plan().colors[0].action, MergeSymbolRow::KeepTheirs);
+		auto const path = file("colors.json");
+		QVERIFY2(saveDecisions(path, dialog.plan(), &error), qPrintable(error));
+		loadDecisions(path, plan);
+		QCOMPARE(plan.colors[0].action, MergeSymbolRow::KeepTheirs);
+	}
+
 	/// Accept (9)
 	void partsTest()
 	{
@@ -707,6 +934,274 @@ private slots:
 		QVERIFY(!closeFieldCopy(map, map_path, QString{}, &error));
 	}
 	
+	/// Accept (21)
+	void fieldCopyExtentTest()
+	{
+		auto const map_path = file("extent.foom");
+		auto const copy_path = file("extent-field.foom");
+		Map map;
+		setupBase(map);
+		QVERIFY(saveTo(map, map_path));
+		
+		// The lines a, b and c lie in the extent, d and the others outside.
+		FieldCopyOptions options;
+		options.extent = QRectF(-1.0, -1.0, 31.0, 13.0);
+		QString error;
+		auto const sync_id = createFieldCopy(map, map_path, copy_path, options, &error);
+		QVERIFY2(!sync_id.isEmpty(), qPrintable(error));
+		QCOMPARE(map.syncCopies()[0].extent, options.extent);
+		QCOMPARE(map.getNumObjects(), 11);
+		QCOMPARE(bytes(baseFilePath(map_path, sync_id)), bytes(copy_path));
+		{
+			Map copy;
+			QVERIFY(copy.loadFrom(copy_path));
+			QCOMPARE(copy.getNumObjects(), 3);
+			QVERIFY(find(copy, 'a') && find(copy, 'b') && find(copy, 'c') && !find(copy, 'd'));
+			QCOMPARE(copy.syncCopies()[0].extent, options.extent);
+		}
+		QVERIFY(saveTo(map, map_path));
+		Map loaded;
+		QVERIFY(loaded.loadFrom(map_path));
+		QCOMPARE(loaded.syncCopies()[0].extent, options.extent);
+		
+		// What lies outside the extent gives no rows, whatever I do there.
+		MergeInput input;
+		QVERIFY2(loadForMerge(map, map_path, copy_path, input, &error), qPrintable(error));
+		QVERIFY(compareMaps(input.base.get(), map, *input.theirs).rows.empty());
+		change(map, 'd', 30, 2000);
+		remove(map, 'g');
+		addObject(map, 'e', 1, -1, 2000);
+		change(*input.theirs, 'a', 40, 3000);
+		auto plan = compareMaps(input.base.get(), map, *input.theirs);
+		QCOMPARE(plan.rows.size(), std::size_t(1));
+		QCOMPARE(statusOf(plan, 'a'), MergeRow::Incoming);
+		// Without the base, too.
+		plan = compareMaps(nullptr, map, *input.theirs);
+		QCOMPARE(plan.rows.size(), std::size_t(1));
+		QVERIFY(plan.row(id('a')));
+		
+		// Something of mine which I add inside the extent is listed.
+		auto* inside = new PathObject(symbolNumbered(map, 1), MapCoordVector{ MapCoord(1.0, 2.0), MapCoord(5.0, 2.0) });
+		map.addObject(inside);
+		plan = compareMaps(input.base.get(), map, *input.theirs);
+		QCOMPARE(plan.rows.size(), std::size_t(2));
+		QVERIFY(plan.row(inside->uuid()));
+		QCOMPARE(plan.row(inside->uuid())->status, MergeRow::Outgoing);
+	}
+	
+	/// Accept (22)
+	void reviewCopyTest()
+	{
+		auto const map_path = file("review.foom");
+		auto const copy_path = file("review-field.foom");
+		Map map;
+		setupBase(map);
+		QVERIFY(saveTo(map, map_path));
+		
+		FieldCopyOptions options;
+		options.review = true;
+		QString error;
+		auto const sync_id = createFieldCopy(map, map_path, copy_path, options, &error);
+		QVERIFY2(!sync_id.isEmpty(), qPrintable(error));
+		QVERIFY(map.syncCopies()[0].review);
+		QCOMPARE(map.getNumParts(), 1);
+		
+		MergeInput input;
+		QVERIFY2(loadForMerge(map, map_path, copy_path, input, &error), qPrintable(error));
+		auto& theirs = *input.theirs;
+		QVERIFY(theirs.syncCopies()[0].review);
+		// The copy has a sketch part, and it is the current part.
+		QCOMPARE(theirs.getNumParts(), 2);
+		auto const sketch = int(theirs.getCurrentPartIndex());
+		QCOMPARE(theirs.getPart(std::size_t(sketch))->role(), MapPart::Role::Sketch);
+		
+		// They edit the map, which does not count, and sketch, which does.
+		change(theirs, 'a', 40, 3000);
+		remove(theirs, 'c');
+		addObject(theirs, 'e', 1, sketch, 3000);
+		change(map, 'b', 30, 2000);
+		auto plan = compareMaps(input.base.get(), map, theirs);
+		QCOMPARE(plan.rows.size(), std::size_t(2));
+		QCOMPARE(statusOf(plan, 'e'), MergeRow::Incoming);
+		QCOMPARE(statusOf(plan, 'b'), MergeRow::Outgoing);
+		QVERIFY(!plan.row(id('a')) && !plan.row(id('c')));
+		
+		MergeResult result;
+		QVERIFY2(applyMerge(map, theirs, plan, &result, &error), qPrintable(error));
+		QCOMPARE(result.added, 1);
+		QCOMPARE(result.parts, 1);
+		QCOMPARE(endX(map, 'a'), 20.0);
+		QVERIFY(find(map, 'c'));
+		QCOMPARE(map.getPart(1)->role(), MapPart::Role::Sketch);
+		
+		// Without the base, only the sketch part counts as well.
+		plan = compareMaps(nullptr, map, theirs);
+		for (auto const& row : plan.rows)
+			QVERIFY(row.uuid == id('b'));
+	}
+	
+	/// Accept (23)
+	void cachedTemplatesTest()
+	{
+		auto const map_path = file("templates.foom");
+		auto const copy_path = file("templates-field.foom");
+		auto const image_path = file("blue.png");
+		QImage blue(100, 100, QImage::Format_ARGB32);
+		blue.fill(QColor(Qt::blue));
+		QVERIFY(blue.save(image_path));
+		
+		Map map;
+		setupBase(map);
+		// 100 pixels at 0.1 mm: a square of 10 mm with its centre at (10, 10).
+		auto image = std::make_unique<TemplateImage>(image_path, &map);
+		image->setTemplatePosition(MapCoord(10.0, 10.0));
+		image->setTemplateScaleX(0.1);
+		image->setTemplateScaleY(0.1);
+		image->setTemplateRotation(0);
+		image->setTemplateState(Template::Unloaded);
+		QVERIFY(image->loadTemplateFile());
+		map.addTemplate(0, std::move(image));
+		QVERIFY(saveTo(map, map_path));
+		
+		// At 254 dpi, 10 pixels per mm; the extent takes the left half of the image.
+		FieldCopyOptions options;
+		options.template_dpi = 254;
+		options.extent = QRectF(0.0, 0.0, 10.0, 30.0);
+		QString error;
+		auto const sync_id = createFieldCopy(map, map_path, copy_path, options, &error);
+		QVERIFY2(!sync_id.isEmpty(), qPrintable(error));
+		// The working map keeps its template.
+		QCOMPARE(map.getTemplate(0)->getTemplatePath(), image_path);
+		
+		Map copy;
+		QVERIFY(copy.loadFrom(copy_path));
+		QCOMPARE(copy.getNumTemplates(), 1);
+		auto* cached = copy.getTemplate(0);
+		QCOMPARE(cached->getTemplateType(), "TemplateImage");
+		auto const cached_path = cached->getTemplatePath();
+		QCOMPARE(QFileInfo(cached_path).absolutePath(), QFileInfo(file("templates-field.templates/1.png")).absolutePath());
+		QImage written(cached_path);
+		QCOMPARE(written.size(), QSize(50, 100));
+		QCOMPARE(written.pixelColor(25, 50), QColor(Qt::blue));
+		if (cached->getTemplateState() != Template::Loaded)
+			QVERIFY(cached->loadTemplateFile());
+		auto const box = cached->calculateTemplateBoundingBox();
+		QVERIFY(qAbs(box.left() - 5.0) < 0.01);
+		QVERIFY(qAbs(box.right() - 10.0) < 0.01);
+		QVERIFY(qAbs(box.top() - 5.0) < 0.01);
+		QVERIFY(qAbs(box.bottom() - 15.0) < 0.01);
+		
+		// Without the option, the copy refers to the template as it is.
+		auto const plain_path = file("templates-plain.foom");
+		QVERIFY(!createFieldCopy(map, map_path, plain_path, FieldCopyOptions{}, &error).isEmpty());
+		Map plain;
+		QVERIFY(plain.loadFrom(plain_path));
+		QCOMPARE(plain.getTemplate(0)->getTemplatePath(), image_path);
+	}
+	
+	/// Accept (24)
+	void fieldCopyDialogTest()
+	{
+		FieldCopyDialog dialog(QRectF(0.0, 0.0, 50.0, 40.0), QRectF(10.0, 10.0, 5.0, 5.0));
+		auto* whole = dialog.findChild<QRadioButton*>(QStringLiteral("extent-whole"));
+		auto* visible = dialog.findChild<QRadioButton*>(QStringLiteral("extent-visible"));
+		auto* selection = dialog.findChild<QRadioButton*>(QStringLiteral("extent-selection"));
+		auto* templates = dialog.findChild<QCheckBox*>(QStringLiteral("templates"));
+		auto* dpi = dialog.findChild<QSpinBox*>(QStringLiteral("dpi"));
+		auto* review = dialog.findChild<QCheckBox*>(QStringLiteral("review"));
+		QVERIFY(whole && visible && selection && templates && dpi && review);
+		QVERIFY(whole->isChecked());
+		QVERIFY(!dpi->isEnabled());
+		auto options = dialog.options();
+		QVERIFY(options.extent.isNull());
+		QCOMPARE(options.template_dpi, 0);
+		QVERIFY(!options.review);
+		
+		visible->setChecked(true);
+		templates->setChecked(true);
+		QVERIFY(dpi->isEnabled());
+		dpi->setValue(300);
+		review->setChecked(true);
+		options = dialog.options();
+		QCOMPARE(options.extent, QRectF(0.0, 0.0, 50.0, 40.0));
+		QCOMPARE(options.template_dpi, 300);
+		QVERIFY(options.review);
+		selection->setChecked(true);
+		QCOMPARE(dialog.options().extent, QRectF(10.0, 10.0, 5.0, 5.0));
+		
+		// Without a selection, that choice is not offered.
+		FieldCopyDialog without(QRectF(0.0, 0.0, 50.0, 40.0), QRectF());
+		QVERIFY(!without.findChild<QRadioButton*>(QStringLiteral("extent-selection"))->isEnabled());
+	}
+
+	/// Accept (25)
+	void otherFrameTest()
+	{
+		auto const map_path = file("frame.foom");
+		auto const copy_path = file("frame-field.foom");
+		Map map;
+		setupBase(map);
+		map.setGeoreferencing(utm14(10000, MapCoord(0.0, 0.0)));
+		QVERIFY(saveTo(map, map_path));
+		QString error;
+		QVERIFY(!createFieldCopy(map, map_path, copy_path, &error).isEmpty());
+		
+		// In the field the copy went to 1:15000, with another reference point:
+		// every object stays where it is on the ground.
+		{
+			Map copy;
+			QVERIFY(copy.loadFrom(copy_path));
+			copy.setScaleDenominator(15000);
+			copy.setGeoreferencing(utm14(15000, MapCoord(10.0, 0.0)));
+			auto const to_field = QTransform::fromTranslate(10.0, 0.0).scale(2.0 / 3.0, 2.0 / 3.0);
+			for (int i = 0; i < copy.getPart(0)->getNumObjects(); ++i)
+				copy.getPart(0)->getObject(i)->transform(to_field);
+			// They make a longer: 40 mm at 1:10000.
+			change(copy, 'a', 10.0 + 40.0 * 2.0 / 3.0, 3000);
+			QVERIFY(saveTo(copy, copy_path));
+		}
+		
+		// Not without asking.
+		MergeInput input;
+		QVERIFY(!loadForMerge(map, map_path, copy_path, input, &error));
+		QVERIFY(input.other_frame);
+		QVERIFY(!error.isEmpty());
+		
+		error.clear();
+		QVERIFY2(loadForMerge(map, map_path, copy_path, input, &error, true), qPrintable(error));
+		QVERIFY(input.transformed);
+		QVERIFY(input.base);
+		auto const plan = compareMaps(input.base.get(), map, *input.theirs);
+		QCOMPARE(plan.rows.size(), std::size_t(1));
+		QCOMPARE(statusOf(plan, 'a'), MergeRow::Incoming);
+		QVERIFY(qAbs(endX(*input.theirs, 'a') - 40.0) < 0.01);
+		QVERIFY(qAbs(find(*input.theirs, 'b')->asPath()->getCoordinate(1).y() - 5.0) < 0.001);
+		
+		MergeResult result;
+		QVERIFY2(applyMerge(map, *input.theirs, plan, &result, &error), qPrintable(error));
+		QCOMPARE(result.replaced, 1);
+		QVERIFY(qAbs(endX(map, 'a') - 40.0) < 0.01);
+		QCOMPARE(map.getScaleDenominator(), 10000u);
+		
+		// Another scale without a geospatial georeferencing is refused.
+		Map local;
+		setupBase(local);
+		auto const local_path = file("local.foom");
+		auto const local_copy = file("local-field.foom");
+		QVERIFY(saveTo(local, local_path));
+		QVERIFY(!createFieldCopy(local, local_path, local_copy, &error).isEmpty());
+		{
+			Map copy;
+			QVERIFY(copy.loadFrom(local_copy));
+			copy.setScaleDenominator(15000);
+			QVERIFY(saveTo(copy, local_copy));
+		}
+		error.clear();
+		QVERIFY(!loadForMerge(local, local_path, local_copy, input, &error, true));
+		QVERIFY(!input.other_frame);
+		QVERIFY(!error.isEmpty());
+	}
+
 	/// Accept (13), (14), (15)
 	void modelTest()
 	{
@@ -825,6 +1320,43 @@ private slots:
 		QCOMPARE(finished.first().first().toInt(), int(MergeDialog::Paused));
 	}
 	
+	/// Accept (26)
+	void overlayTest()
+	{
+		loadThree();
+		change(*theirs, 'a', 40, 3000);
+		QImage image(200, 200, QImage::Format_ARGB32_Premultiplied);
+		image.fill(QColor(Qt::transparent));
+		{
+			QPainter painter(&image);
+			painter.scale(4.0, 4.0);
+			painter.translate(5.0, 20.0);
+			MergeOverlay::draw(&painter, *find(*theirs, 'a'), QRectF(-5.0, -20.0, 50.0, 50.0), 4.0);
+		}
+		auto const contrast = [&image](int x, int y) {
+			for (auto row : { y - 1, y, y + 1 })
+			{
+				if (image.pixelColor(x, row) == MergeOverlay::color())
+					return true;
+			}
+			return false;
+		};
+		// Their line runs at y = 0 from x = 0 to 40 mm: pixels 20 to 180 of row 80.
+		QVERIFY(contrast(30, 80));
+		QVERIFY(contrast(170, 80));
+		QCOMPARE(image.pixelColor(100, 150).alpha(), 0);
+		QCOMPARE(image.pixelColor(190, 80).alpha(), 0);
+		
+		// The dialog names the object of the selected row, to be overlaid.
+		loadEdited();
+		MergeDialog dialog(*mine, *theirs, compareMaps(base.get(), *mine, *theirs));
+		auto* view = dialog.findChild<QTableView*>(QStringLiteral("rows"));
+		QSignalSpy versions(&dialog, &MergeDialog::showVersions);
+		view->selectRow(0);
+		QCOMPARE(versions.count(), 1);
+		QCOMPARE(versions.first().first().toUuid(), id('a'));
+	}
+
 	/// Accept (17)
 	void decisionsTest()
 	{

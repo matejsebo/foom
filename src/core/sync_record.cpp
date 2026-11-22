@@ -21,6 +21,9 @@
 #include "sync_record.h"
 
 #include <QLatin1String>
+#include <QStringList>
+#include <QVector>
+#include <QStringRef>
 #include <QXmlStreamAttributes>
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
@@ -35,12 +38,16 @@ namespace literal
 	static const QLatin1String id("id");
 	static const QLatin1String base("base");
 	static const QLatin1String created("created");
+	static const QLatin1String extent("extent");
+	static const QLatin1String review("review");
+	static const QLatin1String true_value("true");
 }
 
 
 bool operator==(const SyncCopy& lhs, const SyncCopy& rhs)
 {
-	return lhs.id == rhs.id && lhs.base == rhs.base && lhs.created == rhs.created;
+	return lhs.id == rhs.id && lhs.base == rhs.base && lhs.created == rhs.created
+	       && lhs.extent == rhs.extent && lhs.review == rhs.review;
 }
 
 void saveSyncCopies(const std::vector<SyncCopy>& copies, QXmlStreamWriter& xml)
@@ -54,6 +61,20 @@ void saveSyncCopies(const std::vector<SyncCopy>& copies, QXmlStreamWriter& xml)
 		if (!copy.base.isEmpty())
 			xml.writeAttribute(literal::base, copy.base);
 		xml.writeAttribute(literal::created, QString::number(copy.created));
+		if (!copy.extent.isNull())
+		{
+			auto const rect = copy.extent;
+			QString value;
+			for (auto number : { rect.x(), rect.y(), rect.width(), rect.height() })
+			{
+				if (!value.isEmpty())
+					value += QLatin1Char(' ');
+				value += QString::number(number, 'g', 10);
+			}
+			xml.writeAttribute(literal::extent, value);
+		}
+		if (copy.review)
+			xml.writeAttribute(literal::review, literal::true_value);
 	}
 	xml.writeCharacters(QString::fromLatin1("\n"));
 	xml.writeEndElement();
@@ -71,6 +92,10 @@ std::vector<SyncCopy> loadSyncCopies(QXmlStreamReader& xml)
 			copy.id = attributes.value(literal::id).toString();
 			copy.base = attributes.value(literal::base).toString();
 			copy.created = attributes.value(literal::created).toLongLong();
+			auto const numbers = attributes.value(literal::extent).split(QLatin1Char(' '), Qt::SkipEmptyParts);
+			if (numbers.size() == 4)
+				copy.extent = QRectF(numbers[0].toDouble(), numbers[1].toDouble(), numbers[2].toDouble(), numbers[3].toDouble());
+			copy.review = attributes.value(literal::review) == literal::true_value;
 			if (!copy.id.isEmpty())
 				copies.push_back(copy);
 		}

@@ -23,6 +23,7 @@
 
 #include <memory>
 
+#include <QRectF>
 #include <QString>
 
 #include "core/sync_record.h"
@@ -42,6 +43,24 @@ class Map;
 /** The path of the base snapshot: <map name>.base-<id>.xmap beside the working file. */
 QString baseFilePath(const QString& map_path, const QString& id);
 
+/** What a field copy holds. The default is all of the map, as it is. */
+struct FieldCopyOptions
+{
+	/** Only the objects which touch this rectangle, in map coordinates; null for all. */
+	QRectF extent;
+	
+	/**
+	 * Above 0: every template is drawn into an image at this resolution,
+	 * within the extent, and the copy refers to these images instead.
+	 */
+	int template_dpi = 0;
+	
+	/** A review copy: only what is drawn in its sketch part comes back. */
+	bool review = false;
+	
+	bool isDefault() const { return extent.isNull() && template_dpi <= 0 && !review; }
+};
+
 /**
  * Makes a field copy of the working map.
  *
@@ -52,6 +71,13 @@ QString baseFilePath(const QString& map_path, const QString& id);
  * Returns the sync id, or an empty string and a message.
  */
 QString createFieldCopy(Map& map, const QString& map_path, const QString& copy_path, QString* error);
+
+/**
+ * Makes a field copy with options. The extent and the review flag are kept
+ * in the sync record of both maps. The cached templates are written to the
+ * folder <copy name>.templates beside the copy, one image per template.
+ */
+QString createFieldCopy(Map& map, const QString& map_path, const QString& copy_path, const FieldCopyOptions& options, QString* error);
 
 /**
  * Closes a field copy: removes the record from the map and deletes the base.
@@ -65,6 +91,8 @@ struct MergeInput
 	SyncCopy copy;                ///< The record of the working map.
 	std::unique_ptr<Map> theirs;
 	std::unique_ptr<Map> base;    ///< Null when the base file is missing or unreadable.
+	bool other_frame = false;     ///< Refused because the copy has another georeferencing, which may be transformed.
+	bool transformed = false;     ///< The copy's objects were transformed into the frame of the working map.
 };
 
 /**
@@ -74,6 +102,17 @@ struct MergeInput
  * copies, or when scale or georeferencing differ.
  */
 bool loadForMerge(const Map& mine, const QString& map_path, const QString& copy_path, MergeInput& input, QString* error);
+
+/**
+ * Reads the returned copy and its base, as above. When the copy has another
+ * georeferencing and transform is true, its objects are transformed into
+ * the frame of the working map (and so are those of the base, when its
+ * frame differs too). An object which then lies within 0.01 mm of its state
+ * in the base, or in the working map, is given exactly that state, so that
+ * rounding does not count as a change. Another scale is refused unless
+ * both maps have a geospatial georeferencing.
+ */
+bool loadForMerge(const Map& mine, const QString& map_path, const QString& copy_path, MergeInput& input, QString* error, bool transform);
 
 /**
  * Makes the returned copy the new base, by copying its file. To be called

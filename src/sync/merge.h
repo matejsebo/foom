@@ -46,6 +46,13 @@ class Object;
  */
 QByteArray contentHash(const Object& object);
 
+/**
+ * True when the two objects have the same content, except that their
+ * coordinates and pattern origins may differ by up to the tolerance (in mm)
+ * and their rotations by up to a thousandth of a radian.
+ */
+bool sameContent(const Object& a, const Object& b, double tolerance);
+
 
 /** One object which differs between my map and theirs. */
 struct MergeRow
@@ -75,9 +82,27 @@ struct MergeSymbolRow
 {
 	enum Status { New, Differs };
 	
+	/** For a definition which differs: whose is used after the merge. */
+	enum Action { KeepMine, KeepTheirs };
+	
 	QString number;
 	QString name;
 	Status status = New;
+	Action action = KeepMine;
+};
+
+/**
+ * A colour of theirs which I lack and a listed symbol uses, or one whose
+ * definition differs from that of my colour which matches it.
+ */
+struct MergeColorRow
+{
+	enum Status { New, Differs };
+	
+	QString name;      ///< Their name.
+	QString own_name;  ///< The name of my colour which matches; empty for a new one.
+	Status status = New;
+	MergeSymbolRow::Action action = MergeSymbolRow::KeepMine;
 };
 
 struct MergePlan
@@ -85,6 +110,7 @@ struct MergePlan
 	bool two_way = false;  ///< True when there was no base.
 	std::vector<MergeRow> rows;
 	std::vector<MergeSymbolRow> symbols;
+	std::vector<MergeColorRow> colors;
 	
 	int count(MergeRow::Status status) const;
 	int unresolved() const;
@@ -95,6 +121,9 @@ struct MergePlan
 	
 	/** Marks every conflict resolved with the action it has. */
 	void acceptPrefilled();
+	
+	/** Gives every symbol and colour whose definition differs the action. */
+	void resolveDefinitions(MergeSymbolRow::Action action);
 };
 
 /**
@@ -112,6 +141,8 @@ struct MergeResult
 	int deleted = 0;
 	int symbols = 0;  ///< Symbols imported.
 	int parts = 0;    ///< Parts added.
+	int colors = 0;   ///< Colours added.
+	int definitions = 0;  ///< Symbols and colours of mine which took their definition.
 	
 	int changes() const { return added + replaced + deleted; }
 };
@@ -119,6 +150,12 @@ struct MergeResult
 /**
  * Carries out the actions of the plan's rows in my map, as one undo step.
  * A plan which changes nothing adds no undo step.
+ *
+ * Symbols and colours come first: a colour and a symbol whose row says
+ * "keep theirs" take their definition in my place (a symbol under my
+ * number), and a symbol which I lack and an object needs is imported. Their colours are matched to
+ * mine by name, then by CMYK and spot colour; a colour which I lack is
+ * appended below my colours. Neither is part of the undo step.
  */
 bool applyMerge(Map& mine, const Map& theirs, const MergePlan& plan, MergeResult* result, QString* error);
 
