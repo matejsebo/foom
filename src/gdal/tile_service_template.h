@@ -46,6 +46,7 @@ namespace OpenOrienteering {
 
 class Georeferencing;
 class Map;
+class MapView;
 class TileWorker;
 
 
@@ -70,6 +71,15 @@ public:
 	/** Whether GDAL offers the WMS and WMTS drivers; otherwise reason says what is missing. */
 	static bool driversAvailable(QString* reason = nullptr);
 
+	/**
+	 * foom: The warning before printing or exporting, naming the loaded
+	 * service templates which the view shows (every loaded one when view is
+	 * nullptr); empty when there is none.
+	 * 
+	 * Printing draws only the tiles already fetched for the screen.
+	 */
+	static QString printWarning(const Map& map, const MapView* view);
+	
 	/** The directory for GDAL's disk cache of fetched tiles. */
 	static QString cacheDirectory();
 	static void setCacheDirectory(const QString& path);

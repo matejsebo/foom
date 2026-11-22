@@ -958,6 +958,54 @@ private slots:
 		QVERIFY(raw->warningText().isEmpty());
 	}
 
+	void printWarningTest()
+	{
+		// Accept of the print warning (the design notes, "Print warning")
+		Map map;
+		setupMap(map);
+		MapView map_view(&map);
+
+		// (1) No service template: no warning
+		QVERIFY(TileServiceTemplate::printWarning(map, &map_view).isEmpty());
+
+		auto first = xyzService(stub);
+		first.name = QStringLiteral("First service");
+		auto second = xyzService(stub);
+		second.name = QStringLiteral("Second service");
+		auto* a = new TileServiceTemplate(first, &map);
+		auto* b = new TileServiceTemplate(second, &map);
+		map.addTemplate(0, std::unique_ptr<Template>(a));
+		map.addTemplate(1, std::unique_ptr<Template>(b));
+
+		// (2) Not loaded: no warning
+		QVERIFY(TileServiceTemplate::printWarning(map, &map_view).isEmpty());
+
+		QVERIFY2(a->setupAndLoad(nullptr, nullptr), qPrintable(a->errorString()));
+		QVERIFY2(b->setupAndLoad(nullptr, nullptr), qPrintable(b->errorString()));
+
+		// (3) Loaded and visible: both names
+		map_view.setTemplateVisibility(a, { 1.0, true });
+		map_view.setTemplateVisibility(b, { 1.0, true });
+		auto const both = TileServiceTemplate::printWarning(map, &map_view);
+		QVERIFY(both.contains(first.name));
+		QVERIFY(both.contains(second.name));
+
+		// (4) One hidden: only the other
+		map_view.setTemplateVisibility(b, { 1.0, false });
+		auto const one = TileServiceTemplate::printWarning(map, &map_view);
+		QVERIFY(one.contains(first.name));
+		QVERIFY(!one.contains(second.name));
+
+		// (5) All templates hidden in the view: none
+		map_view.setAllTemplatesHidden(true);
+		QVERIFY(TileServiceTemplate::printWarning(map, &map_view).isEmpty());
+
+		// (6) Without a view, every loaded service
+		auto const any = TileServiceTemplate::printWarning(map, nullptr);
+		QVERIFY(any.contains(first.name));
+		QVERIFY(any.contains(second.name));
+	}
+
 	void localMapTest()
 	{
 		// Accept (9)

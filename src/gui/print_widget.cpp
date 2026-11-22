@@ -108,6 +108,7 @@
 
 #ifdef MAPPER_USE_GDAL
 #  include "gdal/kmz_groundoverlay_export.h"
+#  include "gdal/tile_service_template.h"  // foom
 #endif
 
 
@@ -1185,6 +1186,15 @@ void PrintWidget::showTemplatesClicked(bool checked)
 void PrintWidget::checkTemplateConfiguration()
 {
 	bool visibility = map_printer->engineMayRasterize() && show_templates_check->isChecked();
+	// foom: the design notes, "Print warning"
+	QString online;
+#ifdef MAPPER_USE_GDAL
+	if (show_templates_check->isChecked())
+		online = TileServiceTemplate::printWarning(*map, main_view);
+#endif
+	templates_warning_text->setText(online.isEmpty() ? tr("Template appearance may differ.") : online);
+	templates_warning_text->setWordWrap(!online.isEmpty());
+	visibility = visibility || !online.isEmpty();
 	templates_warning_icon->setVisible(visibility);
 	templates_warning_text->setVisible(visibility);
 }
@@ -1277,6 +1287,18 @@ void PrintWidget::printClicked()
 		if (QMessageBox::question(this, tr("Warning"), text, QMessageBox::Ok | QMessageBox::Cancel) == QMessageBox::Cancel)
 			return;
 	}
+	
+#ifdef MAPPER_USE_GDAL
+	// foom: the design notes, "Print warning"
+	if (show_templates_check->isChecked())
+	{
+		auto const warning = TileServiceTemplate::printWarning(*map, main_view);
+		if (!warning.isEmpty()
+		    && QMessageBox::question(this, tr("Warning"), warning + QLatin1String("\n\n") + tr("Continue?"),
+		                             QMessageBox::Ok | QMessageBox::Cancel) == QMessageBox::Cancel)
+			return;
+	}
+#endif
 	
 	if (tile_size_combo->isVisible())
 	{

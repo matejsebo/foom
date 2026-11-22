@@ -31,6 +31,7 @@
 #include <QLatin1String>
 #include <QMetaObject>
 #include <QPainter>
+#include <QStringList>
 #include <QStandardPaths>
 #include <QThread>
 #include <QTransform>
@@ -43,6 +44,7 @@
 #include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_coord.h"
+#include "core/map_view.h"
 #include "gdal/gdal_manager.h"
 #include "gdal/tile_worker.h"
 
@@ -78,6 +80,30 @@ bool TileServiceTemplate::driversAvailable(QString* reason)
 		}
 	}
 	return true;
+}
+
+// static, foom
+QString TileServiceTemplate::printWarning(const Map& map, const MapView* view)
+{
+	if (view && view->areAllTemplatesHidden())
+		return {};
+	QStringList names;
+	for (int i = 0; i < map.getNumTemplates(); ++i)
+	{
+		auto const* temp = qobject_cast<const TileServiceTemplate*>(map.getTemplate(i));
+		if (!temp || temp->getTemplateState() != Loaded)
+			continue;
+		if (view && !view->isTemplateVisible(temp))
+			continue;
+		names.append(temp->getTemplateFilename());
+	}
+	if (names.isEmpty())
+		return {};
+	return tr("Map services are printed only from the tiles already fetched for the screen, "
+	          "at the screen's resolution: %1. "
+	          "Areas not yet seen on screen stay empty. "
+	          "Download extent in the Add map service dialog makes an ordinary raster template for a complete print.")
+	        .arg(names.join(QLatin1String(", ")));
 }
 
 // static
