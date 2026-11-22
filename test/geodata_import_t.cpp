@@ -563,7 +563,7 @@ private slots:
 			selectData(child<QComboBox>(dialog, "clip_combo"), 3);  // box
 			double const values[4] = { box.left(), box.top(), box.right(), box.bottom() };
 			for (int i = 0; i < 4; ++i)
-				child<QDoubleSpinBox>(dialog, ("box_spin_" + QByteArray::number(i)).constData())->setValue(values[i]);
+				child<QDoubleSpinBox>(dialog, QByteArray(QByteArray("box_spin_") + QByteArray::number(i)).constData())->setValue(values[i]);
 			selectText(child<QComboBox>(dialog, "layer_tag_combo"), QStringLiteral("kind"));
 			selectText(child<QComboBox>(dialog, "text_combo"), QStringLiteral("name"));
 			child<QDoubleSpinBox>(dialog, "simplify_spin")->setValue(0.5);
