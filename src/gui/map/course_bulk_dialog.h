@@ -21,6 +21,7 @@
 #ifndef FOOM_COURSE_BULK_DIALOG_H
 #define FOOM_COURSE_BULK_DIALOG_H
 
+#include <Qt>
 #include <QDialog>
 #include <QObject>
 #include <QString>
@@ -66,6 +67,12 @@ public:
 	
 	/** Applies and closes; when nothing was changed, says why and stays. */
 	void accept() override;
+	
+	/**
+	 * The role of the entries of the list of course objects which holds the
+	 * type of a marker (CourseItem::Type); the objects have none.
+	 */
+	static constexpr int markerRole() { return Qt::UserRole + 1; }
 	
 private:
 	CourseCondition condition() const;

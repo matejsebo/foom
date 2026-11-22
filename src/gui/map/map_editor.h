@@ -1622,6 +1622,7 @@ private:
 	QToolBar* toolbar_editing;
 	QToolBar* toolbar_advanced_editing;
 	QToolBar* toolbar_mapparts = nullptr;
+	QToolBar* toolbar_course = nullptr;  // foom
 	
 	// For mobile UI
 	ActionGridBar* bottom_action_bar = nullptr;

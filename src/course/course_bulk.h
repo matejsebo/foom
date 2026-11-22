@@ -99,6 +99,27 @@ CourseBulkReport removeFromCourses(CourseData& data, const QString& code, const 
 
 
 /**
+ * Returns true for the items without a course object which the bulk
+ * commands put in and take out: the mandatory crossing point, the
+ * mandatory passage, the map exchange and the map flip.
+ */
+bool isCourseMarker(CourseItem::Type type);
+
+/**
+ * Puts a marker into courses, as insertIntoCourses() puts an object. A
+ * marker is not put beside one of its kind; a map exchange and a map flip
+ * count as one kind. Another type is refused as NoObject.
+ */
+CourseBulkReport insertMarkerIntoCourses(CourseData& data, CourseItem::Type type, const QStringList& courses, const CourseCondition& condition);
+
+/**
+ * Takes the markers of a type out of courses, as removeFromCourses()
+ * takes the items of an object.
+ */
+CourseBulkReport removeMarkerFromCourses(CourseData& data, CourseItem::Type type, const QStringList& courses, const CourseCondition& condition);
+
+
+/**
  * The lowest code of a control which is a number; 0 when there is none.
  * A code with a leading zero or with anything but digits is no number.
  */

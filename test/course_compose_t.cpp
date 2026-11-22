@@ -32,6 +32,7 @@
 #include <QComboBox>
 #include <QDir>
 #include <QEvent>
+#include <QIcon>
 #include <QKeyEvent>
 #include <QListWidget>
 #include <QListWidgetItem>
@@ -39,9 +40,11 @@
 #include <QObject>
 #include <QPoint>
 #include <QRadioButton>
+#include <QSize>
 #include <QSpinBox>
 #include <QString>
 #include <QStringList>
+#include <QToolBar>
 #include <QVariant>
 
 #include "global.h"
@@ -108,6 +111,28 @@ QString itemsOf(const CourseData& data, const QString& name)
 	QStringList codes;
 	for (auto const& item : found->items)
 		codes.push_back(item.code.isEmpty() ? QStringLiteral("-") : item.code);
+	return codes.join(QLatin1Char(' '));
+}
+
+/// The items of a course as itemsOf() has them, the markers by the
+/// letters of the OCD records: k, w, g and x.
+QString itemTextOf(const CourseData& data, const QString& name)
+{
+	auto const* found = data.findCourse(name);
+	if (!found)
+		return QStringLiteral("?");
+	QStringList codes;
+	for (auto const& item : found->items)
+	{
+		switch (item.type)
+		{
+		case CourseItem::CrossingPoint: codes.push_back(QStringLiteral("k")); break;
+		case CourseItem::Passage:       codes.push_back(QStringLiteral("w")); break;
+		case CourseItem::MapExchange:   codes.push_back(QStringLiteral("g")); break;
+		case CourseItem::MapFlip:       codes.push_back(QStringLiteral("x")); break;
+		default:                        codes.push_back(item.code.isEmpty() ? QStringLiteral("-") : item.code);
+		}
+	}
 	return codes.join(QLatin1Char(' '));
 }
 
@@ -228,6 +253,7 @@ private slots:
 	void refusedTest();
 	void dialogTest();
 	void editorTest();
+	void markerTest();
 };
 
 
@@ -718,7 +744,11 @@ void CourseComposeTest::dialogTest()
 		QVERIFY(dialog.findChild<QComboBox*>(QStringLiteral("course-bulk-second")));
 		QVERIFY(!dialog.findChild<QRadioButton*>(QStringLiteral("course-bulk-all")));
 		
-		QCOMPARE(objects->count(), 7);
+		// The seven objects and the four markers.
+		QCOMPARE(objects->count(), 11);
+		QCOMPARE(objects->itemData(7, CourseBulkDialog::markerRole()).toInt(), int(CourseItem::CrossingPoint));
+		QCOMPARE(objects->itemData(10, CourseBulkDialog::markerRole()).toInt(), int(CourseItem::MapFlip));
+		QVERIFY(!objects->itemData(6, CourseBulkDialog::markerRole()).isValid());
 		QCOMPARE(objects->currentData().toString(), QStringLiteral("34"));
 		QVERIFY(objects->findData(QStringLiteral("S1")) >= 0);
 		QVERIFY(objects->findData(QStringLiteral("D1")) < 0);
@@ -800,6 +830,43 @@ void CourseComposeTest::dialogTest()
 		QVERIFY(map.undoManager().undo());
 		QVERIFY(map.courseData() == renumberData());
 	}
+	
+	// The markers.
+	{
+		Map map;
+		changeCourseData(map, bulkData());
+		auto const steps = map.undoManager().undoStepCount();
+	
+		CourseBulkDialog dialog(&map, CourseBulkDialog::Insert, QStringLiteral("34"));
+		auto* objects = dialog.findChild<QComboBox*>(QStringLiteral("course-bulk-object"));
+		auto* courses = dialog.findChild<QListWidget*>(QStringLiteral("course-bulk-courses"));
+		auto* first = dialog.findChild<QComboBox*>(QStringLiteral("course-bulk-first"));
+		QVERIFY(objects && courses && first);
+		QCOMPARE(first->count(), 7);
+		objects->setCurrentIndex(objects->findData(int(CourseItem::MapExchange), CourseBulkDialog::markerRole()));
+		first->setCurrentIndex(first->findData(QStringLiteral("32")));
+		courses->item(0)->setCheckState(Qt::Checked);
+		QString message;
+		QVERIFY(dialog.apply(&message));
+		QVERIFY(message.contains(objects->currentText()));
+		QCOMPARE(itemTextOf(map.courseData(), QStringLiteral("A")), QStringLiteral("S1 31 32 g 33 F1"));
+		QCOMPARE(map.undoManager().undoStepCount(), steps + 1);
+	
+		// A second time there is no such place.
+		QVERIFY(!dialog.apply(&message));
+		QCOMPARE(map.undoManager().undoStepCount(), steps + 1);
+	
+		CourseBulkDialog remove(&map, CourseBulkDialog::Remove, QString{});
+		auto* remove_objects = remove.findChild<QComboBox*>(QStringLiteral("course-bulk-object"));
+		auto* remove_courses = remove.findChild<QListWidget*>(QStringLiteral("course-bulk-courses"));
+		QVERIFY(remove_objects && remove_courses);
+		remove_objects->setCurrentIndex(remove_objects->findData(int(CourseItem::MapExchange), CourseBulkDialog::markerRole()));
+		for (int i = 0; i < remove_courses->count(); ++i)
+			remove_courses->item(i)->setCheckState(Qt::Checked);
+		QVERIFY(remove.apply(&message));
+		QVERIFY(map.courseData() == bulkData());
+		QCOMPARE(map.undoManager().undoStepCount(), steps + 2);
+	}
 }
 
 
@@ -816,6 +883,13 @@ void CourseComposeTest::editorTest()
 	
 	for (auto const* id : { "compose-course", "course-insert-into-courses", "course-delete-from-courses", "course-renumber" })
 		QVERIFY2(editor->getAction(id), id);
+	
+	// The button of the toolbar, with an icon of its own.
+	auto* toolbar = window->findChild<QToolBar*>(QStringLiteral("Course setting toolbar"));
+	QVERIFY(toolbar);
+	QVERIFY(toolbar->actions().contains(editor->getAction("compose-course")));
+	QVERIFY(!editor->getAction("compose-course")->icon().isNull());
+	QVERIFY(QIcon(QStringLiteral(":/images/compose-course.png")).availableSizes().contains(QSize(32, 32)));
 	
 	editor->getAction("course-dock")->trigger();
 	auto* dock = window->findChild<CourseWidget*>();
@@ -866,6 +940,120 @@ void CourseComposeTest::editorTest()
 	
 	editor->setTool(nullptr);
 	window->deleteLater();
+}
+
+
+/// Accept (11)
+void CourseComposeTest::markerTest()
+{
+	auto const all = names({ "A", "B", "C", "D" });
+	auto const items = [](const CourseData& data, const char* name) { return itemTextOf(data, QString::fromLatin1(name)); };
+	
+	QVERIFY(isCourseMarker(CourseItem::CrossingPoint));
+	QVERIFY(isCourseMarker(CourseItem::Passage));
+	QVERIFY(isCourseMarker(CourseItem::MapExchange));
+	QVERIFY(isCourseMarker(CourseItem::MapFlip));
+	QVERIFY(!isCourseMarker(CourseItem::Control));
+	QVERIFY(!isCourseMarker(CourseItem::TeamForkBegin));
+	
+	// A crossing point after 32, in every visit.
+	auto data = bulkData();
+	auto report = insertMarkerIntoCourses(data, CourseItem::CrossingPoint, all, condition(CourseCondition::After, QStringLiteral("32")));
+	QVERIFY(report.ok());
+	QCOMPARE(items(data, "A"), QStringLiteral("S1 31 32 k 33 F1"));
+	QCOMPARE(items(data, "B"), QStringLiteral("S1 32 k 33 F1"));
+	QCOMPARE(items(data, "C"), QStringLiteral("S1 31 32 k 31 33 F1"));
+	QCOMPARE(items(data, "D"), QStringLiteral("S1 F1"));
+	QCOMPARE(report.items(), 3);
+	QCOMPARE(report.unchanged, names({ "D" }));
+	
+	// Not beside one of its kind.
+	auto const once = data;
+	report = insertMarkerIntoCourses(data, CourseItem::CrossingPoint, all, condition(CourseCondition::After, QStringLiteral("32")));
+	QVERIFY(report.ok());
+	QVERIFY(report.changed.empty());
+	QVERIFY(data == once);
+	
+	// A passage beside the crossing point is something else.
+	report = insertMarkerIntoCourses(data, CourseItem::Passage, names({ "A" }), condition(CourseCondition::Before, QStringLiteral("33")));
+	QVERIFY(report.ok());
+	QCOMPARE(items(data, "A"), QStringLiteral("S1 31 32 k w 33 F1"));
+	
+	// Between: only where the leg is, in its direction.
+	data = bulkData();
+	report = insertMarkerIntoCourses(data, CourseItem::Passage, names({ "A", "B", "C" }), condition(CourseCondition::Between, QStringLiteral("31"), QStringLiteral("32")));
+	QVERIFY(report.ok());
+	QCOMPARE(items(data, "A"), QStringLiteral("S1 31 w 32 33 F1"));
+	QCOMPARE(items(data, "B"), QStringLiteral("S1 32 33 F1"));
+	QCOMPARE(items(data, "C"), QStringLiteral("S1 31 w 32 31 33 F1"));
+	QCOMPARE(report.unchanged, names({ "B" }));
+	
+	// A map exchange, and no flip beside it.
+	data = bulkData();
+	report = insertMarkerIntoCourses(data, CourseItem::MapExchange, names({ "A" }), condition(CourseCondition::After, QStringLiteral("32")));
+	QVERIFY(report.ok());
+	QCOMPARE(items(data, "A"), QStringLiteral("S1 31 32 g 33 F1"));
+	report = insertMarkerIntoCourses(data, CourseItem::MapFlip, names({ "A" }), condition(CourseCondition::Before, QStringLiteral("33")));
+	QVERIFY(report.ok());
+	QVERIFY(report.changed.empty());
+	report = insertMarkerIntoCourses(data, CourseItem::MapFlip, names({ "B" }), condition(CourseCondition::Before, QStringLiteral("33")));
+	QCOMPARE(items(data, "B"), QStringLiteral("S1 32 x 33 F1"));
+	
+	// Taking out.
+	data = bulkData();
+	insertMarkerIntoCourses(data, CourseItem::CrossingPoint, all, condition(CourseCondition::After, QStringLiteral("32")));
+	insertMarkerIntoCourses(data, CourseItem::CrossingPoint, names({ "C" }), condition(CourseCondition::After, QStringLiteral("33")));
+	QCOMPARE(items(data, "C"), QStringLiteral("S1 31 32 k 31 33 k F1"));
+	auto with_markers = data;
+	report = removeMarkerFromCourses(data, CourseItem::CrossingPoint, names({ "A", "C" }), condition(CourseCondition::All));
+	QVERIFY(report.ok());
+	QCOMPARE(items(data, "A"), QStringLiteral("S1 31 32 33 F1"));
+	QCOMPARE(items(data, "B"), QStringLiteral("S1 32 k 33 F1"));
+	QCOMPARE(items(data, "C"), QStringLiteral("S1 31 32 31 33 F1"));
+	QCOMPARE(report.items(), 3);
+	data = with_markers;
+	report = removeMarkerFromCourses(data, CourseItem::CrossingPoint, names({ "C" }), condition(CourseCondition::Before, QStringLiteral("F1")));
+	QCOMPARE(items(data, "C"), QStringLiteral("S1 31 32 k 31 33 F1"));
+	data = with_markers;
+	report = removeMarkerFromCourses(data, CourseItem::CrossingPoint, names({ "A", "B" }), condition(CourseCondition::Between, QStringLiteral("32"), QStringLiteral("33")));
+	QCOMPARE(items(data, "A"), QStringLiteral("S1 31 32 33 F1"));
+	QCOMPARE(items(data, "B"), QStringLiteral("S1 32 33 F1"));
+	data = with_markers;
+	report = removeMarkerFromCourses(data, CourseItem::Passage, all, condition(CourseCondition::All));
+	QVERIFY(report.ok());
+	QVERIFY(report.changed.empty());
+	QVERIFY(data == with_markers);
+	
+	// Refused, with nothing changed.
+	auto const original = bulkData();
+	struct Refusal
+	{
+		CourseItem::Type type;
+		QStringList courses;
+		CourseCondition condition;
+		CourseBulkReport::Error error;
+	};
+	auto const after_32 = condition(CourseCondition::After, QStringLiteral("32"));
+	const std::vector<Refusal> refusals = {
+	    { CourseItem::Control, all, after_32, CourseBulkReport::NoObject },
+	    { CourseItem::TeamForkBegin, all, after_32, CourseBulkReport::NoObject },
+	    { CourseItem::CrossingPoint, {}, after_32, CourseBulkReport::NoCourses },
+	    { CourseItem::CrossingPoint, names({ "X" }), after_32, CourseBulkReport::NoCourses },
+	    { CourseItem::CrossingPoint, all, condition(CourseCondition::All), CourseBulkReport::NoCondition },
+	    { CourseItem::CrossingPoint, all, condition(CourseCondition::After, QStringLiteral("99")), CourseBulkReport::NoCondition },
+	    { CourseItem::MapExchange, all, condition(CourseCondition::Between, QStringLiteral("32"), QStringLiteral("32")), CourseBulkReport::InvalidOrder },
+	};
+	for (auto const& refusal : refusals)
+	{
+		data = original;
+		report = insertMarkerIntoCourses(data, refusal.type, refusal.courses, refusal.condition);
+		QCOMPARE(report.error, refusal.error);
+		QVERIFY(data == original);
+	}
+	data = original;
+	report = removeMarkerFromCourses(data, CourseItem::Start, all, condition(CourseCondition::All));
+	QCOMPARE(report.error, CourseBulkReport::NoObject);
+	QVERIFY(data == original);
 }
 
 

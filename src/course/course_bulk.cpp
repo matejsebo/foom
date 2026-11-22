@@ -48,13 +48,18 @@ Course* findCourse(CourseData& data, const QString& name)
 	return found == end(data.courses) ? nullptr : &*found;
 }
 
-/// The checks which putting in and taking out share.
-CourseBulkReport::Error checkCommand(const CourseData& data, const QString& code, const QStringList& courses, const CourseCondition& condition, bool all_allowed)
+/// The object of a command: one which is there and can be an item.
+CourseBulkReport::Error checkObject(const CourseData& data, const QString& code)
 {
 	auto const* object = data.findObject(code);
 	if (!object || !canBeCourseItem(object->kind))
 		return CourseBulkReport::NoObject;
-	
+	return CourseBulkReport::NoError;
+}
+
+/// The checks which putting in and taking out share; the code is empty for a marker.
+CourseBulkReport::Error checkCommand(const CourseData& data, const QString& code, const QStringList& courses, const CourseCondition& condition, bool all_allowed)
+{
 	if (courses.isEmpty())
 		return CourseBulkReport::NoCourses;
 	for (auto const& name : courses)
@@ -101,30 +106,28 @@ int controlNumber(const QString& code)
 	return ok ? number : 0;
 }
 
-}  // namespace
-
-
-
-int CourseBulkReport::items() const
+/// Whether two items are the same thing for "not beside itself": the same
+/// course object, or markers of one kind, a map exchange and a map flip
+/// counting as one kind.
+bool sameThing(const CourseItem& lhs, const CourseItem& rhs)
 {
-	auto sum = 0;
-	for (auto const& entry : changed)
-		sum += entry.second;
-	return sum;
+	if (lhs.namesObject() || rhs.namesObject())
+		return lhs.namesObject() && rhs.namesObject() && lhs.code == rhs.code;
+	auto const part_end = [](CourseItem::Type type) {
+		return type == CourseItem::MapExchange || type == CourseItem::MapFlip;
+	};
+	return lhs.type == rhs.type || (part_end(lhs.type) && part_end(rhs.type));
 }
 
+/// Whether an item is one of those which a command takes out.
+bool isWhat(const CourseItem& item, const CourseItem& what)
+{
+	return what.namesObject() ? names(item, what.code) : item.type == what.type;
+}
 
-CourseBulkReport insertIntoCourses(CourseData& data, const QString& code, const QStringList& courses, const CourseCondition& condition)
+CourseBulkReport insertItem(CourseData& data, const CourseItem& new_item, const QStringList& courses, const CourseCondition& condition)
 {
 	CourseBulkReport report;
-	report.error = checkCommand(data, code, courses, condition, false);
-	if (!report.ok())
-		return report;
-	
-	CourseItem new_item;
-	canBeCourseItem(data.findObject(code)->kind, &new_item.type);
-	new_item.code = code;
-	
 	for (auto const& name : courses)
 	{
 		auto* course = findCourse(data, name);
@@ -154,7 +157,7 @@ CourseBulkReport insertIntoCourses(CourseData& data, const QString& code, const 
 				continue;
 			}
 			// Not beside itself.
-			if ((place > 0 && names(items[place - 1], code)) || (place < size && names(items[place], code)))
+			if ((place > 0 && sameThing(items[place - 1], new_item)) || (place < size && sameThing(items[place], new_item)))
 				continue;
 			places.push_back(place);
 		}
@@ -172,13 +175,9 @@ CourseBulkReport insertIntoCourses(CourseData& data, const QString& code, const 
 }
 
 
-CourseBulkReport removeFromCourses(CourseData& data, const QString& code, const QStringList& courses, const CourseCondition& condition)
+CourseBulkReport removeItem(CourseData& data, const CourseItem& what, const QStringList& courses, const CourseCondition& condition)
 {
 	CourseBulkReport report;
-	report.error = checkCommand(data, code, courses, condition, true);
-	if (!report.ok())
-		return report;
-	
 	for (auto const& name : courses)
 	{
 		auto* course = findCourse(data, name);
@@ -188,7 +187,7 @@ CourseBulkReport removeFromCourses(CourseData& data, const QString& code, const 
 		std::vector<std::size_t> places;
 		for (std::size_t i = 0; i < size; ++i)
 		{
-			if (!names(items[i], code))
+			if (!isWhat(items[i], what))
 				continue;
 			auto const after_first = i > 0 && names(items[i - 1], condition.first);
 			auto meant = false;
@@ -223,6 +222,91 @@ CourseBulkReport removeFromCourses(CourseData& data, const QString& code, const 
 		report.changed.emplace_back(name, int(places.size()));
 	}
 	return report;
+}
+
+}  // namespace
+
+
+
+int CourseBulkReport::items() const
+{
+	auto sum = 0;
+	for (auto const& entry : changed)
+		sum += entry.second;
+	return sum;
+}
+
+
+CourseBulkReport insertIntoCourses(CourseData& data, const QString& code, const QStringList& courses, const CourseCondition& condition)
+{
+	CourseBulkReport report;
+	report.error = checkObject(data, code);
+	if (report.ok())
+		report.error = checkCommand(data, code, courses, condition, false);
+	if (!report.ok())
+		return report;
+	
+	CourseItem new_item;
+	canBeCourseItem(data.findObject(code)->kind, &new_item.type);
+	new_item.code = code;
+	return insertItem(data, new_item, courses, condition);
+}
+
+
+CourseBulkReport removeFromCourses(CourseData& data, const QString& code, const QStringList& courses, const CourseCondition& condition)
+{
+	CourseBulkReport report;
+	report.error = checkObject(data, code);
+	if (report.ok())
+		report.error = checkCommand(data, code, courses, condition, true);
+	if (!report.ok())
+		return report;
+	
+	CourseItem what;
+	canBeCourseItem(data.findObject(code)->kind, &what.type);
+	what.code = code;
+	return removeItem(data, what, courses, condition);
+}
+
+
+bool isCourseMarker(CourseItem::Type type)
+{
+	switch (type)
+	{
+	case CourseItem::CrossingPoint:
+	case CourseItem::Passage:
+	case CourseItem::MapExchange:
+	case CourseItem::MapFlip:
+		return true;
+	default:
+		return false;
+	}
+}
+
+
+CourseBulkReport insertMarkerIntoCourses(CourseData& data, CourseItem::Type type, const QStringList& courses, const CourseCondition& condition)
+{
+	CourseBulkReport report;
+	report.error = isCourseMarker(type) ? checkCommand(data, {}, courses, condition, false) : CourseBulkReport::NoObject;
+	if (!report.ok())
+		return report;
+	
+	CourseItem new_item;
+	new_item.type = type;
+	return insertItem(data, new_item, courses, condition);
+}
+
+
+CourseBulkReport removeMarkerFromCourses(CourseData& data, CourseItem::Type type, const QStringList& courses, const CourseCondition& condition)
+{
+	CourseBulkReport report;
+	report.error = isCourseMarker(type) ? checkCommand(data, {}, courses, condition, true) : CourseBulkReport::NoObject;
+	if (!report.ok())
+		return report;
+	
+	CourseItem what;
+	what.type = type;
+	return removeItem(data, what, courses, condition);
 }
 
 

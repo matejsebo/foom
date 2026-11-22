@@ -448,6 +448,7 @@ MapEditorController::~MapEditorController()
 	delete toolbar_editing;
 	delete toolbar_advanced_editing;
 	delete toolbar_mapparts;
+	delete toolbar_course;  // foom
 	delete print_dock_widget;
 	delete measure_dock_widget;
 	delete local_warp_dialog;  // foom
@@ -1432,7 +1433,7 @@ void MapEditorController::createActions()
 	// foom: the course symbols; the design notes, "FOOM's course symbols"
 	course_symbols_act = newAction("course-symbols", tr("Add course symbols"), this, SLOT(addCourseSymbolsClicked()), nullptr, tr("Add the symbols of course setting to this map: start, control and finish, and the symbols of the control descriptions."));
 	// foom: the design notes, "Composing a course and the bulk commands"
-	compose_course_act = newToolAction("compose-course", tr("Compose course"), this, SLOT(composeCourseClicked()), "draw-point.png", tr("Compose the course of the course dock by clicks in the map: start, controls and finish."));
+	compose_course_act = newToolAction("compose-course", tr("Compose course"), this, SLOT(composeCourseClicked()), "compose-course.png", tr("Compose the course of the course dock by clicks in the map: start, controls and finish."));
 	course_insert_act = newAction("course-insert-into-courses", tr("Insert course object into courses..."), this, SLOT(insertIntoCoursesClicked()), nullptr, tr("Put a course object into many courses at once."));
 	course_delete_act = newAction("course-delete-from-courses", tr("Delete course object from courses..."), this, SLOT(deleteFromCoursesClicked()), nullptr, tr("Take a course object out of many courses at once. The object stays in the map."));
 	course_renumber_act = newAction("course-renumber", tr("Renumber all controls..."), this, SLOT(renumberControlsClicked()), nullptr, tr("Give the controls new codes, from a new first code on."));
@@ -2076,12 +2077,18 @@ void MapEditorController::createMenuAndToolbars()
 	toolbar_advanced_editing->addAction(boolean_xor_act);
 	toolbar_advanced_editing->addAction(boolean_merge_holes_act);
 	
+	// foom: course setting toolbar
+	toolbar_course = window->addToolBar(tr("Course setting"));
+	toolbar_course->setObjectName(QString::fromLatin1("Course setting toolbar"));
+	toolbar_course->addAction(compose_course_act);
+	
 	toolbars_menu->addAction(main_toolbar->toggleViewAction());
 	toolbars_menu->addAction(toolbar_view->toggleViewAction());
 	toolbars_menu->addAction(toolbar_mapparts->toggleViewAction());
 	toolbars_menu->addAction(toolbar_drawing->toggleViewAction());
 	toolbars_menu->addAction(toolbar_editing->toggleViewAction());
 	toolbars_menu->addAction(toolbar_advanced_editing->toggleViewAction());
+	toolbars_menu->addAction(toolbar_course->toggleViewAction());  // foom
 	window->addToolBarBreak();  // foom: the numeric entry bar has its own row and starts hidden
 	window->addToolBar(numeric_entry_bar);
 	numeric_entry_bar->hide();
@@ -2099,7 +2106,7 @@ void MapEditorController::createMenuAndToolbars()
 	context_menu->addAction(copy_coords_act);
 	
 	// Show keyboard shortcuts in toolbar tooltips
-	for (auto* toolbar : {main_toolbar, toolbar_view, toolbar_mapparts, toolbar_drawing, toolbar_editing, toolbar_advanced_editing})
+	for (auto* toolbar : {main_toolbar, toolbar_view, toolbar_mapparts, toolbar_drawing, toolbar_editing, toolbar_advanced_editing, toolbar_course})
 	{
 		for (auto* action : toolbar->actions())
 		{
