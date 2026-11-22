@@ -25,16 +25,21 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFileDialog>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLatin1String>
 #include <QMenu>
 #include <QMessageBox>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QVBoxLayout>
 
+#include "core/colour_load.h"
 #include "core/colour_swatch.h"
 #include "core/map.h"
+#include "fileformats/file_format.h"
+#include "fileformats/file_import_export.h"
 #include "gui/main_window.h"
 
 
@@ -100,6 +105,33 @@ void importSwatch(Map* map, QWidget* parent)
 	           report.text());
 }
 
+// the design notes, "Load colours from file"
+void loadColours(Map* map, QWidget* parent)
+{
+	auto const title = tr("Load colours from file");
+	auto selected = MainWindow::getOpenFileName(parent, title, FileFormat::MapFile);
+	if (!selected)
+		return;
+	Map source;
+	auto importer = selected.fileFormat() ? selected.fileFormat()->makeImporter(selected.filePath(), &source, nullptr) : nullptr;
+	if (!importer || !importer->doImport())
+	{
+		QMessageBox::warning(parent, title, tr("Cannot read %1.").arg(selected.filePath()));
+		return;
+	}
+	auto const replace = tr("Replace: colours of the same name take the file's definition and order");
+	auto const append = tr("Append: add only the colours which the map does not have");
+	bool ok = false;
+	auto const choice = QInputDialog::getItem(parent, title, tr("%1 colour(s) in the file.").arg(source.getNumColors()),
+	                                          QStringList{ replace, append }, 0, false, &ok);
+	if (!ok)
+		return;
+	auto const report = loadColoursFrom(*map, source, choice == append ? ColourLoadMode::Append : ColourLoadMode::Replace);
+	showReport(parent, title,
+	           tr("Changed: %1, added: %2").arg(report.changed.size()).arg(report.added.size()),
+	           report.text());
+}
+
 }  // namespace
 
 QMenu* createColourToolsMenu(Map* map, MainWindow* window, QWidget* parent)
@@ -108,6 +140,9 @@ QMenu* createColourToolsMenu(Map* map, MainWindow* window, QWidget* parent)
 	auto* menu = new QMenu(parent);
 	QObject::connect(menu->addAction(tr("Import swatch...")), &QAction::triggered, parent, [map, parent]() {
 		importSwatch(map, parent);
+	});
+	QObject::connect(menu->addAction(tr("Load colours from file...")), &QAction::triggered, parent, [map, parent]() {
+		loadColours(map, parent);
 	});
 	return menu;
 }

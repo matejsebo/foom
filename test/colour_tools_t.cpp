@@ -32,9 +32,14 @@
 #include <QString>
 #include <QStringList>
 
+#include "core/colour_load.h"
 #include "core/colour_swatch.h"
 #include "core/map.h"
 #include "core/map_color.h"
+#include "core/map_coord.h"
+#include "core/map_part.h"
+#include "core/objects/object.h"
+#include "core/symbols/line_symbol.h"
 #include "fileformats/file_format.h"
 #include "fileformats/file_import_export.h"
 #include "fileformats/xml_file_format.h"
@@ -72,6 +77,8 @@ private slots:
 	void swatchApply();
 	void blendModeFile();
 	void blendModeCopy();
+	void loadReplaceAndAppend();
+	void loadSpotComposition();
 };
 
 
@@ -247,6 +254,107 @@ void ColourToolsTest::blendModeCopy()
 	delete duplicate;
 	copy.setBlendMode(MapColor::BlendDarken);
 	QVERIFY(!copy.equals(color));
+}
+
+namespace {
+
+LineSymbol* addLineSymbol(Map& map, int number, const QString& name, const MapColor* color)
+{
+	auto* symbol = new LineSymbol();
+	symbol->setNumberComponent(0, number);
+	symbol->setName(name);
+	symbol->setColor(color);
+	symbol->setLineWidth(0.25);
+	map.addSymbol(symbol, map.getNumSymbols());
+	return symbol;
+}
+
+QStringList colourNames(const Map& map)
+{
+	QStringList names;
+	for (int i = 0; i < map.getNumColors(); ++i)
+		names.append(map.getColor(i)->getName());
+	return names;
+}
+
+void makeLoadMaps(Map& map, Map& source)
+{
+	addColor(map, QStringLiteral("Black"), MapColorCmyk(0, 0, 0, 1));
+	auto* brown = addColor(map, QStringLiteral("Brown"), MapColorCmyk(0, 0.5f, 1, 0.2f));
+	addColor(map, QStringLiteral("Red"), MapColorCmyk(0, 1, 1, 0));
+	auto* contour = addLineSymbol(map, 101, QStringLiteral("Contour"), brown);
+	map.addObject(new PathObject(contour, MapCoordVector{ MapCoord(0.0, 0.0), MapCoord(10.0, 0.0) }));
+
+	addColor(source, QStringLiteral("brown"), MapColorCmyk(0, 0.56f, 1, 0.18f));
+	addColor(source, QStringLiteral("Blue"), MapColorCmyk(1, 0, 0, 0));
+	addColor(source, QStringLiteral("Black"), MapColorCmyk(0, 0, 0, 1));
+}
+
+MapColor* addMixedColor(Map& map, const QString& name, const MapColor* spot, float factor)
+{
+	auto* mixed = new MapColor(name, map.getNumColors());
+	mixed->setSpotColorComposition({ SpotColorComponent(spot, factor) });
+	mixed->setCmykFromSpotColors();
+	map.addColor(mixed, map.getNumColors());
+	return mixed;
+}
+
+}  // namespace
+
+// Load colours from file, Accept (1)
+void ColourToolsTest::loadReplaceAndAppend()
+{
+	{
+		Map map, source;
+		makeLoadMaps(map, source);
+		auto const report = loadColoursFrom(map, source, ColourLoadMode::Append);
+		QCOMPARE(report.added, QStringList{ QStringLiteral("Blue") });
+		QCOMPARE(report.existing, (QStringList{ QStringLiteral("Brown"), QStringLiteral("Black") }));
+		QVERIFY(report.changed.isEmpty());
+		QCOMPARE(colourNames(map), (QStringList{ QStringLiteral("Black"), QStringLiteral("Brown"), QStringLiteral("Red"), QStringLiteral("Blue") }));
+		QVERIFY(near(map.getColor(1)->getCmyk(), 0, 0.5f, 1, 0.2f));
+	}
+	{
+		Map map, source;
+		makeLoadMaps(map, source);
+		auto const* brown = map.getColor(1);
+		auto const report = loadColoursFrom(map, source, ColourLoadMode::Replace);
+		QCOMPARE(report.changed, QStringList{ QStringLiteral("brown") });
+		QCOMPARE(report.unchanged, QStringList{ QStringLiteral("Black") });
+		QCOMPARE(report.added, QStringList{ QStringLiteral("Blue") });
+		QCOMPARE(report.kept, QStringList{ QStringLiteral("Red") });
+		QCOMPARE(colourNames(map), (QStringList{ QStringLiteral("brown"), QStringLiteral("Blue"), QStringLiteral("Black"), QStringLiteral("Red") }));
+		QCOMPARE(map.getColor(0), brown);
+		for (int i = 0; i < map.getNumColors(); ++i)
+			QCOMPARE(map.getColor(i)->getPriority(), i);
+		QVERIFY(near(brown->getCmyk(), 0, 0.56f, 1, 0.18f));
+		auto const* contour = map.getSymbol(0);
+		QVERIFY(contour->containsColor(brown));
+		QCOMPARE(map.getPart(0)->getObject(0)->getSymbol(), contour);
+		QVERIFY(!report.text().isEmpty());
+	}
+}
+
+// Load colours from file, Accept (2)
+void ColourToolsTest::loadSpotComposition()
+{
+	Map source;
+	auto* source_spot = addColor(source, QStringLiteral("PMS 471"), MapColorCmyk(0, 0.6f, 1, 0.2f), QStringLiteral("PMS 471"));
+	auto const* source_mixed = addMixedColor(source, QStringLiteral("Brown 50%"), source_spot, 0.5f);
+
+	Map map;
+	auto* spot = addColor(map, QStringLiteral("PMS 471"), MapColorCmyk(0, 0.5f, 1, 0.3f), QStringLiteral("PMS 471"));
+	auto const report = loadColoursFrom(map, source, ColourLoadMode::Replace);
+	QCOMPARE(report.added, QStringList{ QStringLiteral("Brown 50%") });
+	QCOMPARE(report.changed, QStringList{ QStringLiteral("PMS 471") });
+	QCOMPARE(map.getNumColors(), 2);
+	QCOMPARE(map.getColor(0), spot);
+	auto const* mixed = map.getColor(1);
+	QCOMPARE(mixed->getName(), QStringLiteral("Brown 50%"));
+	QCOMPARE(int(mixed->getComponents().size()), 1);
+	QCOMPARE(mixed->getComponents().front().spot_color, spot);
+	QVERIFY(mixed->getCmyk() == source_mixed->getCmyk());
+	QVERIFY(near(spot->getCmyk(), 0, 0.6f, 1, 0.2f));
 }
 
 

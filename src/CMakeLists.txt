@@ -189,6 +189,7 @@ set(Mapper_Common_SRCS
   layout/qr_code.cpp
   layout/layout_part.cpp
   core/color_group.cpp
+  core/colour_load.cpp
   core/colour_swatch.cpp
   core/crt_rules.cpp
   core/extent_printing.cpp
