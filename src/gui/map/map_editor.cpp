@@ -188,6 +188,10 @@
 #include "gui/map/course_bulk_dialog.h"  // foom
 #include "gui/map/course_canvases_dialog.h"  // foom
 #include "gui/map/course_maps_dialog.h"  // foom
+#ifdef QT_PRINTSUPPORT_LIB
+#  include <QPrintDialog>  // foom
+#  include <QPrinter>  // foom
+#endif
 #include "gui/map/course_punch_dialog.h"  // foom
 #include "gui/map/route_settings_dialog.h"  // foom
 #include "gui/map/course_statistics_dialog.h"  // foom
@@ -1460,6 +1464,7 @@ void MapEditorController::createActions()
 	course_routes_export_act = newAction("course-routes-export", tr("Export routes..."), this, SLOT(exportCourseRoutesClicked()), nullptr, tr("Write the lengths and the times of the routes of all courses as a text file."));
 	course_routes_settings_act = newAction("course-routes-settings", tr("Route settings..."), this, SLOT(routeSettingsClicked()), nullptr, tr("The base pace of the route analysis, whether it uses runnability and elevation, and the runnability of the symbols."));
 	course_export_maps_act = newAction("course-export-maps", tr("Export course maps..."), this, SLOT(exportCourseMapsClicked()), nullptr, tr("Write a PDF or map file with the map of every course, of every part of a course with a map exchange, and of every variant or runner of a relay."));
+	course_print_maps_act = newAction("course-print-maps", tr("Print course maps..."), this, SLOT(printCourseMapsClicked()), "print.png", tr("Print the map of every course, of every part of a course with a map exchange, and of every variant or runner of a relay."));  // foom
 	course_relay_variations_act = newAction("course-relay-variations", tr("Export relay variations..."), this, SLOT(exportRelayVariationsClicked()), nullptr, tr("Write which team runs which variant of the relays, as a text file."));
 	// foom: the rangefinder; the design notes, "Rangefinder dock: detail"
 	rangefinder_act = newCheckAction("rangefinder", tr("Rangefinder"), this, SLOT(rangefinderClicked(bool)), nullptr, tr("Draw from a reference point with distance and azimuth."));
@@ -1957,6 +1962,7 @@ void MapEditorController::createMenuAndToolbars()
 	courses_menu->addAction(course_export_kmz_act);
 	courses_menu->addAction(course_relay_variations_act);
 	courses_menu->addAction(course_export_maps_act);
+	courses_menu->addAction(course_print_maps_act);  // foom
 	courses_menu->addAction(course_canvases_act);
 	courses_menu->addSeparator();
 	courses_menu->addAction(course_routes_analyse_act);
@@ -6153,6 +6159,45 @@ void MapEditorController::exportCourseMapsClicked()
 		message += QLatin1Char('\n') + (options.use_canvases ? tr("Left out, as no canvas is used for them: %1.")
 		                                                      : tr("Left out, relays whose variations have a fault: %1.")).arg(report.skipped.join(QLatin1String(", ")));
 	QMessageBox::information(window, title, message);
+}
+
+
+// foom: the design notes, "Printing the course maps"
+void MapEditorController::printCourseMapsClicked()
+{
+#ifdef QT_PRINTSUPPORT_LIB
+	auto const title = tr("Print course maps");
+	if (map->courseData().courses.empty())
+	{
+		QMessageBox::information(window, title, tr("The map has no course."));
+		return;
+	}
+	CourseMapsDialog dialog(map, QString{}, window, CourseMapsDialog::Print);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	auto options = dialog.options();
+	options.view = main_view;
+	QPrinter printer(QPrinter::HighResolution);
+	QPrintDialog print_dialog(&printer, window);
+	print_dialog.setWindowTitle(title);
+	if (print_dialog.exec() != QDialog::Accepted)
+		return;
+
+	QApplication::setOverrideCursor(Qt::WaitCursor);
+	auto const report = printCourseMaps(*map, options, &printer);
+	QApplication::restoreOverrideCursor();
+	map_widget->update();
+	if (!report.ok)
+	{
+		QMessageBox::warning(window, title, report.error);
+		return;
+	}
+	QString message = tr("%n map(s) were printed.", nullptr, report.files.size());
+	if (!report.skipped.isEmpty())
+		message += QLatin1Char('\n') + (options.use_canvases ? tr("Left out, as no canvas is used for them: %1.")
+		                                                      : tr("Left out, relays whose variations have a fault: %1.")).arg(report.skipped.join(QLatin1String(", ")));
+	window->showStatusBarMessage(message, 4000);
+#endif
 }
 
 

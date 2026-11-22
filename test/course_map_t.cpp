@@ -43,6 +43,8 @@
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QObject>
+#include <QPageLayout>
+#include <QPageSize>
 #include <QPushButton>
 #include <QPainter>
 #include <QPrinter>
@@ -334,6 +336,7 @@ private slots:
 	void canvasExportTest();
 	void dialogTest();
 	void mapFilesTest();
+	void printTest();
 };
 
 
@@ -941,6 +944,77 @@ void CourseMapTest::mapFilesTest()
 	QVERIFY(!report.ok);
 	QVERIFY(!report.error.isEmpty());
 	QCOMPARE(courseMapFileName(QStringLiteral("m"), QStringLiteral("A/B"), QStringLiteral("ocd")), QStringLiteral("m.A_B.ocd"));
+}
+
+
+/// Printing the course maps, Accept (9)
+void CourseMapTest::printTest()
+{
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	Map map;
+	fillMap(map);
+	map.getSymbol(8)->setHidden(true);  // the plain symbol 101
+	map.setHasUnsavedChanges(false);
+	
+	// A printer which writes a PDF file stands for the printer of the print dialog.
+	auto const path = QDir(dir.path()).absoluteFilePath(QStringLiteral("printed.pdf"));
+	QPrinter printer(QPrinter::HighResolution);
+	printer.setOutputFormat(QPrinter::PdfFormat);
+	printer.setOutputFileName(path);
+	printer.setPageSize(QPageSize(QPageSize::A4));
+	printer.setPageOrientation(QPageLayout::Portrait);
+	
+	CourseMapExportOptions options;
+	options.courses = QStringList{ QStringLiteral("Flip"), QStringLiteral("Nobody") };
+	options.extent = QStringLiteral("Sheet");
+	auto report = printCourseMaps(map, options, &printer);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.files, QStringList{ QStringLiteral("Flip") });
+	QCOMPARE(report.skipped, QStringList{ QStringLiteral("Nobody") });
+	// The paper is that of the printer, a side a page.
+	QCOMPARE(pagesOf(path), (std::vector<QSize>{ QSize(595, 842), QSize(595, 842) }));
+	QCOMPARE(hiddenSymbols(map), QStringList{ QStringLiteral("101") });
+	QVERIFY(!map.hasUnsavedChanges());
+	
+	// A course with a map exchange is two print jobs, one for every sheet; the file has the last.
+	options.courses = QStringList{ QStringLiteral("X") };
+	report = printCourseMaps(map, options, &printer);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.files, (QStringList{ QStringLiteral("X_1"), QStringLiteral("X_2") }));
+	QCOMPARE(pagesOf(path), std::vector<QSize>{ QSize(595, 842) });
+	
+	// Landscape paper, and the canvases.
+	auto data = map.courseData();
+	CourseCanvas canvas;
+	canvas.name = QStringLiteral("A");
+	canvas.extent = QStringLiteral("Sheet");
+	CanvasCourse entry;
+	entry.course = QStringLiteral("Plain");
+	canvas.courses.push_back(entry);
+	data.canvases.canvases = { canvas };
+	changeCourseData(map, data);
+	printer.setPageOrientation(QPageLayout::Landscape);
+	options.courses = QStringList{ QStringLiteral("Plain"), QStringLiteral("X") };
+	options.use_canvases = true;
+	report = printCourseMaps(map, options, &printer);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.files, QStringList{ QStringLiteral("A.Plain") });
+	QCOMPARE(report.skipped, (QStringList{ QStringLiteral("X_1"), QStringLiteral("X_2") }));
+	QCOMPARE(pagesOf(path), std::vector<QSize>{ QSize(842, 595) });
+	QCOMPARE(hiddenSymbols(map), QStringList{ QStringLiteral("101") });
+	
+	// The dialog for printing asks for no folder and no kind of file.
+	CourseMapsDialog dialog(&map, QString{}, nullptr, CourseMapsDialog::Print);
+	auto* folder = dialog.findChild<QLineEdit*>(QStringLiteral("course-maps-folder"));
+	auto* format = dialog.findChild<QComboBox*>(QStringLiteral("course-maps-format"));
+	auto* buttons = dialog.findChild<QDialogButtonBox*>();
+	QVERIFY(folder && format && buttons);
+	QVERIFY(!folder->isVisibleTo(&dialog));
+	QVERIFY(!format->isVisibleTo(&dialog));
+	QVERIFY(buttons->button(QDialogButtonBox::Ok)->isEnabled());
+	QVERIFY(dialog.options().map_format.isEmpty());
+	QCOMPARE(dialog.windowTitle(), CourseMapsDialog::tr("Print course maps"));
 }
 
 

@@ -35,6 +35,7 @@
 #include "course/course_relay.h"
 
 class QPainter;
+class QPrinter;
 
 namespace OpenOrienteering {
 
@@ -224,6 +225,16 @@ bool makeCourseMapFile(Map& map, const CourseMapSide& side);
 
 /** Writes the maps of the courses as PDF files, or as map files when the options have a map format. */
 CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& options);
+
+/**
+ * Prints the maps of the courses on a printer: every sheet is a print job,
+ * its sides the pages, on the paper of the printer. The folder, the base name
+ * and the map format of the options are not used; the report names the sheets
+ * which were printed in place of files.
+ *
+ * See the design notes, "Printing the course maps".
+ */
+CourseMapExportReport printCourseMaps(Map& map, const CourseMapExportOptions& options, QPrinter* printer);
 
 /** Writes the maps of the courses as map files; exportCourseMaps() calls it for options with a map format. */
 CourseMapExportReport exportCourseMapFiles(Map& map, const CourseMapExportOptions& options);

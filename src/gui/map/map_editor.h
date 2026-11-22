@@ -684,6 +684,7 @@ public slots:
 	/** foom: Writes which team runs which variant of the relays, as a text file. */
 	void exportRelayVariationsClicked();
 	void exportCourseMapsClicked();
+	void printCourseMapsClicked();  // foom
 	void courseCanvasesClicked();
 	void analyseCourseRoutesClicked();
 	void analyseAllCourseRoutesClicked();
@@ -1426,6 +1427,7 @@ private:
 	QAction* course_import_geodata_act = {};  // foom
 	QAction* course_relay_variations_act = {};  // foom
 	QAction* course_export_maps_act = {};  // foom
+	QAction* course_print_maps_act = {};  // foom
 	QAction* course_canvases_act = {};  // foom
 	QAction* course_routes_analyse_act = {};  // foom
 	QAction* course_routes_analyse_all_act = {};  // foom

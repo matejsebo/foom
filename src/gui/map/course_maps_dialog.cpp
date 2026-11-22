@@ -42,10 +42,11 @@
 
 namespace OpenOrienteering {
 
-CourseMapsDialog::CourseMapsDialog(const Map* map, const QString& folder, QWidget* parent)
+CourseMapsDialog::CourseMapsDialog(const Map* map, const QString& folder, QWidget* parent, Purpose purpose)
 : QDialog(parent)
+, purpose(purpose)
 {
-	setWindowTitle(tr("Export course maps"));
+	setWindowTitle(purpose == Print ? tr("Print course maps") : tr("Export course maps"));
 	
 	course_list = new QListWidget();
 	course_list->setObjectName(QStringLiteral("course-maps-courses"));
@@ -87,12 +88,15 @@ CourseMapsDialog::CourseMapsDialog(const Map* map, const QString& folder, QWidge
 	folder_edit = new QLineEdit(QDir::toNativeSeparators(folder));
 	folder_edit->setObjectName(QStringLiteral("course-maps-folder"));
 	auto* browse_button = new QPushButton(tr("Choose..."));
-	auto* folder_layout = new QHBoxLayout();
+	auto* folder_widget = new QWidget();
+	auto* folder_layout = new QHBoxLayout(folder_widget);
+	folder_layout->setContentsMargins(0, 0, 0, 0);
 	folder_layout->addWidget(folder_edit, 1);
 	folder_layout->addWidget(browse_button);
 	
 	auto* form = new QFormLayout();
-	form->addRow(tr("Files:"), format_box);
+	auto* format_label = new QLabel(tr("Files:"));
+	form->addRow(format_label, format_box);
 	form->addRow(tr("Relays:"), relay_box);
 	form->addRow(tr("Extent:"), extent_box);
 	form->addRow(QString{}, canvases_check);
@@ -103,7 +107,14 @@ CourseMapsDialog::CourseMapsDialog(const Map* map, const QString& folder, QWidge
 	has_routes = !map->courseData().routes.isEmpty();
 	has_canvases = !canvases.canvases.empty();
 	form->addRow(QString{}, routes_check);
-	form->addRow(tr("Folder:"), folder_layout);
+	auto* folder_label = new QLabel(tr("Folder:"));
+	form->addRow(folder_label, folder_widget);
+	// the design notes, "Printing the course maps"
+	if (purpose == Print)
+	{
+		for (auto* widget : { static_cast<QWidget*>(format_label), static_cast<QWidget*>(format_box), static_cast<QWidget*>(folder_label), folder_widget })
+			widget->hide();
+	}
 	
 	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
 	ok_button = buttons->button(QDialogButtonBox::Ok);
@@ -167,7 +178,7 @@ void CourseMapsDialog::updateEnabled()
 void CourseMapsDialog::updateButtons()
 {
 	auto const chosen = options();
-	ok_button->setEnabled(!chosen.courses.isEmpty() && !chosen.folder.isEmpty());
+	ok_button->setEnabled(!chosen.courses.isEmpty() && (purpose == Print || !chosen.folder.isEmpty()));
 }
 
 
