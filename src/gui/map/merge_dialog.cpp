@@ -528,6 +528,9 @@ void MergeDialog::currentRowChanged(const QModelIndex& current)
 	auto const extent = current.data(MergeModel::ExtentRole).toRectF();
 	if (extent.isValid())
 		emit showExtent(extent);
+	auto const row = filter_model->mapToSource(current).row();
+	if (row >= 0 && row < int(model->plan().rows.size()))
+		emit showVersions(model->plan().rows[std::size_t(row)].uuid);
 }
 
 

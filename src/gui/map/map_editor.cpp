@@ -171,6 +171,7 @@
 #include "gui/map/generator_dialog.h"  // foom
 #include "gui/map/field_copy_dialog.h"  // foom
 #include "gui/map/merge_dialog.h"  // foom
+#include "gui/map/merge_overlay.h"  // foom
 #include "gui/map/sketch_dialog.h"  // foom
 #include "gui/map/image_properties_dialog.h"  // foom
 #include "gui/map/import_points_dialog.h"  // foom
@@ -8215,7 +8216,15 @@ void MapEditorController::mergeFromFileClicked()
 		connect(&dialog, &MergeDialog::showExtent, this, [this](const QRectF& extent) {
 			map_widget->ensureVisibilityOfRect(extent, MapWidget::ContinuousZoom);
 		});
+		// Their version over the map, in a contrast colour, for the selected row.
+		auto* overlay = new MergeOverlayActivity(*map);
+		setEditorActivity(overlay);
+		connect(&dialog, &MergeDialog::showVersions, overlay, [overlay, &input](const QUuid& uuid) {
+			overlay->setObject(input.theirs->findObject(uuid));
+		});
 		auto const code = dialog.exec();
+		if (getEditorActivity() == overlay)
+			setEditorActivity(nullptr);
 		if (code == MergeDialog::Paused)
 		{
 			if (!saveDecisions(decisions_path, dialog.plan(), &error))

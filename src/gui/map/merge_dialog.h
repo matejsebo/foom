@@ -30,6 +30,7 @@
 #include <QRectF>
 #include <QSortFilterProxyModel>
 #include <QString>
+#include <QUuid>
 #include <QVariant>
 
 #include "sync/merge.h"
@@ -150,6 +151,9 @@ public:
 signals:
 	/** A row was selected: the extent of its object, to be shown in the map. */
 	void showExtent(const QRectF& extent);
+	
+	/** A row was selected: the uuid of its object, whose other version is to be overlaid. */
+	void showVersions(const QUuid& uuid);
 	
 private:
 	void decide(MergeRow::Action action);

@@ -52,6 +52,7 @@
 #include <QJsonObject>
 #include <QLatin1String>
 #include <QObject>
+#include <QPainter>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QString>
@@ -75,6 +76,7 @@
 #include "fileformats/xml_file_format.h"
 #include "gui/map/field_copy_dialog.h"
 #include "gui/map/merge_dialog.h"
+#include "gui/map/merge_overlay.h"
 #include "sync/field_copy.h"
 #include "sync/merge.h"
 #include "sync/merge_decisions.h"
@@ -1318,6 +1320,43 @@ private slots:
 		QCOMPARE(finished.first().first().toInt(), int(MergeDialog::Paused));
 	}
 	
+	/// Accept (26)
+	void overlayTest()
+	{
+		loadThree();
+		change(*theirs, 'a', 40, 3000);
+		QImage image(200, 200, QImage::Format_ARGB32_Premultiplied);
+		image.fill(QColor(Qt::transparent));
+		{
+			QPainter painter(&image);
+			painter.scale(4.0, 4.0);
+			painter.translate(5.0, 20.0);
+			MergeOverlay::draw(&painter, *find(*theirs, 'a'), QRectF(-5.0, -20.0, 50.0, 50.0), 4.0);
+		}
+		auto const contrast = [&image](int x, int y) {
+			for (auto row : { y - 1, y, y + 1 })
+			{
+				if (image.pixelColor(x, row) == MergeOverlay::color())
+					return true;
+			}
+			return false;
+		};
+		// Their line runs at y = 0 from x = 0 to 40 mm: pixels 20 to 180 of row 80.
+		QVERIFY(contrast(30, 80));
+		QVERIFY(contrast(170, 80));
+		QCOMPARE(image.pixelColor(100, 150).alpha(), 0);
+		QCOMPARE(image.pixelColor(190, 80).alpha(), 0);
+		
+		// The dialog names the object of the selected row, to be overlaid.
+		loadEdited();
+		MergeDialog dialog(*mine, *theirs, compareMaps(base.get(), *mine, *theirs));
+		auto* view = dialog.findChild<QTableView*>(QStringLiteral("rows"));
+		QSignalSpy versions(&dialog, &MergeDialog::showVersions);
+		view->selectRow(0);
+		QCOMPARE(versions.count(), 1);
+		QCOMPARE(versions.first().first().toUuid(), id('a'));
+	}
+
 	/// Accept (17)
 	void decisionsTest()
 	{
