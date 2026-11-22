@@ -178,6 +178,14 @@ void KmzGroundOverlayExport::setProgressObserver(QProgressDialog* observer) noex
 	progress_observer = observer;
 }
 
+// foom
+void KmzGroundOverlayExport::setDocument(const QString& name, const QByteArray& more_kml)
+{
+	document_name = name.toHtmlEscaped().toUtf8();
+	document_kml = more_kml;
+	is_document = true;
+}
+
 QString KmzGroundOverlayExport::errorString() const
 {
 	return error_message;
@@ -358,6 +366,10 @@ void KmzGroundOverlayExport::writeKml(QByteArray& buffer, const std::vector<KmzG
 	  "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
 	  "<!-- Generator: FOOM " APP_VERSION " -->\n"
 	  "<kml xmlns=\"http://www.opengis.net/kml/2.2\">\n"
+	);
+	if (is_document)  // foom
+		buffer.append("<Document>\n <name>").append(document_name).append("</name>\n");
+	buffer.append(
 	  "<Folder>\n"
 	  " <name>Map</name>\n"
 	);
@@ -381,6 +393,10 @@ void KmzGroundOverlayExport::writeKml(QByteArray& buffer, const std::vector<KmzG
 	}
 	buffer.append(
 	  "</Folder>\n"
+	);
+	if (is_document)  // foom
+		buffer.append(document_kml).append("</Document>\n");
+	buffer.append(
 	  "</kml>\n"
 	);
 }

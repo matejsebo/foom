@@ -21,6 +21,7 @@
 #ifndef FOOM_COURSE_INTERCHANGE_H
 #define FOOM_COURSE_INTERCHANGE_H
 
+#include <QByteArray>
 #include <QString>
 #include <QStringList>
 
@@ -29,13 +30,16 @@ class QIODevice;
 namespace OpenOrienteering {
 
 class Map;
+class MapView;
 
 
 /**
  * The interchange of courses with other programs: the CourseData of the
- * IOF Data Standard 3.0 out and in, and GPX and KML out.
+ * IOF Data Standard 3.0 out and in, GPX and KML out and in, and KMZ with
+ * a picture of the map.
  *
- * See the design notes, "Interchange: IOF XML, GPX and KML".
+ * See the design notes, "Interchange: IOF XML, GPX and KML",
+ * and "Interchange: GPX and KML in, and a KMZ with the map".
  */
 
 /** What a writer did. */
@@ -72,7 +76,35 @@ CourseExportReport writeCoursesGpx(const Map& map, QIODevice& device, const QStr
 CourseExportReport writeCoursesKml(const Map& map, QIODevice& device, const QString& course = {});
 
 
-enum class CourseFileKind { IofXml, Gpx, Kml };
+/** What the KMZ of the courses holds besides the KML of the courses. */
+struct CourseKmzOptions
+{
+	/** The course whose map is the picture, and which alone is in the file; all courses and the map as it is when empty. */
+	QString course;
+	/** The resolution of the picture. */
+	double dpi = 300.0;
+	/** Tiles of 512 pixels; else one picture. */
+	bool tiles = true;
+	/**
+	 * The templates are in the picture, as the view shows them or, without one, all which are loaded,
+	 * and the picture has their extent too: as on the maps of the courses.
+	 */
+	bool templates = true;
+	const MapView* view = nullptr;
+};
+
+/**
+ * Writes a KMZ archive: a ground overlay of the map, or of the map of the
+ * course, and the placemarks and lines of the KML. The map must be
+ * georeferenced; a file which cannot be written whole is not left behind.
+ */
+CourseExportReport writeCoursesKmz(Map& map, const QString& path, const CourseKmzOptions& options = {});
+
+/** The bytes of a file in a KMZ (zip) archive; with no name, of its first KML document. Empty when there is none. */
+QByteArray readKmzEntry(const QString& path, const QString& entry = {});
+
+
+enum class CourseFileKind { IofXml, Gpx, Kml, Kmz };
 
 /** What writeCourseFiles() did. */
 struct CourseFilesReport
@@ -89,7 +121,7 @@ struct CourseFilesReport
  * file for every course without variations, as <name>.<course>.<extension>
  * beside it. A file which cannot be written whole is not left behind.
  */
-CourseFilesReport writeCourseFiles(const Map& map, const QString& path, CourseFileKind kind, bool per_course);
+CourseFilesReport writeCourseFiles(Map& map, const QString& path, CourseFileKind kind, bool per_course, const CourseKmzOptions& kmz = {});
 
 
 /** What is taken from a file of the IOF. */
@@ -131,6 +163,47 @@ struct IofImportReport
  * is refused, and nothing is changed.
  */
 IofImportReport importIofCourseData(Map& map, QIODevice& device, const IofImportOptions& options = {});
+
+
+/** What is taken from a GPX or a KML file. */
+struct CourseGeodataImportOptions
+{
+	bool objects = true;
+	bool courses = true;
+};
+
+/** What importCoursesGpx() and importCoursesKml() did. */
+struct CourseGeodataImportReport
+{
+	bool ok = false;
+	/** Why the file was refused. */
+	QString error;
+	/** The course objects which were made of waypoints, and those which the map had. */
+	int objects_added = 0;
+	int objects_found = 0;
+	int courses_added = 0;
+	/** The tracks which are variants of a relay of the map; they were not imported. */
+	int relay_variants = 0;
+	/** The waypoints which were not made: their names are no codes, or the map has no symbol for their kind. */
+	QStringList objects_not_made;
+	/** The tracks whose names the map has as courses; they were not touched. */
+	QStringList courses_existing;
+	/** The tracks which do not start and end at course objects. */
+	QStringList tracks_not_courses;
+};
+
+/**
+ * Takes waypoints as course objects and tracks which start and end at
+ * course objects as courses, from GPX 1.0 or 1.1, as one undo step. The
+ * map must be georeferenced; a file which is refused changes nothing.
+ */
+CourseGeodataImportReport importCoursesGpx(Map& map, QIODevice& device, const CourseGeodataImportOptions& options = {});
+
+/** As importCoursesGpx(), from the points and line strings of the placemarks of KML. */
+CourseGeodataImportReport importCoursesKml(Map& map, QIODevice& device, const CourseGeodataImportOptions& options = {});
+
+/** Reads a GPX, KML or KMZ file, by its extension. */
+CourseGeodataImportReport importCourseFile(Map& map, const QString& path, const CourseGeodataImportOptions& options = {});
 
 
 }  // namespace OpenOrienteering

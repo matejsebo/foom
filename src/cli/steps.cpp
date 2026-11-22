@@ -539,7 +539,29 @@ CourseFileKind parseCourseFileKind(const Params& p, const QString& path)
 		return CourseFileKind::Gpx;
 	if (format == QLatin1String("kml"))
 		return CourseFileKind::Kml;
-	p.fail(QString::fromLatin1("unknown course format \"%1\": expected \"iof\" (.xml), \"gpx\" or \"kml\"").arg(format));
+	if (format == QLatin1String("kmz"))
+		return CourseFileKind::Kmz;
+	p.fail(QString::fromLatin1("unknown course format \"%1\": expected \"iof\" (.xml), \"gpx\", \"kml\" or \"kmz\"").arg(format));
+}
+
+// foom: the design notes, "Interchange: GPX and KML in, and a KMZ with the map"
+CourseKmzOptions parseCourseKmzOptions(const Params& p, CourseFileKind kind)
+{
+	CourseKmzOptions options;
+	if (kind != CourseFileKind::Kmz)
+	{
+		for (auto const* name : { "dpi", "tiles", "templates" })
+		{
+			if (p.has(name))
+				p.fail(QString::fromLatin1("\"%1\" applies to KMZ only").arg(QLatin1String(name)));
+		}
+		return options;
+	}
+	if (p.has("dpi"))
+		options.dpi = p.requirePositiveInt("dpi");
+	options.tiles = p.optionalBool("tiles", true);
+	options.templates = p.optionalBool("templates", true);
+	return options;
 }
 
 void validateExportCourses(const Params& p)
@@ -548,9 +570,22 @@ void validateExportCourses(const Params& p)
 	auto const course = p.optionalString("course");
 	auto const per_course = p.optionalBool("per_course", false);
 	if (kind == CourseFileKind::IofXml && (!course.isEmpty() || per_course))
-		p.fail(QLatin1String("\"course\" and \"per_course\" apply to GPX and KML only: IOF XML holds all courses"));
+		p.fail(QLatin1String("\"course\" and \"per_course\" apply to GPX, KML and KMZ only: IOF XML holds all courses"));
 	if (!course.isEmpty() && per_course)
 		p.fail(QLatin1String("give \"course\" or \"per_course\", not both"));
+	parseCourseKmzOptions(p, kind);
+}
+
+// foom: the step `import-courses`: IOF XML, or GPX, KML and KMZ.
+CourseFileKind parseImportCourseKind(const Params& p, const QString& path)
+{
+	auto kind = CourseFileKind::IofXml;
+	auto const suffix = QFileInfo(path).suffix().toLower();
+	if (p.has("format") || suffix == QLatin1String("gpx") || suffix == QLatin1String("kml") || suffix == QLatin1String("kmz"))
+		kind = parseCourseFileKind(p, path);
+	if (kind != CourseFileKind::IofXml && p.has("classes"))
+		p.fail(QLatin1String("\"classes\" applies to IOF XML only: GPX, KML and KMZ have no classes"));
+	return kind;
 }
 
 QJsonArray jsonList(const QStringList& list)
@@ -1069,14 +1104,14 @@ void StepRunner::validate(const Step& step, bool& map_open)
 	else if (name == QLatin1String("export-courses"))  // foom
 	{
 		p.requireMap(map_open);
-		p.checkKnown({ "path", "format", "course", "per_course" });
+		p.checkKnown({ "path", "format", "course", "per_course", "dpi", "tiles", "templates" });
 		validateExportCourses(p);
 	}
 	else if (name == QLatin1String("import-courses"))  // foom
 	{
 		p.requireMap(map_open);
-		p.checkKnown({ "path", "objects", "courses", "classes" });
-		p.requireString("path");
+		p.checkKnown({ "path", "format", "objects", "courses", "classes" });
+		parseImportCourseKind(p, p.requireString("path"));
 		for (auto parameter : { "objects", "courses", "classes" })
 			p.optionalBool(parameter, true);
 	}
@@ -1817,10 +1852,23 @@ StepResult StepRunner::exportCoursesStep(const Step& step)
 	auto const kind = parseCourseFileKind(p, path);
 	auto const course = p.optionalString("course");
 	
+	auto const kmz = parseCourseKmzOptions(p, kind);
+
 	CourseFilesReport report;
 	if (course.isEmpty())
 	{
-		report = writeCourseFiles(*map, path, kind, p.optionalBool("per_course", false));
+		report = writeCourseFiles(*map, path, kind, p.optionalBool("per_course", false), kmz);
+	}
+	else if (kind == CourseFileKind::Kmz)
+	{
+		auto options = kmz;
+		options.course = course;
+		auto const written = writeCoursesKmz(*map, path, options);
+		if (!written.ok)
+			return failure(written.error);
+		report.ok = true;
+		report.files.push_back(path);
+		report.skipped_courses = written.skipped_courses;
 	}
 	else
 	{
@@ -1856,6 +1904,43 @@ StepResult StepRunner::importCoursesStep(const Step& step)
 {
 	Params p(step);
 	auto const path = job.resolvePath(p.requireString("path"));
+	auto const kind = parseImportCourseKind(p, path);
+	if (kind != CourseFileKind::IofXml)
+	{
+		// foom: the design notes, "Interchange: GPX and KML in, and a KMZ with the map"
+		CourseGeodataImportOptions options;
+		options.objects = p.optionalBool("objects", true);
+		options.courses = p.optionalBool("courses", true);
+		CourseGeodataImportReport report;
+		if (kind == CourseFileKind::Kmz)
+		{
+			report = importCourseFile(*map, path, options);
+		}
+		else
+		{
+			QFile file(path);
+			if (!file.open(QIODevice::ReadOnly))
+				return failure(QString::fromLatin1("cannot read \"%1\"").arg(path));
+			report = kind == CourseFileKind::Gpx ? importCoursesGpx(*map, file, options) : importCoursesKml(*map, file, options);
+		}
+		if (!report.ok)
+			return failure(report.error);
+		
+		StepResult result;
+		result.details.insert(QLatin1String("path"), path);
+		result.details.insert(QLatin1String("objects_added"), report.objects_added);
+		result.details.insert(QLatin1String("objects_found"), report.objects_found);
+		result.details.insert(QLatin1String("courses_added"), report.courses_added);
+		result.details.insert(QLatin1String("relay_variants"), report.relay_variants);
+		for (auto const& list : { std::make_pair("objects_not_made", &report.objects_not_made),
+		                          std::make_pair("courses_existing", &report.courses_existing),
+		                          std::make_pair("tracks_not_courses", &report.tracks_not_courses) })
+		{
+			if (!list.second->isEmpty())
+				result.details.insert(QLatin1String(list.first), jsonList(*list.second));
+		}
+		return result;
+	}
 	QFile file(path);
 	if (!file.open(QIODevice::ReadOnly))
 		return failure(QString::fromLatin1("cannot read \"%1\"").arg(path));

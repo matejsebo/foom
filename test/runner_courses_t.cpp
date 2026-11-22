@@ -50,6 +50,7 @@
 #include "core/symbols/symbol.h"
 #include "course/course_data.h"
 #include "course/course_edit.h"
+#include "course/course_interchange.h"
 #include "course/course_storage.h"
 #include "fileformats/file_import_export.h"
 #include "fileformats/xml_file_format.h"
@@ -239,6 +240,8 @@ private slots:
 	void missingCourseTest();
 	void importTest();
 	void importChoicesTest();
+	void kmzTest();
+	void gpxImportTest();
 };
 
 
@@ -377,6 +380,46 @@ void RunnerCoursesTest::importChoicesTest()
 		stepOf("import-courses", {{ QStringLiteral("path"), QStringLiteral("event.foom") }}),
 	});
 	QCOMPARE(refused.exit_code, 1);
+}
+
+
+
+/// Accept (13): a KMZ with the picture of the map.
+void RunnerCoursesTest::kmzTest()
+{
+	auto const result = runJob("kmz.json", {
+		openEvent(),
+		stepOf("export-courses", {{ QStringLiteral("path"), QStringLiteral("c.kmz") }, { QStringLiteral("dpi"), 600 }}),
+		stepOf("export-courses", {{ QStringLiteral("path"), QStringLiteral("single.kmz") }, { QStringLiteral("tiles"), false }}),
+	});
+	QVERIFY2(result.exit_code == 0, result.all().constData());
+	QCOMPARE(readFile("c.kmz").left(2), QByteArray("PK"));
+	auto const tiled = readKmzEntry(file("c.kmz"), QStringLiteral("doc.kml"));
+	QVERIFY(tiled.count("<GroundOverlay") >= 1);
+	QCOMPARE(tiled.count("<Placemark>"), 6);
+	auto const single = readKmzEntry(file("single.kmz"), QStringLiteral("doc.kml"));
+	QCOMPARE(single.count("<GroundOverlay"), 1);
+}
+
+
+/// Accept (13): GPX in.
+void RunnerCoursesTest::gpxImportTest()
+{
+	auto const result = runJob("gpx-in.json", {
+		openEvent(),
+		stepOf("export-courses", {{ QStringLiteral("path"), QStringLiteral("in.gpx") }, { QStringLiteral("course"), QStringLiteral("B") }}),
+		stepOf("open", {{ QStringLiteral("path"), blank_path }}),
+		stepOf("import-courses", {{ QStringLiteral("path"), QStringLiteral("in.gpx") }}),
+		stepOf("save-as", {{ QStringLiteral("path"), QStringLiteral("from-gpx.foom") }}),
+	});
+	QVERIFY2(result.exit_code == 0, result.all().constData());
+	auto const log = result.logOf("import-courses");
+	QCOMPARE(log.value(QLatin1String("objects_added")).toInt(), 3);
+	QCOMPARE(log.value(QLatin1String("courses_added")).toInt(), 1);
+	Map map;
+	QVERIFY(loadMap(map, file("from-gpx.foom")));
+	QCOMPARE(int(map.courseData().objects.size()), 3);
+	QVERIFY(map.courseData().findCourse(QStringLiteral("B")));
 }
 
 

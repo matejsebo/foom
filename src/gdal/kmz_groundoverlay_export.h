@@ -80,6 +80,13 @@ public:
 	
 	void setProgressObserver(QProgressDialog* observer) noexcept;
 	
+	/**
+	 * foom: Makes the KML a Document with the name, which holds the folder of
+	 * the map and, behind it, the given elements of KML.
+	 * the design notes, "Interchange: GPX and KML in, and a KMZ with the map"
+	 */
+	void setDocument(const QString& name, const QByteArray& more_kml);
+	
 	QString errorString() const;
 	
 	bool doExport(const MapPrinter& map_printer, int tile_width_px = 512);
@@ -116,6 +123,9 @@ private:
 	QByteArray basepath_utf8;
 	QByteArray doc_filepath_utf8;
 	QString error_message;
+	QByteArray document_name;  // foom
+	QByteArray document_kml;  // foom
+	bool is_document = false;  // foom
 	qreal overlap = 0.000000000001;
 	int precision = 13;
 	bool is_kmz = false;

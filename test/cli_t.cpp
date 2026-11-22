@@ -487,6 +487,27 @@ private slots:
 				{ QStringLiteral("per_course"), true },
 			}),
 		});
+		QTest::newRow("export-courses with dpi for GPX") << jobDocument({  // foom: KMZ alone has dpi, tiles and templates
+			step(QStringLiteral("open"), {{ QStringLiteral("path"), testData(QStringLiteral("rotated.omap")) }}),
+			step(QStringLiteral("export-courses"), {
+				{ QStringLiteral("path"), outPath(QStringLiteral("malformed.gpx")) },
+				{ QStringLiteral("dpi"), 200 },
+			}),
+		});
+		QTest::newRow("export-courses with tiles for GPX") << jobDocument({
+			step(QStringLiteral("open"), {{ QStringLiteral("path"), testData(QStringLiteral("rotated.omap")) }}),
+			step(QStringLiteral("export-courses"), {
+				{ QStringLiteral("path"), outPath(QStringLiteral("malformed.gpx")) },
+				{ QStringLiteral("tiles"), false },
+			}),
+		});
+		QTest::newRow("import-courses with classes for GPX") << jobDocument({
+			step(QStringLiteral("open"), {{ QStringLiteral("path"), testData(QStringLiteral("rotated.omap")) }}),
+			step(QStringLiteral("import-courses"), {
+				{ QStringLiteral("path"), outPath(QStringLiteral("malformed.gpx")) },
+				{ QStringLiteral("classes"), false },
+			}),
+		});
 		QTest::newRow("import-courses without path") << jobDocument({
 			step(QStringLiteral("open"), {{ QStringLiteral("path"), testData(QStringLiteral("rotated.omap")) }}),
 			step(QStringLiteral("import-courses"), {}),

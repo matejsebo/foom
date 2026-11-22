@@ -23,18 +23,22 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <memory>
 #include <utility>
 #include <vector>
 
 #include <Qt>
+#include <QBuffer>
 #include <QChar>
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QIODevice>
 #include <QLatin1Char>
 #include <QLatin1String>
+#include <QPainter>
 #include <QPointF>
 #include <QRectF>
 #include <QSaveFile>
@@ -50,13 +54,16 @@
 #include "core/map.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
+#include "core/map_printer.h"
 #include "core/objects/object.h"
 #include "core/path_coord.h"
+#include "core/renderables/renderable.h"
 #include "core/symbols/symbol.h"
 #include "core/virtual_path.h"
 #include "course/course_data.h"
 #include "course/course_description.h"
 #include "course/course_edit.h"
+#include "course/course_map.h"
 #include "course/course_relay.h"
 #include "course/course_render.h"
 #include "course/course_storage.h"
@@ -64,6 +71,11 @@
 #include "undo/object_undo.h"
 #include "undo/undo.h"
 #include "util/util.h"
+
+#ifdef MAPPER_USE_GDAL
+#  include "gdal/kmz_archive.h"
+#  include "gdal/kmz_groundoverlay_export.h"
+#endif
 
 namespace OpenOrienteering {
 
@@ -782,6 +794,485 @@ QString fileNamePart(QString name)
 	return name.trimmed();
 }
 
+/// Writes the folders of the course objects and of the courses, for KML and KMZ.
+void writeKmlFolders(QXmlStreamWriter& xml, const Geodata& geodata)
+{
+	auto const tuple = [](const LatLon& place) {
+		return QString(number(place.longitude(), 7) + QLatin1Char(',') + number(place.latitude(), 7) + QLatin1String(",0"));
+	};
+
+	xml.writeStartElement(QStringLiteral("Folder"));
+	xml.writeTextElement(QStringLiteral("name"), tr("Course objects"));
+	for (auto const& waypoint : geodata.waypoints)
+	{
+		xml.writeStartElement(QStringLiteral("Placemark"));
+		xml.writeTextElement(QStringLiteral("name"), waypoint.code);
+		if (!waypoint.text.isEmpty())
+			xml.writeTextElement(QStringLiteral("description"), waypoint.text);
+		xml.writeStartElement(QStringLiteral("Point"));
+		xml.writeTextElement(QStringLiteral("coordinates"), tuple(waypoint.place));
+		xml.writeEndElement();
+		xml.writeEndElement();
+	}
+	xml.writeEndElement();
+
+	xml.writeStartElement(QStringLiteral("Folder"));
+	xml.writeTextElement(QStringLiteral("name"), tr("Courses"));
+	for (auto const& track : geodata.tracks)
+	{
+		QStringList tuples;
+		for (auto const& point : track.points)
+			tuples.push_back(tuple(point));
+		xml.writeStartElement(QStringLiteral("Placemark"));
+		xml.writeTextElement(QStringLiteral("name"), track.name);
+		xml.writeStartElement(QStringLiteral("LineString"));
+		xml.writeTextElement(QStringLiteral("tessellate"), QStringLiteral("1"));
+		xml.writeTextElement(QStringLiteral("coordinates"), tuples.join(QLatin1Char(' ')));
+		xml.writeEndElement();
+		xml.writeEndElement();
+	}
+	xml.writeEndElement();
+}
+
+
+/// Puts the objects which were made and the course data into the map, as one undo step.
+void commitImport(Map& map, CourseData data, const QByteArray& before, const std::vector<int>& object_indices, int part_index)
+{
+	if (object_indices.empty())
+	{
+		changeCourseData(map, std::move(data));
+		return;
+	}
+	auto* object_step = new DeleteObjectsUndoStep(&map);
+	object_step->setPartIndex(part_index);
+	for (auto const index : object_indices)
+		object_step->addObject(index);
+	auto* combined = new CombinedUndoStep(&map);
+	combined->push(object_step);
+	combined->push(new MapDataUndoStep(&map, MapDataUndoStep::Courses, before));
+	map.setCourseData(std::move(data));
+	map.setObjectsDirty();
+	map.setOtherDirty();
+	map.push(combined);
+}
+
+
+/// What a GPX or a KML file holds, as far as it is read.
+struct InWaypoint
+{
+	QString name;
+	QString type;
+	LatLon place;
+};
+
+struct InTrack
+{
+	QString name;
+	std::vector<LatLon> points;
+};
+
+struct InGeodata
+{
+	std::vector<InWaypoint> waypoints;
+	std::vector<InTrack> tracks;
+};
+
+bool readLatLon(const QXmlStreamAttributes& attributes, LatLon& place)
+{
+	auto lat_ok = false;
+	auto lon_ok = false;
+	auto const lat = attributes.value(QLatin1String("lat")).toDouble(&lat_ok);
+	auto const lon = attributes.value(QLatin1String("lon")).toDouble(&lon_ok);
+	if (!lat_ok || !lon_ok)
+		return false;
+	place = LatLon(lat, lon);
+	return true;
+}
+
+/// Reads a point of a track or a route and what it holds.
+void readGpxPoint(QXmlStreamReader& xml, std::vector<LatLon>& points)
+{
+	LatLon place;
+	if (readLatLon(xml.attributes(), place))
+		points.push_back(place);
+	xml.skipCurrentElement();
+}
+
+QString readGpx(QIODevice& device, InGeodata& file)
+{
+	QXmlStreamReader xml(&device);
+	if (!xml.readNextStartElement())
+		return tr("The file is not an XML file.");
+	if (xml.name() != QLatin1String("gpx") || !xml.namespaceUri().startsWith(QLatin1String("http://www.topografix.com/GPX/1/")))
+		return tr("The file is not a GPX file.");
+	while (xml.readNextStartElement())
+	{
+		if (xml.name() == QLatin1String("wpt"))
+		{
+			InWaypoint waypoint;
+			auto const has_place = readLatLon(xml.attributes(), waypoint.place);
+			while (xml.readNextStartElement())
+			{
+				if (xml.name() == QLatin1String("name"))
+					waypoint.name = xml.readElementText().trimmed();
+				else if (xml.name() == QLatin1String("type"))
+					waypoint.type = xml.readElementText().trimmed();
+				else
+					xml.skipCurrentElement();
+			}
+			if (has_place)
+				file.waypoints.push_back(waypoint);
+		}
+		else if (xml.name() == QLatin1String("trk") || xml.name() == QLatin1String("rte"))
+		{
+			auto const route = xml.name() == QLatin1String("rte");
+			InTrack track;
+			while (xml.readNextStartElement())
+			{
+				if (xml.name() == QLatin1String("name"))
+				{
+					track.name = xml.readElementText().trimmed();
+				}
+				else if (route && xml.name() == QLatin1String("rtept"))
+				{
+					readGpxPoint(xml, track.points);
+				}
+				else if (!route && xml.name() == QLatin1String("trkseg"))
+				{
+					// The segments one behind the other.
+					while (xml.readNextStartElement())
+					{
+						if (xml.name() == QLatin1String("trkpt"))
+							readGpxPoint(xml, track.points);
+						else
+							xml.skipCurrentElement();
+					}
+				}
+				else
+				{
+					xml.skipCurrentElement();
+				}
+			}
+			file.tracks.push_back(track);
+		}
+		else
+		{
+			xml.skipCurrentElement();
+		}
+	}
+	if (xml.hasError())
+		return tr("The file cannot be read: %1 (line %2).").arg(xml.errorString()).arg(xml.lineNumber());
+	return {};
+}
+
+/// The places of the coordinates of KML: tuples of longitude, latitude and height.
+std::vector<LatLon> kmlCoordinates(const QString& text)
+{
+	std::vector<LatLon> places;
+	for (auto const& tuple : text.simplified().split(QLatin1Char(' '), QString::SkipEmptyParts))
+	{
+		auto const values = tuple.split(QLatin1Char(','));
+		if (values.size() < 2)
+			continue;
+		auto lon_ok = false;
+		auto lat_ok = false;
+		auto const lon = values[0].toDouble(&lon_ok);
+		auto const lat = values[1].toDouble(&lat_ok);
+		if (lon_ok && lat_ok)
+			places.push_back(LatLon(lat, lon));
+	}
+	return places;
+}
+
+/// Reads a geometry of a placemark: the first point and the first line string, also in a MultiGeometry.
+void readKmlGeometry(QXmlStreamReader& xml, std::vector<LatLon>& point, std::vector<LatLon>& line)
+{
+	auto const name = xml.name().toString();
+	if (name == QLatin1String("MultiGeometry"))
+	{
+		while (xml.readNextStartElement())
+			readKmlGeometry(xml, point, line);
+		return;
+	}
+	if (name != QLatin1String("Point") && name != QLatin1String("LineString"))
+	{
+		xml.skipCurrentElement();
+		return;
+	}
+	std::vector<LatLon> places;
+	while (xml.readNextStartElement())
+	{
+		if (xml.name() == QLatin1String("coordinates"))
+			places = kmlCoordinates(xml.readElementText());
+		else
+			xml.skipCurrentElement();
+	}
+	auto& target = name == QLatin1String("Point") ? point : line;
+	if (target.empty())
+		target = places;
+}
+
+/// The code of an ExtendedData as a KMZ of courses has it: `cs:control-code`.
+QString readKmlControlCode(QXmlStreamReader& xml)
+{
+	QString code;
+	while (xml.readNextStartElement())
+	{
+		if (xml.name() == QLatin1String("Data") && xml.attributes().value(QLatin1String("name")) == QLatin1String("cs:control-code"))
+		{
+			while (xml.readNextStartElement())
+			{
+				if (xml.name() == QLatin1String("value"))
+					code = xml.readElementText().trimmed();
+				else
+					xml.skipCurrentElement();
+			}
+		}
+		else
+		{
+			xml.skipCurrentElement();
+		}
+	}
+	return code;
+}
+
+/**
+ * Reads the placemarks of a Document or a Folder and of those in it. A
+ * folder Coordinates whose points have the code of the ExtendedData is,
+ * as in a KMZ of courses, the course of the folder around it: a track
+ * through its points.
+ */
+void readKmlContainer(QXmlStreamReader& xml, InGeodata& file, const QString& outer_name = {})
+{
+	QString container_name;
+	InTrack coded;
+	while (xml.readNextStartElement())
+	{
+		if (xml.name() == QLatin1String("Document") || xml.name() == QLatin1String("Folder"))
+		{
+			readKmlContainer(xml, file, container_name);
+		}
+		else if (xml.name() == QLatin1String("name"))
+		{
+			container_name = xml.readElementText().trimmed();
+		}
+		else if (xml.name() == QLatin1String("Placemark"))
+		{
+			QString name;
+			QString code;
+			std::vector<LatLon> point;
+			std::vector<LatLon> line;
+			while (xml.readNextStartElement())
+			{
+				if (xml.name() == QLatin1String("name"))
+					name = xml.readElementText().trimmed();
+				else if (xml.name() == QLatin1String("ExtendedData"))
+					code = readKmlControlCode(xml);
+				else
+					readKmlGeometry(xml, point, line);
+			}
+			if (!point.empty())
+			{
+				file.waypoints.push_back({ code.isEmpty() ? name : code, {}, point.front() });
+				if (!code.isEmpty())
+					coded.points.push_back(point.front());
+			}
+			if (!line.empty())
+				file.tracks.push_back({ name, line });
+		}
+		else
+		{
+			xml.skipCurrentElement();
+		}
+	}
+	if (container_name == QLatin1String("Coordinates") && !outer_name.isEmpty() && !coded.points.empty())
+	{
+		coded.name = outer_name;
+		file.tracks.push_back(std::move(coded));
+	}
+}
+
+QString readKml(QIODevice& device, InGeodata& file)
+{
+	QXmlStreamReader xml(&device);
+	if (!xml.readNextStartElement())
+		return tr("The file is not an XML file.");
+	auto const name_space = xml.namespaceUri();
+	if (xml.name() != QLatin1String("kml")
+	    || !(name_space.startsWith(QLatin1String("http://www.opengis.net/kml/2")) || name_space.startsWith(QLatin1String("http://earth.google.com/kml/2"))))
+		return tr("The file is not a KML file.");
+	readKmlContainer(xml, file);
+	if (xml.hasError())
+		return tr("The file cannot be read: %1 (line %2).").arg(xml.errorString()).arg(xml.lineNumber());
+	return {};
+}
+
+/// The kind of a waypoint: by its type as FOOM writes it, else by its name.
+CourseObject::Kind kindOf(const InWaypoint& waypoint)
+{
+	if (waypoint.type == QLatin1String("Start"))
+		return CourseObject::Start;
+	if (waypoint.type == QLatin1String("Finish"))
+		return CourseObject::Finish;
+	if (waypoint.type == QLatin1String("Control"))
+		return CourseObject::Control;
+	auto const name = waypoint.name;
+	auto const digits_after_letter = name.size() > 1 && std::all_of(name.begin() + 1, name.end(), [](QChar c) { return c.isDigit(); });
+	if (digits_after_letter && name.startsWith(QLatin1Char('S')))
+		return CourseObject::Start;
+	if (digits_after_letter && name.startsWith(QLatin1Char('F')))
+		return CourseObject::Finish;
+	return CourseObject::Control;
+}
+
+/// True for the name of a variant of a relay of the map: the relay, an underscore and more.
+bool isRelayVariantName(const CourseData& data, const QString& name)
+{
+	return std::any_of(begin(data.courses), end(data.courses), [&name](const Course& course) {
+		return course.type != Course::Normal && name.size() > course.name.size() + 1
+		       && name.startsWith(course.name) && name.at(course.name.size()) == QLatin1Char('_');
+	});
+}
+
+/// Takes the waypoints and the tracks of a file into the map.
+CourseGeodataImportReport importGeodata(Map& map, const InGeodata& file, const CourseGeodataImportOptions& options)
+{
+	CourseGeodataImportReport report;
+	auto data = map.courseData();
+	auto const before = MapDataUndoStep::currentXml(map, MapDataUndoStep::Courses);
+	auto const& georef = map.getGeoreferencing();
+	auto const part_index = partForObjects(map);
+
+	// The course objects.
+	std::vector<int> object_indices;
+	if (options.objects)
+	{
+		QStringList read;  // A code of more than one waypoint, as in such files, counts once.
+		for (auto const& waypoint : file.waypoints)
+		{
+			if (waypoint.name.isEmpty() || read.contains(waypoint.name))
+				continue;
+			read.push_back(waypoint.name);
+			if (data.findObject(waypoint.name))
+			{
+				++report.objects_found;
+				continue;
+			}
+			auto const kind = kindOf(waypoint);
+			auto const* symbol = symbolFor(map, kind);
+			auto has_place = false;
+			auto const place = georef.toMapCoordF(waypoint.place, &has_place);
+			if (!has_place || !symbol || !isValidCourseCode(waypoint.name))
+			{
+				addOnce(report.objects_not_made, waypoint.name);
+				continue;
+			}
+			auto* object = new PointObject(symbol);
+			object->setPosition(place);
+			object_indices.push_back(map.addObject(object, part_index));
+			CourseObject course_object;
+			course_object.object = object->uuid();
+			course_object.kind = kind;
+			course_object.code = waypoint.name;
+			data.objects.push_back(course_object);
+			++report.objects_added;
+		}
+	}
+
+	// The courses: the tracks which start and end at a start, a control or a finish.
+	if (options.courses)
+	{
+		struct Stop { QString code; MapCoordF place; };
+		std::vector<Stop> stops;
+		for (auto const& object : data.objects)
+		{
+			if (!isControlKind(object.kind))
+				continue;
+			auto const place = placeOf(map, data, object.code);
+			if (place.known)
+				stops.push_back({ object.code, place.entry });
+		}
+		// 1 m on the ground.
+		auto const tolerance_mm = 1000.0 / map.getScaleDenominator();
+		auto const stopAt = [&stops, tolerance_mm](const MapCoordF& point) {
+			const Stop* nearest = nullptr;
+			auto nearest_mm = tolerance_mm;
+			for (auto const& stop : stops)
+			{
+				auto const d = distance(point, stop.place);
+				if (d <= nearest_mm)
+				{
+					nearest = &stop;
+					nearest_mm = d;
+				}
+			}
+			return nearest;
+		};
+
+		for (std::size_t t = 0; t < file.tracks.size(); ++t)
+		{
+			auto const& track = file.tracks[t];
+			auto const name = track.name.isEmpty() ? tr("Track %1").arg(t + 1) : track.name;
+			if (isRelayVariantName(map.courseData(), name))
+			{
+				++report.relay_variants;
+				continue;
+			}
+			if (data.findCourse(name))
+			{
+				addOnce(report.courses_existing, name);
+				continue;
+			}
+			std::vector<const Stop*> at;
+			for (auto const& point : track.points)
+			{
+				auto ok = false;
+				auto const place = georef.toMapCoordF(point, &ok);
+				at.push_back(ok ? stopAt(place) : nullptr);
+			}
+			if (at.empty() || !at.front() || !at.back())
+			{
+				addOnce(report.tracks_not_courses, name);
+				continue;
+			}
+			Course course;
+			course.name = name;
+			const Stop* last = nullptr;
+			for (auto const* stop : at)
+			{
+				if (!stop || stop == last)
+					continue;
+				last = stop;
+				CourseItem item;
+				auto const* object = data.findObject(stop->code);
+				if (!object || !canBeCourseItem(object->kind, &item.type))
+					continue;
+				item.code = stop->code;
+				course.items.push_back(item);
+			}
+			data.courses.push_back(course);
+			++report.courses_added;
+		}
+	}
+
+	commitImport(map, std::move(data), before, object_indices, part_index);
+	report.ok = true;
+	return report;
+}
+
+CourseGeodataImportReport refusedImport(const QString& error)
+{
+	CourseGeodataImportReport report;
+	report.error = error;
+	return report;
+}
+
+QString notGeoreferenced()
+{
+	return tr("The map is not georeferenced: it has no real-world coordinates or no coordinate reference system.");
+}
+
+
 }  // namespace
 
 
@@ -1046,11 +1537,7 @@ CourseExportReport writeCoursesKml(const Map& map, QIODevice& device, const QStr
 	auto const geodata = collectGeodata(map, course, report);
 	if (!report.ok)
 		return report;
-	
-	auto const tuple = [](const LatLon& place) {
-		return QString(number(place.longitude(), 7) + QLatin1Char(',') + number(place.latitude(), 7) + QLatin1String(",0"));
-	};
-	
+
 	QXmlStreamWriter xml(&device);
 	xml.setAutoFormatting(true);
 	xml.writeStartDocument();
@@ -1059,43 +1546,11 @@ CourseExportReport writeCoursesKml(const Map& map, QIODevice& device, const QStr
 	xml.writeComment(QLatin1String("Generator: ") + creator());
 	xml.writeStartElement(QStringLiteral("Document"));
 	xml.writeTextElement(QStringLiteral("name"), geodata.title);
-	
-	xml.writeStartElement(QStringLiteral("Folder"));
-	xml.writeTextElement(QStringLiteral("name"), tr("Course objects"));
-	for (auto const& waypoint : geodata.waypoints)
-	{
-		xml.writeStartElement(QStringLiteral("Placemark"));
-		xml.writeTextElement(QStringLiteral("name"), waypoint.code);
-		if (!waypoint.text.isEmpty())
-			xml.writeTextElement(QStringLiteral("description"), waypoint.text);
-		xml.writeStartElement(QStringLiteral("Point"));
-		xml.writeTextElement(QStringLiteral("coordinates"), tuple(waypoint.place));
-		xml.writeEndElement();
-		xml.writeEndElement();
-	}
-	xml.writeEndElement();
-	
-	xml.writeStartElement(QStringLiteral("Folder"));
-	xml.writeTextElement(QStringLiteral("name"), tr("Courses"));
-	for (auto const& track : geodata.tracks)
-	{
-		QStringList tuples;
-		for (auto const& point : track.points)
-			tuples.push_back(tuple(point));
-		xml.writeStartElement(QStringLiteral("Placemark"));
-		xml.writeTextElement(QStringLiteral("name"), track.name);
-		xml.writeStartElement(QStringLiteral("LineString"));
-		xml.writeTextElement(QStringLiteral("tessellate"), QStringLiteral("1"));
-		xml.writeTextElement(QStringLiteral("coordinates"), tuples.join(QLatin1Char(' ')));
-		xml.writeEndElement();
-		xml.writeEndElement();
-	}
-	xml.writeEndElement();
-	
+	writeKmlFolders(xml, geodata);
 	xml.writeEndElement();  // Document
 	xml.writeEndElement();  // kml
 	xml.writeEndDocument();
-	
+
 	if (xml.hasError())
 	{
 		report.ok = false;
@@ -1106,10 +1561,25 @@ CourseExportReport writeCoursesKml(const Map& map, QIODevice& device, const QStr
 
 
 
-CourseFilesReport writeCourseFiles(const Map& map, const QString& path, CourseFileKind kind, bool per_course)
+CourseFilesReport writeCourseFiles(Map& map, const QString& path, CourseFileKind kind, bool per_course, const CourseKmzOptions& kmz)
 {
 	CourseFilesReport report;
-	auto const write_one = [&map, kind, &report](const QString& file_path, const QString& course) {
+	auto const write_one = [&map, kind, &kmz, &report](const QString& file_path, const QString& course) {
+		if (kind == CourseFileKind::Kmz)  // the archive is written whole by the writer
+		{
+			auto options = kmz;
+			options.course = course;
+			auto const written = writeCoursesKmz(map, file_path, options);
+			if (!written.ok)
+			{
+				report.error = written.error;
+				return false;
+			}
+			report.files.push_back(file_path);
+			for (auto const& skipped : written.skipped_courses)
+				addOnce(report.skipped_courses, skipped);
+			return true;
+		}
 		QSaveFile file(file_path);
 		if (!file.open(QIODevice::WriteOnly))
 		{
@@ -1122,6 +1592,7 @@ CourseFilesReport writeCourseFiles(const Map& map, const QString& path, CourseFi
 		case CourseFileKind::IofXml:  written = writeIofCourseData(map, file); break;
 		case CourseFileKind::Gpx:     written = writeCoursesGpx(map, file, course); break;
 		case CourseFileKind::Kml:     written = writeCoursesKml(map, file, course); break;
+		case CourseFileKind::Kmz:     break;
 		}
 		if (!written.ok)
 		{
@@ -1323,27 +1794,174 @@ IofImportReport importIofCourseData(Map& map, QIODevice& device, const IofImport
 	}
 	
 	// One undo step: the objects first and the course data behind them.
-	if (object_indices.empty())
-	{
-		changeCourseData(map, std::move(data));
-	}
-	else
-	{
-		auto* object_step = new DeleteObjectsUndoStep(&map);
-		object_step->setPartIndex(part_index);
-		for (auto const index : object_indices)
-			object_step->addObject(index);
-		auto* combined = new CombinedUndoStep(&map);
-		combined->push(object_step);
-		combined->push(new MapDataUndoStep(&map, MapDataUndoStep::Courses, before));
-		map.setCourseData(std::move(data));
-		map.setObjectsDirty();
-		map.setOtherDirty();
-		map.push(combined);
-	}
+	commitImport(map, std::move(data), before, object_indices, part_index);
 	
 	report.ok = true;
 	return report;
+}
+
+
+
+// foom: the design notes, "Interchange: GPX and KML in, and a KMZ with the map".
+
+CourseExportReport writeCoursesKmz(Map& map, const QString& path, const CourseKmzOptions& options)
+{
+	CourseExportReport report;
+	auto const geodata = collectGeodata(map, options.course, report);
+	if (!report.ok)
+		return report;
+	report.ok = false;
+
+#if defined(MAPPER_USE_GDAL) && defined(QT_PRINTSUPPORT_LIB)
+	// The placemarks and the lines, beside the folder of the pictures.
+	QBuffer folders;
+	folders.open(QIODevice::WriteOnly);
+	{
+		QXmlStreamWriter xml(&folders);
+		xml.setAutoFormatting(true);
+		writeKmlFolders(xml, geodata);
+	}
+
+	// The picture: of the map at its print area, or at what it draws and where its course objects lie.
+	auto const& data = map.courseData();
+	auto const has_config = map.hasPrinterConfig();
+	QRectF area;
+	if (!has_config)
+	{
+		area = map.calculateExtent(false, options.templates, options.view);
+		for (auto const& object : data.objects)
+		{
+			for (auto const& point : placeOf(map, data, object.code).points)
+			{
+				if (area.isValid())
+					rectInclude(area, point);
+				else
+					area = QRectF(point, QSizeF(0.0001, 0.0001));
+			}
+		}
+		area.adjust(-5.0, -5.0, 5.0, 5.0);
+	}
+	MapPrinter printer(map, options.view);
+	// The printer made the map print settings where it had none; they are not kept, so that the next file
+	// is as this one, and the map is not changed by it.
+	if (!has_config)
+	{
+		auto const unsaved = map.hasUnsavedChanges();
+		map.resetPrinterConfig();
+		if (!unsaved)
+			map.setHasUnsavedChanges(false);
+	}
+	printer.setTarget(MapPrinter::kmzTarget());
+	printer.setMode(MapPrinterOptions::Raster);
+	printer.setScale(map.getScaleDenominator());
+	printer.setResolution(qRound(options.dpi));
+	printer.setPrintTemplates(options.templates);
+	if (!has_config)
+		printer.setPrintArea(area);
+
+	// With a course without variations, the picture is the map of that course.
+	CourseMapDrawing drawing;
+	auto const* course = options.course.isEmpty() ? nullptr : data.findCourse(options.course);
+	if (course && course->type == Course::Normal)
+	{
+		CourseMapSide side;
+		side.course = course->name;
+		drawing = drawCourseMap(map, data, side);
+		printer.setOverlay([&map, &drawing](QPainter* painter, const RenderConfig& config, int /*side*/) {
+			paintCourseMap(painter, &map, drawing, config.bounding_box, config.scaling);
+		});
+	}
+
+	// Written beside the file, and put in its place when it is whole.
+	auto const info = QFileInfo(path);
+	auto const temporary = info.dir().filePath(QLatin1String(".foom-") + QUuid::createUuid().toString(QUuid::WithoutBraces) + QLatin1String(".kmz"));
+	KmzGroundOverlayExport exporter(temporary, map);
+	exporter.setDocument(geodata.title, folders.data());
+	auto written = false;
+	{
+		std::unique_ptr<CourseSymbolsHider> hider;
+		if (drawing.drawn)
+			hider = std::make_unique<CourseSymbolsHider>(map);
+		written = exporter.doExport(printer, options.tiles ? 512 : 0);
+	}
+	if (!written)
+	{
+		QFile::remove(temporary);
+		report.error = exporter.errorString().isEmpty() ? tr("The file %1 cannot be written.").arg(path) : exporter.errorString();
+		return report;
+	}
+	if ((QFile::exists(path) && !QFile::remove(path)) || !QFile::rename(temporary, path))
+	{
+		QFile::remove(temporary);
+		report.error = tr("The file %1 cannot be written.").arg(path);
+		return report;
+	}
+	report.ok = true;
+#else
+	Q_UNUSED(map)
+	Q_UNUSED(path)
+	Q_UNUSED(options)
+	Q_UNUSED(geodata)
+	report.error = tr("This program cannot write KMZ files.");
+#endif
+	return report;
+}
+
+
+QByteArray readKmzEntry(const QString& path, const QString& entry)
+{
+#ifdef MAPPER_USE_GDAL
+	return readZipEntry(path, entry);
+#else
+	Q_UNUSED(path)
+	Q_UNUSED(entry)
+	return {};
+#endif
+}
+
+
+CourseGeodataImportReport importCoursesGpx(Map& map, QIODevice& device, const CourseGeodataImportOptions& options)
+{
+	if (!isGeoreferenced(map))
+		return refusedImport(notGeoreferenced());
+	InGeodata file;
+	auto const error = readGpx(device, file);
+	if (!error.isEmpty())
+		return refusedImport(error);
+	return importGeodata(map, file, options);
+}
+
+
+CourseGeodataImportReport importCoursesKml(Map& map, QIODevice& device, const CourseGeodataImportOptions& options)
+{
+	if (!isGeoreferenced(map))
+		return refusedImport(notGeoreferenced());
+	InGeodata file;
+	auto const error = readKml(device, file);
+	if (!error.isEmpty())
+		return refusedImport(error);
+	return importGeodata(map, file, options);
+}
+
+
+CourseGeodataImportReport importCourseFile(Map& map, const QString& path, const CourseGeodataImportOptions& options)
+{
+	auto const suffix = QFileInfo(path).suffix().toLower();
+	if (suffix == QLatin1String("kmz"))
+	{
+		auto bytes = readKmzEntry(path);
+		if (bytes.isEmpty())
+			return refusedImport(tr("The file %1 is no KMZ archive with a KML document.").arg(path));
+		QBuffer buffer(&bytes);
+		buffer.open(QIODevice::ReadOnly);
+		return importCoursesKml(map, buffer, options);
+	}
+	if (suffix != QLatin1String("gpx") && suffix != QLatin1String("kml"))
+		return refusedImport(tr("The file %1 is no GPX, KML or KMZ file.").arg(path));
+	QFile file(path);
+	if (!file.open(QIODevice::ReadOnly))
+		return refusedImport(tr("The file %1 cannot be read.").arg(path));
+	return suffix == QLatin1String("gpx") ? importCoursesGpx(map, file, options) : importCoursesKml(map, file, options);
 }
 
 
