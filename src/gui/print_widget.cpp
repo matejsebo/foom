@@ -23,6 +23,7 @@
 
 #include "print_widget.h"
 
+#include <initializer_list>  // foom
 #include <limits>
 #include <memory>
 // IWYU pragma: no_include <type_traits>
@@ -89,10 +90,12 @@
 #include "core/map_printer.h"
 #include "core/print_job.h"  // foom
 #include "core/print_output.h"  // foom
+#include "core/raster_export.h"  // foom
 #include "core/map_view.h"
 #include "fileformats/xml_file_format.h"
 #ifdef MAPPER_USE_GDAL
 #  include "gdal/cmyk_tiff.h"  // foom
+#  include "gdal/gif_writer.h"  // foom
 #endif
 #include "gui/file_dialog.h"
 #include "gui/main_window.h"
@@ -317,6 +320,25 @@ PrintWidget::PrintWidget(Map* map, MainWindow* main_window, MapView* main_view, 
 	world_file_check = new QCheckBox(tr("Save world file"));
 	layout->addRow(world_file_check);
 	world_file_check->hide();
+
+	// foom: colours and tiles. the design notes, "Print and raster output", fourth change
+	raster_colours_label = new QLabel(tr("Colours:"));
+	raster_colours_combo = new QComboBox();
+	raster_colours_combo->setObjectName(QStringLiteral("raster-colours"));
+	raster_colours_combo->addItem(tr("RGB"), int(RasterColours::Rgb));
+	raster_colours_combo->addItem(tr("256 colours"), int(RasterColours::Palette));
+	raster_colours_combo->addItem(tr("Greyscale"), int(RasterColours::Grey));
+	layout->addRow(raster_colours_label, raster_colours_combo);
+	raster_tiles_label = new QLabel(tr("Tiles:"));
+	raster_tiles_edit = new QSpinBox();
+	raster_tiles_edit->setObjectName(QStringLiteral("raster-tiles"));
+	raster_tiles_edit->setRange(0, 100000);
+	raster_tiles_edit->setSingleStep(256);
+	raster_tiles_edit->setSuffix(QLatin1String(" px"));
+	raster_tiles_edit->setSpecialValueText(tr("None"));
+	layout->addRow(raster_tiles_label, raster_tiles_edit);
+	for (auto* widget : std::initializer_list<QWidget*>{ raster_colours_label, raster_colours_combo, raster_tiles_label, raster_tiles_edit })
+		widget->hide();
 	
 	transparent_background_check = new QCheckBox(tr("Transparent background"));
 	layout->addRow(transparent_background_check);
@@ -692,6 +714,8 @@ void PrintWidget::setTarget(const QPrinterInfo* target)
 	}
 	
 	world_file_check->setVisible(is_image_target);
+	for (auto* widget : std::initializer_list<QWidget*>{ raster_colours_label, raster_colours_combo, raster_tiles_label, raster_tiles_edit })
+		widget->setVisible(is_image_target);  // foom
 	// If MapCoord (0,0) maps to projected (0,0), then there is probably
 	// no point in writing a world file.
 	world_file_check->setChecked(!map->getGeoreferencing().toProjectedCoords(MapCoordF{}).isNull());
@@ -1377,6 +1401,9 @@ void PrintWidget::exportToImage()
 	                        filter_template.arg(tr("TIFF"), QString::fromLatin1("*.tif *.tiff")),
 	                        filter_template.arg(tr("JPEG"), QString::fromLatin1("*.jpg *.jpeg")),
 	                        tr("All files (*.*)") };
+#ifdef MAPPER_USE_GDAL
+	filters.insert(filters.size() - 1, filter_template.arg(tr("GIF"), QString::fromLatin1("*.gif")));  // foom
+#endif
 	// foom: plates. the design notes, "Print and raster output"
 	const QString plate_labels[6] = { tr("TIFF, CMYK"), tr("Spot colour plates, 8 bit"), tr("Spot colour plates, 1 bit"), tr("Spot colour plates, 1 bit halftone"),
 	                                  tr("Spot colour plates, 1 bit, fax compression"), tr("Spot colour plates, 1 bit halftone, fax compression") };
@@ -1416,10 +1443,25 @@ void PrintWidget::exportToImage()
 	if (!path.endsWith(QLatin1String(".png"), Qt::CaseInsensitive)
 	    && !path.endsWith(QLatin1String(".bmp"), Qt::CaseInsensitive)
 	    && !path.endsWith(QLatin1String(".tif"), Qt::CaseInsensitive) && !path.endsWith(QLatin1String(".tiff"), Qt::CaseInsensitive)
-	    && !path.endsWith(QLatin1String(".jpg"), Qt::CaseInsensitive) && !path.endsWith(QLatin1String(".jpeg"), Qt::CaseInsensitive) )
+	    && !path.endsWith(QLatin1String(".jpg"), Qt::CaseInsensitive) && !path.endsWith(QLatin1String(".jpeg"), Qt::CaseInsensitive)
+	    && !path.endsWith(QLatin1String(".gif"), Qt::CaseInsensitive) )  // foom
 	{
 		path.append(QString::fromLatin1(".png"));
 	}
+
+	// foom: colours, tiles, GIF. the design notes, "Print and raster output", fourth change
+	auto const is_gif = path.endsWith(QLatin1String(".gif"), Qt::CaseInsensitive);
+	auto const is_jpeg = path.endsWith(QLatin1String(".jpg"), Qt::CaseInsensitive) || path.endsWith(QLatin1String(".jpeg"), Qt::CaseInsensitive);
+	auto colours = RasterColours(raster_colours_combo->currentData().toInt());
+	if (is_gif && colours == RasterColours::Rgb)
+		colours = RasterColours::Palette;
+	if (is_jpeg && colours == RasterColours::Palette)
+	{
+		colours = RasterColours::Rgb;
+		QMessageBox::information(this, tr("Information"), tr("A JPEG cannot hold a palette. Writing RGB instead."));
+	}
+	auto const tile_size = raster_tiles_edit->value();
+	auto const use_raster_save = is_gif || colours != RasterColours::Rgb || tile_size > 0;
 	
 	qreal pixel_per_mm = map_printer->getOptions().resolution / 25.4;
 	int print_width = qRound(map_printer->getPrintAreaPaperSize().width() * pixel_per_mm);
@@ -1432,7 +1474,12 @@ void PrintWidget::exportToImage()
 	}
 	
 	bool transparent_background = transparent_background_check->isChecked();
-	if (transparent_background
+	if (transparent_background && use_raster_save && colours != RasterColours::Rgb)  // foom
+	{
+		transparent_background = false;
+		QMessageBox::information(this, tr("Information"), tr("Transparent background is not supported for this file format.\nUsing a white background instead."));
+	}
+	else if (transparent_background
 		&& !path.endsWith(QLatin1String(".png"), Qt::CaseInsensitive)
 	    && !path.endsWith(QLatin1String(".tif"), Qt::CaseInsensitive) && !path.endsWith(QLatin1String(".tiff"), Qt::CaseInsensitive) )
 	{
@@ -1455,6 +1502,29 @@ void PrintWidget::exportToImage()
 	QPainter p(&image);
 	map_printer->drawPage(&p, map_printer->getPrintArea(), &image);
 	p.end();
+	if (use_raster_save)
+	{
+		// foom
+		RasterSaveOptions options;
+		options.colours = colours;
+		options.tiles = { tile_size, tile_size };
+		options.world_file = world_file_check->isChecked();
+		options.world = rasterWorldTransform(*map, map_printer->getPrintArea(), map_printer->getOptions().resolution, map_printer->getScaleAdjustment());
+#ifdef MAPPER_USE_GDAL
+		if (is_gif)
+			options.writer = &writeGif;
+#endif
+		QStringList files;
+		QString error;
+		if (!saveRasterImage(image, *map, path, options, &files, &error))
+		{
+			QMessageBox::warning(this, tr("Error"), error);
+			return;
+		}
+		main_window->showStatusBarMessage(tr("Exported %n file(s) to %1", nullptr, files.size()).arg(QFileInfo(path).path()), 4000);
+		emit finished(0);
+		return;
+	}
 	if (!image.save(path))
 	{
 		QMessageBox::warning(this, tr("Error"), tr("Failed to save the image. Does the path exist? Do you have sufficient rights?"));

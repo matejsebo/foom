@@ -78,6 +78,8 @@
 #include "core/symbols/text_symbol.h"
 #include "fileformats/file_import_export.h"
 #include "gdal/gdal_file.h"
+#include "core/dxf_crt.h"  // foom
+#include "gdal/dxf_colours.h"  // foom
 #include "gdal/gdal_manager.h"
 #include "gdal/gdal_template.h"
 #include "layout/layout_part.h"  // foom
@@ -1959,6 +1961,10 @@ OgrFileExport::OgrFileExport(const QString& path, const Map* map, const MapView*
 	GdalManager manager;
 	bool one_layer_per_symbol = manager.isExportOptionEnabled(GdalManager::OneLayerPerSymbol);
 	setOption(QString::fromLatin1("Per Symbol Layers"), one_layer_per_symbol);
+	// foom: the design notes, "DXF export through a cross-reference table"
+	setOption(QStringLiteral("foom dxf crt"), QString{});
+	setOption(QStringLiteral("foom dxf crt only"), false);
+	setOption(QStringLiteral("foom dxf write crt"), QString{});
 }
 
 OgrFileExport::~OgrFileExport() = default;
@@ -1991,6 +1997,9 @@ bool OgrFileExport::exportImplementation()
 
 	setupGeoreferencing(po_driver);
 
+	auto symbols = symbolsForExport();
+	setupDxfCrt(symbols);  // foom: before the file is made
+
 	// Create output dataset
 	po_ds = ogr::unique_datasource(OGR_Dr_CreateDataSource(
 	                                   po_driver,
@@ -2012,8 +2021,6 @@ bool OgrFileExport::exportImplementation()
 		OGR_Fld_SetWidth(o_name_field.get(), 32);
 	}
 
-	auto symbols = symbolsForExport();
-	
 	// Setup style table
 	populateStyleTable(symbols);
 	
@@ -2113,7 +2120,85 @@ bool OgrFileExport::exportImplementation()
 		}
 	}
 	
+	writeDxfCrtOfExport(symbols);  // foom
 	return true;
+}
+
+
+// foom: the design notes, "DXF export through a cross-reference table"
+void OgrFileExport::setupDxfCrt(std::vector<const Symbol*>& symbols)
+{
+	crt_layers.clear();
+	crt_colours.clear();
+	auto const path = option(QStringLiteral("foom dxf crt")).toString();
+	if (path.isEmpty() || qstrcmp(id, "DXF") != 0)
+		return;
+	
+	QString message;
+	auto const crt = readDxfCrtFile(path, &message);
+	if (crt.rows.empty())
+		throw FileFormatException(message);
+	if (crt.skipped > 0)
+		addWarning(message);
+	
+	auto const listed_only = option(QStringLiteral("foom dxf crt only")).toBool();
+	std::vector<const Symbol*> kept;
+	for (auto const* symbol : symbols)
+	{
+		auto const* row = crt.find(symbol->getNumberAsString());
+		if (row)
+		{
+			crt_layers.insert(symbol, row->layer.toUtf8());
+			if (row->colour > 0)
+				crt_colours.insert(symbol, row->colour);
+		}
+		if (row || !listed_only)
+			kept.push_back(symbol);
+	}
+	symbols.swap(kept);
+}
+
+void OgrFileExport::writeDxfCrtOfExport(const std::vector<const Symbol*>& symbols)
+{
+	auto const path = option(QStringLiteral("foom dxf write crt")).toString();
+	if (path.isEmpty() || qstrcmp(id, "DXF") != 0)
+		return;
+	
+	// In the order of the export: points, texts, lines, areas.
+	auto const is_line = [](const Symbol* symbol) {
+		return symbol->getType() == Symbol::Line
+		       || (symbol->getType() == Symbol::Combined && !(symbol->getContainedTypes() & Symbol::Area));
+	};
+	std::vector<const Symbol*> ordered;
+	for (auto const* symbol : symbols)
+		if (symbol->getType() == Symbol::Point) ordered.push_back(symbol);
+	for (auto const* symbol : symbols)
+		if (symbol->getType() == Symbol::Text) ordered.push_back(symbol);
+	for (auto const* symbol : symbols)
+		if (is_line(symbol)) ordered.push_back(symbol);
+	for (auto const* symbol : symbols)
+		if (symbol->getContainedTypes() & Symbol::Area) ordered.push_back(symbol);
+	
+	DxfCrt crt;
+	for (auto const* symbol : ordered)
+	{
+		if (crt.find(symbol->getNumberAsString()))
+			continue;
+		crt.rows.push_back({ symbol->getNumberAsString(), QString::fromUtf8(layerName(symbol)), crt_colours.value(symbol, 0) });
+	}
+	QString error;
+	if (!writeDxfCrt(path, crt, &error))
+		addWarning(error);
+}
+
+QByteArray OgrFileExport::layerName(const Symbol* symbol) const
+{
+	auto const layer = crt_layers.constFind(symbol);
+	if (layer != crt_layers.constEnd())
+		return *layer;
+	QString sym_name = symbol->getPlainTextName();
+	sym_name.truncate(32);
+	return sym_name.toLatin1();
 }
 
 
@@ -2228,9 +2313,7 @@ void OgrFileExport::addPointsToLayer(OGRLayerH layer, const std::function<bool (
 		auto symbol = object->getSymbol();
 		auto po_feature = ogr::unique_feature(OGR_F_Create(OGR_L_GetLayerDefn(layer)));
 
-		QString sym_name = symbol->getPlainTextName();
-		sym_name.truncate(32);
-		OGR_F_SetFieldString(po_feature.get(), OGR_F_GetFieldIndex(po_feature.get(), symbol_field), sym_name.toLatin1().constData());
+		OGR_F_SetFieldString(po_feature.get(), OGR_F_GetFieldIndex(po_feature.get(), symbol_field), layerName(symbol).constData());  // foom: the table's layer
 
 		auto pt = ogr::unique_geometry(OGR_G_CreateGeometry(wkbPoint));
 		QPointF proj_cord = georef.toProjectedCoords(object->asPoint()->getCoordF());
@@ -2259,9 +2342,7 @@ void OgrFileExport::addTextToLayer(OGRLayerH layer, const std::function<bool (co
 		auto symbol = object->getSymbol();
 		auto po_feature = ogr::unique_feature(OGR_F_Create(OGR_L_GetLayerDefn(layer)));
 
-		QString sym_name = symbol->getPlainTextName();
-		sym_name.truncate(32);
-		OGR_F_SetFieldString(po_feature.get(), OGR_F_GetFieldIndex(po_feature.get(), symbol_field), sym_name.toLatin1().constData());
+		OGR_F_SetFieldString(po_feature.get(), OGR_F_GetFieldIndex(po_feature.get(), symbol_field), layerName(symbol).constData());  // foom: the table's layer
 
 		auto text = object->asText()->getText();
 		if (o_name_field)
@@ -2310,15 +2391,14 @@ void OgrFileExport::addLinesToLayer(OGRLayerH layer, const std::function<bool (c
 		if (path->parts().empty())
 			return;
 
-		QString sym_name = symbol->getPlainTextName();
-		sym_name.truncate(32);
+		auto const sym_name = layerName(symbol);  // foom: the table's layer
 
 		auto line_string = ogr::unique_geometry(OGR_G_CreateGeometry(wkbLineString));
 		const auto& parts = path->parts();
 		for (const auto& part : parts)
 		{
 			auto po_feature = ogr::unique_feature(OGR_F_Create(OGR_L_GetLayerDefn(layer)));
-			OGR_F_SetFieldString(po_feature.get(), OGR_F_GetFieldIndex(po_feature.get(), symbol_field), sym_name.toLatin1().constData());
+			OGR_F_SetFieldString(po_feature.get(), OGR_F_GetFieldIndex(po_feature.get(), symbol_field), sym_name.constData());
 
 			for (const auto& coord : part.path_coords)
 			{
@@ -2353,9 +2433,7 @@ void OgrFileExport::addAreasToLayer(OGRLayerH layer, const std::function<bool (c
 
 		auto po_feature = ogr::unique_feature(OGR_F_Create(OGR_L_GetLayerDefn(layer)));
 
-		QString sym_name = symbol->getPlainTextName();
-		sym_name.truncate(32);
-		OGR_F_SetFieldString(po_feature.get(), OGR_F_GetFieldIndex(po_feature.get(), symbol_field), sym_name.toLatin1().constData());
+		OGR_F_SetFieldString(po_feature.get(), OGR_F_GetFieldIndex(po_feature.get(), symbol_field), layerName(symbol).constData());  // foom: the table's layer
 
 		auto polygon = ogr::unique_geometry(OGR_G_CreateGeometry(wkbPolygon));
 		auto cur_ring = ogr::unique_geometry(OGR_G_CreateGeometry(wkbLinearRing));
@@ -2438,6 +2516,14 @@ void OgrFileExport::populateStyleTable(const std::vector<const Symbol*>& symbols
 		if (qEnvironmentVariableIsSet("MAPPER_DEBUG_OGR"))
 			qDebug("%s:\t \"%s\"", qPrintable(symbol->getPlainTextName()), style_string.constData());
 #endif
+		// foom: the colour of the cross-reference table. the design notes
+		auto const crt_colour = crt_colours.constFind(symbol);
+		if (crt_colour != crt_colours.constEnd())
+		{
+			static const QRegularExpression colour(QStringLiteral("c:#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?"));
+			auto const replacement = QString::fromLatin1("c:" + dxfAciStyleColour(*crt_colour));
+			style_string = QString::fromLatin1(style_string).replace(colour, replacement).toLatin1();
+		}
 		OGR_SM_AddStyle(manager.get(), symbolId(symbol), style_string);
 	}
 }

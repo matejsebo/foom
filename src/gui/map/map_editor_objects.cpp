@@ -28,6 +28,8 @@
 #include <algorithm>
 #include <vector>
 
+#include <QAction>
+#include <QActionGroup>
 #include <QApplication>
 #include <QClipboard>
 #include <QComboBox>
@@ -37,6 +39,7 @@
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QChar>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QRadioButton>
@@ -46,6 +49,8 @@
 
 #include "core/extents.h"
 #include "core/map.h"
+#include "core/map_color.h"
+#include "core/map_view.h"
 #include "core/map_printer.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
@@ -55,6 +60,7 @@
 #include "core/symbols/symbol.h"
 #include "fileformats/file_format.h"
 #include "fileformats/file_format_registry.h"
+#include "fileformats/file_import_export.h"  // foom
 #include "fileformats/map_export.h"
 #include "gui/file_dialog.h"
 #include "gui/main_window.h"
@@ -375,5 +381,98 @@ bool MapEditorController::exportObjects(const QString& path, bool selected_symbo
 	}
 	return true;
 }
+
+// foom: the design notes, "DXF export through a cross-reference table"
+void MapEditorController::exportDxfCrtClicked()
+{
+	auto const crt = FileDialog::getOpenFileName(window, tr("Cross-reference table"), {},
+	                                             tr("Cross-reference tables") + QLatin1String(" (*.crt *.txt);;") + tr("All files") + QLatin1String(" (*.*)"));
+	if (crt.isEmpty())
+		return;
+	auto path = FileDialog::getSaveFileName(window, tr("Export DXF"), {}, tr("DXF") + QLatin1String(" (*.dxf)"));
+	if (path.isEmpty())
+		return;
+	if (!path.endsWith(QLatin1String(".dxf"), Qt::CaseInsensitive))
+		path += QLatin1String(".dxf");
+	auto const answer = QMessageBox::question(window, tr("Export DXF"), tr("Export only the symbols which the table lists?"),
+	                                          QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel, QMessageBox::No);
+	if (answer == QMessageBox::Cancel)
+		return;
+	if (exportDxfWithCrt(path, crt, answer == QMessageBox::Yes))
+		window->showStatusBarMessage(tr("Exported successfully to %1").arg(path), 4000);
+}
+
+bool MapEditorController::exportDxfWithCrt(const QString& dxf, const QString& crt, bool listed_only)
+{
+	auto const* format = FileFormats.findFormat("OGR-export-DXF");
+	if (!format || !format->supportsFileExport())
+	{
+		QMessageBox::warning(window, tr("Error"), tr("DXF cannot be written: GDAL has no DXF driver."));
+		return false;
+	}
+	auto exporter = format->makeExporter(dxf, map, main_view);
+	if (!exporter)
+		return false;
+	exporter->setOption(QStringLiteral("foom dxf crt"), crt);
+	exporter->setOption(QStringLiteral("foom dxf crt only"), listed_only);
+	if (!exporter->doExport())
+	{
+		QMessageBox::warning(window, tr("Error"), exporter->warnings().empty() ? tr("Cannot write %1.").arg(dxf) : exporter->warnings().back());
+		return false;
+	}
+	if (!exporter->warnings().empty())
+		MainWindow::showMessageBox(window, tr("Warning"), tr("The map export generated warnings."), exporter->warnings());
+	return true;
+}
+
+
+// foom: the design notes, "Spot colour view"
+void MapEditorController::addSpotColourViewMenu(QMenu* view_menu)
+{
+	spot_colour_view_menu = view_menu->addMenu(tr("Spot colour view"));
+	spot_colour_view_menu->setObjectName(QStringLiteral("spot-colour-view"));
+	spot_colour_view_menu->menuAction()->setObjectName(QStringLiteral("spot-colour-view"));
+	connect(spot_colour_view_menu, &QMenu::aboutToShow, this, &MapEditorController::updateSpotColourViewMenu);
+	spot_colour_view_menu->setEnabled(map && map->hasSpotColors());
+}
+
+void MapEditorController::updateSpotColourViewMenu()
+{
+	if (!spot_colour_view_menu)
+		return;
+	spot_colour_view_menu->clear();
+	auto* group = new QActionGroup(spot_colour_view_menu);
+	auto const* current = main_view ? main_view->spotColourView() : nullptr;
+	auto add = [this, group](const QString& text, int index, bool checked) {
+		auto* action = spot_colour_view_menu->addAction(text);
+		action->setCheckable(true);
+		action->setChecked(checked);
+		group->addAction(action);
+		connect(action, &QAction::triggered, this, [this, index]() { showSpotColourView(index); });
+	};
+	add(tr("Off"), -1, !current);
+	if (!map)
+		return;
+	for (int i = 0; i < map->getNumColors(); ++i)
+	{
+		auto const* color = map->getColor(i);
+		if (color->getSpotColorMethod() == MapColor::SpotColor)
+			add(color->getName(), i, color == current);
+	}
+}
+
+void MapEditorController::showSpotColourView(int colour_index)
+{
+	if (!main_view || !map)
+		return;
+	const MapColor* color = nullptr;
+	if (colour_index >= 0 && colour_index < map->getNumColors()
+	    && map->getColor(colour_index)->getSpotColorMethod() == MapColor::SpotColor)
+		color = map->getColor(colour_index);
+	main_view->setSpotColourView(color);
+	if (overprinting_simulation_act)
+		overprinting_simulation_act->setChecked(main_view->isOverprintingSimulationEnabled());
+}
+
 
 }  // namespace OpenOrienteering

@@ -42,6 +42,7 @@ class QXmlStreamWriter;
 namespace OpenOrienteering {
 
 class Map;
+class MapColor;
 class Template;
 
 
@@ -345,8 +346,18 @@ public:
 	/** Returns if overprinting simulation is enabled. */
 	bool isOverprintingSimulationEnabled() const;
 	
-	/** Enables or disables overprinting simulation. */
+	/** Enables or disables overprinting simulation. Enabling it turns the spot colour view off. */
 	void setOverprintingSimulationEnabled(bool enabled);
+	
+	/**
+	 * foom: The spot colour whose plate the view shows, or nullptr.
+	 * 
+	 * See the design notes, "Spot colour view".
+	 */
+	const MapColor* spotColourView() const { return spot_colour_view; }
+	
+	/** foom: Shows the plate of the spot colour, or the normal view for nullptr. Turns the overprinting simulation off. */
+	void setSpotColourView(const MapColor* color);
 	
 	
 	/**
@@ -453,6 +464,7 @@ private:
 	qreal draft_template_dim = 0.5;  // foom
 	bool grid_visible;
 	bool overprinting_simulation_enabled;
+	const MapColor* spot_colour_view = nullptr;  // foom
 };
 
 

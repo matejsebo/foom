@@ -1199,6 +1199,7 @@ void MapEditorController::createActions()
 	export_simple_course_act = newAction("export-simple-course", tr("Simple &course"), this, SLOT(exportSimpleCourse()), nullptr, QString{}, "file_menu.html");
 	export_pdf_act = newAction("export-pdf", tr("&PDF"), print_act_mapper, SLOT(map()), nullptr, QString{}, "file_menu.html");
 	export_svg_act = newAction("export-svg", tr("&SVG..."), this, SLOT(exportSvgClicked()), nullptr, tr("Write the print area as an SVG file."));  // foom
+	export_dxf_crt_act = newAction("export-dxf-crt", tr("DXF with cross-reference table..."), this, SLOT(exportDxfCrtClicked()), nullptr, tr("Write DXF with the layers and colours of a cross-reference table."));  // foom
 	export_part_act = newAction("export-part", tr("Part of the map..."), this, SLOT(exportPartClicked()), nullptr, tr("Write the objects inside a boundary as a new map file."));  // foom
 	export_objects_act = newAction("export-objects", tr("Objects..."), this, SLOT(exportObjectsClicked()), nullptr, tr("Write the selection, or the objects of the selected symbols, as a new map file."));  // foom
 	print_act_mapper->setMapping(export_pdf_act, PrintWidget::EXPORT_PDF_TASK);
@@ -1695,6 +1696,7 @@ void MapEditorController::createMenuAndToolbars()
 	export_menu->addAction(export_image_act);
 	export_menu->addAction(export_pdf_act);
 	export_menu->addAction(export_svg_act);  // foom
+	export_menu->addAction(export_dxf_crt_act);  // foom
 	export_menu->addAction(export_part_act);  // foom
 	export_menu->addAction(export_objects_act);  // foom
 	export_menu->addAction(export_kmz_act);
@@ -1775,6 +1777,7 @@ void MapEditorController::createMenuAndToolbars()
 	view_menu->addAction(hatch_areas_view_act);
 	view_menu->addAction(baseline_view_act);
 	view_menu->addAction(overprinting_simulation_act);
+	addSpotColourViewMenu(view_menu);  // foom
 	view_menu->addAction(hide_all_templates_act);
 	view_menu->addAction(favourite_templates_act);  // foom
 	view_menu->addAction(draft_view_act);  // foom
@@ -2920,6 +2923,8 @@ void MapEditorController::clearUndoRedoHistory()
 
 void MapEditorController::spotColorPresenceChanged(bool has_spot_colors)
 {
+	if (spot_colour_view_menu)
+		spot_colour_view_menu->setEnabled(has_spot_colors);  // foom
 	if (overprinting_simulation_act)
 	{
 		if (has_spot_colors)

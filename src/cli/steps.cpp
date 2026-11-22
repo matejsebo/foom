@@ -80,6 +80,7 @@
 #include "core/map_coord.h"
 #include "core/map_printer.h"
 #include "core/print_output.h"
+#include "core/raster_export.h"  // foom
 #include "core/objects/object_query.h"
 #include "core/objects/symbol_rule_set.h"
 #include "core/symbols/private_symbol.h"
@@ -94,6 +95,7 @@
 #include "templates/template.h"  // foom
 #ifdef MAPPER_USE_GDAL
 #  include "gdal/cmyk_tiff.h"  // foom
+#  include "gdal/gif_writer.h"  // foom
 #  include "gdal/geodata_import.h"  // foom
 #  include "gdal/import_rule_choice.h"  // foom
 #  include "gdal/new_map.h"  // foom
@@ -893,6 +895,92 @@ PlateRequest parsePlates(const Params& p, const QString& format)
 	return request;
 }
 
+/**
+ * foom: What `colours`, `tiles` and `world_file` ask for.
+ * the design notes, "Print and raster output", fourth change
+ */
+struct RasterRequest
+{
+	RasterColours colours = RasterColours::Rgb;
+	RasterTiles tiles;
+	bool world_file = false;
+
+	bool isPlain(const QString& format) const
+	{
+		return colours == RasterColours::Rgb && !tiles.isOn() && !world_file && format != QLatin1String("gif");
+	}
+};
+
+RasterRequest parseRaster(const Params& p, const QString& format)
+{
+	RasterRequest request;
+	auto const gif = format == QLatin1String("gif");
+	auto const jpeg = format == QLatin1String("jpg") || format == QLatin1String("jpeg");
+	if (p.has("plates"))
+	{
+		for (auto parameter : { "colours", "tiles", "world_file" })
+		{
+			if (p.has(parameter))
+				p.fail(QString::fromLatin1("parameter \"%1\" does not apply to \"plates\"").arg(QLatin1String(parameter)));
+		}
+		if (gif)
+			p.fail(QLatin1String("\"plates\" are written as TIFF or PNG"));
+		return request;
+	}
+
+	auto const colours = p.optionalString("colours", gif ? QStringLiteral("256") : QStringLiteral("rgb"));
+	if (colours == QLatin1String("rgb"))
+		request.colours = RasterColours::Rgb;
+	else if (colours == QLatin1String("256"))
+		request.colours = RasterColours::Palette;
+	else if (colours == QLatin1String("grey"))
+		request.colours = RasterColours::Grey;
+	else
+		p.fail(QString::fromLatin1("unknown colours \"%1\": expected \"rgb\", \"256\" or \"grey\"").arg(colours));
+	if (gif && request.colours == RasterColours::Rgb)
+		p.fail(QLatin1String("a GIF has \"colours\" \"256\" or \"grey\""));
+	if (jpeg && request.colours == RasterColours::Palette)
+		p.fail(QLatin1String("a JPEG has \"colours\" \"rgb\" or \"grey\""));
+#ifndef MAPPER_USE_GDAL
+	if (gif)
+		p.fail(QLatin1String("GIF export needs a build with GDAL"));
+#endif
+
+	if (p.has("tiles"))
+	{
+		auto const v = p.value("tiles");
+		if (v.isArray())
+		{
+			auto const size = p.numberArray(v, 2, QStringLiteral("parameter \"tiles\""));
+			if (size[0] < 1 || size[1] < 1 || size[0] != double(int(size[0])) || size[1] != double(int(size[1])))
+				p.fail(QLatin1String("parameter \"tiles\" must be positive integers"));
+			request.tiles = { int(size[0]), int(size[1]) };
+		}
+		else
+		{
+			auto const size = int(p.requirePositiveInt("tiles"));
+			request.tiles = { size, size };
+		}
+	}
+	request.world_file = p.optionalBool("world_file", false);
+	return request;
+}
+
+/** foom: What `crt`, `crt_only` and `write_crt` ask for; DXF only. */
+void parseDxfCrt(const Params& p, const QString& format)
+{
+	auto const any = p.has("crt") || p.has("crt_only") || p.has("write_crt");
+	if (!any)
+		return;
+	if (format != QLatin1String("dxf"))
+		p.fail(QLatin1String("parameters \"crt\", \"crt_only\" and \"write_crt\" apply to DXF export only"));
+	p.optionalString("crt");
+	p.optionalString("write_crt");
+	if (p.has("crt_only") && !p.has("crt"))
+		p.fail(QLatin1String("parameter \"crt_only\" needs \"crt\""));
+	p.optionalBool("crt_only", false);
+}
+
 /** What `paper`, `orientation` and `overlap` ask for. */
 struct PaperRequest
 {
@@ -1062,7 +1150,7 @@ struct ExportTarget
 
 bool isImageFormat(const QString& format)
 {
-	static const char* const image_formats[] = { "png", "bmp", "tif", "tiff", "jpg", "jpeg" };
+	static const char* const image_formats[] = { "png", "bmp", "tif", "tiff", "jpg", "jpeg", "gif" };  // foom: gif
 	for (auto image_format : image_formats)
 	{
 		if (format == QLatin1String(image_format))
@@ -1294,7 +1382,8 @@ void StepRunner::validate(const Step& step, bool& map_open)
 	{
 		p.requireMap(map_open);
 		p.checkKnown({ "format", "path", "extent", "scale", "dpi", "mode", "course",
-		               "plates", "depth", "halftone", "compression", "templates", "grid", "overprinting", "paper", "orientation", "overlap" });
+		               "plates", "depth", "halftone", "compression", "templates", "grid", "overprinting", "paper", "orientation", "overlap",
+		               "colours", "tiles", "world_file", "crt", "crt_only", "write_crt" });  // foom
 		auto const path = p.requireString("path");
 		p.unsupported("course", "the course data are written by the step \"export-courses\", the maps of the courses by \"export-course-maps\"");  // foom
 		auto const target = resolveExportFormat(p, path, p.optionalString("format"));
@@ -1304,6 +1393,7 @@ void StepRunner::validate(const Step& step, bool& map_open)
 			if (parseMode(p, MapPrinterOptions::Raster) != MapPrinterOptions::Raster)
 				p.fail(QString::fromLatin1("\"%1\" images are raster output: \"mode\" must be \"raster\" or absent").arg(target.format));
 			parsePlates(p, target.format);
+			parseRaster(p, target.format);  // foom
 			for (auto parameter : { "paper", "orientation", "overlap" })
 			{
 				if (p.has(parameter))
@@ -1313,7 +1403,7 @@ void StepRunner::validate(const Step& step, bool& map_open)
 		case ExportTarget::Pdf:
 			if (target.kind == ExportTarget::Pdf)
 			{
-				for (auto parameter : { "plates", "depth", "halftone", "compression" })
+				for (auto parameter : { "plates", "depth", "halftone", "compression", "colours", "tiles", "world_file" })  // foom: colours, tiles, world_file
 				{
 					if (p.has(parameter))
 						p.fail(QString::fromLatin1("parameter \"%1\" applies to image export only").arg(QLatin1String(parameter)));
@@ -1328,13 +1418,16 @@ void StepRunner::validate(const Step& step, bool& map_open)
 				p.requirePositiveInt("dpi");
 			parseMode(p, MapPrinterOptions::Vector);
 			parseExtent(p);
+			parseDxfCrt(p, target.format);  // foom: rejects the parameters of the table
 			break;
 		case ExportTarget::Registry:
-			for (auto parameter : { "extent", "scale", "dpi", "mode", "plates", "depth", "halftone", "compression", "templates", "grid", "overprinting", "paper", "orientation", "overlap" })
+			for (auto parameter : { "extent", "scale", "dpi", "mode", "plates", "depth", "halftone", "compression", "templates", "grid", "overprinting", "paper", "orientation", "overlap",
+			                        "colours", "tiles", "world_file" })  // foom: colours, tiles, world_file
 			{
 				if (p.has(parameter))
 					p.fail(QString::fromLatin1("parameter \"%1\" applies to image and PDF export only, not to \"%2\"").arg(QLatin1String(parameter), target.format));
 			}
+			parseDxfCrt(p, target.format);  // foom
 			break;
 		}
 	}
@@ -1883,6 +1976,13 @@ StepResult StepRunner::exportMap(const Step& step)
 	auto exporter = target.file_format->makeExporter(path, map.get(), nullptr);
 	if (!exporter)
 		return failure(QString::fromLatin1("export as %1 is not supported").arg(target.file_format->description()));
+	// foom: the design notes, "DXF export through a cross-reference table"
+	if (p.has("crt"))
+		exporter->setOption(QStringLiteral("foom dxf crt"), job.resolvePath(p.requireString("crt")));
+	if (p.has("crt_only"))
+		exporter->setOption(QStringLiteral("foom dxf crt only"), p.optionalBool("crt_only", false));
+	if (p.has("write_crt"))
+		exporter->setOption(QStringLiteral("foom dxf write crt"), job.resolvePath(p.requireString("write_crt")));
 	if (!exporter->doExport())
 		return failure(lastWarning(exporter->warnings(), QString::fromLatin1("cannot write \"%1\"").arg(path)));
 	
@@ -1971,16 +2071,50 @@ StepResult StepRunner::exportImage(const Step& step, const QString& path, const 
 		QPainter painter(&image);
 		printer.drawPage(&painter, printer.getPrintArea(), &image);
 	}
-	if (!image.save(path))
-		return failure(QString::fromLatin1("cannot write the %1 image \"%2\"").arg(format.toUpper(), path));
-	
+
+	// foom: colours, tiles, world file. the design notes, "Print and raster output", fourth change
+	auto raster = parseRaster(p, format);
+	std::vector<QString> raster_warnings;
+	QStringList files;
+	if (raster.isPlain(format))
+	{
+		if (!image.save(path))
+			return failure(QString::fromLatin1("cannot write the %1 image \"%2\"").arg(format.toUpper(), path));
+	}
+	else
+	{
+		RasterSaveOptions options;
+		options.colours = raster.colours;
+		options.tiles = raster.tiles;
+		if (raster.world_file)
+		{
+			if (map->getGeoreferencing().toProjectedCoords(MapCoordF{}).isNull())
+				raster_warnings.push_back(QLatin1String("no world file: the map has no projected georeferencing"));
+			else
+				options.world_file = true;
+			options.world = rasterWorldTransform(*map, printer.getPrintArea(), printer.getOptions().resolution, printer.getScaleAdjustment());
+		}
+#ifdef MAPPER_USE_GDAL
+		if (format == QLatin1String("gif"))
+			options.writer = &writeGif;
+#endif
+		QString error;
+		if (!saveRasterImage(image, *map, path, options, &files, &error))
+			return failure(error);
+	}
+
 	StepResult result;
 	result.details.insert(QLatin1String("path"), path);
 	result.details.insert(QLatin1String("format"), format);
+	result.details.insert(QLatin1String("colours"), raster.colours == RasterColours::Rgb ? QStringLiteral("rgb") : raster.colours == RasterColours::Grey ? QStringLiteral("grey") : QStringLiteral("256"));
+	if (raster.tiles.isOn())
+		result.details.insert(QLatin1String("files"), QJsonArray::fromStringList(files));
 	result.details.insert(QLatin1String("width"), width);
 	result.details.insert(QLatin1String("height"), height);
 	result.details.insert(QLatin1String("dpi"), printer.getOptions().resolution);
 	addWarnings(result, hiddenWarnings(*map));
+	for (auto const& warning : raster_warnings)  // foom
+		appendWarning(result, warning);
 	return result;
 }
 
