@@ -128,6 +128,11 @@ struct PointCloudProducts
 	bool vegetation_height = false;
 	bool vegetation_map = false;
 	VegetationParams vegetation;
+	bool feature_map = false;            ///< See point_cloud_products.h.
+	double feature_from = 0.0;           ///< The feature map's band, m above the terrain model.
+	double feature_to = 2.0;
+	bool intensity_map = false;
+	bool classification_map = false;
 };
 
 

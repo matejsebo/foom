@@ -42,6 +42,7 @@ class QGroupBox;
 class QLabel;
 class QRadioButton;
 class QSpinBox;
+class QTableWidget;
 class QRectF;
 class QWidget;
 
@@ -184,6 +185,10 @@ private:
 	QSpinBox* undergrowth_kernel_edit;
 	QSpinBox* vegetation_kernel_edit;
 	QCheckBox* no_data_check;
+	QGroupBox* feature_box;
+	std::array<QDoubleSpinBox*, 2> feature_edits;       ///< the band, from and to
+	QCheckBox* intensity_check;
+	QCheckBox* classification_check;
 };
 
 
@@ -272,6 +277,41 @@ private:
 	QWidget* chart;
 };
 
+
+/**
+ * The dem-vegetation-height dialog: colour classes or a grey mapping.
+ *
+ * See the design notes, "Vegetation height in grey and its classes in files".
+ */
+class VegetationHeightDialog : public QDialog
+{
+Q_OBJECT
+public:
+	explicit VegetationHeightDialog(QWidget* parent);
+	~VegetationHeightDialog() override;
+
+	VegetationHeightOptions options() const;
+	bool attach() const;
+
+	void done(int result) override;
+
+private:
+	void setClasses(const std::vector<HeightClass>& classes);
+	bool readClasses(std::vector<HeightClass>& classes, QString* error) const;
+	void addClass();
+	void removeClass();
+	void loadClasses();
+	void saveClasses();
+	void updateEnabled();
+
+	QRadioButton* coloured_radio;
+	QRadioButton* grey_radio;
+	QTableWidget* class_table;
+	QComboBox* mapping_combo;
+	QDoubleSpinBox* max_height_edit;
+	QCheckBox* attach_check;
+	std::vector<QWidget*> class_widgets;
+};
 
 }  // namespace OpenOrienteering
 

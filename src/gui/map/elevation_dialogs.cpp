@@ -23,6 +23,8 @@
 #include <algorithm>
 #include <cmath>
 #include <initializer_list>
+#include <utility>
+#include <vector>
 
 #include <QApplication>
 #include <QPixmap>
@@ -45,7 +47,12 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QRectF>
+#include <QSignalBlocker>
 #include <QSpinBox>
+#include <QTableWidget>
+#include <QHeaderView>
+#include <QLocale>
+#include <QBrush>
 #include <QVBoxLayout>
 
 
@@ -432,6 +439,19 @@ PointCloudDialog::PointCloudDialog(const QStringList& paths, QWidget* parent)
 	vegetation_layout->addRow(tr("Thresholds:"), makeRow({ vegetation_edits[2], vegetation_edits[3], vegetation_edits[4] }));
 	vegetation_layout->addRow(no_data_check);
 	
+	// the design notes, "Feature map, intensity and classification maps".
+	PointCloudProducts const product_defaults;
+	feature_edits = {{ makeEdit(product_defaults.feature_from, 0.0, 10.0, 1), makeEdit(product_defaults.feature_to, 0.0, 10.0, 1) }};
+	feature_box = new QGroupBox(tr("Feature map"));
+	feature_box->setCheckable(true);
+	feature_box->setChecked(false);
+	auto* feature_layout = new QFormLayout(feature_box);
+	feature_layout->addRow(tr("Highest return from:"), makeRow({ feature_edits[0], new QLabel(tr("to")), feature_edits[1], new QLabel(tr("m above ground")) }));
+	intensity_check = new QCheckBox(tr("Intensity map (first returns)"));
+	intensity_check->setChecked(true);
+	classification_check = new QCheckBox(tr("Classification map (colour by class)"));
+	classification_check->setChecked(false);
+	
 	auto* layout = new QFormLayout();
 	layout->addRow(tr("Files:"), files_label);
 	layout->addRow(analyse_button, report_label);
@@ -442,15 +462,22 @@ PointCloudDialog::PointCloudDialog(const QStringList& paths, QWidget* parent)
 	auto* main_layout = new QVBoxLayout(this);
 	main_layout->addLayout(layout);
 	main_layout->addWidget(vegetation_box);
+	main_layout->addWidget(feature_box);
+	main_layout->addWidget(intensity_check);
+	main_layout->addWidget(classification_check);
 	auto* buttons = makeButtons(this);
 	main_layout->addWidget(buttons);
 	auto const update = [this, buttons]() {
-		buttons->button(QDialogButtonBox::Ok)->setEnabled(dtm_check->isChecked() || dsm_check->isChecked() || height_check->isChecked() || vegetation_box->isChecked());
+		buttons->button(QDialogButtonBox::Ok)->setEnabled(dtm_check->isChecked() || dsm_check->isChecked() || height_check->isChecked() || vegetation_box->isChecked()
+		                                                  || feature_box->isChecked() || intensity_check->isChecked() || classification_check->isChecked());
 	};
 	connect(dtm_check, &QCheckBox::toggled, this, update);
 	connect(dsm_check, &QCheckBox::toggled, this, update);
 	connect(height_check, &QCheckBox::toggled, this, update);
 	connect(vegetation_box, &QGroupBox::toggled, this, update);
+	connect(feature_box, &QGroupBox::toggled, this, update);
+	connect(intensity_check, &QCheckBox::toggled, this, update);
+	connect(classification_check, &QCheckBox::toggled, this, update);
 }
 
 PointCloudDialog::~PointCloudDialog() = default;
@@ -506,6 +533,11 @@ PointCloudProducts PointCloudDialog::products() const
 	v.vegetation_thresholds = {{ vegetation_edits[2]->value(), vegetation_edits[3]->value(), vegetation_edits[4]->value() }};
 	v.vegetation_kernel = vegetation_kernel_edit->value();
 	v.no_data_red = no_data_check->isChecked();
+	products.feature_map = feature_box->isChecked();
+	products.feature_from = feature_edits[0]->value();
+	products.feature_to = feature_edits[1]->value();
+	products.intensity_map = intensity_check->isChecked();
+	products.classification_map = classification_check->isChecked();
 	return products;
 }
 
@@ -823,6 +855,229 @@ void ProfileDialog::saveImage()
 		return;
 	if (!chart->grab().save(path, "PNG"))
 		QMessageBox::warning(this, tr("Save image"), tr("Cannot write %1").arg(path));
+}
+
+
+
+VegetationHeightDialog::VegetationHeightDialog(QWidget* parent)
+: QDialog(parent)
+{
+	setWindowTitle(tr("Vegetation height"));
+	VegetationHeightOptions const defaults;
+	coloured_radio = new QRadioButton(tr("Coloured classes"));
+	grey_radio = new QRadioButton(tr("Greyscale"));
+	coloured_radio->setChecked(!defaults.greyscale);
+	grey_radio->setChecked(defaults.greyscale);
+
+	class_table = new QTableWidget(0, 4);
+	class_table->setHorizontalHeaderLabels({ tr("From (m)"), tr("To (m)"), tr("From colour"), tr("To colour") });
+	class_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+	class_table->verticalHeader()->hide();
+	class_table->setSelectionBehavior(QAbstractItemView::SelectRows);
+	connect(class_table, &QTableWidget::itemChanged, this, [this](QTableWidgetItem* item) {
+		if (item->column() < 2)
+			return;
+		QColor const colour(item->text().trimmed());
+		QSignalBlocker blocker(class_table);
+		item->setBackground(colour.isValid() ? QBrush(colour) : QBrush());
+		item->setForeground(colour.isValid() && colour.lightness() < 128 ? QBrush(Qt::white) : QBrush(Qt::black));
+	});
+	auto* add_button = new QPushButton(tr("Add class"));
+	auto* remove_button = new QPushButton(tr("Remove class"));
+	auto* load_button = new QPushButton(tr("Load..."));
+	auto* save_button = new QPushButton(tr("Save..."));
+	auto* reset_button = new QPushButton(tr("Reset to default"));
+	connect(add_button, &QPushButton::clicked, this, &VegetationHeightDialog::addClass);
+	connect(remove_button, &QPushButton::clicked, this, &VegetationHeightDialog::removeClass);
+	connect(load_button, &QPushButton::clicked, this, &VegetationHeightDialog::loadClasses);
+	connect(save_button, &QPushButton::clicked, this, &VegetationHeightDialog::saveClasses);
+	connect(reset_button, &QPushButton::clicked, this, [this]() { setClasses(defaultHeightClasses()); });
+	auto* class_buttons = new QHBoxLayout();
+	for (auto* button : { add_button, remove_button, load_button, save_button, reset_button })
+	{
+		class_buttons->addWidget(button);
+		class_widgets.push_back(button);
+	}
+	class_widgets.push_back(class_table);
+
+	mapping_combo = new QComboBox();
+	mapping_combo->addItem(tr("Linear"), int(VegetationHeightOptions::Linear));
+	mapping_combo->addItem(tr("Quadratic negative"), int(VegetationHeightOptions::QuadraticNegative));
+	mapping_combo->addItem(tr("Quadratic positive"), int(VegetationHeightOptions::QuadraticPositive));
+	mapping_combo->setCurrentIndex(mapping_combo->findData(int(defaults.mapping)));
+	max_height_edit = new QDoubleSpinBox();
+	max_height_edit->setDecimals(1);
+	max_height_edit->setRange(0.5, 200.0);
+	max_height_edit->setSuffix(QStringLiteral(" m"));
+	max_height_edit->setValue(defaults.max_height);
+	auto* grey_layout = new QFormLayout();
+	grey_layout->addRow(tr("Mapping:"), mapping_combo);
+	grey_layout->addRow(tr("Black at:"), max_height_edit);
+
+	attach_check = new QCheckBox(tr("Attach as template"));
+	attach_check->setChecked(true);
+
+	auto* layout = new QVBoxLayout(this);
+	layout->addWidget(coloured_radio);
+	layout->addWidget(class_table);
+	layout->addLayout(class_buttons);
+	layout->addWidget(grey_radio);
+	layout->addLayout(grey_layout);
+	layout->addWidget(attach_check);
+	layout->addWidget(makeButtons(this));
+
+	setClasses(defaults.classes);
+	connect(coloured_radio, &QRadioButton::toggled, this, &VegetationHeightDialog::updateEnabled);
+	updateEnabled();
+}
+
+VegetationHeightDialog::~VegetationHeightDialog() = default;
+
+void VegetationHeightDialog::updateEnabled()
+{
+	auto const coloured = coloured_radio->isChecked();
+	for (auto* widget : class_widgets)
+		widget->setEnabled(coloured);
+	mapping_combo->setEnabled(!coloured);
+	max_height_edit->setEnabled(!coloured);
+}
+
+void VegetationHeightDialog::setClasses(const std::vector<HeightClass>& classes)
+{
+	class_table->setRowCount(0);
+	for (auto const& c : classes)
+	{
+		auto const row = class_table->rowCount();
+		class_table->insertRow(row);
+		class_table->setItem(row, 0, new QTableWidgetItem(QString::number(c.from, 'g', 6)));
+		class_table->setItem(row, 1, new QTableWidgetItem(QString::number(c.to, 'g', 6)));
+		class_table->setItem(row, 2, new QTableWidgetItem(QColor(c.from_color).name()));
+		class_table->setItem(row, 3, new QTableWidgetItem(QColor(c.to_color).name()));
+	}
+}
+
+bool VegetationHeightDialog::readClasses(std::vector<HeightClass>& classes, QString* error) const
+{
+	std::vector<HeightClass> result;
+	for (int row = 0; row < class_table->rowCount(); ++row)
+	{
+		auto const text = [this, row](int col) {
+			auto const* item = class_table->item(row, col);
+			return item ? item->text().trimmed() : QString{};
+		};
+		bool ok_from = false, ok_to = false;
+		HeightClass c;
+		c.from = QLocale().toDouble(text(0), &ok_from);
+		if (!ok_from)
+			c.from = text(0).toDouble(&ok_from);
+		c.to = QLocale().toDouble(text(1), &ok_to);
+		if (!ok_to)
+			c.to = text(1).toDouble(&ok_to);
+		QColor const from_colour(text(2));
+		QColor const to_colour(text(3));
+		if (!ok_from || !ok_to || !from_colour.isValid() || !to_colour.isValid())
+		{
+			*error = tr("Row %1 needs two heights and two colours such as #ffd700.").arg(row + 1);
+			return false;
+		}
+		c.from_color = from_colour.rgb();
+		c.to_color = to_colour.rgb();
+		if (!(c.from < c.to) || (!result.empty() && c.from < result.back().to))
+		{
+			*error = tr("Row %1: each class must begin below its end and not below the end of the one before.").arg(row + 1);
+			return false;
+		}
+		result.push_back(c);
+	}
+	if (result.empty())
+	{
+		*error = tr("Add at least one class.");
+		return false;
+	}
+	classes = std::move(result);
+	return true;
+}
+
+void VegetationHeightDialog::addClass()
+{
+	std::vector<HeightClass> classes;
+	QString error;
+	auto const from = readClasses(classes, &error) ? classes.back().to : 0.0;
+	auto const row = class_table->rowCount();
+	class_table->insertRow(row);
+	class_table->setItem(row, 0, new QTableWidgetItem(QString::number(from, 'g', 6)));
+	class_table->setItem(row, 1, new QTableWidgetItem(QString::number(from + 10.0, 'g', 6)));
+	class_table->setItem(row, 2, new QTableWidgetItem(QStringLiteral("#ffffff")));
+	class_table->setItem(row, 3, new QTableWidgetItem(QStringLiteral("#ffffff")));
+}
+
+void VegetationHeightDialog::removeClass()
+{
+	auto const row = class_table->currentRow();
+	if (row >= 0)
+		class_table->removeRow(row);
+}
+
+void VegetationHeightDialog::loadClasses()
+{
+	auto const path = QFileDialog::getOpenFileName(this, tr("Load classes"), {}, tr("Height classes") + QLatin1String(" (*.txt);;") + tr("All files") + QLatin1String(" (*.*)"));
+	if (path.isEmpty())
+		return;
+	std::vector<HeightClass> classes;
+	QString error;
+	if (!loadHeightClasses(path, classes, &error))
+	{
+		QMessageBox::warning(this, tr("Load classes"), error);
+		return;
+	}
+	setClasses(classes);
+}
+
+void VegetationHeightDialog::saveClasses()
+{
+	std::vector<HeightClass> classes;
+	QString error;
+	if (!readClasses(classes, &error))
+	{
+		QMessageBox::warning(this, tr("Save classes"), error);
+		return;
+	}
+	auto const path = QFileDialog::getSaveFileName(this, tr("Save classes"), {}, tr("Height classes") + QLatin1String(" (*.txt)"));
+	if (path.isEmpty())
+		return;
+	if (!saveHeightClasses(path, classes, &error))
+		QMessageBox::warning(this, tr("Save classes"), error);
+}
+
+void VegetationHeightDialog::done(int result)
+{
+	if (result == QDialog::Accepted && coloured_radio->isChecked())
+	{
+		std::vector<HeightClass> classes;
+		QString error;
+		if (!readClasses(classes, &error))
+		{
+			QMessageBox::warning(this, windowTitle(), error);
+			return;
+		}
+	}
+	QDialog::done(result);
+}
+
+VegetationHeightOptions VegetationHeightDialog::options() const
+{
+	VegetationHeightOptions options;
+	options.greyscale = grey_radio->isChecked();
+	options.mapping = VegetationHeightOptions::GreyMapping(mapping_combo->currentData().toInt());
+	options.max_height = max_height_edit->value();
+	QString error;
+	readClasses(options.classes, &error);   // keeps the defaults when the table is not valid
+	return options;
+}
+
+bool VegetationHeightDialog::attach() const
+{
+	return attach_check->isChecked();
 }
 
 

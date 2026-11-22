@@ -33,6 +33,7 @@
 #include <QApplication>
 #include <QComboBox>  // foom
 #include <QEvent>
+#include <QFile>
 #include <QFileInfo>
 #include <QImage>
 #include <QJsonArray>  // foom
@@ -80,6 +81,7 @@
 #include "elevation/landforms.h"
 #include "elevation/point_cloud.h"
 #include "course/route_course.h"  // foom
+#include "elevation/point_cloud_products.h"
 #include "gui/map/elevation_dialogs.h"  // foom
 #include "gui/map/extent_dialog.h"
 #include "check/issue.h"
@@ -2028,6 +2030,29 @@ void ToolsTest::demVegetationHeight()
 	QVERIFY(canopy);
 	QCOMPARE(int(canopy->value(5, 5)), qRed(vegetationHeightRaster(*flat(20.0), defaultHeightClasses()).image.pixel(5, 5)));
 	QVERIFY(qRed(four) != qRed(vegetationHeightRaster(*flat(20.0), defaultHeightClasses()).image.pixel(5, 5)));
+	
+	// "Vegetation height in grey and its classes in files", Accept (3).
+	set.clear();
+	set.setModel(ElevationSet::Terrain, flat(1.0), dir.filePath(QStringLiteral("dtm.asc")));
+	set.setModel(ElevationSet::Surface, flat(16.0), dir.filePath(QStringLiteral("dsm.asc")));
+	VegetationHeightOptions options;
+	options.greyscale = true;
+	QVERIFY(!editor.editor->writeVegetationHeightMap(options, false, &error).isEmpty());
+	auto grey = ElevationModel::open(path);
+	QVERIFY(grey);
+	QVERIFY2(std::abs(grey->value(5, 5) - 128.0) <= 1.0, qPrintable(QString::number(grey->value(5, 5))));
+	auto const class_file = dir.filePath(QStringLiteral("classes.txt"));
+	{
+		QFile file(class_file);
+		QVERIFY(file.open(QIODevice::WriteOnly));
+		file.write("from;to;from_colour;to_colour\n0;30;#000000;#ffffff\n");
+	}
+	options = {};
+	QVERIFY2(loadHeightClasses(class_file, options.classes, &error), qPrintable(error));
+	QVERIFY(!editor.editor->writeVegetationHeightMap(options, false, &error).isEmpty());
+	auto ramp = ElevationModel::open(path);
+	QVERIFY(ramp);
+	QVERIFY2(std::abs(ramp->value(5, 5) - 128.0) <= 1.0, qPrintable(QString::number(ramp->value(5, 5))));
 }
 
 
@@ -2472,10 +2497,17 @@ void ToolsTest::demPointCloud()
 	PointCloudProducts products;
 	products.vegetation_height = true;
 	products.vegetation_map = true;
+	// "Feature map, intensity and classification maps", Accept (4).
+	products.feature_map = true;
+	products.intensity_map = true;
+	products.classification_map = true;
 	QVERIFY2(editor.editor->importPointClouds({ cloud }, GriddingParams(), products, &error), qPrintable(error));
 	QVERIFY(QFileInfo::exists(dir.filePath(QStringLiteral("plane_vegetation_height.tif"))));
 	QVERIFY(QFileInfo::exists(dir.filePath(QStringLiteral("plane_vegetation.tif"))));
-	QCOMPARE(map.map->getNumTemplates(), templates + 2);
+	QVERIFY(QFileInfo::exists(dir.filePath(QStringLiteral("plane_features.tif"))));
+	QVERIFY(QFileInfo::exists(dir.filePath(QStringLiteral("plane_intensity.tif"))));
+	QVERIFY(QFileInfo::exists(dir.filePath(QStringLiteral("plane_classes.tif"))));
+	QCOMPARE(map.map->getNumTemplates(), templates + 5);
 	auto& set = map.map->elevationSet();
 	QCOMPARE(QFileInfo(set.href(ElevationSet::Terrain)).fileName(), QStringLiteral("plane_DTM.tif"));
 	QCOMPARE(QFileInfo(set.href(ElevationSet::Surface)).fileName(), QStringLiteral("plane_DSM.tif"));
@@ -2491,6 +2523,83 @@ void ToolsTest::demPointCloud()
 	
 	QVERIFY(!editor.editor->importPointClouds({ dir.filePath(QStringLiteral("absent.laz")) }, GriddingParams(), PointCloudProducts(), &error));
 	QVERIFY(!error.isEmpty());
+}
+
+
+void ToolsTest::demVegetationStatistics()
+{
+	// the design notes, "Vegetation statistics", Accept (4).
+	if (!PointCloud::supported())
+		QSKIP("Built without LASzip");
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("dem-vegetation-statistics"));
+	auto const& georef = map.map->getGeoreferencing();
+	auto const origin = georef.toProjectedCoords(MapCoordF(0.0, 0.0));
+	auto const x0 = std::floor(origin.x());
+	auto const y0 = std::floor(origin.y());
+	// An open block and a fight block of 10 by 10 m, 20 returns per square metre.
+	std::vector<CloudPoint> points;
+	for (int b = 0; b < 2; ++b)
+	{
+		for (int col = 0; col < 10; ++col)
+		{
+			for (int row = 0; row < 10; ++row)
+			{
+				for (int k = 0; k < 20; ++k)
+				{
+					CloudPoint p;
+					p.x = x0 + 10 * b + col + 0.1 + 0.2 * (k % 5);
+					p.y = y0 + row + 0.1 + 0.2 * (k / 5);
+					auto const ground = b == 0 || k < 8;
+					p.z = ground ? 100.0 : 102.0;
+					p.classification = ground ? 2 : 5;
+					points.push_back(p);
+				}
+			}
+		}
+	}
+	QTemporaryDir dir;
+	auto const cloud = dir.filePath(QStringLiteral("blocks.laz"));
+	QString error;
+	QVERIFY2(PointCloud::write(cloud, points, {}, 0, &error), qPrintable(error));
+	auto grid = PointCloud::grid({ cloud }, GriddingParams());
+	QVERIFY2(grid.dtm, qPrintable(grid.error));
+	map.map->elevationSet().setModel(ElevationSet::Terrain, std::move(grid.dtm), dir.filePath(QStringLiteral("blocks_DTM.tif")));
+
+	map.map->clearObjectSelection(false);
+	QVERIFY(editor.editor->vegetationStatisticsOfSelection({ cloud }, VegetationParams(), &error).classes.empty());
+	QVERIFY(!error.isEmpty());
+
+	auto const sample = [&](const QString& name, double left) {
+		auto* symbol = new AreaSymbol();
+		symbol->setName(name);
+		map.map->addSymbol(symbol, map.map->getNumSymbols());
+		MapCoordVector coords;
+		for (auto const& corner : { QPointF(left, 3.0), QPointF(left + 4.0, 3.0), QPointF(left + 4.0, 7.0), QPointF(left, 7.0) })
+			coords.push_back(MapCoord(georef.toMapCoordF(QPointF(x0 + corner.x(), y0 + corner.y()))));
+		auto* area = new PathObject(symbol, coords);
+		area->closeAllParts();
+		map.map->addObject(area);
+		map.map->addObjectToSelection(area, false);
+	};
+	sample(QStringLiteral("Open land"), 3.0);
+	sample(QStringLiteral("Fight"), 13.0);
+	error.clear();
+	auto const statistics = editor.editor->vegetationStatisticsOfSelection({ cloud }, VegetationParams(), &error);
+	QVERIFY2(error.isEmpty(), qPrintable(error));
+	QCOMPARE(int(statistics.classes.size()), 2);
+	for (auto const& c : statistics.classes)
+	{
+		QCOMPARE(c.cells, qint64(16));
+		if (c.name == QLatin1String("Open land"))
+			QVERIFY(std::abs(c.vegetation_mean - -1.0) < 1e-9);
+		else
+		{
+			QCOMPARE(c.name, QStringLiteral("Fight"));
+			QVERIFY(std::abs(c.vegetation_mean - 0.2) < 1e-9);
+		}
+	}
 }
 
 

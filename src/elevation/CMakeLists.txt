@@ -33,6 +33,7 @@ set(MAPPER_ELEVATION_SOURCES
   embedded_grid.cpp
   landforms.cpp
   point_cloud.cpp
+  point_cloud_products.cpp
   profile.cpp
   raster_products.cpp
   trees.cpp

@@ -101,6 +101,9 @@ struct PropertyQuery;  // foom
 struct Profile;  // foom
 struct GriddingParams;  // foom
 struct PointCloudProducts;  // foom
+struct VegetationHeightOptions;  // foom
+struct VegetationParams;  // foom
+struct VegetationStatistics;  // foom
 struct PointPair;  // foom
 struct RubbersheetParams;  // foom
 struct LocalWarpParams;  // foom
@@ -337,6 +340,9 @@ public:
 	void exportVectorData(int file_types, const QString& format_settings_key);
 	
 	
+	/** foom: The vegetation statistics of the selected areas; not a slot, moc needs complete return types (the design notes, "Vegetation statistics"). */
+	VegetationStatistics vegetationStatisticsOfSelection(const QStringList& paths, const VegetationParams& params, QString* error);
+
 public slots:
 	/**
 	 * foom: Takes a GPS position for the path which is recorded.
@@ -886,8 +892,12 @@ public slots:
 	Profile elevationProfileOfSelection(QString* error);
 	/** foom: Writes and attaches the vegetation height raster of the map's grids (dem-vegetation-height). */
 	void elevationVegetationHeightClicked();
+	/** foom: The statistics helper of the vegetation base map (dem-vegetation-statistics). */
+	void elevationVegetationStatisticsClicked();
 	/** foom: Writes the vegetation height raster beside the map; returns its path, empty on failure. */
 	QString writeVegetationHeightMap(bool attach, QString* error);
+	/** foom: The same with grey mappings or other classes (the design notes, "Vegetation height in grey and its classes in files"). */
+	QString writeVegetationHeightMap(const VegetationHeightOptions& options, bool attach, QString* error);
 	/** foom: Writes the hypsometric map of the terrain grid beside the map; returns its path, empty on failure. */
 	QString writeHypsometricMap(const HypsometricParams& params, bool attach, QString* error);
 	/** foom: Asks for the minimum height and depth, then extracts knolls and small depressions (dem-features). */
@@ -1553,6 +1563,7 @@ private:
 	void showSelectedObject();
 	QAction* dem_merge_contours_act = {};  // foom
 	QAction* dem_vegetation_height_act = {};  // foom
+	QAction* dem_vegetation_statistics_act = {};  // foom
 	QAction* dem_features_act = {};  // foom
 	QAction* dem_export_act = {};  // foom
 	/// foom: Saves the grid beside the map and makes it the kind's grid (an ElevationSet::Kind).
