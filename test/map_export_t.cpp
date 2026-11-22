@@ -238,6 +238,116 @@ private slots:
 		QVERIFY(QSvgRenderer(editor_path).isValid());
 		window->deleteLater();
 	}
+
+
+	void extractTest()
+	{
+		// the design notes, "Part of the map, and objects by symbol or selection", Accept (1) to (3).
+		TestMap t;
+		t.map.setScaleDenominator(15000);
+		Georeferencing georef;
+		georef.setScaleDenominator(15000);
+		georef.setProjectedRefPoint(QPointF(350000, 150000));
+		t.map.setGeoreferencing(georef);
+		auto* first = makeLine(t.line, -5, 5, 15, 5);
+		auto* second = makeLine(t.other_line, 0, 20, 10, 20);
+		t.map.addObject(first);
+		t.map.addObject(second);
+
+		// (1)
+		auto extracted = extractMap(t.map, { first });
+		QVERIFY(extracted);
+		QCOMPARE(extracted->getScaleDenominator(), 15000u);
+		QCOMPARE(extracted->getGeoreferencing().getProjectedRefPoint(), QPointF(350000, 150000));
+		QCOMPARE(extracted->getNumObjects(), 1);
+		QCOMPARE(extracted->getNumSymbols(), 1);
+		QCOMPARE(extracted->getSymbol(0)->getName(), QStringLiteral("first line"));
+		auto const* copy = extracted->getCurrentPart()->getObject(0);
+		QCOMPARE(copy->uuid(), first->uuid());
+		QCOMPARE(copy->getSymbol(), extracted->getSymbol(0));
+
+		auto* combined = new CombinedSymbol();
+		combined->setName(QStringLiteral("combined"));
+		combined->setNumParts(2);
+		combined->setPart(0, t.line, false);
+		combined->setPart(1, t.area, false);
+		t.map.addSymbol(combined, t.map.getNumSymbols());
+		auto* both = square(combined, 30, 30, 40, 40);
+		t.map.addObject(both);
+		auto with_parts = extractMap(t.map, { both });
+		QCOMPARE(with_parts->getNumSymbols(), 3);
+
+		// (2)
+		ops::CropParams crop;
+		crop.rect = QRectF(0, 0, 10, 10);
+		auto cropped = extractMap(t.map, { first }, &crop);
+		QCOMPARE(cropped->getNumObjects(), 1);
+		auto const& coords = cropped->getCurrentPart()->getObject(0)->getRawCoordinateVector();
+		QVERIFY(MapCoordF(coords.front()).distanceTo(MapCoordF(0, 5)) < 0.01);
+		QVERIFY(MapCoordF(coords.back()).distanceTo(MapCoordF(10, 5)) < 0.01);
+		QVERIFY(MapCoordF(first->getRawCoordinateVector().front()).distanceTo(MapCoordF(-5, 5)) < 0.001);
+		QCOMPARE(t.map.getNumObjects(), 3);
+
+		// (3)
+		QTemporaryDir dir;
+		auto const path = dir.filePath(QStringLiteral("part.foom"));
+		QString error;
+		QVERIFY2(saveMapFile(*extracted, path, &error), qPrintable(error));
+		auto reopened = load(path);
+		QVERIFY(reopened);
+		QCOMPARE(reopened->getNumObjects(), 1);
+		QCOMPARE(reopened->getNumSymbols(), 1);
+		QCOMPARE(reopened->getCurrentPart()->getObject(0)->uuid(), first->uuid());
+	}
+
+
+	void exportCommands()
+	{
+		// the design notes, "Part of the map, and objects by symbol or selection", Accept (4).
+		TestMap t;
+		auto* first = makeLine(t.line, -5, 5, 15, 5);
+		auto* second = makeLine(t.other_line, -5, 7, 15, 7);
+		auto* third = makeLine(t.other_line, 0, 30, 10, 30);
+		auto* region = square(t.area, 0, 0, 10, 10);
+		for (auto* object : { first, second, third, region })
+			t.map.addObject(static_cast<Object*>(object));
+		auto* window = new MainWindow();
+		auto* editor = new MapEditorController(MapEditorController::MapEditor, &t.map);
+		window->setController(editor);
+		t.taken = true;
+		QVERIFY(editor->getAction("export-part"));
+		QVERIFY(editor->getAction("export-objects"));
+
+		QTemporaryDir dir;
+		auto const selection_path = dir.filePath(QStringLiteral("selection.foom"));
+		t.map.clearObjectSelection(false);
+		t.map.addObjectToSelection(first, true);
+		QVERIFY(editor->exportObjects(selection_path, false));
+		QCOMPARE(load(selection_path)->getNumObjects(), 1);
+
+		auto const symbols_path = dir.filePath(QStringLiteral("symbols.foom"));
+		editor->getSymbolWidget()->selectSingleSymbol(t.other_line);
+		QVERIFY(editor->exportObjects(symbols_path, true));
+		auto by_symbol = load(symbols_path);
+		QCOMPARE(by_symbol->getNumObjects(), 2);
+		QCOMPARE(by_symbol->getNumSymbols(), 1);
+
+		auto const rect_path = dir.filePath(QStringLiteral("rect.foom"));
+		QVERIFY(editor->exportPart(rect_path, true, QRectF(0, 0, 10, 10)));
+		auto by_rect = load(rect_path);
+		QCOMPARE(by_rect->getNumObjects(), 3);  // two lines and the square
+
+		auto const shape_path = dir.filePath(QStringLiteral("shape.foom"));
+		t.map.clearObjectSelection(false);
+		t.map.addObjectToSelection(region, true);
+		QVERIFY(editor->exportPart(shape_path, false, {}));
+		auto by_shape = load(shape_path);
+		QCOMPARE(by_shape->getNumObjects(), 2);  // two lines, not the square
+		for (int i = 0; i < by_shape->getNumObjects(); ++i)
+			QVERIFY(std::abs(by_shape->getCurrentPart()->getObject(i)->asPath()->getPaperLength() - 10.0) < 0.01);
+		QCOMPARE(t.map.getNumObjects(), 4);
+		window->deleteLater();
+	}
 };
 
 

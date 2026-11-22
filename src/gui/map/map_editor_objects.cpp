@@ -167,6 +167,38 @@ bool MapEditorController::pasteWkt(const QString& text, bool projected)
 	return true;
 }
 
+namespace {
+
+/// Asks for the path of a map file in one of the formats which can be saved; empty when cancelled.
+QString askMapFilePath(QWidget* parent, const QString& title)
+{
+	QString filters;
+	for (auto const* format : FileFormats.formats())
+	{
+		if (format->supportsFileSaveAs())
+		{
+			if (!filters.isEmpty())
+				filters += QLatin1String(";;");
+			filters += format->filter();
+		}
+	}
+	QString filter;
+	auto path = FileDialog::getSaveFileName(parent, title, {}, filters, &filter);
+	auto const quirk = path.indexOf(QLatin1String(" *."));
+	if (quirk >= 0)
+		path.truncate(quirk);
+	if (path.isEmpty())
+		return path;
+	if (auto const* format = FileFormats.findFormatByFilter(filter, &FileFormat::supportsFileSaveAs))
+		path = format->fixupExtension(path);
+	else if (QFileInfo(path).suffix().isEmpty())
+		path += QLatin1String(".foom");
+	return path;
+}
+
+}  // namespace
+
+
 void MapEditorController::exportSvgClicked()
 {
 	auto path = FileDialog::getSaveFileName(window, tr("Export SVG"), {}, tr("SVG") + QLatin1String(" (*.svg)"));
@@ -183,6 +215,160 @@ bool MapEditorController::exportSvg(const QString& path)
 	// the design notes, "SVG export".
 	QString error;
 	if (!OpenOrienteering::exportSvg(*map, path, map->printerConfig().print_area, &error))
+	{
+		QMessageBox::warning(window, tr("Error"), error);
+		return false;
+	}
+	return true;
+}
+
+void MapEditorController::exportPartClicked()
+{
+	bool have_shapes = false;
+	bool have_extent = false;
+	QRectF extent;
+	for (auto const* object : map->selectedObjects())
+	{
+		extent = have_extent ? extent.united(object->getExtent()) : object->getExtent();
+		have_extent = true;
+		have_shapes |= object->getType() == Object::Path;
+	}
+	if (!have_extent)
+		extent = map->calculateExtent(false, false, nullptr);
+
+	QDialog dialog(window);
+	dialog.setWindowTitle(tr("Export part of the map"));
+	auto* shapes_button = new QRadioButton(tr("The selected lines and areas"));
+	auto* extent_button = new QRadioButton(tr("A named extent"));
+	auto* rect_button = new QRadioButton(tr("A rectangle"));
+	auto* extent_combo = new QComboBox();
+	for (auto const& named : map->extents())
+		extent_combo->addItem(named.name);
+	shapes_button->setEnabled(have_shapes);
+	extent_button->setEnabled(extent_combo->count() > 0);
+	extent_combo->setEnabled(extent_combo->count() > 0);
+	(have_shapes ? shapes_button : rect_button)->setChecked(true);
+	auto edit = [](double value) {
+		auto* e = new QDoubleSpinBox();
+		e->setRange(-1000000.0, 1000000.0);
+		e->setDecimals(2);
+		e->setSuffix(QStringLiteral(" mm"));
+		e->setValue(value);
+		return e;
+	};
+	auto* left = edit(extent.left());
+	auto* top = edit(extent.top());
+	auto* right = edit(extent.right());
+	auto* bottom = edit(extent.bottom());
+	auto* form = new QFormLayout();
+	form->addRow(shapes_button);
+	form->addRow(extent_button, extent_combo);
+	form->addRow(rect_button);
+	form->addRow(tr("Left:"), left);
+	form->addRow(tr("Top:"), top);
+	form->addRow(tr("Right:"), right);
+	form->addRow(tr("Bottom:"), bottom);
+	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+	connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+	connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	auto* layout = new QVBoxLayout(&dialog);
+	layout->addLayout(form);
+	layout->addWidget(buttons);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+
+	QRectF rect = QRectF(QPointF(left->value(), top->value()), QPointF(right->value(), bottom->value())).normalized();
+	if (extent_button->isChecked())
+		rect = map->extents().at(std::size_t(extent_combo->currentIndex())).rect_mm;
+	auto const path = askMapFilePath(window, tr("Export part of the map"));
+	if (path.isEmpty())
+		return;
+	if (exportPart(path, !shapes_button->isChecked(), rect))
+		window->showStatusBarMessage(tr("Exported successfully to %1").arg(path), 4000);
+}
+
+bool MapEditorController::exportPart(const QString& path, bool use_rectangle, const QRectF& rect)
+{
+	// the design notes, "Part of the map, and objects by symbol or selection".
+	ops::CropParams crop;
+	if (use_rectangle)
+	{
+		crop.rect = rect;
+	}
+	else
+	{
+		for (auto const* object : map->selectedObjects())
+		{
+			if (object->getType() == Object::Path)
+				crop.shapes.push_back(object->asPath());
+		}
+	}
+	if (crop.shapes.empty() && !(crop.rect.width() > 0 && crop.rect.height() > 0))
+	{
+		QMessageBox::warning(window, tr("Error"), tr("Select a line or area as the boundary, or give a rectangle."));
+		return false;
+	}
+	std::vector<const Object*> objects;
+	auto const* part = map->getCurrentPart();
+	for (int i = 0; i < part->getNumObjects(); ++i)
+	{
+		auto const* object = part->getObject(i);
+		if (std::find(crop.shapes.begin(), crop.shapes.end(), object) == crop.shapes.end())
+			objects.push_back(object);
+	}
+	auto extracted = extractMap(*map, objects, &crop);
+	QString error;
+	if (!saveMapFile(*extracted, path, &error))
+	{
+		QMessageBox::warning(window, tr("Error"), error);
+		return false;
+	}
+	return true;
+}
+
+void MapEditorController::exportObjectsClicked()
+{
+	QMessageBox box(QMessageBox::Question, tr("Export objects"), tr("Which objects are to be exported?"), QMessageBox::Cancel, window);
+	auto* selection_button = box.addButton(tr("The selection"), QMessageBox::AcceptRole);
+	auto* symbols_button = box.addButton(tr("The objects of the selected symbols"), QMessageBox::AcceptRole);
+	selection_button->setEnabled(map->getNumSelectedObjects() > 0);
+	symbols_button->setEnabled(symbol_widget && symbol_widget->selectedSymbolsCount() > 0);
+	box.exec();
+	if (box.clickedButton() != selection_button && box.clickedButton() != symbols_button)
+		return;
+	auto const path = askMapFilePath(window, tr("Export objects"));
+	if (path.isEmpty())
+		return;
+	if (exportObjects(path, box.clickedButton() == symbols_button))
+		window->showStatusBarMessage(tr("Exported successfully to %1").arg(path), 4000);
+}
+
+bool MapEditorController::exportObjects(const QString& path, bool selected_symbols)
+{
+	// the design notes, "Part of the map, and objects by symbol or selection".
+	std::vector<const Object*> objects;
+	if (selected_symbols)
+	{
+		auto const* part = map->getCurrentPart();
+		for (int i = 0; i < part->getNumObjects(); ++i)
+		{
+			auto const* object = part->getObject(i);
+			if (symbol_widget && symbol_widget->isSymbolSelected(object->getSymbol()))
+				objects.push_back(object);
+		}
+	}
+	else
+	{
+		objects.assign(map->selectedObjects().begin(), map->selectedObjects().end());
+	}
+	if (objects.empty())
+	{
+		QMessageBox::warning(window, tr("Error"), tr("There are no objects to export."));
+		return false;
+	}
+	auto extracted = extractMap(*map, objects);
+	QString error;
+	if (!saveMapFile(*extracted, path, &error))
 	{
 		QMessageBox::warning(window, tr("Error"), error);
 		return false;

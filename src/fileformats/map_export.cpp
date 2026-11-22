@@ -92,4 +92,72 @@ bool exportSvg(Map& map, const QString& path, const QRectF& area, QString* error
 }
 
 
+std::unique_ptr<Map> extractMap(const Map& map, const std::vector<const Object*>& objects, const ops::CropParams* crop)
+{
+	// the design notes, "Part of the map, and objects by symbol or selection".
+	auto result = std::make_unique<Map>();
+	result->setScaleDenominator(map.getScaleDenominator());
+	result->setGeoreferencing(map.getGeoreferencing());
+
+	std::vector<bool> filter(std::size_t(map.getNumSymbols()), false);
+	for (auto const* object : objects)
+	{
+		auto const index = map.findSymbolIndex(object->getSymbol());
+		if (index >= 0)
+			filter[std::size_t(index)] = true;
+	}
+	auto const symbols = result->importMap(map, Map::MinimalSymbolImport, &filter, -1, true);
+
+	std::vector<const Object*> copies;
+	for (auto const* object : objects)
+	{
+		auto* copy = object->duplicate();
+		if (symbols.contains(copy->getSymbol()))
+			copy->setSymbol(symbols.value(copy->getSymbol()), true);
+		result->addObject(copy);
+		copies.push_back(copy);
+	}
+
+	if (crop)
+	{
+		auto cropped = ops::crop(*result, copies, *crop);
+		if (cropped.error.isEmpty())
+		{
+			for (auto const* object : cropped.consumed)
+			{
+				// Shapes from the source map are not in this one.
+				if (std::find(copies.begin(), copies.end(), object) != copies.end())
+					result->deleteObject(const_cast<Object*>(object));
+			}
+			for (auto& object : cropped.out)
+				result->addObject(object.release());
+		}
+	}
+	return result;
+}
+
+
+bool saveMapFile(const Map& map, const QString& path, QString* error)
+{
+	auto exporter = FileFormats.makeExporter(path, &map, nullptr);
+	if (!exporter)
+	{
+		if (error)
+			*error = QCoreApplication::translate("OpenOrienteering::MapExport", "Cannot export the map as %1 since the file format is unknown.").arg(path);
+		return false;
+	}
+	if (!exporter->doExport())
+	{
+		if (error)
+		{
+			*error = QCoreApplication::translate("OpenOrienteering::MapExport", "Cannot write the file %1.").arg(path);
+			for (auto const& warning : exporter->warnings())
+				*error += QLatin1Char('\n') + warning;
+		}
+		return false;
+	}
+	return true;
+}
+
+
 }  // namespace OpenOrienteering

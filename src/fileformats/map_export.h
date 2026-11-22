@@ -43,6 +43,23 @@ namespace ops { struct CropParams; }
 bool exportSvg(Map& map, const QString& path, const QRectF& area, QString* error = nullptr);
 
 
+/**
+ * Returns a new map with copies of the objects, their symbols and colours,
+ * and the scale and georeferencing of the map. With crop, the copies are
+ * cropped as ops::crop() does.
+ *
+ * See the design notes, "Part of the map, and objects by symbol or selection".
+ */
+std::unique_ptr<Map> extractMap(const Map& map, const std::vector<const Object*>& objects, const ops::CropParams* crop = nullptr);
+
+
+/**
+ * Writes the map in the format of the path's extension. Returns false and
+ * sets the error on failure.
+ */
+bool saveMapFile(const Map& map, const QString& path, QString* error = nullptr);
+
+
 }  // namespace OpenOrienteering
 
 #endif
