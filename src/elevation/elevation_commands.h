@@ -76,6 +76,12 @@ bool storeGrid(Map& map, const QString& map_path, ElevationSet::Kind kind, std::
  * Grids the point clouds into the map's terrain and surface models and
  * makes the cloud's products (dem-point-cloud), attached as templates when
  * asked; grids and rasters receive the paths of the files written.
+ *
+ * Grids which do not fit under params.memory_limit are written to disk as
+ * `<map>_DTM.tif` and `<map>_DSM.tif` and set by href; params.progress
+ * reports the rows of tiles and may cancel, which removes the files written
+ * and leaves the map unchanged (the design notes,
+ * "Grids on disk, a tile cache, and a progress bar").
  */
 bool importPointClouds(Map& map, const QString& map_path, const QStringList& paths, const GriddingParams& params, const PointCloudProducts& products, bool attach, QStringList* grids, QStringList* rasters, QString* error);
 

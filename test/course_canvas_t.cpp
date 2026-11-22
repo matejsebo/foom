@@ -19,6 +19,7 @@
 
 
 #include <cstddef>
+#include <functional>
 #include <vector>
 
 #include <QtEndian>
@@ -174,6 +175,7 @@ private slots:
 	void canvasForTest();
 	void dialogTest();
 	void xmlScriptTest();
+	void defineExtentTest();
 };
 
 
@@ -628,6 +630,96 @@ void CourseCanvasTest::xmlScriptTest()
  */
 namespace {
 	auto Q_DECL_UNUSED qpa_selected = qputenv("QT_QPA_PLATFORM", "offscreen");  // clazy:exclude=non-pod-global-static
+}
+
+
+/// the design notes, "Canvases: defining an extent in the dialog", Accept
+void CourseCanvasTest::defineExtentTest()
+{
+	Map map;
+	map.setScaleDenominator(10000);
+	Extent sheet;
+	sheet.name = QStringLiteral("Sheet");
+	sheet.rect_mm = QRectF(0.0, 0.0, 100.0, 80.0);
+	map.setExtents({ sheet });
+
+	// (1) Without a definer the button stays disabled.
+	{
+		CourseCanvasesDialog dialog(&map);
+		auto* define = dialog.findChild<QPushButton*>(QStringLiteral("canvas-define-extent"));
+		QVERIFY(define);
+		QVERIFY(dialog.addCanvas(QStringLiteral("A")));
+		QVERIFY(!define->isEnabled());
+	}
+
+	CourseCanvasesDialog dialog(&map);
+	auto* define = dialog.findChild<QPushButton*>(QStringLiteral("canvas-define-extent"));
+	auto* extent_box = dialog.findChild<QComboBox*>(QStringLiteral("canvas-extent"));
+	QVERIFY(define && extent_box);
+	Extent handed;
+	int calls = 0;
+	std::function<bool (Extent&)> answer;
+	dialog.setExtentDefiner([&](Extent& extent) {
+		++calls;
+		handed = extent;
+		return answer(extent);
+	});
+	QVERIFY(!define->isEnabled());
+	QVERIFY(dialog.addCanvas(QStringLiteral("A")));
+	QVERIFY(define->isEnabled());
+
+	// (5) A canvas without an extent is handed a new name.
+	// (2) Front is defined.
+	answer = [](Extent& extent) {
+		extent.name = QStringLiteral("Front");
+		extent.rect_mm = QRectF(10.0, 20.0, 100.0, 80.0);
+		return true;
+	};
+	define->click();
+	QCOMPARE(calls, 1);
+	QVERIFY(!handed.name.isEmpty());
+	QVERIFY(handed.name != QStringLiteral("Sheet"));
+	QCOMPARE(extent_box->currentText(), QStringLiteral("Front"));
+	QCOMPARE(dialog.canvases().canvases.front().extent, QStringLiteral("Front"));
+	QCOMPARE(int(dialog.loadedExtents().size()), 1);
+	QCOMPARE(dialog.loadedExtents().front().rect_mm, QRectF(10.0, 20.0, 100.0, 80.0));
+	QCOMPARE(int(map.extents().size()), 1);
+
+	// (3) Defined again, wider.
+	answer = [](Extent& extent) {
+		extent.rect_mm.setWidth(120.0);
+		return true;
+	};
+	define->click();
+	QCOMPARE(handed.name, QStringLiteral("Front"));
+	QCOMPARE(handed.rect_mm, QRectF(10.0, 20.0, 100.0, 80.0));
+	QCOMPARE(int(dialog.loadedExtents().size()), 1);
+	QCOMPARE(dialog.loadedExtents().front().rect_mm.width(), 120.0);
+	QCOMPARE(extent_box->findText(QStringLiteral("Front")), extent_box->findText(QStringLiteral("Front"), Qt::MatchExactly));
+
+	// (4) Cancelled, or without a name: nothing changes.
+	answer = [](Extent& extent) {
+		extent.name = QStringLiteral("Other");
+		return false;
+	};
+	define->click();
+	answer = [](Extent& extent) {
+		extent.name.clear();
+		return true;
+	};
+	define->click();
+	QCOMPARE(dialog.canvases().canvases.front().extent, QStringLiteral("Front"));
+	QCOMPARE(int(dialog.loadedExtents().size()), 1);
+	QCOMPARE(extent_box->findText(QStringLiteral("Other")), -1);
+
+	// (5) A canvas on Sheet is handed the map's rectangle.
+	QVERIFY(dialog.addCanvas(QStringLiteral("B")));
+	extent_box->setCurrentIndex(extent_box->findText(QStringLiteral("Sheet")));
+	QCOMPARE(dialog.canvases().canvases.back().extent, QStringLiteral("Sheet"));
+	answer = [](Extent&) { return false; };
+	define->click();
+	QCOMPARE(handed.name, QStringLiteral("Sheet"));
+	QCOMPARE(handed.rect_mm, QRectF(0.0, 0.0, 100.0, 80.0));
 }
 
 

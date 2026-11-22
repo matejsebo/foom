@@ -216,6 +216,7 @@
 #include "gui/map/extent_dialog.h"
 #include "gui/map/legibility_dialog.h"
 #include "gui/map/elevation_dialogs.h"
+#include "gui/map/elevation_progress_dialog.h"  // foom
 #include "gui/map/elevation_wizard_dialog.h"  // foom
 #include "gui/map/selection_dialogs.h"  // foom
 #include "core/selection_queries.h"  // foom
@@ -6498,6 +6499,14 @@ void MapEditorController::hideCourseRoutesClicked()
 void MapEditorController::courseCanvasesClicked()
 {
 	CourseCanvasesDialog dialog(map, window);
+	// foom: the design notes, "Canvases: defining an extent in the dialog"
+	dialog.setExtentDefiner([this, &dialog](Extent& extent) {
+		ExtentDialog define(this, extent, &dialog);
+		if (define.exec() != QDialog::Accepted)
+			return false;
+		extent = define.extent();
+		return true;
+	});
 	if (dialog.exec() != QDialog::Accepted)
 		return;
 	// foom: the design notes, "Canvases: load extent from background map"
@@ -9192,9 +9201,12 @@ void MapEditorController::elevationWizardClicked()
 	ElevationWizardDialog wizard(window->currentPath(), window);
 	if (wizard.exec() != QDialog::Accepted)
 		return;
+	// foom: the design notes, "Grids on disk, a tile cache, and a progress bar".
+	ElevationProgressDialog progress(tr("Elevation wizard"), window);
 	QApplication::setOverrideCursor(Qt::WaitCursor);
-	auto const result = runElevationWizard(*map, window->currentPath(), wizard.job());
+	auto const result = runElevationWizard(*map, window->currentPath(), wizard.job(), progress.callback());
 	QApplication::restoreOverrideCursor();
+	progress.close();
 	if (!result.ok)
 	{
 		QMessageBox::warning(window, tr("Elevation wizard"), result.error);
@@ -9494,9 +9506,14 @@ void MapEditorController::elevationPointCloudClicked()
 	if (dialog.exec() != QDialog::Accepted)
 		return;
 	QString error;
+	// foom: the design notes, "Grids on disk, a tile cache, and a progress bar".
+	ElevationProgressDialog progress(tr("Import point cloud"), window);
+	auto params = dialog.params();
+	params.progress = progress.callback();
 	QApplication::setOverrideCursor(Qt::WaitCursor);
-	auto const ok = importPointClouds(paths, dialog.params(), dialog.products(), &error);
+	auto const ok = importPointClouds(paths, params, dialog.products(), &error);
 	QApplication::restoreOverrideCursor();
+	progress.close();
 	if (!ok)
 		QMessageBox::warning(window, tr("Import point cloud"), error);
 }

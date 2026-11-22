@@ -106,9 +106,10 @@ struct ElevationWizardResult
  * Runs the wizard's job on the map: the grids, the rasters of the cloud,
  * the rasters of the terrain grid, then the objects in one undo step.
  *
- * map_path is the map's file, or empty while it is unsaved.
+ * map_path is the map's file, or empty while it is unsaved. progress reports the
+ * rows of tiles of a point cloud and may cancel the run.
  */
-ElevationWizardResult runElevationWizard(Map& map, const QString& map_path, const ElevationWizardJob& job);
+ElevationWizardResult runElevationWizard(Map& map, const QString& map_path, const ElevationWizardJob& job, const TileProgress& progress = {});
 
 /**
  * Reads the parameters of the runner step `elevation-wizard` into job,

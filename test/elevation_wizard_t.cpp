@@ -56,13 +56,17 @@
 #include "core/objects/object.h"
 #include "core/symbols/symbol.h"
 #include "elevation/contours.h"
+#include "elevation/elevation_commands.h"
 #include "elevation/elevation_model.h"
 #include "elevation/elevation_set.h"
 #include "elevation/elevation_wizard.h"
+#include "elevation/grid_tiles.h"
 #include "elevation/landforms.h"
 #include "elevation/point_cloud.h"
+#include "elevation/point_cloud_products.h"
 #include "elevation/raster_products.h"
 #include "gui/main_window.h"
+#include "gui/map/elevation_progress_dialog.h"
 #include "gui/map/elevation_wizard_dialog.h"
 #include "gui/map/map_editor.h"
 #include "undo/undo_manager.h"
@@ -557,6 +561,133 @@ private slots:
 		QCOMPARE(result.features, features);
 	}
 
+	// the design notes, "Grids on disk, a tile cache, and a progress bar", Accept (6).
+	void cloudOnDisk()
+	{
+		if (!PointCloud::supported())
+			QSKIP("Built without LASzip");
+		QTemporaryDir dir;
+		QVERIFY(QDir(dir.path()).mkpath(QStringLiteral("a")));
+		QVERIFY(QDir(dir.path()).mkpath(QStringLiteral("b")));
+		auto const cloud_a = dir.filePath(QStringLiteral("a/plane.laz"));
+		auto const cloud_b = dir.filePath(QStringLiteral("b/plane.laz"));
+		QString error;
+		QVERIFY2(PointCloud::write(cloud_a, cloudPoints(), {}, 0, &error), qPrintable(error));
+		QVERIFY(QFile::copy(cloud_a, cloud_b));
+	
+		GriddingParams params;
+		params.fill_cells = 1;
+		params.tile_buffer = 0.0;
+		PointCloudProducts products;
+		products.vegetation_height = true;
+		products.vegetation_map = true;
+	
+		// In memory, on a second map.
+		Map map_b;
+		QVERIFY2(ElevationCommands::importPointClouds(map_b, {}, { cloud_b }, params, products, true, nullptr, nullptr, &error), qPrintable(error));
+	
+		// On disk: the two grids of 40 by 40 cells (12,800 bytes) do not fit, rows of 3 cells do.
+		params.memory_limit = 10000;
+		QStringList steps;
+		params.progress = [&steps](const QString& step, int, int) {
+			if (!steps.contains(step))
+				steps.push_back(step);
+			return true;
+		};
+		Map map_a;
+		QStringList grids, rasters;
+		QVERIFY2(ElevationCommands::importPointClouds(map_a, {}, { cloud_a }, params, products, true, &grids, &rasters, &error), qPrintable(error));
+		auto const dtm = dir.filePath(QStringLiteral("a/plane_DTM.tif"));
+		auto const dsm = dir.filePath(QStringLiteral("a/plane_DSM.tif"));
+		QCOMPARE(map_a.elevationSet().href(ElevationSet::Terrain), dtm);
+		QCOMPARE(map_a.elevationSet().href(ElevationSet::Surface), dsm);
+		QVERIFY(!map_a.elevationSet().loadedModel(ElevationSet::Terrain));
+		QVERIFY(QFileInfo::exists(dtm));
+		QVERIFY(QFileInfo::exists(dsm));
+		QCOMPARE(grids, (QStringList{ dtm, dsm }));
+		QCOMPARE(steps, (QStringList{ QStringLiteral("Gridding"), QStringLiteral("Vegetation height"), QStringLiteral("Vegetation base map") }));
+		auto const* terrain = map_a.elevationSet().model(ElevationSet::Terrain);
+		QVERIFY(terrain);
+		auto const centre = terrain->cellCenter(20, 20);
+		QVERIFY(std::abs(terrain->at(centre) - (300.0 + 0.1 * (centre.x() - 1000.0))) < 0.05);
+		QCOMPARE(map_a.getNumTemplates(), 2);
+		QVERIFY(map_a.hasUnsavedChanges());
+	
+		for (auto const* name : { "plane_vegetation_height.tif", "plane_vegetation.tif" })
+		{
+			auto const a = readRasterFile(dir.filePath(QLatin1String("a/") + QLatin1String(name)), nullptr, &error);
+			auto const b = readRasterFile(dir.filePath(QLatin1String("b/") + QLatin1String(name)), nullptr, &error);
+			QVERIFY2(!a.isNull() && !b.isNull(), name);
+			QCOMPARE(a.format(), b.format());
+			QVERIFY2(a == b, name);
+		}
+	}
+	
+	// Accept (7).
+	void cloudCancel()
+	{
+		if (!PointCloud::supported())
+			QSKIP("Built without LASzip");
+		QTemporaryDir dir;
+		auto const cloud = dir.filePath(QStringLiteral("plane.laz"));
+		QString error;
+		QVERIFY2(PointCloud::write(cloud, cloudPoints(), {}, 0, &error), qPrintable(error));
+		GriddingParams params;
+		params.fill_cells = 1;
+		params.tile_buffer = 0.0;
+		params.memory_limit = 10000;
+		params.progress = [](const QString& step, int, int) { return step != QStringLiteral("Vegetation base map"); };
+		PointCloudProducts products;
+		products.vegetation_height = true;
+		products.vegetation_map = true;
+		Map map;
+		QVERIFY(!ElevationCommands::importPointClouds(map, {}, { cloud }, params, products, true, nullptr, nullptr, &error));
+		QCOMPARE(error, QStringLiteral("Cancelled."));
+		QVERIFY(map.elevationSet().isEmpty());
+		QCOMPARE(map.getNumTemplates(), 0);
+		QVERIFY(!map.hasUnsavedChanges());
+		for (auto const* name : { "plane_DTM.tif", "plane_DSM.tif", "plane_vegetation_height.tif", "plane_vegetation.tif" })
+			QVERIFY2(!QFileInfo::exists(dir.filePath(QLatin1String(name))), name);
+	
+		// The wizard, cancelled in its gridding.
+		auto job = ElevationWizardJob::defaults(ElevationWizardJob::PointCloud);
+		job.files = QStringList{ cloud };
+		Map wizard_map;
+		auto const result = runElevationWizard(wizard_map, QString{}, job, [](const QString&, int done, int) { return done < 1; });
+		QVERIFY(!result.ok);
+		QCOMPARE(result.error, QStringLiteral("Cancelled."));
+		QVERIFY(wizard_map.elevationSet().isEmpty());
+		QCOMPARE(wizard_map.getNumObjects(), 0);
+		QCOMPARE(wizard_map.getNumTemplates(), 0);
+	}
+	
+	// Accept (8).
+	void progressDialog()
+	{
+		ElevationProgressDialog dialog(QStringLiteral("Import point cloud"));
+		auto const callback = dialog.callback();
+		QVERIFY(callback(QStringLiteral("Gridding"), 3, 10));
+		QCOMPARE(dialog.maximum(), 10);
+		QCOMPARE(dialog.value(), 3);
+		QCOMPARE(dialog.labelText(), QStringLiteral("Gridding: row of tiles 3 of 10"));
+		dialog.cancel();
+		QVERIFY(!callback(QStringLiteral("Gridding"), 4, 10));
+	}
+	
+	// Accept (9).
+	void runnerMemoryLimit()
+	{
+		ElevationWizardJob job;
+		QString error;
+		QJsonObject object{ { QStringLiteral("source"), QStringLiteral("point-cloud") },
+		                    { QStringLiteral("files"), QJsonArray{ QStringLiteral("plane.laz") } },
+		                    { QStringLiteral("memory_limit_mb"), 1 } };
+		QVERIFY2(elevationWizardJobFromJson(object, &job, &error), qPrintable(error));
+		QCOMPARE(job.gridding.memory_limit, qint64(1048576));
+		object[QStringLiteral("memory_limit_mb")] = -1;
+		QVERIFY(!elevationWizardJobFromJson(object, &job, &error));
+	}
+	
 	// Accept (7).
 	void failure()
 	{

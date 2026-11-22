@@ -93,7 +93,7 @@ bool ElevationWizardJob::makesObjects() const
 
 // ### runElevationWizard ###
 
-ElevationWizardResult runElevationWizard(Map& map, const QString& map_path, const ElevationWizardJob& job)
+ElevationWizardResult runElevationWizard(Map& map, const QString& map_path, const ElevationWizardJob& job, const TileProgress& progress)
 {
 	ElevationWizardResult result;
 	auto const fail = [&result](const QString& message) {
@@ -130,6 +130,8 @@ ElevationWizardResult runElevationWizard(Map& map, const QString& map_path, cons
 		// 2. The rasters of the cloud; the vegetation height comes from the map's grids below.
 		auto gridding = job.gridding;
 		gridding.dsm = gridding.dsm || job.vegetation_height || landforms.trees;
+		if (progress)
+			gridding.progress = progress;
 		auto products = job.cloud;
 		products.vegetation_height = false;
 		if (!ElevationCommands::importPointClouds(map, map_path, job.files, gridding, products, attach, &result.grids, &result.files, &error))
@@ -346,7 +348,8 @@ bool elevationWizardJobFromJson(const QJsonObject& object, ElevationWizardJob* j
 	// the design notes, "Wizard", the runner step.
 	Reader r(object, {}, error);
 	r.known({ "source", "files", "products", "attach", "units", "cell", "dtm", "dsm", "contour_sets", "hill_shading",
-	          "slope_gradient", "hypsometric_map", "feature_extraction", "vegetation_height", "vegetation_map", "feature_map" });
+	          "slope_gradient", "hypsometric_map", "feature_extraction", "vegetation_height", "vegetation_map", "feature_map",
+	          "memory_limit_mb" });
 	auto const source = r.choice("source", { "grid", "point-cloud" });
 	if (!r.ok())
 		return false;
@@ -414,6 +417,11 @@ bool elevationWizardJobFromJson(const QJsonObject& object, ElevationWizardJob* j
 	result.cloud.vegetation.cell = result.gridding.cell;
 	r.boolean("dtm", result.gridding.dtm);
 	r.boolean("dsm", result.gridding.dsm);
+	// "Grids on disk, a tile cache, and a progress bar".
+	double memory_mb = 0.0;
+	r.number("memory_limit_mb", memory_mb, 1.0, 1.0e7);
+	if (memory_mb > 0.0)
+		result.gridding.memory_limit = qint64(memory_mb * 1048576.0);
 
 	auto const sets = r.value("contour_sets");
 	if (!sets.isUndefined())

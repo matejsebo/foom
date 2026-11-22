@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <vector>
 
 #include <QtGlobal>
@@ -42,6 +43,7 @@
 #include <ogr_srs_api.h>
 
 #include "elevation/elevation_model.h"
+#include "elevation/grid_tiles.h"
 #include "elevation/point_cloud.h"
 #include "elevation/point_cloud_products.h"
 
@@ -125,6 +127,25 @@ std::vector<CloudPoint> testCloud(const CloudOptions& options)
 		}
 	}
 	return points;
+}
+
+/// The same size, extent and system, void in the same cells, values within the tolerance.
+void compareGrids(const ElevationModel& a, const ElevationModel& b, double tolerance)
+{
+	QCOMPARE(b.width(), a.width());
+	QCOMPARE(b.height(), a.height());
+	QCOMPARE(b.extent(), a.extent());
+	QVERIFY(a.crsSpec().isEmpty() == b.crsSpec().isEmpty());
+	for (int row = 0; row < a.height(); ++row)
+	{
+		for (int col = 0; col < a.width(); ++col)
+		{
+			auto const va = a.value(col, row);
+			auto const vb = b.value(col, row);
+			if (std::isnan(va) != std::isnan(vb) || (!std::isnan(va) && std::abs(va - vb) >= tolerance))
+				QFAIL(qPrintable(QStringLiteral("%1 %2: %3 %4").arg(col).arg(row).arg(va).arg(vb)));
+		}
+	}
 }
 
 QString epsg2056Wkt()
@@ -490,6 +511,345 @@ private slots:
 		QVERIFY(std::abs(result.dsm->value(0, 1) - 103.0) < 0.005);
 		QVERIFY(std::abs(result.dsm->value(1, 1) - 100.0) < 0.005);
 		QVERIFY(std::abs(result.dtm->value(0, 1) - 100.0) < 0.005);
+	}
+	
+	
+	// the design notes, "Grids on disk, a tile cache, and a progress bar", Accept (1).
+	void diskGridTest()
+	{
+		CloudOptions options;
+		options.hole = 15.0;
+		options.vegetation = QRectF(30, 30, 10, 10);
+		auto const path = writeCloud(QStringLiteral("disk.laz"), testCloud(options));
+		GriddingParams params;
+		params.fill_cells = 3;
+		params.tile_buffer = 0.0;
+		auto const memory = PointCloud::grid({ path }, params);
+		QVERIFY2(memory.dtm && memory.dsm, qPrintable(memory.error));
+		QCOMPARE(memory.dtm->width(), 50);
+		QCOMPARE(memory.dtm->height(), 50);
+		QVERIFY(memory.dtm_path.isEmpty());
+	
+		params.memory_limit = 19200;
+		params.dtm_path = dir.filePath(QStringLiteral("disk_DTM.tif"));
+		params.dsm_path = dir.filePath(QStringLiteral("disk_DSM.tif"));
+		auto const disk = PointCloud::grid({ path }, params);
+		QVERIFY2(disk.error.isEmpty(), qPrintable(disk.error));
+		QVERIFY(!disk.dtm);
+		QVERIFY(!disk.dsm);
+		QCOMPARE(disk.dtm_path, params.dtm_path);
+		QCOMPARE(disk.dsm_path, params.dsm_path);
+		QCOMPARE(disk.tile_rows, 25);
+		for (auto const& pair : { std::make_pair(memory.dtm.get(), disk.dtm_path), std::make_pair(memory.dsm.get(), disk.dsm_path) })
+		{
+			QVERIFY(QFileInfo::exists(pair.second));
+			auto const read = ElevationModel::open(pair.second);
+			QVERIFY2(read, qPrintable(ElevationModel::lastError()));
+			compareGrids(*pair.first, *read, 1e-4);
+		}
+	
+		// Too low a ceiling, and no paths.
+		params.memory_limit = 10000;
+		params.dtm_path = dir.filePath(QStringLiteral("low_DTM.tif"));
+		params.dsm_path = dir.filePath(QStringLiteral("low_DSM.tif"));
+		auto const low = PointCloud::grid({ path }, params);
+		QVERIFY(!low.error.isEmpty());
+		QVERIFY(!low.dtm);
+		QVERIFY(!QFileInfo::exists(params.dtm_path));
+		QVERIFY(!QFileInfo::exists(params.dsm_path));
+		params.memory_limit = 19200;
+		params.dtm_path.clear();
+		params.dsm_path.clear();
+		auto const none = PointCloud::grid({ path }, params);
+		QVERIFY(!none.error.isEmpty());
+		QVERIFY(!none.dtm);
+		QVERIFY(PointCloud::maxDiskCells() >= qint64(10000) * 10000);
+	}
+	
+	
+	// Accept (2).
+	void tileCacheTest()
+	{
+		auto const width = 1000, height = 700;
+		std::vector<float> values(std::size_t(width) * height);
+		for (int row = 0; row < height; ++row)
+		{
+			for (int col = 0; col < width; ++col)
+			{
+				auto const in_void = col >= 500 && col < 510 && row >= 400 && row < 410;
+				values[std::size_t(row) * width + col] = in_void ? std::numeric_limits<float>::quiet_NaN() : float(0.01 * col + 0.02 * row);
+			}
+		}
+		ElevationModel const model(width, height, QPointF(east0, north0 + 2.0 * height), 2.0, values, QStringLiteral("EPSG:26954"));
+		auto const path = dir.filePath(QStringLiteral("cache.tif"));
+		QVERIFY2(model.save(path), qPrintable(ElevationModel::lastError()));
+		qint64 const limit = 3 * 256 * 256 * 4;
+		QString error;
+		auto cache = GridTileCache::open(path, limit, &error);
+		QVERIFY2(cache, qPrintable(error));
+		QCOMPARE(cache->width(), width);
+		QCOMPARE(cache->height(), height);
+		QCOMPARE(cache->cellSize(), 2.0);
+		QCOMPARE(cache->extent(), model.extent());
+		QVERIFY(ElevationModel::sameCrs(cache->crsSpec(), QStringLiteral("EPSG:26954")));
+		for (int block_row = 0; block_row < height; block_row += 256)
+		{
+			for (int block_col = 0; block_col < width; block_col += 256)
+			{
+				for (int row = block_row; row < std::min(height, block_row + 256); ++row)
+				{
+					for (int col = block_col; col < std::min(width, block_col + 256); ++col)
+					{
+						auto const a = model.value(col, row);
+						auto const b = cache->value(col, row);
+						if (std::isnan(a) != std::isnan(b) || (!std::isnan(a) && a != b))
+							QFAIL(qPrintable(QStringLiteral("%1 %2: %3 %4").arg(col).arg(row).arg(a).arg(b)));
+					}
+				}
+			}
+		}
+		QVERIFY(cache->peakBytes() <= limit);
+		QVERIFY(cache->peakBytes() > 0);
+	
+		Sequence random;
+		auto const extent = model.extent();
+		for (int i = 0; i < 500; ++i)
+		{
+			QPointF const p(extent.left() - 1.0 + (extent.width() + 2.0) * random.next(), extent.top() - 1.0 + (extent.height() + 2.0) * random.next());
+			auto const a = model.at(p);
+			auto const b = cache->at(p);
+			QCOMPARE(std::isnan(a), std::isnan(b));
+			if (!std::isnan(a))
+				QVERIFY(std::abs(a - b) < 1e-9);
+			int ca = -1, ra = -1, cb = -2, rb = -2;
+			QCOMPARE(model.cellAt(p, ca, ra), cache->cellAt(p, cb, rb));
+		}
+		QVERIFY(cache->peakBytes() <= limit);
+	
+		auto const window = cache->window(300, 200, 400, 300);
+		QVERIFY(window);
+		QCOMPARE(window->width(), 400);
+		QCOMPARE(window->height(), 300);
+		QCOMPARE(window->cellSize(), 2.0);
+		QCOMPARE(window->extent().left(), extent.left() + 600.0);
+		QCOMPARE(window->extent().top() + window->extent().height(), extent.top() + extent.height() - 400.0);
+		for (int row = 0; row < 300; row += 7)
+		{
+			for (int col = 0; col < 400; col += 3)
+			{
+				auto const a = model.value(300 + col, 200 + row);
+				auto const b = window->value(col, row);
+				QCOMPARE(std::isnan(a), std::isnan(b));
+				if (!std::isnan(a))
+					QCOMPARE(b, a);
+			}
+		}
+		auto const edge = cache->window(900, 650, 200, 100);
+		QVERIFY(edge);
+		for (int row = 0; row < 100; ++row)
+		{
+			for (int col = 0; col < 200; ++col)
+			{
+				if (col >= 100 || row >= 50)
+					QVERIFY(std::isnan(edge->value(col, row)));
+				else
+					QCOMPARE(edge->value(col, row), model.value(900 + col, 650 + row));
+			}
+		}
+		QVERIFY(cache->peakBytes() <= limit);
+	
+		// The least recently used block is dropped.
+		auto fresh = GridTileCache::open(path, limit, &error);
+		QVERIFY2(fresh, qPrintable(error));
+		QCOMPARE(fresh->blocksRead(), qint64(0));
+		fresh->value(0, 0);
+		fresh->value(1, 1);
+		QCOMPARE(fresh->blocksRead(), qint64(1));
+		fresh->value(256, 0);
+		fresh->value(512, 0);
+		fresh->value(768, 0);
+		QCOMPARE(fresh->blocksRead(), qint64(4));
+		fresh->value(0, 0);
+		QCOMPARE(fresh->blocksRead(), qint64(5));
+		QVERIFY(fresh->bytesHeld() <= limit);
+	}
+	
+	
+	// Accept (3).
+	void tiledBaseMapTest()
+	{
+		CloudOptions options;
+		options.vegetation = QRectF(30, 30, 10, 10);
+		auto points = testCloud(options);
+		Sequence random;
+		auto const count = points.size();
+		for (std::size_t i = 0; i < count; ++i)
+		{
+			auto const ground = points[i];
+			if (ground.classification != 2)
+				continue;
+			auto const lx = ground.x - east0, ly = ground.y - north0;
+			auto add = [&](double h) {
+				CloudPoint p = ground;
+				p.z += h;
+				p.classification = 3;
+				p.return_number = 1;
+				p.number_of_returns = 2;
+				points.push_back(p);
+			};
+			if (lx < 25.0 && random.next() < lx / 25.0)
+				add(0.7);
+			if (ly >= 25.0 && random.next() < (ly - 25.0) / 25.0)
+				add(2.0);
+		}
+		auto const path = writeCloud(QStringLiteral("tiled_base.laz"), points);
+		auto const grid = PointCloud::grid({ path }, GriddingParams());
+		QVERIFY2(grid.dtm, qPrintable(grid.error));
+		auto const height = grid.dtm->height();
+		auto const width = grid.dtm->width();
+		VegetationParams params;
+		params.tile_size = 1.0e6;
+		auto const whole = PointCloud::vegetationBaseMap({ path }, *grid.dtm, params);
+		QVERIFY2(whole.error.isEmpty(), qPrintable(whole.error));
+		// Several classes, so that the comparison means something.
+		std::vector<int> seen(9, 0);
+		for (int row = 0; row < height; ++row)
+			for (int col = 0; col < width; ++col)
+				++seen[std::size_t(whole.image.pixelIndex(col, row))];
+		QVERIFY(std::count_if(seen.begin(), seen.end(), [](int n) { return n > 0; }) >= 4);
+	
+		auto const same = [&whole](const RasterProduct& other) {
+			if (!other.error.isEmpty())
+				return false;
+			return other.image == whole.image && other.image.colorTable() == whole.image.colorTable()
+			       && other.extent == whole.extent && other.crs_spec == whole.crs_spec;
+		};
+		params.tile_size = 3.0;
+		QVERIFY(same(PointCloud::vegetationBaseMap({ path }, *grid.dtm, params)));
+	
+		// The ceiling: rows of 2 cells with buffers of 3 (the kernel of 7).
+		params.tile_size = 1000.0;
+		params.memory_limit = qint64(44) * width * (2 + 2 * 3);
+		int total = 0;
+		auto const progress = [&total](const QString& /*step*/, int /*done*/, int n) { total = n; return true; };
+		QVERIFY(same(PointCloud::vegetationBaseMap({ path }, *grid.dtm, params, progress)));
+		QCOMPARE(total, (height + 1) / 2);
+	
+		// The terrain model in a tile cache, and written to a file.
+		auto const dtm_path = dir.filePath(QStringLiteral("tiled_base_DTM.tif"));
+		QVERIFY(grid.dtm->save(dtm_path));
+		QString error;
+		auto cache = GridTileCache::open(dtm_path, 0, &error);
+		QVERIFY2(cache, qPrintable(error));
+		params.memory_limit = 0;
+		params.tile_size = 3.0;
+		QVERIFY(same(PointCloud::vegetationBaseMap({ path }, *cache, params)));
+		auto const out = dir.filePath(QStringLiteral("tiled_base_vegetation.tif"));
+		QVERIFY2(PointCloud::vegetationBaseMapToFile({ path }, *cache, params, out, {}, &error), qPrintable(error));
+		QRectF extent;
+		auto const read = readRasterFile(out, &extent, &error);
+		QVERIFY2(!read.isNull(), qPrintable(error));
+		QCOMPARE(read.format(), QImage::Format_Indexed8);
+		QCOMPARE(read.size(), whole.image.size());
+		for (int row = 0; row < height; ++row)
+			for (int col = 0; col < width; ++col)
+				QCOMPARE(read.pixelIndex(col, row), whole.image.pixelIndex(col, row));
+		for (int i = 0; i < whole.image.colorCount(); ++i)
+			QCOMPARE(read.color(i), whole.image.color(i));
+		QVERIFY(std::abs(extent.left() - whole.extent.left()) < 1e-6);
+		QVERIFY(std::abs(extent.top() - whole.extent.top()) < 1e-6);
+		QVERIFY(std::abs(extent.width() - whole.extent.width()) < 1e-6);
+	}
+	
+	
+	// Accept (4).
+	void heightOnDiskTest()
+	{
+		CloudOptions options;
+		options.hole = 15.0;
+		options.vegetation = QRectF(30, 30, 10, 10);
+		auto const path = writeCloud(QStringLiteral("height_disk.laz"), testCloud(options));
+		GriddingParams params;
+		params.fill_cells = 3;
+		auto const memory = PointCloud::grid({ path }, params);
+		QVERIFY2(memory.dtm && memory.dsm, qPrintable(memory.error));
+		params.to_disk = true;
+		params.dtm_path = dir.filePath(QStringLiteral("height_DTM.tif"));
+		params.dsm_path = dir.filePath(QStringLiteral("height_DSM.tif"));
+		auto const disk = PointCloud::grid({ path }, params);
+		QVERIFY2(disk.error.isEmpty() && !disk.dtm, qPrintable(disk.error));
+		QString error;
+		auto dtm = GridTileCache::open(disk.dtm_path, 0, &error);
+		auto dsm = GridTileCache::open(disk.dsm_path, 0, &error);
+		QVERIFY2(dtm && dsm, qPrintable(error));
+		auto const heights = ElevationModel::difference(*memory.dsm, *memory.dtm);
+		QVERIFY(heights);
+		auto const expected = vegetationHeightRaster(*heights, defaultHeightClasses()).image.convertToFormat(QImage::Format_RGB32);
+		auto const out = dir.filePath(QStringLiteral("height_vegetation_height.tif"));
+		QVERIFY2(vegetationHeightToFile(*dsm, *dtm, VegetationHeightOptions(), out, 7.0, {}, &error), qPrintable(error));
+		auto const read = readRasterFile(out, nullptr, &error);
+		QVERIFY2(!read.isNull(), qPrintable(error));
+		QCOMPARE(read.format(), QImage::Format_RGB32);
+		QCOMPARE(read.size(), expected.size());
+		for (int row = 0; row < read.height(); ++row)
+			for (int col = 0; col < read.width(); ++col)
+				QCOMPARE(read.pixel(col, row), expected.pixel(col, row));
+	}
+	
+	
+	// Accept (5).
+	void progressCancelTest()
+	{
+		auto const path = writeCloud(QStringLiteral("progress.laz"), testCloud(CloudOptions()));
+		GriddingParams params;
+		params.fill_cells = 3;
+		params.tile_size = 10.0;
+		params.tile_buffer = 0.0;
+		std::vector<int> done;
+		std::vector<int> totals;
+		QStringList steps;
+		params.progress = [&](const QString& step, int k, int n) {
+			steps.push_back(step);
+			done.push_back(k);
+			totals.push_back(n);
+			return true;
+		};
+		auto const reported = PointCloud::grid({ path }, params);
+		QVERIFY2(reported.dtm, qPrintable(reported.error));
+		QCOMPARE(done, (std::vector<int>{ 0, 1, 2, 3, 4, 5 }));
+		QCOMPARE(totals, std::vector<int>(6, 5));
+		QCOMPARE(steps.size(), 6);
+		QCOMPARE(steps.count(QStringLiteral("Gridding")), 6);
+	
+		params.progress = [](const QString&, int k, int) { return k < 2; };
+		params.to_disk = true;
+		params.dtm_path = dir.filePath(QStringLiteral("cancel_DTM.tif"));
+		params.dsm_path = dir.filePath(QStringLiteral("cancel_DSM.tif"));
+		auto const cancelled = PointCloud::grid({ path }, params);
+		QCOMPARE(cancelled.error, QStringLiteral("Cancelled."));
+		QVERIFY(cancelled.cancelled);
+		QVERIFY(!cancelled.dtm);
+		QVERIFY(!cancelled.dsm);
+		QVERIFY(!QFileInfo::exists(params.dtm_path));
+		QVERIFY(!QFileInfo::exists(params.dsm_path));
+	
+		auto const grid = PointCloud::grid({ path }, GriddingParams());
+		QVERIFY2(grid.dtm, qPrintable(grid.error));
+		VegetationParams vegetation;
+		vegetation.tile_size = 10.0;
+		done.clear();
+		steps.clear();
+		auto const map = PointCloud::vegetationBaseMap({ path }, *grid.dtm, vegetation, [&](const QString& step, int k, int n) {
+			steps.push_back(step);
+			done.push_back(k);
+			return n == 5;
+		});
+		QVERIFY2(map.error.isEmpty(), qPrintable(map.error));
+		QCOMPARE(done, (std::vector<int>{ 0, 1, 2, 3, 4, 5 }));
+		QCOMPARE(steps.front(), QStringLiteral("Vegetation base map"));
+		auto const stopped = PointCloud::vegetationBaseMap({ path }, *grid.dtm, vegetation, [](const QString&, int k, int) { return k < 1; });
+		QCOMPARE(stopped.error, QStringLiteral("Cancelled."));
+		QVERIFY(stopped.image.isNull());
 	}
 	
 	
