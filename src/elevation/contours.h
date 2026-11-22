@@ -81,6 +81,14 @@ struct ContourLine
 QString contourLevelText(double level);
 
 /**
+ * The number of levels of the smallest interval in the range of params
+ * on a grid of the given minimum and maximum, as traceContours() takes them.
+ *
+ * See the design notes, "Levels in the range".
+ */
+int contourLevelCount(double grid_minimum, double grid_maximum, const ContourParams& params);
+
+/**
  * Traces the contours of the grid by marching squares.
  *
  * The grid is used as given: the caller smooths it for the smoothed set

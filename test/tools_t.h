@@ -148,6 +148,9 @@ private slots:
 	/** foom: Tests the merging of contour lines. */
 	void demMergeContours();
 	
+	/** foom: Tests the count of contour levels in the contour dialog. */
+	void demContourLevels();
+	
 	/** foom: Tests the embedded grid for course setting. */
 	void demEmbedGrid();
 	

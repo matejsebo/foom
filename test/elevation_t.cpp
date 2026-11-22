@@ -854,6 +854,45 @@ private slots:
 		}
 	}
 
+	/// the design notes, "Levels in the range", Accept (1) to (3).
+	void contourLevelCountTest()
+	{
+		ContourParams params;
+		QCOMPARE(contourLevelCount(500.05, 540.359, params), 40);
+		params.interval = 2.5;
+		QCOMPARE(contourLevelCount(500.05, 540.359, params), 16);
+		params.interval = 1.0;
+		params.minimum = 510.0;
+		params.maximum = 520.0;
+		QCOMPARE(contourLevelCount(500.05, 540.359, params), 11);
+		params.minimum = 500.0;
+		params.maximum = std::numeric_limits<double>::quiet_NaN();
+		QCOMPARE(contourLevelCount(500.0, 510.0, params), 10);   // no level at the minimum itself
+		params.minimum = 530.0;
+		params.maximum = 520.0;
+		QCOMPARE(contourLevelCount(500.05, 540.359, params), 0);
+		QCOMPARE(contourLevelCount(std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN(), ContourParams()), 0);
+
+		// The count is the number of levels the tracer gives lines for on a plane.
+		auto const plane = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double x, double) { return 100.0 + 0.1 * x; });
+		auto const info = plane->info();
+		for (auto const& range : { std::make_pair(std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN()), std::make_pair(103.0, 107.0) })
+		{
+			ContourParams p;
+			p.minimum = range.first;
+			p.maximum = range.second;
+			std::set<QString> levels;
+			for (auto const& line : traceContours(*plane, p))
+				levels.insert(line.tag);
+			QCOMPARE(int(levels.size()), contourLevelCount(info.minimum, info.maximum, p));
+			if (!std::isnan(range.first))
+			{
+				QVERIFY(levels.count(QStringLiteral("103")));
+				QVERIFY(levels.count(QStringLiteral("107")));
+			}
+		}
+	}
+
 	void xmlRoundTrip()
 	{
 		QTemporaryDir dir;

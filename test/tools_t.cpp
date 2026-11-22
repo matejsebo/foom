@@ -31,6 +31,7 @@
 #include <QtTest>
 #include <QAction>
 #include <QApplication>
+#include <QComboBox>  // foom
 #include <QEvent>
 #include <QFileInfo>
 #include <QImage>
@@ -79,6 +80,7 @@
 #include "elevation/landforms.h"
 #include "elevation/point_cloud.h"
 #include "course/route_course.h"  // foom
+#include "gui/map/elevation_dialogs.h"  // foom
 #include "gui/map/extent_dialog.h"
 #include "check/issue.h"
 #include "check/legibility.h"
@@ -2086,6 +2088,26 @@ void ToolsTest::demMergeContours()
 	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 1);
 	QVERIFY(map.map->undoManager().undo());
 	QCOMPARE(map.map->getNumObjects(), objects);
+}
+
+
+void ToolsTest::demContourLevels()
+{
+	// the design notes, "Levels in the range", Accept (4).
+	ContourDialog dialog(500.05, 540.359, nullptr);
+	QCOMPARE(dialog.levelCount(false), 40);
+	QCOMPARE(dialog.levelCount(true), 16);
+	auto* label = dialog.findChild<QLabel*>(QStringLiteral("unsmoothed_levels"));
+	QVERIFY(label);
+	QVERIFY2(label->text().contains(QLatin1String("40")), qPrintable(label->text()));
+	auto* interval = dialog.findChild<QComboBox*>(QStringLiteral("unsmoothed_interval"));
+	QVERIFY(interval);
+	interval->setCurrentIndex(interval->findData(5.0));
+	QCOMPARE(dialog.levelCount(false), 8);
+	QVERIFY2(label->text().contains(QLatin1String("8")), qPrintable(label->text()));
+	auto* smoothed_label = dialog.findChild<QLabel*>(QStringLiteral("smoothed_levels"));
+	QVERIFY(smoothed_label);
+	QVERIFY2(smoothed_label->text().contains(QLatin1String("16")), qPrintable(smoothed_label->text()));
 }
 
 

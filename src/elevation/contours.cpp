@@ -108,25 +108,33 @@ private:
 };
 
 
+/// The levels of the range; returns their number and sets the first.
+int contourLevels(double grid_minimum, double grid_maximum, const ContourParams& params, double& first_level)
+{
+	if (std::isnan(grid_minimum) || std::isnan(grid_maximum) || !(params.interval > 0.0))
+		return 0;
+	// The first level is the smallest multiple of the interval above the grid's minimum:
+	// a level equal to the minimum would have no cell below it. A lowest level
+	// chosen above the grid's minimum is a level itself (the design notes,
+	// "Levels in the range").
+	auto const k0 = (!std::isnan(params.minimum) && params.minimum > grid_minimum)
+	                ? std::ceil(params.minimum / params.interval - 1e-9)
+	                : std::floor(grid_minimum / params.interval + 1e-9) + 1;
+	auto highest = grid_maximum;
+	if (!std::isnan(params.maximum))
+		highest = qMin(highest, params.maximum);
+	auto const k1 = std::floor(highest / params.interval + 1e-9);
+	first_level = k0 * params.interval;
+	return qMax(0, int(k1 - k0) + 1);
+}
+
+
 ContourTracer::ContourTracer(const ElevationModel& grid, const ContourParams& params)
 : grid(grid)
 , params(params)
 {
 	auto const info = grid.info();
-	if (std::isnan(info.minimum) || params.interval <= 0.0)
-		return;
-	auto lowest = info.minimum;
-	auto highest = info.maximum;
-	if (!std::isnan(params.minimum))
-		lowest = qMax(lowest, params.minimum);
-	if (!std::isnan(params.maximum))
-		highest = qMin(highest, params.maximum);
-	// The first level is the smallest multiple of the interval above the minimum:
-	// a level equal to the minimum would have no cell below it.
-	auto const k0 = std::floor(lowest / params.interval + 1e-9) + 1;
-	auto const k1 = std::floor(highest / params.interval + 1e-9);
-	first_level = k0 * params.interval;
-	num_levels = qMax(0, int(k1 - k0) + 1);
+	num_levels = contourLevels(info.minimum, info.maximum, params, first_level);
 }
 
 
@@ -643,6 +651,13 @@ QString contourLevelText(double level)
 	if (text == QLatin1String("-0"))
 		text = QStringLiteral("0");
 	return text;
+}
+
+
+int contourLevelCount(double grid_minimum, double grid_maximum, const ContourParams& params)
+{
+	double first = 0.0;
+	return contourLevels(grid_minimum, grid_maximum, params, first);
 }
 
 
