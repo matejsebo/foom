@@ -77,6 +77,7 @@ private:
 	void browseCrtFile();
 	void storeOptions() const;  // foom
 	void restoreOptions();  // foom
+	void applyRuleChoice();  // foom
 	
 	const Map& map;
 	QStringList paths;
@@ -101,6 +102,8 @@ private:
 	QComboBox* symbols_combo;
 	QLineEdit* crt_edit;
 	QPushButton* crt_button;
+	QLabel* rule_choice_label;  // foom
+	QString chosen_crt;  // foom
 	QDialogButtonBox* buttons;
 };
 

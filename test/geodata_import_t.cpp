@@ -25,6 +25,7 @@
 
 #include <QtGlobal>
 #include <QtTest>
+#include <QByteArray>
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDialogButtonBox>
@@ -36,6 +37,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLabel>
 #include <QLatin1String>
 #include <QLineEdit>
 #include <QLineF>
@@ -70,6 +72,7 @@
 #include "fileformats/file_import_export.h"
 #include "gdal/geodata_import.h"
 #include "gdal/geodata_import_dialog.h"
+#include "gdal/import_rule_choice.h"
 #include "undo/undo_manager.h"
 
 using namespace OpenOrienteering;
@@ -716,7 +719,129 @@ private slots:
 		}), 3);
 	}
 
+	// the design notes, "Choosing the table from the dataset"
+
+	/// Accept (1) and (2)
+	void recogniseTest()
+	{
+		auto const osm = QDir(QString::fromUtf8(MAPPER_TEST_SOURCE_DIR)).absoluteFilePath(QStringLiteral("data/osm/new-map.osm"));
+		QVERIFY(QFileInfo::exists(osm));
+		auto const plain = geoJson(QStringLiteral("plain"), QStringLiteral("roads"), "{\"kind\": \"track\"}");
+
+		QCOMPARE(recogniseGeodataDataset({ osm }), QStringLiteral("OSM"));
+		QCOMPARE(recogniseGeodataDataset({ osm, osm }), QStringLiteral("OSM"));
+		QCOMPARE(geodataDatasetTitle(QStringLiteral("OSM")), QStringLiteral("OpenStreetMap"));
+
+		// None
+		QCOMPARE(recogniseGeodataDataset({ gpkg() }), QString());
+		QCOMPARE(recogniseGeodataDataset({ plain }), QString());
+		QCOMPARE(recogniseGeodataDataset({ osm, gpkg() }), QString());
+		QCOMPARE(recogniseGeodataDataset({ osm, plain }), QString());
+		QCOMPARE(recogniseGeodataDataset({ dir.filePath(QStringLiteral("missing.gpkg")) }), QString());
+		QCOMPARE(recogniseGeodataDataset({}), QString());
+	}
+
+	/// Accept (3)
+	void chooseRulesTest()
+	{
+		addSourceDataPath();
+		auto const osm = QDir(QString::fromUtf8(MAPPER_TEST_SOURCE_DIR)).absoluteFilePath(QStringLiteral("data/osm/new-map.osm"));
+
+		Map map;
+		map.setSymbolSetId(QStringLiteral("ISOM 2017-2"));
+		auto choice = chooseImportRules({ osm }, map);
+		QCOMPARE(choice.dataset, QStringLiteral("OSM"));
+		QVERIFY2(choice.crt_file.endsWith(QLatin1String("/symbol sets/OSM-ISOM 2017-2.crt")), qPrintable(choice.crt_file));
+		QVERIFY(QFileInfo(choice.crt_file).isAbsolute());
+		QVERIFY(QFileInfo::exists(choice.crt_file));
+		QCOMPARE(choice.layer_tag, GeodataImportOptions::NoLayerTag);
+
+		map.setSymbolSetId(QStringLiteral("ISSprOM 2019"));
+		choice = chooseImportRules({ osm }, map);
+		QVERIFY(choice.crt_file.endsWith(QLatin1String("/symbol sets/OSM-ISSprOM 2019.crt")));
+		QVERIFY(QFileInfo::exists(choice.crt_file));
+
+		// No table, the dataset still named
+		map.setSymbolSetId(QStringLiteral("A set without a table"));
+		choice = chooseImportRules({ osm }, map);
+		QCOMPARE(choice.dataset, QStringLiteral("OSM"));
+		QVERIFY(choice.crt_file.isEmpty());
+		map.setSymbolSetId(QString());
+		choice = chooseImportRules({ osm }, map);
+		QCOMPARE(choice.dataset, QStringLiteral("OSM"));
+		QVERIFY(choice.crt_file.isEmpty());
+
+		// Nothing recognised
+		map.setSymbolSetId(QStringLiteral("ISOM 2017-2"));
+		choice = chooseImportRules({ gpkg() }, map);
+		QVERIFY(choice.dataset.isEmpty());
+		QVERIFY(choice.crt_file.isEmpty());
+	}
+
+	/// Accept (4)
+	void dialogChoiceTest()
+	{
+		addSourceDataPath();
+		QCoreApplication::setOrganizationName(QStringLiteral("OpenOrienteering.org"));
+		QCoreApplication::setApplicationName(QStringLiteral("GeodataImportTest"));
+		QSettings settings;
+		settings.remove(QStringLiteral("GeodataImport"));
+		settings.setValue(QStringLiteral("GeodataImport/symbols"), QStringLiteral("crt"));
+		settings.setValue(QStringLiteral("GeodataImport/crt_file"), dir.filePath(QStringLiteral("remembered.crt")));
+		settings.setValue(QStringLiteral("GeodataImport/layer_tag"), QStringLiteral("none"));
+
+		Map map;
+		setupMap(map);
+		map.setSymbolSetId(QStringLiteral("ISOM 2017-2"));
+		QRectF const view(-10.0, -10.0, 20.0, 20.0);
+		auto const osm = QDir(QString::fromUtf8(MAPPER_TEST_SOURCE_DIR)).absoluteFilePath(QStringLiteral("data/osm/new-map.osm"));
+		{
+			GeodataImportDialog dialog({ osm }, map, view);
+			auto const options = dialog.options();
+			QCOMPARE(options.crt_file, chooseImportRules({ osm }, map).crt_file);
+			QVERIFY(options.crt_file.endsWith(QLatin1String("OSM-ISOM 2017-2.crt")));
+			QCOMPARE(options.layer_tag, GeodataImportOptions::NoLayerTag);
+			auto* label = child<QLabel>(dialog, "rule_choice_label");
+			QVERIFY(!label->isHidden());
+			QVERIFY2(label->text().contains(QLatin1String("OpenStreetMap")), qPrintable(label->text()));
+
+			// Editing the field removes the line
+			child<QLineEdit>(dialog, "crt_edit")->setText(dir.filePath(QStringLiteral("other.crt")));
+			QVERIFY(label->isHidden());
+		}
+		{
+			GeodataImportDialog dialog({ gpkg() }, map, view);
+			auto const options = dialog.options();
+			QCOMPARE(options.crt_file, dir.filePath(QStringLiteral("remembered.crt")));
+			QCOMPARE(options.layer_tag, GeodataImportOptions::NoLayerTag);
+			QVERIFY(child<QLabel>(dialog, "rule_choice_label")->isHidden());
+		}
+		settings.remove(QStringLiteral("GeodataImport"));
+	}
+
 private:
+	/// A GeoJSON file of one point feature in a layer of the given name.
+	QString geoJson(const QString& file, const QString& layer, const char* properties)
+	{
+		auto const path = dir.filePath(file + QStringLiteral(".geojson"));
+		QFile out(path);
+		if (out.open(QIODevice::WriteOnly | QIODevice::Truncate))
+		{
+			out.write(QByteArray("{\"type\": \"FeatureCollection\", \"name\": \"") + layer.toUtf8()
+			          + "\", \"features\": [{\"type\": \"Feature\", \"properties\": " + properties
+			          + ", \"geometry\": {\"type\": \"Point\", \"coordinates\": [1.0, 2.0]}}]}");
+		}
+		return path;
+	}
+
+	/// The repository as a data search path, for the shipped tables.
+	void addSourceDataPath()
+	{
+		auto const source = QDir(QString::fromUtf8(MAPPER_TEST_SOURCE_DIR)).absoluteFilePath(QStringLiteral(".."));
+		if (!QDir::searchPaths(QStringLiteral("data")).contains(source))
+			QDir::addSearchPath(QStringLiteral("data"), source);
+	}
+
 	QString gpkg() const { return dir.filePath(QStringLiteral("data.gpkg")); }
 	QString plainShp() const { return dir.filePath(QStringLiteral("plain.shp")); }
 	QString smallShp() const { return dir.filePath(QStringLiteral("small.shp")); }
