@@ -77,9 +77,9 @@ std::vector<RulerTick> rulerTicks(double value_at_zero, double units_per_pixel, 
 
 
 /**
- * The view aids of a map editor: rulers and guides.
+ * The view aids of a map editor: rulers and guides, find selected.
  * 
- * See the design notes, "Rulers and guides".
+ * See the design notes, "Rulers and guides" and "find-selected".
  */
 class ViewAids : public QObject
 {
@@ -154,6 +154,9 @@ public:
 	
 	bool isDraggingGuide() const { return drag_active; }
 	
+	/** The index of the next object which find selected brings into view. */
+	int findSelectedIndex() const { return find_index; }
+	
 	bool eventFilter(QObject* watched, QEvent* event) override;
 	
 public slots:
@@ -164,6 +167,16 @@ public slots:
 	void setGuidesVisible(bool visible);
 	void setGuidesLocked(bool locked);
 	void clearGuides();
+	
+	/**
+	 * Brings the next selected object into view: centres it and zooms out when
+	 * it does not fit. Repeated calls step through the selection, in the order
+	 * of the selection, and begin again after the last.
+	 */
+	void findSelected();
+	
+	/** Called when the selection changes: find selected starts again. */
+	void selectionChanged();
 	
 private:
 	void setGuides(Guides guides);
@@ -187,6 +200,8 @@ private:
 	Qt::Orientation drag_orientation = Qt::Horizontal;
 	int drag_index = -1;
 	qint32 drag_position = 0;
+	
+	int find_index = 0;
 };
 
 

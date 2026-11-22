@@ -19,6 +19,7 @@
 
 
 #include <cmath>
+#include <initializer_list>
 
 #include <QtTest>
 #include <QAction>
@@ -37,6 +38,9 @@
 #include "core/map.h"
 #include "core/map_coord.h"
 #include "core/map_view.h"
+#include "core/objects/object.h"
+#include "core/symbols/line_symbol.h"
+#include "core/symbols/point_symbol.h"
 #include "fileformats/file_import_export.h"
 #include "fileformats/xml_file_format.h"
 #include "gui/main_window.h"
@@ -390,6 +394,73 @@ private slots:
 
 		editor.editor->getAction("view-rulers")->trigger();
 		QVERIFY(!top->isVisible());
+	}
+
+
+	// ### Find selected ###
+
+	void findSelected()
+	{
+		auto* map_ptr = new Map();
+		auto& map = *map_ptr;
+		auto* a = new PointObject(Map::getUndefinedPoint());
+		a->setPosition(MapCoord(10, 10));
+		auto* b = new PointObject(Map::getUndefinedPoint());
+		b->setPosition(MapCoord(100, -50));
+		auto* c = new PointObject(Map::getUndefinedPoint());
+		c->setPosition(MapCoord(-40, 0));
+		auto* large = new PathObject(Map::getUndefinedLine(), { MapCoord(0, 0), MapCoord(500, 0), MapCoord(500, 300) });
+		for (auto* object : std::initializer_list<Object*>{ a, b, c, large })
+			map.addObject(object);
+
+		Editor editor(map_ptr);
+		auto* action = editor.editor->getAction("find-selected");
+		QVERIFY(action);
+		QVERIFY(menuContains(editor.viewMenu(), action));
+		auto* view = editor.map_widget->getMapView();
+
+		// Nothing selected: nothing happens.
+		view->setCenter(MapCoord(1, 1));
+		action->trigger();
+		QCOMPARE(view->center(), MapCoord(1, 1));
+
+		// The selected objects in map order, then again from the first; the zoom stays.
+		map.addObjectToSelection(b, false);
+		map.addObjectToSelection(a, true);
+		action->trigger();
+		QCOMPARE(view->center(), MapCoord(10, 10));
+		action->trigger();
+		QCOMPARE(view->center(), MapCoord(100, -50));
+		action->trigger();
+		QCOMPARE(view->center(), MapCoord(10, 10));
+		QCOMPARE(view->getZoom(), 1.0);
+
+		// A changed selection starts again from its first object.
+		action->trigger();
+		QCOMPARE(editor.aids->findSelectedIndex(), 0);
+		map.addObjectToSelection(c, true);
+		QCOMPARE(editor.aids->findSelectedIndex(), 0);
+		action->trigger();
+		QCOMPARE(view->center(), MapCoord(10, 10));
+
+		// An object larger than the view is centred and the view zooms out until it fits.
+		map.clearObjectSelection(false);
+		map.addObjectToSelection(large, true);
+		view->setZoom(4.0);
+		action->trigger();
+		QVERIFY(view->getZoom() < 4.0);
+		auto const extent = large->getExtent();
+		QCOMPARE(view->center(), MapCoord(extent.center()));
+		auto const shown = QRectF(editor.map_widget->viewportToMapF(QPoint(0, 0)),
+		                          editor.map_widget->viewportToMapF(editor.map_widget->rect().bottomRight()));
+		QVERIFY(shown.contains(extent));
+
+		// A small object does not zoom in.
+		map.clearObjectSelection(false);
+		map.addObjectToSelection(a, true);
+		auto const zoom = view->getZoom();
+		action->trigger();
+		QCOMPARE(view->getZoom(), zoom);
 	}
 
 private:

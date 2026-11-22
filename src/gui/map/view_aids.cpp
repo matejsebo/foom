@@ -40,7 +40,9 @@
 
 #include "settings.h"
 #include "core/map.h"
+#include "core/map_part.h"
 #include "core/map_view.h"
+#include "core/objects/object.h"
 #include "gui/map/map_editor.h"
 #include "gui/map/map_widget.h"
 #include "tools/tool.h"
@@ -203,6 +205,7 @@ ViewAids::ViewAids(MapEditorController* editor, Map* map, MapWidget* map_widget)
 	map_widget->installEventFilter(this);
 	connect(map, &Map::guidesChanged, guide_layer.data(), qOverload<>(&QWidget::update));
 	connect(map, &Map::guidesChanged, this, &ViewAids::syncActions);
+	connect(map, &Map::objectSelectionChanged, this, &ViewAids::selectionChanged);
 	if (auto* view = map_widget->getMapView())
 	{
 		connect(view, &MapView::viewChanged, this, &ViewAids::updateRulers);
@@ -236,7 +239,7 @@ QWidget* ViewAids::wrapMapWidget()
 void ViewAids::addToViewMenu(QMenu* menu)
 {
 	menu->addSeparator();
-	for (auto const* id : { "view-rulers" })
+	for (auto const* id : { "find-selected", "view-rulers" })
 	{
 		if (auto* action = editor->getAction(id))
 			menu->addAction(action);
@@ -519,6 +522,58 @@ bool ViewAids::eventFilter(QObject* watched, QEvent* event)
 	default:
 		return false;
 	}
+}
+
+
+// ### Find selected ###
+
+void ViewAids::selectionChanged()
+{
+	find_index = 0;
+}
+
+void ViewAids::findSelected()
+{
+	// The selected objects in the order of the map, so that the steps are stable.
+	std::vector<const Object*> selected;
+	if (map->getNumSelectedObjects() == 0)
+		return;
+	for (int p = 0; p < map->getNumParts(); ++p)
+	{
+		auto const* part = map->getPart(std::size_t(p));
+		for (int i = 0; i < part->getNumObjects(); ++i)
+		{
+			auto const* object = part->getObject(i);
+			if (map->isObjectSelected(object))
+				selected.push_back(object);
+		}
+	}
+	if (selected.empty())
+		return;
+	if (find_index < 0 || std::size_t(find_index) >= selected.size())
+		find_index = 0;
+
+	auto const* object = selected[std::size_t(find_index)];
+	object->update();
+	auto const extent = object->getExtent();
+	auto* view = map_widget->getMapView();
+	view->setCenter(MapCoord(extent.center()));
+
+	// Zoom out, never in, so that the object fits with a margin.
+	auto const viewport = map_widget->rect();
+	if (extent.width() > 0 || extent.height() > 0)
+	{
+		auto const pixels_per_mm = view->lengthToPixel(1000);
+		auto needed = pixels_per_mm;
+		if (extent.width() > 0)
+			needed = std::min(needed, 0.9 * viewport.width() / extent.width());
+		if (extent.height() > 0)
+			needed = std::min(needed, 0.9 * viewport.height() / extent.height());
+		if (needed < pixels_per_mm && needed > 0)
+			view->setZoom(view->getZoom() * needed / pixels_per_mm);
+	}
+
+	find_index = int((std::size_t(find_index) + 1) % selected.size());
 }
 
 

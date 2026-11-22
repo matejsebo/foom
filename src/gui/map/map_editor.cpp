@@ -1196,6 +1196,7 @@ void MapEditorController::createActions()
 	newCheckAction("guides-show", tr("Show guides"), view_aids, SLOT(setGuidesVisible(bool)));  // foom
 	newCheckAction("guides-lock", tr("Lock guides"), view_aids, SLOT(setGuidesLocked(bool)));  // foom
 	newAction("guides-clear", tr("Clear guides"), view_aids, SLOT(clearGuides()));  // foom
+	newAction("find-selected", tr("Find selected"), view_aids, SLOT(findSelected()));  // foom
 	bookmark_add_act = newAction("bookmark-add", tr("Add bookmark..."), this, SLOT(bookmarkAddClicked()));  // foom
 	find_replace_text_act = newAction("find-replace-text", tr("Find and replace text..."), this, SLOT(findReplaceTextClicked()));  // foom
 	extent_define_act = newAction("extent-define", tr("Define extent..."), this, SLOT(extentDefineClicked()));  // foom
