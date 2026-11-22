@@ -2300,6 +2300,15 @@ void OcdFileImport::setPointFlags(OcdImportedPathObject* object, quint32 pos, bo
 		object->coords[pos-1].setCurveStart(true);
 	if ((ocd_point.y & Ocd::OcdPoint32::FlagDash) || (ocd_point.y & Ocd::OcdPoint32::FlagCorner))
 		object->coords[pos].setDashPoint(true);
+	if (ocd_point.y & Ocd::OcdPoint32::FlagCorner)
+	{
+		// foom: the design notes, "Corner and virtual gap vertices":
+		// only where the export writes a dash point alone with the dash flag of the format
+		auto const* line = object->getSymbol() && object->getSymbol()->getType() == Symbol::Line
+		                   ? object->getSymbol()->asLine() : nullptr;
+		if (line && line->isDashed() && (!line->getDashSymbol() || line->getDashSymbol()->isEmpty()))
+			object->coords[pos].setCornerPoint(true);
+	}
 	if (ocd_point.y & Ocd::OcdPoint32::FlagHole && pos > 1 && is_area)
 		setPathHolePoint(object, pos - 1);
 }

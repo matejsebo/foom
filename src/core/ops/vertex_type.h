@@ -33,12 +33,24 @@ class Object;
 namespace ops {
 
 /**
+ * The vertex types which setVertexType() sets.
+ */
+enum class VertexType
+{
+	Normal,     ///< none of the flags below
+	Dash,       ///< the dash flag (OOM's dash point)
+	Corner,     ///< the dash and the corner flag (a corner vertex)
+	VirtualGap  ///< the virtual gap flag
+};
+
+
+/**
  * Parameters of setVertexType().
  */
 struct VertexTypeParams : public OpParams
 {
-	/** Set the dash flag (true) or clear it (false). */
-	bool dash = false;
+	/** The type every vertex gets. */
+	VertexType type = VertexType::Normal;
 	
 	/** Leave the first and the last coordinate of every part alone. */
 	bool keep_ends = true;
@@ -46,15 +58,16 @@ struct VertexTypeParams : public OpParams
 
 
 /**
- * Sets or clears the dash flag of every vertex of the path objects among
- * the inputs ("set-vertex-type").
+ * Gives every vertex of the path objects among the inputs one type
+ * ("set-vertex-type"): it sets that type's flags and clears the others'.
  *
  * The control points of curves are left alone. Objects which are not
  * paths, and paths which would not change, are neither consumed nor output.
  * The outputs carry the inputs' symbol, tags, pattern and identity. An
  * input without a path object is an error.
  *
- * See the design notes, "Vertex types".
+ * See the design notes, "Vertex types" and "Corner and
+ * virtual gap vertices".
  */
 OpResult setVertexType(const Map& map, const std::vector<const Object*>& in, const VertexTypeParams& params);
 

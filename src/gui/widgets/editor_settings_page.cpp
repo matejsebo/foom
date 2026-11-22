@@ -87,6 +87,16 @@ EditorSettingsPage::EditorSettingsPage(QWidget* parent)
 	ignore_touch_input = new QCheckBox(tr("User input: Ignore display touch"));
 	layout->addRow(ignore_touch_input);
 	
+	// foom: the design notes, "Rectangle selection rule", "Curve entry style"
+	rectangle_selection = new QComboBox();
+	rectangle_selection->addItem(tr("Objects partly inside"), false);
+	rectangle_selection->addItem(tr("Only objects entirely inside"), true);
+	layout->addRow(tr("Rectangle selection:"), rectangle_selection);
+	curve_entry_style = new QComboBox();
+	curve_entry_style->addItem(tr("Legacy mode"), 0);
+	curve_entry_style->addItem(tr("Illustrator mode"), 1);
+	layout->addRow(tr("Bézier curves:"), curve_entry_style);
+	
 	
 	layout->addItem(Util::SpacerItem::create(this));
 	layout->addRow(Util::Headline::create(tr("Edit tool:")));
@@ -162,6 +172,8 @@ void EditorSettingsPage::apply()
 	setSetting(Settings::MapEditor_LegibilityMinimumCheck, legibility_minimum_check->isChecked());  // foom
 	setSetting(Settings::MapEditor_LegibilityHalo, legibility_halo->isChecked());  // foom
 	setSetting(Settings::MapEditor_LegibilityHaloMM, legibility_halo_mm->value());  // foom
+	setSetting(Settings::MapEditor_RectangleSelectionInside, rectangle_selection->currentData());  // foom
+	setSetting(Settings::MapEditor_CurveEntryStyle, curve_entry_style->currentData());  // foom
 }
 
 void EditorSettingsPage::reset()
@@ -194,6 +206,8 @@ void EditorSettingsPage::updateWidgets()
 	legibility_halo->setChecked(getSetting(Settings::MapEditor_LegibilityHalo).toBool());
 	legibility_halo_mm->setValue(getSetting(Settings::MapEditor_LegibilityHaloMM).toDouble());
 	legibility_halo_mm->setEnabled(legibility_halo->isChecked());
+	rectangle_selection->setCurrentIndex(getSetting(Settings::MapEditor_RectangleSelectionInside).toBool() ? 1 : 0);
+	curve_entry_style->setCurrentIndex(getSetting(Settings::MapEditor_CurveEntryStyle).toInt() == 1 ? 1 : 0);
 	
 	rectangle_helper_cross_radius->setValue(getSetting(Settings::RectangleTool_HelperCrossRadiusMM).toInt());
 	rectangle_preview_line_width->setChecked(getSetting(Settings::RectangleTool_PreviewLineWidth).toBool());

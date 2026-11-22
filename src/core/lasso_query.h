@@ -47,7 +47,8 @@ void findObjectsInPolygon(
         const std::vector<MapCoordF>& polygon,
         bool include_hidden_objects,
         bool include_protected_objects,
-        std::vector<Object*>& out
+        std::vector<Object*>& out,
+        bool entirely = false  // foom: only objects entirely inside, the design notes, "Rectangle selection rule"
 );
 
 

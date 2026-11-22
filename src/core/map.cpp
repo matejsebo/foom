@@ -927,7 +927,8 @@ void Map::drawTemplates(QPainter* painter, const QRectF& bounding_box, int first
 		auto visibility = TemplateVisibility{ 1, true };
 		if (view)
 		{
-			visibility = view->getTemplateVisibility(temp);
+			// foom: dimmed in the draft view, on screen only (the design notes, "Draft view")
+			visibility = on_screen ? view->screenTemplateVisibility(temp) : view->getTemplateVisibility(temp);
 			visibility.visible &= visibility.opacity > 0;
 			// foom: the design notes, "Favourite templates": on screen only
 			if (on_screen && view->areFavouriteTemplatesOnly() && !temp->isFavourite())

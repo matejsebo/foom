@@ -87,11 +87,13 @@ public:
 		//unused     1 << 3,
 		HolePoint  = 1 << 4,
 		DashPoint  = 1 << 5,
+		CornerPoint = 1 << 6,  ///< foom: a corner vertex, with DashPoint (the design notes, "Corner and virtual gap vertices")
+		VirtualGap  = 1 << 7,  ///< foom: the segment to the next vertex is not drawn by line symbols
 		//...
 		// Special masks for VirtualPath::copy().
 		// CurveStart is handled explicitly there.
-		MaskCopiedFlagsAtStart = GapPoint | DashPoint,
-		MaskCopiedFlagsAtEnd   = GapPoint | DashPoint | HolePoint | ClosePoint,
+		MaskCopiedFlagsAtStart = GapPoint | DashPoint | CornerPoint | VirtualGap,  // foom: CornerPoint, VirtualGap
+		MaskCopiedFlagsAtEnd   = GapPoint | DashPoint | HolePoint | ClosePoint | CornerPoint,  // foom: CornerPoint
 	};
 	Q_DECLARE_FLAGS(Flags, Flag)
 	
@@ -356,6 +358,20 @@ public:
 	
 	/** Sets the gap point flag. */
 	void setGapPoint(bool value);
+	
+	
+	/** foom: Is this coordinate a corner vertex? Meaningful with the dash point flag only. */
+	constexpr bool isCornerPoint() const;
+	
+	/** foom: Sets the corner point flag. */
+	void setCornerPoint(bool value);
+	
+	
+	/** foom: Does a virtual gap start at this coordinate? */
+	constexpr bool isVirtualGap() const;
+	
+	/** foom: Sets the virtual gap flag. */
+	void setVirtualGap(bool value);
 	
 	
 	/** Additive inverse. */
@@ -919,6 +935,32 @@ void MapCoord::setGapPoint(bool value)
 {
 	if (fp.testFlag(GapPoint) != value)
 		fp ^= GapPoint;
+}
+
+
+constexpr bool MapCoord::isCornerPoint() const  // foom
+{
+	return fp.testFlag(CornerPoint);
+}
+
+inline
+void MapCoord::setCornerPoint(bool value)  // foom
+{
+	if (fp.testFlag(CornerPoint) != value)
+		fp ^= CornerPoint;
+}
+
+
+constexpr bool MapCoord::isVirtualGap() const  // foom
+{
+	return fp.testFlag(VirtualGap);
+}
+
+inline
+void MapCoord::setVirtualGap(bool value)  // foom
+{
+	if (fp.testFlag(VirtualGap) != value)
+		fp ^= VirtualGap;
 }
 
 

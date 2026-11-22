@@ -196,6 +196,8 @@
 #include "layout/layout_part.h"  // foom
 #include "gui/map/move_parallel_dialog.h"
 #include "gui/map/numeric_entry_bar.h"
+#include "gui/map/draft_view_bar.h"  // foom
+#include "gui/map/view_highlights.h"  // foom
 #include "gui/map/bookmark_dialog.h"
 #include "gui/map/view_aids.h"  // foom
 #include "gui/map/course_bulk_dialog.h"  // foom
@@ -994,7 +996,8 @@ void MapEditorController::attach(MainWindow* window)
 	map_widget->setZoomDisplay(zoom_display_function);
 	recordView();  // foom: the opening view is the first entry of the view history
 	view_aids = new ViewAids(this, map, map_widget);  // foom
-	map_widget->setOverlay([this](QPainter* painter, MapWidget* widget) { drawActiveExtent(painter, widget); drawTemplateAttributions(painter, widget); drawRangefinder(painter, widget); drawCoursePreview(painter, widget); drawElevationFrames(painter, widget); });  // foom
+	view_highlights = new ViewHighlights(this, map);  // foom
+	map_widget->setOverlay([this](QPainter* painter, MapWidget* widget) { drawActiveExtent(painter, widget); drawTemplateAttributions(painter, widget); drawRangefinder(painter, widget); drawCoursePreview(painter, widget); drawElevationFrames(painter, widget); view_highlights->draw(painter, widget); });  // foom
 	
 	// Create menu and toolbar together, so actions can be inserted into one or both
 	if (mode == MapEditor)
@@ -1309,6 +1312,9 @@ void MapEditorController::createActions()
 	baseline_view_act = newCheckAction("baselineview", tr("Baseline view"), this, SLOT(baselineView(bool)), "view-baseline.png", QString{}, "view_menu.html");
 	hide_all_templates_act = newCheckAction("hidealltemplates", tr("Hide all templates"), this, SLOT(hideAllTemplates(bool)), nullptr, QString{}, "view_menu.html");
 	favourite_templates_act = newCheckAction("view-favourites-only", tr("Favourite templates only"), this, SLOT(favouriteTemplatesOnly(bool)));  // foom
+	draft_view_act = newCheckAction("view-draft", tr("Draft view"), this, SLOT(draftView(bool)));  // foom
+	impassable_view_act = newCheckAction("view-impassable", tr("Show impassable features"), view_highlights, SLOT(setImpassableShown(bool)));  // foom
+	unsymbolized_view_act = newCheckAction("view-unsymbolized", tr("Show objects without symbol"), view_highlights, SLOT(setUnsymbolizedShown(bool)));  // foom
 	overprinting_simulation_act = newCheckAction("overprintsimulation", tr("Overprinting simulation"), this, SLOT(overprintingSimulation(bool)), nullptr, QString{}, "view_menu.html");
 	
 	symbol_window_act = newCheckAction("symbolwindow", tr("Symbol window"), this, SLOT(showSymbolWindow(bool)), "symbols.png", tr("Show/Hide the symbol window"), "symbol_dock_widget.html");
@@ -1394,9 +1400,13 @@ void MapEditorController::createActions()
 	move_parallel_act = newToolAction("move-parallel", tr("Move parallel"), this, SLOT(moveParallelClicked()));  // foom
 	move_parallel_by_act = newAction("move-parallel-by", tr("Move parallel by..."), this, SLOT(moveParallelByClicked()));  // foom
 	vertex_type_normal_act = newAction("set-vertex-type-normal", tr("Normal"), this, SLOT(setVertexTypeClicked()));  // foom
-	vertex_type_normal_act->setData(false);
+	vertex_type_normal_act->setData(int(ops::VertexType::Normal));
 	vertex_type_dash_act = newAction("set-vertex-type-dash", tr("Dash point"), this, SLOT(setVertexTypeClicked()));  // foom
-	vertex_type_dash_act->setData(true);
+	vertex_type_dash_act->setData(int(ops::VertexType::Dash));
+	vertex_type_corner_act = newAction("set-vertex-type-corner", tr("Corner point"), this, SLOT(setVertexTypeClicked()));  // foom
+	vertex_type_corner_act->setData(int(ops::VertexType::Corner));
+	vertex_type_gap_act = newAction("set-vertex-type-gap", tr("Virtual gap"), this, SLOT(setVertexTypeClicked()));  // foom
+	vertex_type_gap_act->setData(int(ops::VertexType::VirtualGap));
 	vertex_type_keep_ends_act = newCheckAction("set-vertex-type-keep-ends", tr("Keep first and last vertex"), nullptr, nullptr);  // foom
 	vertex_type_keep_ends_act->setChecked(true);
 	group_act = newAction("group", tr("Group..."), this, SLOT(groupClicked()));  // foom
@@ -1763,6 +1773,8 @@ void MapEditorController::createMenuAndToolbars()
 	view_menu->addAction(overprinting_simulation_act);
 	view_menu->addAction(hide_all_templates_act);
 	view_menu->addAction(favourite_templates_act);  // foom
+	view_menu->addAction(draft_view_act);  // foom
+	view_menu->addAction(impassable_view_act);  // foom
 	view_menu->addAction(layout_hide_act);  // foom
 	view_menu->addSeparator();
 	QMenu* coordinates_menu = new QMenu(tr("Display coordinates as..."), view_menu);
@@ -1904,6 +1916,8 @@ void MapEditorController::createMenuAndToolbars()
 	auto* vertex_type_menu = tools_menu->addMenu(tr("Vertex type"));  // foom
 	vertex_type_menu->addAction(vertex_type_normal_act);
 	vertex_type_menu->addAction(vertex_type_dash_act);
+	vertex_type_menu->addAction(vertex_type_corner_act);
+	vertex_type_menu->addAction(vertex_type_gap_act);
 	vertex_type_menu->addSeparator();
 	vertex_type_menu->addAction(vertex_type_keep_ends_act);
 	tools_menu->addAction(group_act);  // foom
@@ -1986,6 +2000,7 @@ void MapEditorController::createMenuAndToolbars()
 	symbols_menu->addAction(symbol_window_act);
 	symbols_menu->addAction(color_window_act);
 	symbols_menu->addAction(symbol_groups_act);  // foom
+	symbols_menu->addAction(unsymbolized_view_act);  // foom
 	symbols_menu->addSeparator();
 	symbols_menu->addAction(symbol_set_id_act);
 	symbols_menu->addAction(scale_all_symbols_act);
@@ -2237,6 +2252,11 @@ void MapEditorController::createMenuAndToolbars()
 	window->addToolBar(numeric_entry_bar);
 	numeric_entry_bar->hide();
 	toolbars_menu->addAction(numeric_entry_act);
+	
+	draft_view_bar = new DraftViewBar(this, draft_view_act, window);  // foom: the design notes, "Draft view"
+	window->addToolBar(draft_view_bar);
+	draft_view_bar->hide();
+	toolbars_menu->addAction(draft_view_bar->toggleViewAction());
 	
 	QWidget* context_menu = map_widget->getContextMenu();
 	context_menu->addAction(edit_tool_act);
@@ -3029,6 +3049,25 @@ void MapEditorController::favouriteTemplatesOnly(bool checked)
 	main_view->setFavouriteTemplatesOnly(checked);
 }
 
+// foom: the design notes, "Draft view"
+void MapEditorController::draftView(bool checked)
+{
+	draft_view_act->setChecked(checked);
+	main_view->setDraftMode(checked);
+}
+
+// foom
+int MapEditorController::impassableObjectCount() const
+{
+	return view_highlights ? view_highlights->impassableObjectCount() : 0;
+}
+
+// foom
+int MapEditorController::unsymbolizedObjectCount() const
+{
+	return view_highlights ? view_highlights->unsymbolizedObjectCount() : 0;
+}
+
 void MapEditorController::overprintingSimulation(bool checked)
 {
 	if (checked && !map->hasSpotColors())
@@ -3774,7 +3813,7 @@ void MapEditorController::updateObjectDependentActions()
 		action->setEnabled(have_selection);
 		action->setStatusTip(action->isEnabled() ? QString{} : tr("Select at least one object to activate this tool."));
 	}
-	for (auto* action : { move_parallel_act, move_parallel_by_act, vertex_type_normal_act, vertex_type_dash_act })  // foom
+	for (auto* action : { move_parallel_act, move_parallel_by_act, vertex_type_normal_act, vertex_type_dash_act, vertex_type_corner_act, vertex_type_gap_act })  // foom
 	{
 		action->setEnabled(have_line || have_area);
 		action->setStatusTip(action->isEnabled() ? QString{} : tr("Select a line or area object to activate this tool."));
@@ -4672,17 +4711,23 @@ void MapEditorController::moveParallelBy(double distance, bool duplicate)
 void MapEditorController::setVertexTypeClicked()
 {
 	if (auto* action = qobject_cast<QAction*>(sender()))
-		setVertexType(action->data().toBool(), vertex_type_keep_ends_act->isChecked());
+		setVertexType(ops::VertexType(action->data().toInt()), vertex_type_keep_ends_act->isChecked());
 }
 
 // foom
 void MapEditorController::setVertexType(bool dash, bool keep_ends)
 {
-	// the design notes, "Vertex types".
+	setVertexType(dash ? ops::VertexType::Dash : ops::VertexType::Normal, keep_ends);
+}
+
+// foom
+void MapEditorController::setVertexType(ops::VertexType type, bool keep_ends)
+{
+	// the design notes, "Vertex types", "Corner and virtual gap vertices".
 	auto const& selection = map->selectedObjects();
 	std::vector<const Object*> in(begin(selection), end(selection));
 	ops::VertexTypeParams params;
-	params.dash = dash;
+	params.type = type;
 	params.keep_ends = keep_ends;
 	applyOpResult(ops::setVertexType(*map, in, params));
 }
@@ -8394,6 +8439,9 @@ void MapEditorController::updateWidgets()
 			show_grid_act->setChecked(main_view->isGridVisible());
 			hide_all_templates_act->setChecked(main_view->areAllTemplatesHidden());
 			favourite_templates_act->setChecked(main_view->areFavouriteTemplatesOnly());  // foom
+			draft_view_act->setChecked(main_view->isDraftMode());  // foom
+			if (draft_view_bar)  // foom
+				draft_view_bar->updateFromView();
 			overprinting_simulation_act->setChecked(main_view->isOverprintingSimulationEnabled());
 		}
 		if (map)
@@ -9197,6 +9245,7 @@ void MapEditorController::setViewOptionsEnabled(bool enabled)
 	overprinting_simulation_act->setEnabled(enabled);
 	hide_all_templates_act->setEnabled(enabled);
 	favourite_templates_act->setEnabled(enabled);  // foom
+	draft_view_act->setEnabled(enabled);  // foom
 }
 
 

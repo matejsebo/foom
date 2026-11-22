@@ -58,6 +58,8 @@ public:
 		MapEditor_LegibilityMinimumCheck,  // foom
 		MapEditor_LegibilityHalo,  // foom
 		MapEditor_LegibilityHaloMM,  // foom
+		MapEditor_RectangleSelectionInside,  // foom
+		MapEditor_CurveEntryStyle,  // foom
 		MapGeoreferencing_ControlScaleFactor,
 		EditTool_DeleteBezierPointAction,
 		EditTool_DeleteBezierPointActionAlternative,

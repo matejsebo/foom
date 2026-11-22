@@ -80,6 +80,8 @@ class QWidget;
 
 namespace OpenOrienteering {
 
+namespace ops { enum class VertexType; }  // foom
+
 class ActionGridBar;
 class CompassDisplay;
 class EditorDockWidget;
@@ -115,6 +117,8 @@ class LocalWarpDialog;  // foom
 class FindReplaceTextDialog;  // foom
 class MoveParallelDialog;  // foom
 class NumericEntryBar;  // foom
+class DraftViewBar;  // foom
+class ViewHighlights;  // foom
 class MapEditorTool;
 class MapFindFeature;
 class MapView;
@@ -324,6 +328,12 @@ public:
 	
 	/** foom: Returns the view aids: rulers, guides, find selected, move to coordinates. */
 	ViewAids* viewAids() const { return view_aids; }
+	/** foom: The toolbar of the draft view (the design notes, "Draft view"). */
+	DraftViewBar* draftViewBar() const { return draft_view_bar; }
+	/** foom: The number of impassable objects highlighted, 0 while they are not. */
+	int impassableObjectCount() const;
+	/** foom: The number of objects without symbol highlighted, 0 while they are not. */
+	int unsymbolizedObjectCount() const;
 	
 	/** Override from MainWindowController */
 	bool saveTo(const QString& path, const FileFormat& format) override;
@@ -471,6 +481,8 @@ public slots:
 	void hideAllTemplates(bool checked);
 	/** foom: Shows the favourite templates only, or all again (view-favourites-only). */
 	void favouriteTemplatesOnly(bool checked);
+	/** foom: Switches the draft view of the main view (view-draft). */
+	void draftView(bool checked);
 	/** Sets the overprinting simulation view option. */
 	void overprintingSimulation(bool checked);
 	
@@ -896,6 +908,8 @@ public slots:
 	void setVertexTypeClicked();
 	/** foom: Sets (dash) or clears the dash flag of every vertex of the selected paths. */
 	void setVertexType(bool dash, bool keep_ends);
+	/** foom: Gives every vertex of the selected paths the type (the design notes, "Corner and virtual gap vertices"). */
+	void setVertexType(ops::VertexType type, bool keep_ends);
 	/** foom: Asks for the tolerance, then joins the selected lines. */
 	void joinLinesClicked();
 	/** foom: Joins the selected open lines of one symbol whose ends meet within the tolerance (mm). */
@@ -1719,10 +1733,17 @@ private:
 	QMenu* bookmarks_menu = nullptr;  // foom
 	ViewHistory view_history;  // foom
 	ViewAids* view_aids = nullptr;  // foom: rulers, guides, find selected, move to
+	ViewHighlights* view_highlights = nullptr;  // foom: impassable features, objects without symbol
+	DraftViewBar* draft_view_bar = nullptr;  // foom
+	QAction* draft_view_act = {};  // foom
+	QAction* impassable_view_act = {};  // foom
+	QAction* unsymbolized_view_act = {};  // foom
 	QTimer view_history_timer;  // foom
 	bool applying_view_history = false;  // foom
 	QAction* vertex_type_normal_act = {};  // foom
 	QAction* vertex_type_dash_act = {};  // foom
+	QAction* vertex_type_corner_act = {};  // foom
+	QAction* vertex_type_gap_act = {};  // foom
 	QAction* vertex_type_keep_ends_act = {};  // foom
 	QAction* group_act = {};  // foom
 	QAction* ungroup_act = {};  // foom

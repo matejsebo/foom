@@ -926,7 +926,7 @@ void MapWidget::paintEvent(QPaintEvent* event)
 		painter.fillRect(target, Qt::white);
 	}
 	
-	const auto map_visibility = view->effectiveMapVisibility();
+	const auto map_visibility = view->screenMapVisibility();  // foom: dimmed in the draft view
 	if (!map_cache.isNull() && map_visibility.visible)
 	{
 		qreal saved_opacity = painter.opacity();

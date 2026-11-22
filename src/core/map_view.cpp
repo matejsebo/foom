@@ -53,6 +53,9 @@ namespace literal
 	static const QLatin1String templates("templates");
 	static const QLatin1String hidden("hidden");
 	static const QLatin1String favourites_only("favourites_only");  // foom
+	static const QLatin1String draft("draft");  // foom
+	static const QLatin1String draft_map_dim("draft_map_dim");  // foom
+	static const QLatin1String draft_template_dim("draft_template_dim");  // foom
 	static const QLatin1String ref("ref");
 	static const QLatin1String template_string("template");
 }
@@ -126,6 +129,12 @@ void MapView::save(QXmlStreamWriter& xml, const QLatin1String& element_name, boo
 		templates_element.writeAttribute(literal::hidden, all_templates_hidden);
 		if (favourite_templates_only)  // foom
 			templates_element.writeAttribute(literal::favourites_only, true);
+		if (draft_mode)  // foom: the design notes, "Draft view"
+			templates_element.writeAttribute(literal::draft, true);
+		if (draft_map_dim != 0.5)  // foom
+			templates_element.writeAttribute(literal::draft_map_dim, draft_map_dim);
+		if (draft_template_dim != 0.5)  // foom
+			templates_element.writeAttribute(literal::draft_template_dim, draft_template_dim);
 		if (template_details)
 		{
 			templates_element.writeAttribute(XmlStreamLiteral::count, template_visibilities.size());
@@ -190,6 +199,12 @@ void MapView::load(QXmlStreamReader& xml, int version)
 			all_templates_hidden = templates_element.attribute<bool>(literal::hidden);
 			favourite_templates_only = templates_element.hasAttribute(literal::favourites_only)
 			                           && templates_element.attribute<bool>(literal::favourites_only);  // foom
+			draft_mode = templates_element.hasAttribute(literal::draft)
+			             && templates_element.attribute<bool>(literal::draft);  // foom
+			if (templates_element.hasAttribute(literal::draft_map_dim))  // foom
+				draft_map_dim = qBound(0.0, templates_element.attribute<double>(literal::draft_map_dim), 1.0);
+			if (templates_element.hasAttribute(literal::draft_template_dim))  // foom
+				draft_template_dim = qBound(0.0, templates_element.attribute<double>(literal::draft_template_dim), 1.0);
 			
 			while (xml.readNextStartElement())
 			{
