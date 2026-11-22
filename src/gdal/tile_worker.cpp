@@ -167,7 +167,22 @@ bool TileWorker::open(const QByteArray& gdal_source, const QString& map_crs_spec
 	if (!dataset)
 		return fail(lastGdalError());
 
-	auto const* projection = GDALGetProjectionRef(dataset);
+	const char* projection = GDALGetProjectionRef(dataset);
+	if (!projection || !*projection)
+	{
+		// foom: a WMTS service of several layers, opened without a layer, lists them as
+		// subdatasets and has no coordinate system itself; take the first layer.
+		auto const* first = CSLFetchNameValue(GDALGetMetadata(dataset, "SUBDATASETS"), "SUBDATASET_1_NAME");
+		if (first && *first)
+		{
+			QByteArray const name(first);
+			GDALClose(dataset);
+			dataset = GDALOpenEx(name.constData(), GDAL_OF_RASTER | GDAL_OF_READONLY, nullptr, nullptr, nullptr);
+			if (!dataset)
+				return fail(lastGdalError());
+			projection = GDALGetProjectionRef(dataset);
+		}
+	}
 	if (!projection || !*projection)
 	{
 		close();

@@ -68,6 +68,7 @@
 #include "core/map_part.h"
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
+#include "core/symbols/combined_symbol.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/symbol.h"
 #include "core/symbols/text_symbol.h"
@@ -669,6 +670,47 @@ private slots:
 		QCOMPARE(mine->getNumColors(), colors);
 		QCOMPARE(symbolNumbered(*mine, 9)->asLine()->getColor(), mine->getColor(0));
 		QCOMPARE(find(*mine, 'e')->getSymbol(), symbolNumbered(*mine, 9));
+	}
+	
+	/// Seen on 2026-11-22: combined symbols with a public part (301.2, 309.2 and
+	/// 529.2 of the example map forest sample.omap) were listed as differing, unchanged.
+	void combinedPublicPartTest()
+	{
+		auto const path = file("combined.foom");
+		{
+			Map map;
+			setupBase(map);
+			auto* combined = new CombinedSymbol();
+			combined->setNumberComponent(0, 30);
+			combined->setName(QStringLiteral("Combined"));
+			combined->setNumParts(2);
+			combined->setPart(0, symbolNumbered(map, 2), false);
+			auto* own_line = new LineSymbol();
+			own_line->setColor(map.getColor(0));
+			own_line->setLineWidth(0.1);
+			combined->setPart(1, own_line, true);
+			map.addSymbol(combined, map.getNumSymbols());
+			QVERIFY(saveTo(map, path));
+		}
+		Map mine_map, their_map;
+		QVERIFY(mine_map.loadFrom(path));
+		QVERIFY(their_map.loadFrom(path));
+		QVERIFY(compareMaps(nullptr, mine_map, their_map).symbols.empty());
+		
+		// Their public part changed: the part is listed, not the combined symbol.
+		const_cast<Symbol*>(symbolNumbered(their_map, 2))->asLine()->setLineWidth(0.9);
+		auto plan = compareMaps(nullptr, mine_map, their_map);
+		QCOMPARE(plan.symbols.size(), std::size_t(1));
+		QCOMPARE(plan.symbols[0].number, QStringLiteral("2"));
+		
+		// Their private part changed: the combined symbol is listed.
+		Map other_map;
+		QVERIFY(other_map.loadFrom(path));
+		auto const* their_combined = symbolNumbered(other_map, 30)->asCombined();
+		const_cast<Symbol*>(their_combined->getPart(1))->asLine()->setLineWidth(0.5);
+		plan = compareMaps(nullptr, mine_map, other_map);
+		QCOMPARE(plan.symbols.size(), std::size_t(1));
+		QCOMPARE(plan.symbols[0].number, QStringLiteral("30"));
 	}
 	
 	/// Accept (19)

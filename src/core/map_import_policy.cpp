@@ -26,10 +26,12 @@
 #include <QtGlobal>
 #include <QCoreApplication>
 #include <QHash>
+#include <QPointF>
 #include <QRectF>
 #include <QSet>
 #include <QTransform>
 
+#include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_color.h"
 #include "core/map_coord.h"
@@ -146,6 +148,46 @@ QRectF coordinateBounds(const Map& map)
 	return QRectF(QPointF(min_x, min_y), QPointF(max_x, max_y));
 }
 
+/**
+ * Whether the coordinates stay within the bounds which a map file keeps when
+ * it is read again (MapCoord::isRegular: 100 m of paper around the origin).
+ * Seen on 2026-11-22: objects placed out of them by georeferencing were
+ * dropped as irregular when the saved map was opened again.
+ */
+bool withinRegularBounds(const QRectF& rect)
+{
+	auto const limit = 99999.0;  // mm, MapCoord::isRegular() less a margin
+	return rect.left() > -limit && rect.right() < limit && rect.top() > -limit && rect.bottom() < limit;
+}
+
+/// Where the imported objects' coordinates go by the placement.
+QRectF placedBounds(const Map& map, const Map& imported, const MapImportPolicy& policy)
+{
+	auto const extent = coordinateBounds(imported);
+	switch (policy.placement)
+	{
+	case MapImportPolicy::ByOffset:
+		return extent.translated(policy.offset_mm);
+	case MapImportPolicy::AtPoint:
+		return extent.translated(policy.offset_mm - extent.center());
+	case MapImportPolicy::ByGeoreferencing:
+		break;
+	}
+	// As Map::importMap: the corners through both georeferencings
+	auto const& georef = map.getGeoreferencing();
+	auto const& other = imported.getGeoreferencing();
+	QRectF result;
+	for (auto const& corner : { extent.topLeft(), extent.topRight(), extent.bottomLeft(), extent.bottomRight() })
+	{
+		auto ok = false;
+		auto const placed = QPointF(georef.toMapCoordF(&other, MapCoordF(corner), &ok));
+		if (!ok)
+			return extent;  // Map::importMap then leaves the coordinates as they are
+		result = result.isNull() ? QRectF(placed, placed) : result.united(QRectF(placed, placed));
+	}
+	return result;
+}
+
 }  // namespace
 
 
@@ -161,6 +203,21 @@ MapImportResult importMapWithPolicy(Map& map, Map& imported, const MapImportPoli
 
 	if (policy.rescale && imported.getScaleDenominator() != map.getScaleDenominator())
 		imported.changeScale(map.getScaleDenominator(), 1.0, MapCoord(0, 0), true, true, true, true);
+
+	// foom: nothing which the saved map would lose
+	if (imported.getNumObjects() > 0 && !withinRegularBounds(placedBounds(map, imported, policy)))
+	{
+		result.error = tr("The objects would lie too far from the map (more than 100 m of paper from its origin), "
+		                  "where they would be lost when the map is saved. Place them by offset or by mouse.");
+		return result;
+	}
+
+	// foom: by mouse, the objects arrive selected, which needs them in one part, the current one
+	if (policy.placement == MapImportPolicy::AtPoint)
+	{
+		while (imported.getNumParts() > 1)
+			imported.mergeParts(1, 0);
+	}
 
 	// Without the symbols: the objects of symbols which the map lacks are left out.
 	if (policy.symbols == MapImportPolicy::NoSymbols)

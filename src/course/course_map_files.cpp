@@ -42,6 +42,7 @@
 #include "core/symbols/symbol.h"
 #include "course/course_data.h"
 #include "course/course_map.h"
+#include "course/course_storage.h"
 #include "fileformats/file_format.h"
 #include "fileformats/file_format_registry.h"
 #include "fileformats/file_import_export.h"
@@ -73,16 +74,26 @@ QString courseMapFileSide(const CourseMapSheet& sheet, const CourseMapSide& side
 
 namespace {
 
-/** Removes the objects which a course map draws itself, wherever they are; returns the part where the first was. */
+/**
+ * Removes the objects which a course map draws itself, wherever they are, and
+ * the objects of the overrides of all courses, which the drawing has used;
+ * returns the part where the first drawn object was.
+ */
 int removeDrawnObjects(Map& map)
 {
 	auto part_index = int(map.getCurrentPartIndex());
 	auto first = true;
+	auto const overrides = findCourseOverridesPart(map);
 	for (int p = map.getNumParts() - 1; p >= 0; --p)
 	{
 		auto* part = map.getPart(std::size_t(p));
 		for (int i = part->getNumObjects() - 1; i >= 0; --i)
 		{
+			if (p == overrides)  // foom: seen on 2026-11-22, every course's numbers and lines in each file
+			{
+				part->deleteObject(i);
+				continue;
+			}
 			auto const* symbol = part->getObject(i)->getSymbol();
 			if (!symbol || !isDrawnByCourseMap(*symbol))
 				continue;

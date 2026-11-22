@@ -3241,6 +3241,14 @@ void ToolsTest::mapLocalWarpDialog()
 	QTest::keyClick(widget, Qt::Key_Escape);
 	QVERIFY(!dynamic_cast<LocalWarpTool*>(editor.editor->getTool()));
 	QVERIFY(dialog->isVisible());
+	
+	// Seen on 2026-11-22: Escape right after Start, the dialog still with the focus, hid the dialog too.
+	dialog->findChild<QPushButton*>(QStringLiteral("start"))->click();
+	QVERIFY(dynamic_cast<LocalWarpTool*>(editor.editor->getTool()));
+	QTest::keyClick(dialog, Qt::Key_Escape);
+	QVERIFY(!dynamic_cast<LocalWarpTool*>(editor.editor->getTool()));
+	QVERIFY(dialog->isVisible());
+	
 	dialog->findChild<QPushButton*>(QStringLiteral("close"))->click();
 	QVERIFY(!dialog->isVisible());
 }

@@ -205,6 +205,18 @@ void LocalWarpDialog::reject()
 	emit closeRequested();
 }
 
+void LocalWarpDialog::keyPressEvent(QKeyEvent* event)
+{
+	// foom: seen on 2026-11-22, Escape right after Start hid the dialog as well.
+	if (event->key() == Qt::Key_Escape && event->modifiers() == Qt::NoModifier)
+	{
+		event->accept();
+		emit escapePressed();
+		return;
+	}
+	QDialog::keyPressEvent(event);
+}
+
 LocalWarpDialog::~LocalWarpDialog() = default;
 
 LocalWarpParams LocalWarpDialog::settings() const

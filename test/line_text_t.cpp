@@ -32,6 +32,7 @@
 #include <QEvent>
 #include <QFontMetrics>
 #include <QImage>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QMouseEvent>
 #include <QObject>
@@ -329,7 +330,18 @@ void LineTextTest::drawTool()
 	auto const objects_before = part->getNumObjects();
 	auto const* status = editor.window->statusBar()->findChild<QLabel*>();
 	QVERIFY(status);
+	// A letter typed while the path is drawn is no shortcut (seen on 2026-11-22: M opened Measure).
+	auto const overridden = [&editor](int key, Qt::KeyboardModifiers modifiers, const QString& text) {
+		QKeyEvent event(QEvent::ShortcutOverride, key, modifiers, text);
+		event.ignore();
+		QApplication::sendEvent(editor.widget, &event);
+		return event.isAccepted();
+	};
+	QVERIFY(!overridden(Qt::Key_M, Qt::NoModifier, QStringLiteral("m")));
 	editor.click(10.0, 10.0);
+	QVERIFY(overridden(Qt::Key_M, Qt::NoModifier, QStringLiteral("m")));
+	QVERIFY(overridden(Qt::Key_M, Qt::ShiftModifier, QStringLiteral("M")));
+	QVERIFY(!overridden(Qt::Key_Z, Qt::ControlModifier, QString()));
 	// Return finishes the path open, and the hint says so (screen check 2026-11-21).
 	QVERIFY2(status->text().contains(QLatin1String("Finish the path")), qPrintable(status->text()));
 	QVERIFY2(!status->text().contains(QLatin1String("Close the path")), qPrintable(status->text()));

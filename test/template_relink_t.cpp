@@ -228,6 +228,12 @@ void TemplateRelinkTest::startFolderTest()
 	QCOMPARE(QDir::cleanPath(relinkStartFolder(file(QStringLiteral("old/maps")), map_path)), QDir::cleanPath(dir.path()));
 	QCOMPARE(QDir::cleanPath(relinkStartFolder(file(QStringLiteral("new/maps/gone")), map_path)), QDir::cleanPath(file(QStringLiteral("new/maps"))));
 	QCOMPARE(QDir::cleanPath(relinkStartFolder(QString(), map_path)), QDir::cleanPath(file(QStringLiteral("work"))));
+	// Seen on 2026-11-22: a template given by its file name alone, or relative to the map,
+	// started the chooser in the program's working folder.
+	QCOMPARE(QDir::cleanPath(relinkStartFolder(QStringLiteral("."), map_path)), QDir::cleanPath(file(QStringLiteral("work"))));
+	QCOMPARE(QDir::cleanPath(relinkStartFolder(QStringLiteral("gone/deeper"), map_path)), QDir::cleanPath(file(QStringLiteral("work"))));
+	QCOMPARE(QDir::cleanPath(relinkStartFolder(QStringLiteral("../new/maps/gone"), map_path)), QDir::cleanPath(file(QStringLiteral("new/maps"))));
+	QVERIFY(relinkStartFolder(QStringLiteral("."), QString()).isEmpty());
 }
 
 

@@ -299,6 +299,21 @@ private slots:
 		QCOMPARE(job.hill_shade.azimuth_deg, hill.azimuth_deg);
 		QCOMPARE(job.hill_shade.elevation_deg, hill.elevation_deg);
 		QCOMPARE(job.hill_shade.exaggeration, hill.exaggeration);
+		// Seen missing on 2026-11-22: the two options of Elevation > Hill shading, and the corners of the slope.
+		QCOMPARE(job.hill_shade.resampling, hill.resampling);
+		QCOMPARE(job.hill_shade.gradient, hill.gradient);
+		QCOMPARE(job.slope_params.gradient, SlopeParams().gradient);
+		QVERIFY(button(wizard, "bicubic_check") && button(wizard, "hill_corners_check") && button(wizard, "slope_corners_check"));
+		button(wizard, "bicubic_check")->setChecked(hill.resampling != HillShadeParams::Bicubic);
+		button(wizard, "hill_corners_check")->setChecked(hill.gradient != GradientMethod::Corners);
+		button(wizard, "slope_corners_check")->setChecked(SlopeParams().gradient != GradientMethod::Corners);
+		auto const changed = wizard.job();
+		QVERIFY(changed.hill_shade.resampling != hill.resampling);
+		QVERIFY(changed.hill_shade.gradient != hill.gradient);
+		QVERIFY(changed.slope_params.gradient != SlopeParams().gradient);
+		button(wizard, "bicubic_check")->setChecked(hill.resampling == HillShadeParams::Bicubic);
+		button(wizard, "hill_corners_check")->setChecked(hill.gradient == GradientMethod::Corners);
+		button(wizard, "slope_corners_check")->setChecked(SlopeParams().gradient == GradientMethod::Corners);
 		QCOMPARE(job.slope_params.binary, false);
 		QCOMPARE(job.slope_params.threshold_deg, 45.0);
 		QVERIFY(!job.landforms.cliffs);

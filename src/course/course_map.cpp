@@ -413,6 +413,7 @@ bool isDrawnByCourseMap(const Symbol& symbol)
 
 
 CourseSymbolsHider::CourseSymbolsHider(Map& map, const QStringList& numbers)
+: map(map)
 {
 	for (int i = 0; i < map.getNumSymbols(); ++i)
 	{
@@ -430,7 +431,11 @@ CourseSymbolsHider::CourseSymbolsHider(Map& map, const QStringList& numbers)
 CourseSymbolsHider::~CourseSymbolsHider()
 {
 	for (auto* symbol : hidden)
+	{
 		symbol->setHidden(false);
+		// foom: seen on 2026-11-22, the symbol pane, drawn while they were hidden, kept them crossed out.
+		emit map.symbolIconChanged(map.findSymbolIndex(symbol));
+	}
 }
 
 

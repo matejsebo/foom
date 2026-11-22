@@ -224,6 +224,14 @@ QString formatRouteTime(double seconds);
 QString courseRoutesText(const CourseRoutes& routes);
 
 /**
+ * foom: The message of the editor's analysis of a course named so: the time
+ * and the length of the routes and of the course, and how many legs have no
+ * route or lie out of the perimeter. See the design notes,
+ * "Route analysis: the perimeter".
+ */
+QString courseRoutesMessage(const CourseRoutes& routes, const QString& name);
+
+/**
  * The file of the export of the routes: every route of the store once,
  * "Leg S1-31: <tab>291m", in the order of the objects, then for every
  * course a line of dashes and its table. Lines end with a line feed.

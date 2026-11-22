@@ -482,6 +482,12 @@ MapEditorController::~MapEditorController()
 	delete toolbar_advanced_editing;
 	delete toolbar_mapparts;
 	delete toolbar_course;  // foom
+	// foom: these stayed in the window, which outlives the map; seen on 2026-11-22,
+	// the context menu of the tool bars listed them once for every map closed.
+	delete toolbar_sketch;
+	delete numeric_entry_bar;
+	delete draft_view_bar;
+	delete issues_dock_widget.data();
 	delete print_dock_widget;
 	delete measure_dock_widget;
 	delete local_warp_dialog;  // foom
@@ -6314,15 +6320,9 @@ void MapEditorController::analyseCourseRoutesClicked()
 	show_course_routes = true;
 	map_widget->update();
 	
-	QString text = courseRoutesText(routes);
-	if (routes.missing > 0)
-		text += QLatin1Char('\n') + tr("%n leg(s) have no route: something impassable lies between their ends. They count with their straight length.", nullptr, routes.missing);
-	if (routes.outside > 0)
-		text += QLatin1Char('\n') + tr("%n leg(s) lie out of the perimeter. They count with their straight length.", nullptr, routes.outside);
-	QMessageBox box(QMessageBox::Information, title, tr("The fastest routes of the course %1 take %2 over %3 m; the course itself is %4 m long.")
-	                .arg(course_name, formatRouteTime(routes.time_s)).arg(qRound(routes.length_m)).arg(qRound(routes.course_length_m)),
-	                QMessageBox::Ok, window);
-	box.setDetailedText(text);
+	// foom: the legs without a route and out of the perimeter are told in the message itself (seen on 2026-11-22).
+	QMessageBox box(QMessageBox::Information, title, courseRoutesMessage(routes, course_name), QMessageBox::Ok, window);
+	box.setDetailedText(courseRoutesText(routes));
 	box.exec();
 }
 
@@ -8616,6 +8616,8 @@ bool MapEditorController::importMapFile(const QString& filename, bool show_error
 	    MainWindow::showMessageBox(window, tr("Warning"), tr("The map import generated warnings."), importer->warnings());
 	
 	// foom: the import policies, the design notes, "Map import policies"
+	// The dialog's summary is of the file as read, before the symbol replacement changes it.
+	MapImportDialog dialog(imported_map, *map, window);
 	if (!SymbolReplacement(imported_map, *map).withAutoCrtFile(window, filename))
 	{
 		if (QMessageBox::question(window, ::OpenOrienteering::Map::tr("Import..."),
@@ -8624,7 +8626,6 @@ bool MapEditorController::importMapFile(const QString& filename, bool show_error
 		                          QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::No)
 			return false;
 	}
-	MapImportDialog dialog(imported_map, *map, window);
 	auto const center = main_view->center();
 	dialog.setViewCenter(QPointF(center.x(), center.y()));
 	if (dialog.exec() != QDialog::Accepted)
@@ -8635,8 +8636,8 @@ bool MapEditorController::importMapFile(const QString& filename, bool show_error
 		QMessageBox::warning(window, tr("Error"), result.error);
 		return false;
 	}
-	if (!result.warnings.isEmpty())
-		window->showStatusBarMessage(result.warnings.join(QLatin1Char(' ')), 6000);
+	if (!result.warnings.isEmpty())  // foom: not only in the status bar, which the tools overwrite
+		MainWindow::showMessageBox(window, tr("Warning"), tr("The map import generated warnings."), std::vector<QString>(result.warnings.begin(), result.warnings.end()));
 	return true;
 }
 
@@ -9605,6 +9606,13 @@ void MapEditorController::mapLocalWarpClicked()
 			if (auto* tool = qobject_cast<LocalWarpTool*>(getTool()))
 				tool->deactivate();
 		});
+		// Escape ends the tool and leaves the dialog open; without the tool it closes the dialog.
+		connect(local_warp_dialog, &LocalWarpDialog::escapePressed, this, [this]() {
+			if (auto* tool = qobject_cast<LocalWarpTool*>(getTool()))
+				tool->deactivate();
+			else if (local_warp_dialog)
+				static_cast<QDialog*>(local_warp_dialog)->reject();  // its reject() is protected
+		});
 	}
 	if (map_local_warp_act)
 		map_local_warp_act->setChecked(qobject_cast<LocalWarpTool*>(getTool()) != nullptr);
@@ -10335,7 +10343,7 @@ void MapEditorController::elevationExportClicked()
 	QString const filter = tr("GeoTIFF") + QLatin1String(" (*.tif);;") + tr("ESRI ASCII grid") + QLatin1String(" (*.asc);;")
 	                    + tr("XYZ grid") + QLatin1String(" (*.xyz);;") + tr("OCD grid") + QLatin1String(" (*.ocdDem)");
 	// the design notes, "Tiled export".
-	auto const tiles_filter = tr("ESRI ASCII grid, tiles of 1001 by 1001 points") + QLatin1String(" (*.asc)");
+	QString const tiles_filter = tr("ESRI ASCII grid, tiles of 1001 by 1001 points") + QLatin1String(" (*.asc)");
 	auto const start = productPath(window->currentPath(), map->elevationSet().href(ElevationSet::Terrain), QStringLiteral("dtm"));
 	QString selected;
 	auto const path = FileDialog::getSaveFileName(window, tr("Export grid"), start, filter + QLatin1String(";;") + tiles_filter, &selected);

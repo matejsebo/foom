@@ -322,6 +322,13 @@ QWidget* ElevationWizardDialog::makeHillShadePage()
 	hill_cell_edit = spin(0.0, 1000.0, 2, defaults.cell_size, tr(" m"));
 	hill_cell_edit->setSpecialValueText(tr("The grid's"));
 	layout->addRow(tr("Cell size:"), hill_cell_edit);
+	// foom: as Elevation > Hill shading (seen missing on 2026-11-22)
+	bicubic_check = named(new QCheckBox(tr("Bicubic resampling")), "bicubic_check");
+	bicubic_check->setChecked(defaults.resampling == HillShadeParams::Bicubic);
+	layout->addRow(bicubic_check);
+	hill_corners_check = named(new QCheckBox(tr("Gradient on cell corners (legacy mode)")), "hill_corners_check");
+	hill_corners_check->setChecked(defaults.gradient == GradientMethod::Corners);
+	layout->addRow(hill_corners_check);
 	return widget;
 }
 
@@ -344,6 +351,10 @@ QWidget* ElevationWizardDialog::makeSlopePage()
 	slope_cell_edit = spin(0.0, 1000.0, 2, defaults.cell_size, tr(" m"));
 	slope_cell_edit->setSpecialValueText(tr("The grid's"));
 	layout->addRow(tr("Cell size:"), slope_cell_edit);
+	// foom: as Elevation > Slope gradient
+	slope_corners_check = named(new QCheckBox(tr("Gradient on cell corners (legacy mode)")), "slope_corners_check");
+	slope_corners_check->setChecked(defaults.gradient == GradientMethod::Corners);
+	layout->addRow(slope_corners_check);
 	cliffs_check = named(new QCheckBox(tr("Extract cliffs from black pixels")), "cliffs_check");
 	cliffs_check->setChecked(landforms.cliffs);
 	layout->addRow(cliffs_check);
@@ -763,11 +774,14 @@ ElevationWizardJob ElevationWizardDialog::job() const
 	job.hill_shade.elevation_deg = elevation_edit->value();
 	job.hill_shade.exaggeration = exaggeration_edit->value();
 	job.hill_shade.cell_size = hill_cell_edit->value();
+	job.hill_shade.resampling = bicubic_check->isChecked() ? HillShadeParams::Bicubic : HillShadeParams::Bilinear;
+	job.hill_shade.gradient = hill_corners_check->isChecked() ? GradientMethod::Corners : GradientMethod::Horn;
 
 	job.slope = slope_check->isChecked();
 	job.slope_params.binary = binary_radio->isChecked();
 	job.slope_params.threshold_deg = threshold_edit->value();
 	job.slope_params.cell_size = slope_cell_edit->value();
+	job.slope_params.gradient = slope_corners_check->isChecked() ? GradientMethod::Corners : GradientMethod::Horn;
 	job.landforms.cliffs = cliffs_check->isChecked();
 	job.landforms.cliff_min_area = area_edit->value();
 	job.landforms.cliff_min_length = length_edit->value();

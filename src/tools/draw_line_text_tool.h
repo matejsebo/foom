@@ -76,6 +76,9 @@ public:
 
 	bool keyPressEvent(QKeyEvent* event) override;
 	bool keyReleaseEvent(QKeyEvent* event) override;
+	
+	/** foom: while the path is drawn, a typed letter is no shortcut (seen on 2026-11-22). */
+	bool eventFilter(QObject* watched, QEvent* event) override;
 
 	bool inputMethodEvent(QInputMethodEvent* event) override;
 	QVariant inputMethodQuery(Qt::InputMethodQuery property, const QVariant& argument) const override;

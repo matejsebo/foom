@@ -37,6 +37,7 @@
 #include <QString>
 
 #include "global.h"
+#include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_color.h"
 #include "core/map_coord.h"
@@ -419,6 +420,76 @@ private slots:
 			QCOMPARE(policy.protect_symbols, true);
 			QCOMPARE(policy.placement, MapImportPolicy::ByGeoreferencing);
 		}
+	}
+
+	/// Seen on 2026-11-22: by mouse, the objects of a file of several parts
+	/// went to new parts and arrived not selected.
+	void byMouseSelectedTest()
+	{
+		Map target, imported;
+		setupTarget(target);
+		setupImported(imported);
+		auto* second = new MapPart(QStringLiteral("Design"), &imported);
+		imported.addPart(second, 1);
+		imported.setCurrentPartIndex(1);
+		addPath(imported, numbered(imported, "103"), { MapCoord(10, 60), MapCoord(20, 60) });
+		imported.setCurrentPartIndex(0);
+		QCOMPARE(imported.getNumParts(), 2);
+
+		MapImportPolicy policy;
+		policy.placement = MapImportPolicy::AtPoint;
+		policy.offset_mm = QPointF(100.0, 100.0);
+		auto const result = importMapWithPolicy(target, imported, policy);
+		QVERIFY2(result.ok, qPrintable(result.error));
+		QCOMPARE(target.getNumParts(), 1);
+		QCOMPARE(target.getNumObjects(), 6);
+		QCOMPARE(target.getNumSelectedObjects(), 5);
+		QVERIFY(!target.isObjectSelected(target.getPart(0)->getObject(0)));
+	}
+
+	/// Seen on 2026-11-22: objects placed by georeferencing beyond the bounds
+	/// of the file were saved and then dropped as irregular when opened again.
+	void outOfBoundsTest()
+	{
+		{
+			Map target, imported;
+			setupTarget(target);
+			setupImported(imported);
+			auto georef = imported.getGeoreferencing();
+			georef.setProjectedRefPoint(QPointF(2000000.0, 0.0));  // 2000 km: 200 m of paper at 1:10,000
+			imported.setGeoreferencing(georef);
+			MapImportPolicy policy;
+			auto const result = importMapWithPolicy(target, imported, policy);
+			QVERIFY(!result.ok);
+			QVERIFY(!result.error.isEmpty());
+			QCOMPARE(target.getNumObjects(), 1);
+			QCOMPARE(target.getNumSymbols(), 2);
+		}
+		{
+			Map target, imported;
+			setupTarget(target);
+			setupImported(imported);
+			MapImportPolicy policy;
+			policy.placement = MapImportPolicy::ByOffset;
+			policy.offset_mm = QPointF(0.0, -150000.0);
+			QVERIFY(!importMapWithPolicy(target, imported, policy).ok);
+			policy.offset_mm = QPointF(0.0, -90000.0);
+			QVERIFY(importMapWithPolicy(target, imported, policy).ok);
+		}
+	}
+
+	/// Seen on 2026-11-22: the summary named clashing numbers twice.
+	void summaryTest()
+	{
+		Map target, imported;
+		setupTarget(target);
+		setupImported(imported);
+		addLine(imported, 102, imported.getColor(0), 3);  // a second 102 in the file
+		MapImportDialog dialog(imported, target);
+		auto const text = dialog.findChild<QLabel*>(QStringLiteral("summary_label"))->text();
+		QVERIFY(text.contains(QLatin1String("5 symbols")));
+		QCOMPARE(text.count(QLatin1String("102")), 1);
+		QCOMPARE(text.count(QLatin1String("101")), 1);
 	}
 };
 

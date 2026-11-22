@@ -603,6 +603,14 @@ bool Object::update() const
 	
 	createRenderables(output, options);
 	
+	// foom: the segment of a virtual gap is not drawn, but it belongs to the object:
+	// clicks and the selection frame find it (seen on 2026-11-22).
+	if (type == Path && std::any_of(coords.begin(), coords.end(), [](const MapCoord& c) { return c.isVirtualGap(); }))
+	{
+		for (auto const& coord : coords)
+			rectIncludeSafe(extent, QPointF(MapCoordF(coord)));
+	}
+	
 	Q_ASSERT(extent.right() < 60000000);	// assert if bogus values are returned
 	output_dirty = false;
 	
