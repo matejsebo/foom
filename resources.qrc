@@ -122,6 +122,20 @@
         <file>images/view-zoom-in.png</file>
         <file>images/view-zoom-out.png</file>
         <file>images/window-new.png</file>
+        <!-- foom: the design notes, make_foom_icons.py -->
+        <file>images/sketch-pen.png</file>
+        <file>images/sketch-eraser.png</file>
+        <file>images/sketch-note.png</file>
+        <file>images/sketch-manage.png</file>
+        <file>images/sketch-flatten.png</file>
+        <file>images/sketch-behind.png</file>
+        <file>images/gps-record.png</file>
+        <file>images/gps-record-pause.png</file>
+        <file>images/gps-add-vertex.png</file>
+        <file>images/gps-average-vertex.png</file>
+        <file>images/gps-set-offset.png</file>
+        <file>images/gps-clear-offset.png</file>
+        <file>images/rangefinder.png</file>
         <file>images/mapper-icon/Mapper-128.png</file>
         <file alias="doc/tip-of-the-day/tips.txt">doc/tip-of-the-day/tips_en.txt</file>
     </qresource>

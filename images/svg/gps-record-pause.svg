@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FOOM icon gps-record-pause. Copyright 2026 Matej Šebo. Licensed under the GNU GPL, version 3 or later. -->
+<!-- Written by make_foom_icons.py; change the script, not this file. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" stroke-linejoin="round" stroke-linecap="round">
+<polygon fill="#303030" points="3.00,3.00 6.00,3.00 6.00,13.00 3.00,13.00"/>
+<polygon fill="#303030" points="8.50,3.00 11.50,3.00 11.50,13.00 8.50,13.00"/>
+<polyline fill="none" stroke="#303030" stroke-width="1.80" points="4.00,28.00 10.00,21.00 16.00,24.00 20.00,16.00"/>
+<polygon fill="#ffffff" stroke="#303030" stroke-width="1.20" points="2.20,26.20 5.80,26.20 5.80,29.80 2.20,29.80"/>
+<polygon fill="#ffffff" stroke="#303030" stroke-width="1.20" points="8.20,19.20 11.80,19.20 11.80,22.80 8.20,22.80"/>
+<polygon fill="#ffffff" stroke="#303030" stroke-width="1.20" points="14.20,22.20 17.80,22.20 17.80,25.80 14.20,25.80"/>
+<polygon fill="#ffffff" stroke="#303030" stroke-width="1.20" points="18.20,14.20 21.80,14.20 21.80,17.80 18.20,17.80"/>
+<circle fill="#c8c8c8" stroke="#606060" stroke-width="1.00" cx="24.00" cy="10.00" r="6.50"/>
+<polygon fill="#e01010" stroke="#600000" stroke-width="0.80" points="24.00,5.32 27.25,13.77 24.00,11.82 20.75,13.77"/>
+</svg>

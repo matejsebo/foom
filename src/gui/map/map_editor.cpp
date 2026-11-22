@@ -1303,11 +1303,12 @@ void MapEditorController::createActions()
 	edit_line_tool_act = newToolAction("editlines", tr("Edit lines"), this, SLOT(editLineToolClicked()), "tool-edit-line.png", QString{}, "toolbars.html#tool_edit_line");
 	lasso_act = newToolAction("select-lasso", tr("Lasso selection"), this, SLOT(lassoClicked()));  // foom
 	// foom: the design notes, "Sketch layer"
-	sketch_pen_act = newToolAction("sketch-pen", tr("Sketch pen"), this, SLOT(sketchPenClicked()));
-	sketch_eraser_act = newToolAction("sketch-eraser", tr("Sketch eraser"), this, SLOT(sketchEraserClicked()));
-	sketch_note_act = newToolAction("sketch-note", tr("Sketch note"), this, SLOT(sketchNoteClicked()));
-	sketch_manage_act = newAction("sketch-manage", tr("Manage sketch..."), this, SLOT(sketchManageClicked()));
-	sketch_flatten_act = newAction("sketch-flatten", tr("Flatten sketch to template..."), this, SLOT(sketchFlattenClicked()));
+	sketch_pen_act = newToolAction("sketch-pen", tr("Sketch pen"), this, SLOT(sketchPenClicked()), "sketch-pen.png");
+	sketch_eraser_act = newToolAction("sketch-eraser", tr("Sketch eraser"), this, SLOT(sketchEraserClicked()), "sketch-eraser.png");
+	sketch_note_act = newToolAction("sketch-note", tr("Sketch note"), this, SLOT(sketchNoteClicked()), "sketch-note.png");
+	sketch_manage_act = newAction("sketch-manage", tr("Manage sketch..."), this, SLOT(sketchManageClicked()), "sketch-manage.png");
+	sketch_flatten_act = newAction("sketch-flatten", tr("Flatten sketch to template..."), this, SLOT(sketchFlattenClicked()), "sketch-flatten.png");
+	sketch_behind_act = newCheckAction("sketch-behind", tr("Draw sketch behind map"), this, SLOT(sketchBehindClicked(bool)), "sketch-behind.png", tr("Moves the sketch colours to the bottom of the colour table, or back to the top."));
 	draw_point_act = newToolAction("drawpoint", tr("Set point objects"), this, SLOT(drawPointClicked()), "draw-point.png", QString{}, "toolbars.html#tool_draw_point");
 	draw_path_act = newToolAction("drawpath", tr("Draw paths"), this, SLOT(drawPathClicked()), "draw-path.png", QString{}, "toolbars.html#tool_draw_path");
 	draw_circle_act = newToolAction("drawcircle", tr("Draw circles and ellipses"), this, SLOT(drawCircleClicked()), "draw-circle.png", QString{}, "toolbars.html#tool_draw_circle");
@@ -1438,18 +1439,18 @@ void MapEditorController::createActions()
 	gps_temporary_clear_act = newAction("gpstemporaryclear", tr("Clear temporary GPS markers"), this, SLOT(gpsTemporaryClearClicked()), "gps-temporary-clear.png", QString{}, "toolbars.html#gps_temporary_clear"); // TODO: write documentation
 	gps_temporary_clear_act->setEnabled(false);
 	// foom: the design notes, "Recording into a symbol"
-	gps_record_act = newCheckAction("gps-record", tr("Record GPS positions into the path"), this, SLOT(gpsRecordClicked(bool)), nullptr, tr("While a path is drawn, adds a vertex for every GPS position which is far enough from the last one."));
+	gps_record_act = newCheckAction("gps-record", tr("Record GPS positions into the path"), this, SLOT(gpsRecordClicked(bool)), "gps-record.png", tr("While a path is drawn, adds a vertex for every GPS position which is far enough from the last one."));
 	gps_record_act->setEnabled(false);
-	gps_record_pause_act = newCheckAction("gps-record-pause", tr("Pause recording"), this, SLOT(gpsRecordPauseClicked(bool)));
+	gps_record_pause_act = newCheckAction("gps-record-pause", tr("Pause recording"), this, SLOT(gpsRecordPauseClicked(bool)), "gps-record-pause.png");
 	gps_record_pause_act->setEnabled(false);
-	gps_add_vertex_act = newAction("gps-add-vertex", tr("Add vertex at GPS position"), this, SLOT(gpsAddVertexClicked()));
+	gps_add_vertex_act = newAction("gps-add-vertex", tr("Add vertex at GPS position"), this, SLOT(gpsAddVertexClicked()), "gps-add-vertex.png");
 	gps_add_vertex_act->setEnabled(false);
-	gps_average_vertex_act = newCheckAction("gps-average-vertex", tr("Average GPS positions for a vertex"), this, SLOT(gpsAverageVertexClicked(bool)), nullptr, tr("While it is on, the GPS positions are averaged. Switching it off adds the mean as a vertex."));
+	gps_average_vertex_act = newCheckAction("gps-average-vertex", tr("Average GPS positions for a vertex"), this, SLOT(gpsAverageVertexClicked(bool)), "gps-average-vertex.png", tr("While it is on, the GPS positions are averaged. Switching it off adds the mean as a vertex."));
 	gps_average_vertex_act->setEnabled(false);
 	// foom: the offset of the GPS position; the design notes, "Position offset and sentence log"
-	gps_set_offset_act = newToolAction("gps-set-offset", tr("Set GPS position offset"), this, SLOT(gpsSetOffsetClicked()), nullptr, tr("Click the place on the map where the GPS receiver is. The difference is added to the GPS positions which follow."));
+	gps_set_offset_act = newToolAction("gps-set-offset", tr("Set GPS position offset"), this, SLOT(gpsSetOffsetClicked()), "gps-set-offset.png", tr("Click the place on the map where the GPS receiver is. The difference is added to the GPS positions which follow."));
 	gps_set_offset_act->setEnabled(false);
-	gps_clear_offset_act = newAction("gps-clear-offset", tr("Remove GPS position offset"), this, SLOT(gpsClearOffsetClicked()));
+	gps_clear_offset_act = newAction("gps-clear-offset", tr("Remove GPS position offset"), this, SLOT(gpsClearOffsetClicked()), "gps-clear-offset.png");
 	gps_clear_offset_act->setEnabled(false);
 	// foom: the course dock; the design notes, "Course dock"
 	course_dock_act = newCheckAction("course-dock", tr("Course setting"), this, SLOT(courseDockClicked(bool)), nullptr, tr("Show or hide the course objects, the courses and their classes."));
@@ -1494,7 +1495,7 @@ void MapEditorController::createActions()
 	course_print_maps_act = newAction("course-print-maps", tr("Print course maps..."), this, SLOT(printCourseMapsClicked()), "print.png", tr("Print the map of every course, of every part of a course with a map exchange, and of every variant or runner of a relay."));  // foom
 	course_relay_variations_act = newAction("course-relay-variations", tr("Export relay variations..."), this, SLOT(exportRelayVariationsClicked()), nullptr, tr("Write which team runs which variant of the relays, as a text file."));
 	// foom: the rangefinder; the design notes, "Rangefinder dock: detail"
-	rangefinder_act = newCheckAction("rangefinder", tr("Rangefinder"), this, SLOT(rangefinderClicked(bool)), nullptr, tr("Draw from a reference point with distance and azimuth."));
+	rangefinder_act = newCheckAction("rangefinder", tr("Rangefinder"), this, SLOT(rangefinderClicked(bool)), "rangefinder.png", tr("Draw from a reference point with distance and azimuth."));
 	rangefinder_reference_act = newToolAction("rangefinder-reference", tr("Set rangefinder reference"), this, SLOT(rangefinderReferenceClicked()), nullptr, tr("Click the reference point of the rangefinder on the map."));
 	connect(this, &MapEditorController::toolChanged, this, &MapEditorController::updateGpsRecordActions);
 	if (gps_display)
@@ -1738,7 +1739,7 @@ void MapEditorController::createMenuAndToolbars()
 		sketch_menu->addAction(sketch_pen_act);
 		sketch_menu->addAction(sketch_eraser_act);
 		sketch_menu->addAction(sketch_note_act);
-		auto* color_menu = sketch_menu->addMenu(tr("Pen colour"));
+		auto* color_menu = sketch_color_menu = sketch_menu->addMenu(tr("Pen colour"));
 		auto* color_group = new QActionGroup(color_menu);
 		for (int i = 0; i < sketch_color_count; ++i)
 		{
@@ -1748,10 +1749,11 @@ void MapEditorController::createMenuAndToolbars()
 			action->setData(i);
 			color_group->addAction(action);
 		}
-		connect(color_group, &QActionGroup::triggered, this, [](QAction* action) {
+		connect(color_group, &QActionGroup::triggered, this, [this](QAction* action) {
 			SketchPenTool::setPen(action->data().toInt(), SketchPenTool::penWidth());
+			updateSketchPenButtons();
 		});
-		auto* width_menu = sketch_menu->addMenu(tr("Pen width"));
+		auto* width_menu = sketch_width_menu = sketch_menu->addMenu(tr("Pen width"));
 		auto* width_group = new QActionGroup(width_menu);
 		for (int i = 0; i < sketch_width_count; ++i)
 		{
@@ -1761,9 +1763,11 @@ void MapEditorController::createMenuAndToolbars()
 			action->setData(i);
 			width_group->addAction(action);
 		}
-		connect(width_group, &QActionGroup::triggered, this, [](QAction* action) {
+		connect(width_group, &QActionGroup::triggered, this, [this](QAction* action) {
 			SketchPenTool::setPen(SketchPenTool::penColor(), action->data().toInt());
+			updateSketchPenButtons();
 		});
+		sketch_menu->addAction(sketch_behind_act);
 		sketch_menu->addSeparator();
 		sketch_menu->addAction(sketch_manage_act);
 		sketch_menu->addAction(sketch_flatten_act);
@@ -2140,6 +2144,33 @@ void MapEditorController::createMenuAndToolbars()
 	toolbars_menu->addAction(toolbar_editing->toggleViewAction());
 	toolbars_menu->addAction(toolbar_advanced_editing->toggleViewAction());
 	toolbars_menu->addAction(toolbar_course->toggleViewAction());  // foom
+	
+	// foom: the design notes, "Sketch layer", third change
+	toolbar_sketch = window->addToolBar(tr("Sketch"));
+	toolbar_sketch->setObjectName(QString::fromLatin1("Sketch toolbar"));
+	toolbar_sketch->addAction(sketch_pen_act);
+	toolbar_sketch->addAction(sketch_eraser_act);
+	toolbar_sketch->addAction(sketch_note_act);
+	sketch_color_button = new QToolButton();
+	sketch_color_button->setObjectName(QString::fromLatin1("sketch-color"));
+	sketch_color_button->setToolTip(tr("Pen colour"));
+	sketch_color_button->setMenu(sketch_color_menu);
+	sketch_color_button->setPopupMode(QToolButton::InstantPopup);
+	toolbar_sketch->addWidget(sketch_color_button);
+	sketch_width_button = new QToolButton();
+	sketch_width_button->setObjectName(QString::fromLatin1("sketch-width"));
+	sketch_width_button->setToolTip(tr("Pen width"));
+	sketch_width_button->setMenu(sketch_width_menu);
+	sketch_width_button->setPopupMode(QToolButton::InstantPopup);
+	toolbar_sketch->addWidget(sketch_width_button);
+	toolbar_sketch->addSeparator();
+	toolbar_sketch->addAction(sketch_behind_act);
+	toolbar_sketch->addAction(sketch_manage_act);
+	toolbar_sketch->addAction(sketch_flatten_act);
+	toolbar_sketch->hide();
+	toolbars_menu->addAction(toolbar_sketch->toggleViewAction());
+	updateSketchPenButtons();
+	
 	window->addToolBarBreak();  // foom: the numeric entry bar has its own row and starts hidden
 	window->addToolBar(numeric_entry_bar);
 	numeric_entry_bar->hide();
@@ -2321,6 +2352,15 @@ void MapEditorController::createMobileGUI()
 	bottom_action_bar->addAction(paint_action, 0, col);
 	if (auto* button = bottom_action_bar->getButtonForAction(paint_action))
 		button->setPopupMode(QToolButton::DelayedPopup);
+	
+	// foom: the design notes, "Icons and buttons in the mobile interface"
+	bottom_action_bar->addAction(rangefinder_act, 1, col++);
+	bottom_action_bar->addAction(gps_record_act, 0, col);
+	bottom_action_bar->addAction(gps_record_pause_act, 1, col++);
+	bottom_action_bar->addAction(gps_add_vertex_act, 0, col);
+	bottom_action_bar->addAction(gps_average_vertex_act, 1, col++);
+	bottom_action_bar->addAction(gps_set_offset_act, 0, col);
+	bottom_action_bar->addAction(gps_clear_offset_act, 1, col++);
 	
 	// Right side
 	bottom_action_bar->addActionAtEnd(mobile_symbol_selector_action, 0, 1, 2, 2);
@@ -4584,6 +4624,46 @@ void MapEditorController::sketchFlattenClicked()
 	hideAllTemplates(false);
 	showTemplateWindow(true);
 	window->showStatusBarMessage(tr("The sketch is flattened to %1 and opened as a template.").arg(path), 4000);
+}
+
+void MapEditorController::sketchBehindClicked(bool checked)
+{
+	setSketchDrawnBehind(*map, checked);
+	updateSketchActions();
+}
+
+void MapEditorController::updateSketchActions()
+{
+	if (!sketch_behind_act || !map)
+		return;
+	sketch_behind_act->setEnabled(sketchPartIndex(*map) >= 0);
+	sketch_behind_act->setChecked(sketchDrawnBehind(*map));
+}
+
+void MapEditorController::updateSketchPenButtons()
+{
+	// The colour as a square, the width as a bar across.
+	if (sketch_color_button)
+	{
+		QPixmap pixmap(32, 32);
+		pixmap.fill(Qt::transparent);
+		QPainter painter(&pixmap);
+		painter.setPen(QPen(QColor(64, 64, 64), 2));
+		painter.setBrush(sketchColorRgb(SketchPenTool::penColor()));
+		painter.drawRect(QRect(4, 4, 23, 23));
+		painter.end();
+		sketch_color_button->setIcon(QIcon(pixmap));
+	}
+	if (sketch_width_button)
+	{
+		QPixmap pixmap(32, 32);
+		pixmap.fill(Qt::transparent);
+		QPainter painter(&pixmap);
+		auto const thickness = qMax(1, qRound(sketchWidth(SketchPenTool::penWidth()) * 8));
+		painter.fillRect(QRect(3, 16 - thickness / 2, 26, thickness), QColor(32, 32, 32));
+		painter.end();
+		sketch_width_button->setIcon(QIcon(pixmap));
+	}
 }
 
 // foom
@@ -8064,6 +8144,11 @@ void MapEditorController::setMapAndView(Map* map, MapView* map_view)
 	connect(map, &Map::mapPartAdded, this, &MapEditorController::updateMapPartsUI);
 	connect(map, &Map::mapPartChanged, this, &MapEditorController::updateMapPartsUI);
 	connect(map, &Map::mapPartDeleted, this, &MapEditorController::updateMapPartsUI);
+	// foom: the design notes, "Sketch layer", third change
+	connect(map, &Map::mapPartAdded, this, &MapEditorController::updateSketchActions);
+	connect(map, &Map::mapPartDeleted, this, &MapEditorController::updateSketchActions);
+	connect(map, &Map::colorAdded, this, &MapEditorController::updateSketchActions);
+	connect(map, &Map::colorDeleted, this, &MapEditorController::updateSketchActions);
 	
 	if (symbol_widget)
 	{
@@ -8098,6 +8183,7 @@ void MapEditorController::updateWidgets()
 			closedTemplateAvailabilityChanged();
 			spotColorPresenceChanged(map->hasSpotColors());
 			updateMapPartsUI();
+			updateSketchActions();  // foom
 		}
 	}
 }

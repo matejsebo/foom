@@ -21,6 +21,7 @@
 #ifndef FOOM_SKETCH_H
 #define FOOM_SKETCH_H
 
+#include <memory>
 #include <vector>
 
 #include <QtGlobal>
@@ -122,10 +123,38 @@ std::vector<SketchItem> sketchItems(const Map& map);
 Object* convertSketchItem(Map& map, const SketchItem& item, const Symbol* target, QString* error);
 
 /**
+ * Removes the objects of a stroke or a note from the sketch part.
+ * One undo step. Returns false when there was nothing to remove.
+ */
+bool deleteSketchItem(Map& map, const SketchItem& item);
+
+/**
  * Draws the sketch part to a PNG with a transparent background, and writes
  * a world file beside it.
  */
 bool flattenSketch(const Map& map, const QString& path, double dpi, QString* error);
+
+/**
+ * Returns true when the sketch is drawn behind the map: the map has sketch
+ * colours and other colours, and every sketch colour stands below all others
+ * in the colour table.
+ */
+bool sketchDrawnBehind(const Map& map);
+
+/**
+ * Moves the sketch colours to the bottom of the colour table, or back to the
+ * top, keeping their order among themselves. Colours which are used for the
+ * first time afterwards follow. Not an undo step; nothing happens when the
+ * map has no sketch colours.
+ */
+void setSketchDrawnBehind(Map& map, bool behind);
+
+/**
+ * The sketch for printing: a map of its own with a copy of the sketch part,
+ * or null when the map has no sketch part, or it is hidden or empty.
+ * Its objects have helper symbols, so it is drawn with RenderConfig::HelperSymbols.
+ */
+std::unique_ptr<Map> printableSketch(const Map& map);
 
 
 }  // namespace OpenOrienteering

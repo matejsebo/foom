@@ -176,6 +176,12 @@ public:
 	 *  Only available in MapPrinterOptions::Raster mode.
 	 */
 	bool simulate_overprinting;
+	
+	/** foom: Controls if the sketch part is printed. Not in MapPrinterOptions::Separations mode.
+	 * 
+	 *  the design notes, "Sketch layer", third change.
+	 */
+	bool show_sketch = false;
 };
 
 
@@ -472,6 +478,9 @@ public slots:
 	
 	/** Controls whether to print in overprinting simulation mode. */
 	void setSimulateOverprinting(bool enabled);
+	
+	/** foom: Controls whether to print the sketch part. */
+	void setPrintSketch(bool visible);
 	
 	/** Controls the color mode. */
 	void setColorMode(MapPrinterOptions::ColorMode color_mode);

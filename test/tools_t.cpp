@@ -51,6 +51,8 @@
 #include <QString>
 #include <QTemporaryDir>
 #include <QTreeWidget>
+#include <QToolBar>  // foom
+#include <QToolButton>  // foom
 
 #include "core/map.h"
 #include "core/map_color.h"
@@ -1328,6 +1330,77 @@ void ToolsTest::sketchTools()
 	QCOMPARE(list->count(), 2);
 	QCOMPARE(part->getNumObjects(), 3);
 	QCOMPARE(map.map->getPart(0)->getNumObjects(), in_map + 1);
+	
+	// Delete: the selected row goes, as one undo step; with no rows the button is grey.
+	auto* remove = dialog.findChild<QPushButton*>(QStringLiteral("delete"));
+	QVERIFY(remove);
+	QVERIFY(remove->isEnabled());
+	auto const steps = map.map->undoManager().undoStepCount();
+	list->setCurrentRow(0);
+	remove->click();
+	QCOMPARE(list->count(), 1);
+	QCOMPARE(part->getNumObjects(), 2);
+	QCOMPARE(map.map->undoManager().undoStepCount(), steps + 1);
+	remove->click();
+	QCOMPARE(list->count(), 0);
+	QCOMPARE(part->getNumObjects(), 0);
+	QVERIFY(!remove->isEnabled());
+}
+
+void ToolsTest::sketchToolbar()
+{
+	// the design notes, "Sketch layer", third change.
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* toolbar = editor.window->findChild<QToolBar*>(QStringLiteral("Sketch toolbar"));
+	QVERIFY(toolbar);
+	QVERIFY(toolbar->isHidden());
+	for (auto id : { "sketch-pen", "sketch-eraser", "sketch-note", "sketch-behind", "sketch-manage", "sketch-flatten" })
+	{
+		auto* action = editor.editor->getAction(id);
+		QVERIFY2(action, id);
+		QVERIFY2(toolbar->actions().contains(action), id);
+		QVERIFY2(!action->icon().isNull(), id);
+	}
+	
+	// The pen's colour and width, each a button with a menu.
+	auto* color_button = toolbar->findChild<QToolButton*>(QStringLiteral("sketch-color"));
+	auto* width_button = toolbar->findChild<QToolButton*>(QStringLiteral("sketch-width"));
+	QVERIFY(color_button && color_button->menu());
+	QVERIFY(width_button && width_button->menu());
+	QCOMPARE(color_button->menu()->actions().size(), sketch_color_count);
+	QCOMPARE(width_button->menu()->actions().size(), sketch_width_count);
+	color_button->menu()->actions().at(0)->trigger();
+	QCOMPARE(SketchPenTool::penColor(), 0);
+	QCOMPARE(color_button->icon().pixmap(16, 16).toImage().pixelColor(8, 8).rgb(), sketchColorRgb(0).rgb());
+	color_button->menu()->actions().at(5)->trigger();
+	QCOMPARE(SketchPenTool::penColor(), 5);
+	QVERIFY(color_button->menu()->actions().at(5)->isChecked());
+	QCOMPARE(color_button->icon().pixmap(16, 16).toImage().pixelColor(8, 8).rgb(), sketchColorRgb(5).rgb());
+	width_button->menu()->actions().at(0)->trigger();
+	QCOMPARE(SketchPenTool::penWidth(), 0);
+	auto const thin_icon = width_button->icon().pixmap(32, 32).toImage();
+	width_button->menu()->actions().at(2)->trigger();
+	QCOMPARE(SketchPenTool::penWidth(), 2);
+	QVERIFY(width_button->icon().pixmap(32, 32).toImage() != thin_icon);
+	
+	// Draw behind map.
+	auto* behind = editor.editor->getAction("sketch-behind");
+	QVERIFY(behind->isCheckable());
+	QVERIFY(!behind->isEnabled());
+	QVERIFY(addSketchStroke(*map.map, { MapCoordF(0, 0), MapCoordF(10, 0) }, 0, 1));
+	QVERIFY(behind->isEnabled());
+	QVERIFY(!behind->isChecked());
+	behind->trigger();
+	QVERIFY(behind->isChecked());
+	QVERIFY(sketchDrawnBehind(*map.map));
+	QCOMPARE(map.map->getColor(map.map->getNumColors() - 1)->getName(), sketchColorName(0));
+	behind->trigger();
+	QVERIFY(!behind->isChecked());
+	QCOMPARE(map.map->getColor(0)->getName(), sketchColorName(0));
+	// Undoing the stroke takes the part away: the action is grey again.
+	QVERIFY(map.map->undoManager().undo());
+	QVERIFY(!behind->isEnabled());
 }
 
 void ToolsTest::lasso()

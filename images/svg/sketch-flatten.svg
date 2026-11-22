@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FOOM icon sketch-flatten. Copyright 2026 Matej Šebo. Licensed under the GNU GPL, version 3 or later. -->
+<!-- Written by make_foom_icons.py; change the script, not this file. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" stroke-linejoin="round" stroke-linecap="round">
+<polyline fill="none" stroke="#303030" stroke-width="2.20" points="16.00,1.50 16.00,8.00"/>
+<polygon fill="#303030" points="16.00,13.00 13.25,8.00 18.75,8.00"/>
+<polygon fill="#dfe9f7" stroke="#45608f" stroke-width="1.40" points="4.00,15.00 28.00,15.00 28.00,30.00 4.00,30.00"/>
+<polyline fill="none" stroke="#e01010" stroke-width="2.20" points="7.00,24.00 7.88,24.63 8.73,25.14 9.55,25.45 10.33,25.47 11.05,25.20 11.73,24.64 12.38,23.88 13.00,23.00 13.62,22.12 14.27,21.36 14.95,20.80 15.67,20.53 16.45,20.55 17.27,20.86 18.12,21.37 19.00,22.00 19.88,22.63 20.73,23.14 21.55,23.45 22.33,23.47 23.05,23.20 23.73,22.64 24.38,21.88 25.00,21.00"/>
+</svg>

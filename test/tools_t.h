@@ -104,6 +104,7 @@ private slots:
 	
 	/** foom: Tests the sketch pen, eraser and note tools and the sketch list. */
 	void sketchTools();
+	void sketchToolbar();  // foom
 	
 	/** foom: Tests the group commands and the click rule. */
 	void groups();

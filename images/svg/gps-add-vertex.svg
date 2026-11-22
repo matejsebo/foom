@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FOOM icon gps-add-vertex. Copyright 2026 Matej Šebo. Licensed under the GNU GPL, version 3 or later. -->
+<!-- Written by make_foom_icons.py; change the script, not this file. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" stroke-linejoin="round" stroke-linecap="round">
+<circle fill="#c8c8c8" stroke="#606060" stroke-width="1.00" cx="20.00" cy="12.00" r="9.00"/>
+<polygon fill="#e01010" stroke="#600000" stroke-width="0.80" points="20.00,5.52 24.50,17.22 20.00,14.52 15.50,17.22"/>
+<polyline fill="none" stroke="#1f7a1f" stroke-width="3.00" points="3.00,24.00 13.00,24.00"/>
+<polyline fill="none" stroke="#1f7a1f" stroke-width="3.00" points="8.00,19.00 8.00,29.00"/>
+<polygon fill="#ffffff" stroke="#303030" stroke-width="1.20" points="17.50,23.50 22.50,23.50 22.50,28.50 17.50,28.50"/>
+</svg>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FOOM icon sketch-note. Copyright 2026 Matej Šebo. Licensed under the GNU GPL, version 3 or later. -->
+<!-- Written by make_foom_icons.py; change the script, not this file. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" stroke-linejoin="round" stroke-linecap="round">
+<circle fill="#e01010" stroke="#800000" stroke-width="1.00" cx="8.00" cy="16.00" r="4.20"/>
+<polyline fill="none" stroke="#e01010" stroke-width="2.40" points="15.00,11.00 28.00,11.00"/>
+<polyline fill="none" stroke="#e01010" stroke-width="2.40" points="15.00,16.00 26.00,16.00"/>
+<polyline fill="none" stroke="#e01010" stroke-width="2.40" points="15.00,21.00 23.00,21.00"/>
+</svg>

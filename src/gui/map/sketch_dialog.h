@@ -62,12 +62,14 @@ private:
 	void refresh();
 	void rowChanged(int row);
 	void convert();
+	void deleteItem();
 	
 	Map& map;
 	std::vector<SketchItem> items;
 	QListWidget* list;
 	SymbolDropDown* symbol_box;
 	QPushButton* convert_button;
+	QPushButton* delete_button;
 	QLabel* message_label;
 };
 
