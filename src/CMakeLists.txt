@@ -193,6 +193,7 @@ set(Mapper_Common_SRCS
   core/extent_printing.cpp
   core/extents.cpp
   core/guides.cpp  # foom
+  core/open_backup.cpp  # foom
   core/lasso_query.cpp
   core/status_sets.cpp
   core/symbol_compare.cpp
@@ -330,6 +331,7 @@ set(Mapper_Common_SRCS
   gui/widgets/settings_page.cpp
   gui/widgets/shortcut_settings.cpp
   gui/widgets/shortcuts_settings_page.cpp
+  gui/widgets/backup_settings_page.cpp  # foom
   gui/widgets/symbol_dropdown.cpp
   gui/widgets/symbol_render_widget.cpp
   gui/widgets/symbol_tooltip.cpp

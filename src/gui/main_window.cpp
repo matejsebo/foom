@@ -25,6 +25,7 @@
 #include <QCloseEvent>
 #include <QDialogButtonBox>
 #include <QDesktopServices>
+#include <QDateTime>  // foom
 #include <QDir>
 #include <QFileDialog>
 #include <QLabel>
@@ -48,6 +49,7 @@
 
 #include "mapper_config.h"
 #include "settings.h"
+#include "core/open_backup.h"  // foom
 #include "core/map.h"
 #include "core/map_view.h"
 #include "core/symbols/symbol.h"
@@ -78,6 +80,23 @@
 
 
 namespace OpenOrienteering {
+
+namespace {
+
+/**
+ * foom: Copies the opened file to its backup folder when the setting is on.
+ * See the design notes, "Backup on open: as built".
+ */
+void makeBackupOnOpen(MainWindow* window, const QString& path)
+{
+	QString error;
+	auto const backup = makeOpenBackup(path, OpenBackupOptions::load(QSettings()), QDateTime::currentDateTime(), &error);
+	if (backup.isEmpty() && !error.isEmpty())
+		window->showStatusBarMessage(MainWindow::tr("No backup was made of %1: %2").arg(QFileInfo(path).fileName(), error), 10000);
+}
+
+}  // namespace
+
 
 constexpr int MainWindow::max_recent_files;
 
@@ -1023,6 +1042,7 @@ bool MainWindow::openPath(const QString& path, const FileFormat* format)
 	num_open_files++;
 	settings.remove(reopen_blocker);
 	setMostRecentlyUsedFile(path);
+	makeBackupOnOpen(open_window, path);  // foom
 	
 #if !defined(Q_OS_ANDROID)
 	// Assuming large screen. Android handled above.
