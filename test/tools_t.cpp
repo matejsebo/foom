@@ -79,6 +79,7 @@
 #include "elevation/raster_products.h"
 #include "elevation/landforms.h"
 #include "elevation/point_cloud.h"
+#include "elevation/point_cloud_products.h"
 #include "gui/map/extent_dialog.h"
 #include "check/issue.h"
 #include "check/legibility.h"
@@ -2438,6 +2439,83 @@ void ToolsTest::demPointCloud()
 	
 	QVERIFY(!editor.editor->importPointClouds({ dir.filePath(QStringLiteral("absent.laz")) }, GriddingParams(), PointCloudProducts(), &error));
 	QVERIFY(!error.isEmpty());
+}
+
+
+void ToolsTest::demVegetationStatistics()
+{
+	// the design notes, "Vegetation statistics", Accept (4).
+	if (!PointCloud::supported())
+		QSKIP("Built without LASzip");
+	TestMap map;
+	TestMapEditor editor(map.map);
+	QVERIFY(editor.editor->getAction("dem-vegetation-statistics"));
+	auto const& georef = map.map->getGeoreferencing();
+	auto const origin = georef.toProjectedCoords(MapCoordF(0.0, 0.0));
+	auto const x0 = std::floor(origin.x());
+	auto const y0 = std::floor(origin.y());
+	// An open block and a fight block of 10 by 10 m, 20 returns per square metre.
+	std::vector<CloudPoint> points;
+	for (int b = 0; b < 2; ++b)
+	{
+		for (int col = 0; col < 10; ++col)
+		{
+			for (int row = 0; row < 10; ++row)
+			{
+				for (int k = 0; k < 20; ++k)
+				{
+					CloudPoint p;
+					p.x = x0 + 10 * b + col + 0.1 + 0.2 * (k % 5);
+					p.y = y0 + row + 0.1 + 0.2 * (k / 5);
+					auto const ground = b == 0 || k < 8;
+					p.z = ground ? 100.0 : 102.0;
+					p.classification = ground ? 2 : 5;
+					points.push_back(p);
+				}
+			}
+		}
+	}
+	QTemporaryDir dir;
+	auto const cloud = dir.filePath(QStringLiteral("blocks.laz"));
+	QString error;
+	QVERIFY2(PointCloud::write(cloud, points, {}, 0, &error), qPrintable(error));
+	auto grid = PointCloud::grid({ cloud }, GriddingParams());
+	QVERIFY2(grid.dtm, qPrintable(grid.error));
+	map.map->elevationSet().setModel(ElevationSet::Terrain, std::move(grid.dtm), dir.filePath(QStringLiteral("blocks_DTM.tif")));
+
+	map.map->clearObjectSelection(false);
+	QVERIFY(editor.editor->vegetationStatisticsOfSelection({ cloud }, VegetationParams(), &error).classes.empty());
+	QVERIFY(!error.isEmpty());
+
+	auto const sample = [&](const QString& name, double left) {
+		auto* symbol = new AreaSymbol();
+		symbol->setName(name);
+		map.map->addSymbol(symbol, map.map->getNumSymbols());
+		MapCoordVector coords;
+		for (auto const& corner : { QPointF(left, 3.0), QPointF(left + 4.0, 3.0), QPointF(left + 4.0, 7.0), QPointF(left, 7.0) })
+			coords.push_back(MapCoord(georef.toMapCoordF(QPointF(x0 + corner.x(), y0 + corner.y()))));
+		auto* area = new PathObject(symbol, coords);
+		area->closeAllParts();
+		map.map->addObject(area);
+		map.map->addObjectToSelection(area, false);
+	};
+	sample(QStringLiteral("Open land"), 3.0);
+	sample(QStringLiteral("Fight"), 13.0);
+	error.clear();
+	auto const statistics = editor.editor->vegetationStatisticsOfSelection({ cloud }, VegetationParams(), &error);
+	QVERIFY2(error.isEmpty(), qPrintable(error));
+	QCOMPARE(int(statistics.classes.size()), 2);
+	for (auto const& c : statistics.classes)
+	{
+		QCOMPARE(c.cells, qint64(16));
+		if (c.name == QLatin1String("Open land"))
+			QVERIFY(std::abs(c.vegetation_mean - -1.0) < 1e-9);
+		else
+		{
+			QCOMPARE(c.name, QStringLiteral("Fight"));
+			QVERIFY(std::abs(c.vegetation_mean - 0.2) < 1e-9);
+		}
+	}
 }
 
 

@@ -1214,6 +1214,8 @@ void MapEditorController::createActions()
 	dem_hillshade_act = newAction("dem-hillshade", tr("Hill shading..."), this, SLOT(elevationHillShadeClicked()));  // foom
 	dem_slope_act = newAction("dem-slope", tr("Slope gradient..."), this, SLOT(elevationSlopeClicked()));  // foom
 	dem_vegetation_height_act = newAction("dem-vegetation-height", tr("Vegetation height..."), this, SLOT(elevationVegetationHeightClicked()));  // foom
+	if (PointCloud::supported())
+		dem_vegetation_statistics_act = newAction("dem-vegetation-statistics", tr("Vegetation statistics..."), this, SLOT(elevationVegetationStatisticsClicked()));  // foom
 	dem_merge_contours_act = newAction("dem-merge-contours", tr("Merge contour lines..."), this, SLOT(elevationMergeContoursClicked()));  // foom
 	dem_profile_act = newAction("dem-profile", tr("Profile..."), this, SLOT(elevationProfileClicked()));  // foom
 	dem_hypsometric_act = newAction("dem-hypsometric", tr("Hypsometric map..."), this, SLOT(elevationHypsometricClicked()));  // foom
@@ -1936,6 +1938,8 @@ void MapEditorController::createMenuAndToolbars()
 	elevation_menu->addAction(dem_slope_act);
 	elevation_menu->addAction(dem_hypsometric_act);
 	elevation_menu->addAction(dem_vegetation_height_act);
+	if (dem_vegetation_statistics_act)
+		elevation_menu->addAction(dem_vegetation_statistics_act);  // foom
 	elevation_menu->addAction(dem_profile_act);
 	elevation_menu->addAction(dem_features_act);
 	
@@ -9304,6 +9308,101 @@ void MapEditorController::elevationVegetationHeightClicked()
 		showTemplateWindow(true);
 	}
 	window->showStatusBarMessage(tr("Vegetation height written to %1").arg(path), 5000);
+}
+
+// foom: the design notes, "Vegetation statistics".
+VegetationStatistics MapEditorController::vegetationStatisticsOfSelection(const QStringList& paths, const VegetationParams& params, QString* error)
+{
+	auto const* model = map->elevationSet().model(ElevationSet::Terrain, map->getGeoreferencing().getProjectedCRSSpec());
+	if (!model)
+	{
+		if (error)
+			*error = tr("The map has no terrain grid.");
+		return {};
+	}
+	auto const& georef = map->getGeoreferencing();
+	std::vector<VegetationSample> samples;
+	for (auto* object : map->selectedObjects())
+	{
+		if (object->getType() != Object::Path || !object->getSymbol() || !(object->getSymbol()->getContainedTypes() & Symbol::Area))
+			continue;
+		auto* path = object->asPath();
+		path->update();
+		if (path->parts().empty())
+			continue;
+		VegetationSample sample;
+		sample.name = object->getSymbol()->getPlainTextName();
+		for (auto const& coord : path->parts().front().path_coords)
+			sample.polygon.push_back(georef.toProjectedCoords(coord.pos));
+		samples.push_back(std::move(sample));
+	}
+	if (samples.empty())
+	{
+		if (error)
+			*error = tr("Select one or more area objects as samples, one area symbol per class.");
+		return {};
+	}
+	auto statistics = vegetationStatistics(paths, *model, samples, params);
+	if (!statistics.error.isEmpty())
+	{
+		if (error)
+			*error = statistics.error;
+		return {};
+	}
+	return statistics;
+}
+
+void MapEditorController::elevationVegetationStatisticsClicked()
+{
+	if (!terrainModel(*map, window))
+		return;
+	auto const& selection = map->selectedObjects();
+	if (std::none_of(selection.begin(), selection.end(), [](const Object* object) {
+	        return object->getType() == Object::Path && object->getSymbol() && (object->getSymbol()->getContainedTypes() & Symbol::Area);
+	    }))
+	{
+		QMessageBox::warning(window, tr("Vegetation statistics"), tr("Select one or more area objects as samples, one area symbol per class."));
+		return;
+	}
+	QString error;
+	QString const filter = tr("Point clouds") + QLatin1String(" (*.las *.laz);;") + tr("All files") + QLatin1String(" (*.*)");
+	auto const start_dir = window->currentPath().isEmpty() ? QString{} : QFileInfo(window->currentPath()).absolutePath();
+	auto const paths = QFileDialog::getOpenFileNames(window, tr("Vegetation statistics"), start_dir, filter);
+	if (paths.isEmpty())
+		return;
+	QApplication::setOverrideCursor(Qt::WaitCursor);
+	auto const statistics = vegetationStatisticsOfSelection(paths, VegetationParams(), &error);
+	QApplication::restoreOverrideCursor();
+	if (statistics.classes.empty())
+	{
+		QMessageBox::warning(window, tr("Vegetation statistics"), error);
+		return;
+	}
+	auto const number = [](double value) {
+		return std::isnan(value) ? QStringLiteral("-") : QString::number(value, 'f', 3);
+	};
+	QString text = tr("Class: samples, cells, vegetation index mean (sd), undergrowth index mean (sd)") + QLatin1Char('\n');
+	for (auto const& c : statistics.classes)
+	{
+		text += QStringLiteral("%1: %2, %3, %4 (%5), %6 (%7)").arg(c.name).arg(c.samples).arg(c.cells)
+		        .arg(number(c.vegetation_mean), number(c.vegetation_sd), number(c.undergrowth_mean), number(c.undergrowth_sd)) + QLatin1Char('\n');
+	}
+	auto const join = [&number](const std::vector<double>& values) {
+		QStringList list;
+		for (auto value : values)
+			list.push_back(number(value));
+		return list.isEmpty() ? QStringLiteral("-") : list.join(QLatin1String(", "));
+	};
+	text += QLatin1Char('\n') + tr("Proposed vegetation thresholds: %1").arg(join(statistics.vegetation_thresholds));
+	text += QLatin1Char('\n') + tr("Proposed undergrowth thresholds: %1").arg(join(statistics.undergrowth_thresholds));
+	QMessageBox box(QMessageBox::Information, tr("Vegetation statistics"), text, QMessageBox::Close, window);
+	auto* save = box.addButton(tr("Save CSV..."), QMessageBox::ActionRole);
+	box.exec();
+	if (box.clickedButton() != save)
+		return;
+	auto const path = QFileDialog::getSaveFileName(window, tr("Save CSV"), start_dir, tr("CSV") + QLatin1String(" (*.csv)"));
+	if (!path.isEmpty() && !writeVegetationStatisticsCsv(statistics, path, &error))
+		QMessageBox::warning(window, tr("Save CSV"), error);
 }
 
 // foom: the design notes, "Merging contour lines".

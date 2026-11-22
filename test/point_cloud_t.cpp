@@ -25,14 +25,17 @@
 
 #include <QtGlobal>
 #include <QtTest>
+#include <QFile>
 #include <QFileInfo>
 #include <QImage>
 #include <QObject>
 #include <QPointF>
+#include <QPolygonF>
 #include <QRectF>
 #include <QString>
 #include <QStringList>
 #include <QTemporaryDir>
+#include <QVector>
 
 #include <cpl_conv.h>
 #include <gdal.h>
@@ -681,6 +684,85 @@ private slots:
 			QCOMPARE(product.image.pixel(int(i), 0) | 0xff000000u, cells[i].expected | 0xff000000u);
 		QCOMPARE(classColor(9), qRgb(40, 110, 240));
 		QCOMPARE(classColor(18), qRgb(255, 0, 255));
+	}
+
+
+	void vegetationStatisticsTest()
+	{
+		// the design notes, "Vegetation statistics", Accept (1) to (3).
+		// Blocks of 10 by 10 m of 20 returns per cell: open, slow, fight (as the base map's rules).
+		struct Block { int ground, vegetation; };
+		Block const blocks[] = { { 20, 0 }, { 15, 5 }, { 8, 12 } };
+		std::vector<CloudPoint> points;
+		for (int b = 0; b < 3; ++b)
+		{
+			for (int col = 0; col < 10; ++col)
+			{
+				for (int row = 0; row < 10; ++row)
+				{
+					for (int k = 0; k < 20; ++k)
+					{
+						CloudPoint p;
+						p.x = east0 + 10 * b + col + 0.1 + 0.2 * (k % 5);
+						p.y = north0 + row + 0.1 + 0.2 * (k / 5);
+						auto const is_ground = k < blocks[b].ground;
+						p.z = is_ground ? 100.0 : 102.0;
+						p.classification = is_ground ? 2 : 5;
+						points.push_back(p);
+					}
+				}
+			}
+		}
+		auto const path = writeCloud(QStringLiteral("statistics.laz"), points);
+		auto const grid = PointCloud::grid({ path }, GriddingParams());
+		QVERIFY2(grid.dtm, qPrintable(grid.error));
+		auto const square = [](double x0, double y0, double x1, double y1) {
+			return QPolygonF(QVector<QPointF>{ { east0 + x0, north0 + y0 }, { east0 + x1, north0 + y0 }, { east0 + x1, north0 + y1 }, { east0 + x0, north0 + y1 } });
+		};
+		std::vector<VegetationSample> samples = {
+		    { QStringLiteral("open"), square(3, 3, 7, 7) },
+		    { QStringLiteral("slow"), square(13, 3, 17, 7) },
+		    { QStringLiteral("fight"), square(23, 3, 25, 7) },
+		    { QStringLiteral("fight"), square(25, 3, 27, 7) },
+		    { QStringLiteral("elsewhere"), square(100, 100, 110, 110) },
+		};
+		auto const statistics = vegetationStatistics({ path }, *grid.dtm, samples, VegetationParams());
+		QVERIFY2(statistics.error.isEmpty(), qPrintable(statistics.error));
+		QCOMPARE(int(statistics.classes.size()), 4);
+		auto const& open = statistics.classes[0];
+		auto const& slow = statistics.classes[1];
+		auto const& fight = statistics.classes[2];
+		auto const& elsewhere = statistics.classes[3];
+		QCOMPARE(open.name, QStringLiteral("open"));
+		QCOMPARE(open.samples, 1);
+		QCOMPARE(open.cells, qint64(16));
+		QVERIFY(std::abs(open.vegetation_mean - -1.0) < 1e-9);
+		QVERIFY(std::abs(slow.vegetation_mean - -0.5) < 1e-9);
+		QVERIFY(std::abs(slow.undergrowth_mean - -1.0) < 1e-9);
+		QVERIFY(std::abs(fight.vegetation_mean - 0.2) < 1e-9);
+		for (auto const* c : { &open, &slow, &fight })
+			QVERIFY(std::abs(c->vegetation_sd) < 1e-9);
+		QCOMPARE(fight.samples, 2);
+		QCOMPARE(fight.cells, qint64(16));
+		QCOMPARE(elsewhere.cells, qint64(0));
+		QCOMPARE(int(statistics.vegetation_thresholds.size()), 2);
+		QVERIFY(std::abs(statistics.vegetation_thresholds[0] - -0.75) < 1e-9);
+		QVERIFY(std::abs(statistics.vegetation_thresholds[1] - -0.15) < 1e-9);
+
+		QVERIFY(!vegetationStatistics({ path }, *grid.dtm, {}, VegetationParams()).error.isEmpty());
+
+		auto const csv = dir.filePath(QStringLiteral("statistics.csv"));
+		QString error;
+		QVERIFY2(writeVegetationStatisticsCsv(statistics, csv, &error), qPrintable(error));
+		QFile file(csv);
+		QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+		auto const lines = QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'));
+		QCOMPARE(lines[0], QStringLiteral("class;samples;cells;vegetation_mean;vegetation_sd;undergrowth_mean;undergrowth_sd"));
+		QVERIFY(lines[3].startsWith(QStringLiteral("fight;2;16;0.200;0.000;")));
+		QVERIFY(lines[4].startsWith(QStringLiteral("elsewhere;1;0;;")));
+		QCOMPARE(lines[5], QString{});
+		QCOMPARE(lines[6], QStringLiteral("threshold;number;value"));
+		QCOMPARE(lines[7], QStringLiteral("vegetation;1;-0.750"));
 	}
 };
 

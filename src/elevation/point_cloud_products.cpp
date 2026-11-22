@@ -27,9 +27,11 @@
 #include <utility>
 
 #include <QCoreApplication>
+#include <QFile>
 #include <QImage>
 #include <QPointF>
 #include <QRectF>
+#include <QTextStream>
 
 #include "elevation/elevation_model.h"
 
@@ -97,6 +99,11 @@ struct CellLayout
 		return qint64(row) * width + col;
 	}
 
+	QPointF center(int col, int row) const
+	{
+		return { left + (col + 0.5) * cell, bottom + (height - row - 0.5) * cell };
+	}
+
 	QRectF extent() const
 	{
 		return { left, bottom, width * cell, height * cell };
@@ -121,6 +128,84 @@ double groundAt(const ElevationModel& dtm, double x, double y)
 quint8 toGrey(double value)
 {
 	return quint8(qBound(0, int(std::lround(255.0 * value)), 255));
+}
+
+
+/**
+ * The counts of the vegetation base map and its indices over the kernels.
+ */
+struct VegetationIndices
+{
+	std::vector<double> vegetation;    ///< > 1 where undefined
+	std::vector<double> undergrowth;
+	QString error;
+};
+
+VegetationIndices vegetationIndices(const QStringList& paths, const ElevationModel& dtm, const CellLayout& layout, const VegetationParams& params)
+{
+	// The counts and the windows of PointCloud::vegetationBaseMap().
+	VegetationIndices result;
+	auto const n = layout.size();
+	std::vector<quint32> ground(n, 0), vegetation(n, 0), undergrowth(n, 0);
+	auto const add = [&](const CloudPoint& p) {
+		auto const k = layout.index(p.x, p.y);
+		if (k < 0)
+			return;
+		auto const base = groundAt(dtm, p.x, p.y);
+		if (std::isnan(base))
+			return;
+		auto const h = p.z - base;
+		if (p.classification == 2 || p.classification == 9)
+			++ground[std::size_t(k)];
+		if (h >= params.vegetation_from && h < params.vegetation_to)
+			++vegetation[std::size_t(k)];
+		if (h >= params.undergrowth_from && h < params.undergrowth_to)
+			++undergrowth[std::size_t(k)];
+	};
+	for (auto const& path : paths)
+	{
+		if (!PointCloud::read(path, add, nullptr, &result.error))
+			return result;
+	}
+	auto const width = layout.width, height = layout.height;
+	auto const table = [width, height](const std::vector<quint32>& counts) {
+		std::vector<qint64> sums(std::size_t(width + 1) * std::size_t(height + 1), 0);
+		for (int row = 0; row < height; ++row)
+		{
+			qint64 line = 0;
+			for (int col = 0; col < width; ++col)
+			{
+				line += counts[std::size_t(row) * std::size_t(width) + std::size_t(col)];
+				sums[std::size_t(row + 1) * std::size_t(width + 1) + std::size_t(col + 1)] = sums[std::size_t(row) * std::size_t(width + 1) + std::size_t(col + 1)] + line;
+			}
+		}
+		return sums;
+	};
+	auto const window = [width, height](const std::vector<qint64>& sums, int col, int row, int size) {
+		auto const half = size / 2;
+		auto const c0 = std::max(0, col - half), c1 = std::min(width, col + half + 1);
+		auto const r0 = std::max(0, row - half), r1 = std::min(height, row + half + 1);
+		auto const at = [&sums, width](int c, int r) { return sums[std::size_t(r) * std::size_t(width + 1) + std::size_t(c)]; };
+		return at(c1, r1) - at(c0, r1) - at(c1, r0) + at(c0, r0);
+	};
+	auto const ndvd = [](qint64 v, qint64 g) {
+		return v + g > 0 ? double(v - g) / double(v + g) : 2.0;
+	};
+	auto const ground_sums = table(ground);
+	auto const vegetation_sums = table(vegetation);
+	auto const undergrowth_sums = table(undergrowth);
+	result.vegetation.resize(n);
+	result.undergrowth.resize(n);
+	for (int row = 0; row < height; ++row)
+	{
+		for (int col = 0; col < width; ++col)
+		{
+			auto const k = std::size_t(row) * std::size_t(width) + std::size_t(col);
+			result.vegetation[k] = ndvd(window(vegetation_sums, col, row, params.vegetation_kernel), window(ground_sums, col, row, params.vegetation_kernel));
+			result.undergrowth[k] = ndvd(window(undergrowth_sums, col, row, params.undergrowth_kernel), window(ground_sums, col, row, params.undergrowth_kernel));
+		}
+	}
+	return result;
 }
 
 
@@ -348,6 +433,168 @@ RasterProduct classificationMap(const QStringList& paths, const ElevationModel& 
 	product.extent = layout.extent();
 	product.crs_spec = layout.crs_spec;
 	return product;
+}
+
+
+VegetationStatistics vegetationStatistics(const QStringList& paths, const ElevationModel& dtm,
+                                          const std::vector<VegetationSample>& samples, const VegetationParams& params)
+{
+	// the design notes, "Vegetation statistics".
+	VegetationStatistics statistics;
+	if (samples.empty())
+	{
+		statistics.error = tr("Select at least one sample area.");
+		return statistics;
+	}
+	CellLayout const layout(dtm, params.cell);
+	if (!layout.error.isEmpty())
+	{
+		statistics.error = layout.error;
+		return statistics;
+	}
+	auto const indices = vegetationIndices(paths, dtm, layout, params);
+	if (!indices.error.isEmpty())
+	{
+		statistics.error = indices.error;
+		return statistics;
+	}
+
+	// Running means and sums of squared deviations (Welford), exact for equal values.
+	struct Running
+	{
+		qint64 n = 0;
+		double mean = 0.0;
+		double m2 = 0.0;
+		void add(double x)
+		{
+			++n;
+			auto const delta = x - mean;
+			mean += delta / double(n);
+			m2 += delta * (x - mean);
+		}
+	};
+	struct Sums
+	{
+		Running v, u;
+	};
+	std::vector<Sums> sums;
+	auto const extent = layout.extent();
+	for (auto const& sample : samples)
+	{
+		auto found = std::find_if(statistics.classes.begin(), statistics.classes.end(), [&sample](const VegetationClassStatistics& c) {
+			return c.name == sample.name;
+		});
+		if (found == statistics.classes.end())
+		{
+			VegetationClassStatistics entry;
+			entry.name = sample.name;
+			statistics.classes.push_back(entry);
+			sums.emplace_back();
+			found = statistics.classes.end() - 1;
+		}
+		auto& entry = *found;
+		auto& sum = sums[std::size_t(found - statistics.classes.begin())];
+		++entry.samples;
+		auto const box = sample.polygon.boundingRect().intersected(extent);
+		if (box.isEmpty())
+			continue;
+		auto const c0 = std::max(0, int(std::floor((box.left() - layout.left) / layout.cell)));
+		auto const c1 = std::min(layout.width - 1, int(std::floor((box.right() - layout.left) / layout.cell)));
+		auto const top = layout.bottom + layout.height * layout.cell;
+		auto const r0 = std::max(0, int(std::floor((top - box.bottom()) / layout.cell)));
+		auto const r1 = std::min(layout.height - 1, int(std::floor((top - box.top()) / layout.cell)));
+		for (int row = r0; row <= r1; ++row)
+		{
+			for (int col = c0; col <= c1; ++col)
+			{
+				if (!sample.polygon.containsPoint(layout.center(col, row), Qt::OddEvenFill))
+					continue;
+				++entry.cells;
+				auto const k = std::size_t(row) * std::size_t(layout.width) + std::size_t(col);
+				auto const v = indices.vegetation[k];
+				if (v <= 1.0)
+				{
+					++entry.vegetation_cells;
+					sum.v.add(v);
+				}
+				auto const u = indices.undergrowth[k];
+				if (u <= 1.0)
+				{
+					++entry.undergrowth_cells;
+					sum.u.add(u);
+				}
+			}
+		}
+	}
+	auto const nan = std::numeric_limits<double>::quiet_NaN();
+	auto const finish = [nan](const Running& running, double& mean, double& sd) {
+		if (running.n == 0)
+		{
+			mean = sd = nan;
+			return;
+		}
+		mean = running.mean;
+		sd = std::sqrt(std::max(0.0, running.m2 / double(running.n)));
+	};
+	for (std::size_t i = 0; i < statistics.classes.size(); ++i)
+	{
+		auto& entry = statistics.classes[i];
+		finish(sums[i].v, entry.vegetation_mean, entry.vegetation_sd);
+		finish(sums[i].u, entry.undergrowth_mean, entry.undergrowth_sd);
+	}
+	auto const midpoints = [&statistics](double VegetationClassStatistics::* mean) {
+		std::vector<double> means;
+		for (auto const& entry : statistics.classes)
+		{
+			if (!std::isnan(entry.*mean))
+				means.push_back(entry.*mean);
+		}
+		std::sort(means.begin(), means.end());
+		std::vector<double> result;
+		for (std::size_t i = 1; i < means.size(); ++i)
+			result.push_back((means[i - 1] + means[i]) / 2.0);
+		return result;
+	};
+	statistics.vegetation_thresholds = midpoints(&VegetationClassStatistics::vegetation_mean);
+	statistics.undergrowth_thresholds = midpoints(&VegetationClassStatistics::undergrowth_mean);
+	return statistics;
+}
+
+
+bool writeVegetationStatisticsCsv(const VegetationStatistics& statistics, const QString& path, QString* error)
+{
+	QFile file(path);
+	if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
+	{
+		if (error)
+			*error = file.errorString();
+		return false;
+	}
+	QTextStream out(&file);
+	out.setCodec("UTF-8");
+	auto const number = [](double value) {
+		return std::isnan(value) ? QString{} : QString::number(value, 'f', 3);
+	};
+	out << "class;samples;cells;vegetation_mean;vegetation_sd;undergrowth_mean;undergrowth_sd\n";
+	for (auto const& entry : statistics.classes)
+	{
+		out << entry.name << ';' << entry.samples << ';' << entry.cells << ';'
+		    << number(entry.vegetation_mean) << ';' << number(entry.vegetation_sd) << ';'
+		    << number(entry.undergrowth_mean) << ';' << number(entry.undergrowth_sd) << '\n';
+	}
+	out << "\nthreshold;number;value\n";
+	for (std::size_t i = 0; i < statistics.vegetation_thresholds.size(); ++i)
+		out << "vegetation;" << (i + 1) << ';' << number(statistics.vegetation_thresholds[i]) << '\n';
+	for (std::size_t i = 0; i < statistics.undergrowth_thresholds.size(); ++i)
+		out << "undergrowth;" << (i + 1) << ';' << number(statistics.undergrowth_thresholds[i]) << '\n';
+	out.flush();
+	if (file.error() != QFileDevice::NoError)
+	{
+		if (error)
+			*error = file.errorString();
+		return false;
+	}
+	return true;
 }
 
 
