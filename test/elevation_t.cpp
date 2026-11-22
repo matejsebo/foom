@@ -893,6 +893,58 @@ private slots:
 		}
 	}
 
+	/// the design notes, "Tiled export", Accept.
+	void tiledExport()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		auto grid = makeGrid(25, 12, 1000.0, 1024.0, 2.0, [](double x, double y) { return 300.0 + 0.01 * x + 0.003 * y; });
+		grid->setValue(21, 11, std::numeric_limits<float>::quiet_NaN());
+		auto const path = QDir(dir.path()).absoluteFilePath(QStringLiteral("dtm.asc"));
+
+		// Accept (1): the names and the number.
+		auto const tiles = grid->saveAsciiTiles(path, 11);
+		QCOMPARE(tiles.size(), 6);
+		QStringList expected;
+		for (auto const* name : { "dtm_0_0.asc", "dtm_0_1.asc", "dtm_0_2.asc", "dtm_1_0.asc", "dtm_1_1.asc", "dtm_1_2.asc" })
+			expected.push_back(QDir(dir.path()).absoluteFilePath(QString::fromLatin1(name)));
+		QCOMPARE(tiles, expected);
+		QVERIFY(!QFileInfo::exists(path));
+
+		// Accept (2): the tiles, sharing their edge cells.
+		int const c0[] = { 0, 10, 20 };
+		int const w[] = { 11, 11, 5 };
+		int const r0[] = { 0, 10 };
+		int const h[] = { 11, 2 };
+		for (int tr = 0; tr < 2; ++tr)
+		{
+			for (int tc = 0; tc < 3; ++tc)
+			{
+				auto const tile = ElevationModel::open(tiles[tr * 3 + tc]);
+				QVERIFY2(tile, qPrintable(ElevationModel::lastError()));
+				QCOMPARE(tile->width(), w[tc]);
+				QCOMPARE(tile->height(), h[tr]);
+				QCOMPARE(tile->cellSize(), 2.0);
+				QCOMPARE(tile->extent(), QRectF(1000.0 + 2.0 * c0[tc], 1024.0 - 2.0 * (r0[tr] + h[tr]), 2.0 * w[tc], 2.0 * h[tr]));
+				for (int r = 0; r < h[tr]; ++r)
+				{
+					for (int c = 0; c < w[tc]; ++c)
+					{
+						auto const original = grid->value(c0[tc] + c, r0[tr] + r);
+						if (std::isnan(original))
+							QVERIFY(std::isnan(tile->value(c, r)));
+						else
+							QVERIFY(std::abs(tile->value(c, r) - original) < 0.001);
+					}
+				}
+			}
+		}
+
+		// Accept (3): one tile when the grid fits; nothing for fewer than two points.
+		QCOMPARE(grid->saveAsciiTiles(QDir(dir.path()).absoluteFilePath(QStringLiteral("one.asc"))).size(), 1);
+		QVERIFY(grid->saveAsciiTiles(QDir(dir.path()).absoluteFilePath(QStringLiteral("none.asc")), 1).isEmpty());
+	}
+
 	void xmlRoundTrip()
 	{
 		QTemporaryDir dir;

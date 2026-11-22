@@ -9525,10 +9525,22 @@ void MapEditorController::elevationExportClicked()
 		return;
 	QString const filter = tr("GeoTIFF") + QLatin1String(" (*.tif);;") + tr("ESRI ASCII grid") + QLatin1String(" (*.asc);;")
 	                    + tr("XYZ grid") + QLatin1String(" (*.xyz);;") + tr("OCD grid") + QLatin1String(" (*.ocdDem)");
+	// the design notes, "Tiled export".
+	auto const tiles_filter = tr("ESRI ASCII grid, tiles of 1001 by 1001 points") + QLatin1String(" (*.asc)");
 	auto const start = productPath(window->currentPath(), map->elevationSet().href(ElevationSet::Terrain), QStringLiteral("dtm"));
-	auto const path = FileDialog::getSaveFileName(window, tr("Export grid"), start, filter);
+	QString selected;
+	auto const path = FileDialog::getSaveFileName(window, tr("Export grid"), start, filter + QLatin1String(";;") + tiles_filter, &selected);
 	if (path.isEmpty())
 		return;
+	if (selected == tiles_filter)
+	{
+		auto const tiles = model->saveAsciiTiles(path);
+		if (tiles.isEmpty())
+			QMessageBox::warning(window, tr("Export grid"), ElevationModel::lastError());
+		else
+			window->showStatusBarMessage(tr("%n tile(s) written", nullptr, tiles.size()), 5000);
+		return;
+	}
 	if (!model->save(path))
 		QMessageBox::warning(window, tr("Export grid"), ElevationModel::lastError());
 }

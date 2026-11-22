@@ -29,6 +29,7 @@
 #include <QtGlobal>
 #include <QByteArray>
 #include <QDataStream>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QIODevice>
@@ -426,6 +427,45 @@ ElevationModel::Info ElevationModel::info() const
 	return info;
 }
 
+
+
+QStringList ElevationModel::saveAsciiTiles(const QString& path, int points) const
+{
+	// the design notes, "Tiled export": tiles of points by points cells
+	// from the north-west, neighbours sharing their edge row or column.
+	last_error.clear();
+	QStringList written;
+	if (points < 2)
+	{
+		last_error = tr("A tile needs at least two points a side.");
+		return written;
+	}
+	QFileInfo const info(path);
+	auto const base = info.dir().absoluteFilePath(info.completeBaseName());
+	auto const step = points - 1;
+	for (int r0 = 0, tile_row = 0; ; r0 += step, ++tile_row)
+	{
+		auto const r1 = std::min(grid_height, r0 + points);
+		for (int c0 = 0, tile_col = 0; ; c0 += step, ++tile_col)
+		{
+			auto const c1 = std::min(grid_width, c0 + points);
+			std::vector<float> values;
+			values.reserve(std::size_t(c1 - c0) * std::size_t(r1 - r0));
+			for (int r = r0; r < r1; ++r)
+				values.insert(values.end(), data.begin() + std::ptrdiff_t(index(c0, r)), data.begin() + std::ptrdiff_t(index(c0, r) + std::size_t(c1 - c0)));
+			ElevationModel tile(c1 - c0, r1 - r0, QPointF(top_left.x() + c0 * cell, top_left.y() - r0 * cell), cell, std::move(values), crs);
+			auto const tile_path = QStringLiteral("%1_%2_%3.asc").arg(base).arg(tile_row).arg(tile_col);
+			if (!tile.saveAsciiGrid(tile_path))
+				return {};
+			written.push_back(tile_path);
+			if (c1 >= grid_width)
+				break;
+		}
+		if (r1 >= grid_height)
+			break;
+	}
+	return written;
+}
 
 
 bool ElevationModel::save(const QString& path) const

@@ -29,6 +29,7 @@
 #include <QPointF>
 #include <QRectF>
 #include <QString>
+#include <QStringList>
 
 namespace OpenOrienteering {
 
@@ -127,6 +128,15 @@ public:
 	 * .asc (ESRI ASCII grid), .xyz, .ocdDem, otherwise GeoTIFF (float32, DEFLATE, tiled).
 	 */
 	bool save(const QString& path) const;
+
+	/**
+	 * Saves the grid as ESRI ASCII grids of points by points cells,
+	 * `<base>_<row>_<column>.asc` from the
+	 * north-west, neighbouring tiles sharing their edge row or column.
+	 *
+	 * Returns the files written, or an empty list on failure (lastError()).
+	 */
+	QStringList saveAsciiTiles(const QString& path, int points = 1001) const;
 
 
 	/// One pass of the 3 by 3 binomial kernel per unit of radius; border cells stay unchanged.
