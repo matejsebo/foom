@@ -32,6 +32,7 @@
 #include <QPoint>
 #include <QString>
 
+#include "core/objects/image_object.h"  // foom
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
 #include "gui/map/map_widget.h"
@@ -161,7 +162,12 @@ void PointHandles::draw(
 		}
 		return;
 		
-	case Object::Image:  // foom: no handles
+	case Object::Image:  // foom: the four corners
+		for (auto const& corner : static_cast<const ImageObject*>(object)->corners())
+		{
+			draw(painter, widget->mapToViewport(corner), NormalHandle, (hover_point == i) ? ActiveHandleState : base_state);
+			++i;
+		}
 		return;
 	}
 	

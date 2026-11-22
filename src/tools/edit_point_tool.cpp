@@ -45,6 +45,7 @@
 #include "core/map_part.h"
 #include "core/map_view.h"
 #include "core/path_coord.h"
+#include "core/objects/image_object.h"  // foom
 #include "core/objects/object.h"
 #include "core/objects/object_mover.h"
 #include "core/objects/text_object.h"
@@ -359,6 +360,7 @@ void EditPointTool::dragMove()
 			handle_offset = MapCoordF(0, 0);
 		}
 		
+		object_mover->setKeepImageAspect(!(active_modifiers & Qt::ShiftModifier));  // foom: Shift releases the aspect
 		object_mover->move(constrained_pos_map, 
 		                   moveOppositeHandle() ? ObjectMover::HandleOpMode::Click : ObjectMover::HandleOpMode::Never);
 		updatePreviewObjectsAsynchronously();
@@ -908,6 +910,11 @@ void EditPointTool::startEditingSetup()
 				object_mover->addObject(hover_object);
 			else
 				object_mover->addTextHandle(hover_object->asText(), hover_point);
+			setupAngleHelperFromEditedObjects();
+			break;
+
+		case Object::Image:  // foom: a corner handle
+			object_mover->addImageCorner(static_cast<ImageObject*>(hover_object), int(hover_point));
 			setupAngleHelperFromEditedObjects();
 			break;
 			

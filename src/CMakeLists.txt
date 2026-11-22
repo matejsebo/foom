@@ -168,6 +168,7 @@ set(Mapper_Common_SRCS
   core/ops/stairway.cpp
   core/ops/sized_shape.cpp
   core/ops/frame.cpp
+  core/ops/gradient.cpp
   core/ops/to_curve.cpp
   core/ops/import_points.cpp
   core/ops/rectangle_box.cpp
@@ -276,6 +277,7 @@ set(Mapper_Common_SRCS
   gui/map/to_curve_dialog.cpp
   gui/map/generator_dialog.cpp
   gui/map/selection_dialogs.cpp
+  gui/map/gradient_dialog.cpp
   gui/map/image_properties_dialog.cpp
   gui/map/object_style_dialog.cpp
   gui/map/merge_dialog.cpp

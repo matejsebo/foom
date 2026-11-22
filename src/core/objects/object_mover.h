@@ -21,6 +21,7 @@
 #ifndef OPENORIENTEERING_OBJECT_MOVER_H
 #define OPENORIENTEERING_OBJECT_MOVER_H
 
+#include <array>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -32,6 +33,7 @@
 
 namespace OpenOrienteering {
 
+class ImageObject;
 class Map;
 class Object;
 class PathObject;
@@ -78,6 +80,12 @@ public:
 	
 	/** Adds a text handle to the set of elements to move. */
 	void addTextHandle(TextObject* text, MapCoordVector::size_type handle);
+
+	/** foom: Adds a corner handle of an image (0 to 3) to the set of elements to move. */
+	void addImageCorner(ImageObject* image, int corner);
+
+	/** foom: Sets whether a moved image corner keeps the image's aspect (default: true). */
+	void setKeepImageAspect(bool keep_aspect) { keep_image_aspect = keep_aspect; }
 	
 	/**
 	 * Moves the elements.
@@ -107,6 +115,18 @@ private:
 	ObjectSet objects;
 	std::unordered_map<PathObject*, CoordIndexSet> points;
 	std::unordered_map<TextObject*, MapCoordVector::size_type> text_handles;
+
+	/** foom: A moved image corner, with the corners at the start. */
+	struct ImageCorner
+	{
+		ImageObject* image;
+		int corner;
+		std::array<MapCoordF, 4> start_corners;
+		qint64 total_dx;
+		qint64 total_dy;
+	};
+	std::vector<ImageCorner> image_corners;
+	bool keep_image_aspect = true;
 	
 	/** Constraints calculated from the basic information */
 	struct OppositeHandleConstraint

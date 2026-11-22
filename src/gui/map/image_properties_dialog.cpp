@@ -34,6 +34,9 @@
 #include <QString>
 #include <QVBoxLayout>
 
+#include "core/map.h"
+#include "core/map_color.h"
+
 
 namespace OpenOrienteering {
 
@@ -67,6 +70,23 @@ ImagePropertiesDialog::ImagePropertiesDialog(const ImageObject& image, QWidget* 
 	layer_combo->addItem(tr("Below the map"), int(ImageObject::BelowMap));
 	layer_combo->setCurrentIndex(image.layer() == ImageObject::BelowMap ? 1 : 0);
 	form->addRow(tr("Position:"), layer_combo);
+
+	// the design notes, "Image object", second change
+	spot_combo = new QComboBox();
+	spot_combo->addItem(tr("None"), QString());
+	if (auto const* map = image.getMap())
+	{
+		for (int i = 0; i < map->getNumColors(); ++i)
+		{
+			auto const* color = map->getColor(i);
+			if (color->getSpotColorMethod() == MapColor::SpotColor && spot_combo->findData(color->getSpotColorName()) < 0)
+				spot_combo->addItem(color->getSpotColorName(), color->getSpotColorName());
+		}
+	}
+	if (!image.spotColorName().isEmpty() && spot_combo->findData(image.spotColorName()) < 0)
+		spot_combo->addItem(tr("%1 (not in the map)").arg(image.spotColorName()), image.spotColorName());
+	spot_combo->setCurrentIndex(qMax(0, spot_combo->findData(image.spotColorName())));
+	form->addRow(tr("Spot colour:"), spot_combo);
 	
 	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, Qt::Horizontal);
 	connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
@@ -88,6 +108,11 @@ qreal ImagePropertiesDialog::opacity() const
 ImageObject::Layer ImagePropertiesDialog::layer() const
 {
 	return ImageObject::Layer(layer_combo->currentData().toInt());
+}
+
+QString ImagePropertiesDialog::spotColorName() const
+{
+	return spot_combo->currentData().toString();
 }
 
 

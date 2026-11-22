@@ -22,9 +22,11 @@
 #define FOOM_IMAGE_OBJECT_H
 
 #include <array>
+#include <vector>
 
 #include <QtGlobal>
 #include <QByteArray>
+#include <QColor>
 #include <QImage>
 #include <QPolygonF>
 #include <QRectF>
@@ -43,6 +45,7 @@ class QXmlStreamWriter;
 namespace OpenOrienteering {
 
 class Map;
+class MapColor;
 class RenderConfig;
 class Symbol;
 
@@ -106,14 +109,43 @@ public:
 	
 	/** Sets the corners from the centre, the size in mm and the rotation (radians, counter-clockwise). */
 	void setCorners(const MapCoordF& centre, const QSizeF& size_mm, qreal rotation = 0);
+
+	/** Sets the corners: top left, top right, bottom right, bottom left. */
+	void setCorners(const std::array<MapCoordF, 4>& corners);
+
+	/** The corners: top left, top right, bottom right, bottom left. */
+	std::array<MapCoordF, 4> corners() const;
 	
 	MapCoordF anchor() const;
 	QSizeF size() const;
 	qreal imageRotation() const;
 	QPolygonF quad() const;
 	
-	/** Returns true if the point is inside the image. */
+	/** Returns true if the point is inside the image and inside its clip. */
 	bool containsPoint(const MapCoordF& point) const;
+
+	/** The map coordinates of a point given in image coordinates, (0, 0) top left and (1, 1) bottom right. */
+	MapCoordF mapFromImage(const QPointF& point) const;
+
+	/** The image coordinates of a point given in map coordinates. */
+	QPointF imageFromMap(const MapCoordF& point) const;
+
+
+	/** The clip: rings in image coordinates, filled odd-even; empty when the image is not clipped. */
+	const std::vector<QPolygonF>& clip() const { return image_clip; }
+
+	/** Sets the clip, in image coordinates. */
+	void setClip(const std::vector<QPolygonF>& rings);
+
+
+	/** The name of the spot colour the image is printed in, or empty. */
+	const QString& spotColorName() const { return spot_color_name; }
+
+	/** Sets the name of the spot colour the image is printed in. */
+	void setSpotColorName(const QString& name);
+
+	/** The spot colour of the map whose name is spotColorName(), or nullptr. */
+	const MapColor* spotColor() const;
 	
 	
 	qreal opacity() const { return image_opacity; }
@@ -128,6 +160,13 @@ public:
 	
 	/** Draws the image. Called by Map::draw(). */
 	void draw(QPainter* painter, const RenderConfig& config) const;
+
+	/**
+	 * Draws the image on the separation of its spot colour: in black, or in
+	 * the colour if use_color is true, with each pixel's darkness as alpha.
+	 * Called by Map::drawColorSeparation().
+	 */
+	void drawSeparation(QPainter* painter, const RenderConfig& config, bool use_color) const;
 	
 	/** Writes the image element of the object element. */
 	void saveImage(QXmlStreamWriter& xml) const;
@@ -150,12 +189,17 @@ private:
 	
 	/** The image, halved the given number of times (0 to 3). */
 	const QImage& level(int n) const;
+
+	/** Draws the pixels through the object's transformation and clip, or the frame of a missing image. */
+	void drawPixels(QPainter* painter, const RenderConfig& config, int mode, const QColor& ink_color) const;
 	
 	QByteArray image_data;
 	QString image_href;
 	QString link_file;
 	qreal image_opacity = 1;
 	Layer image_layer = AboveMap;
+	std::vector<QPolygonF> image_clip;
+	QString spot_color_name;
 	
 	mutable std::array<QImage, 4> levels;
 	mutable bool decoded = false;
@@ -173,6 +217,24 @@ private:
  *
  * Returns nullptr, with a message in error, if the file is no such image.
  */
+/**
+ * The corners of an image after a corner handle was dragged to the target
+ * (the corner handles of the edit point tool).
+ *
+ * The opposite corner stays, the directions of the sides stay, and each side
+ * is at least 0.1 mm long. With keep_aspect, both sides scale by the factor
+ * of the target's projection on the diagonal; else each side follows the
+ * target on its own.
+ */
+std::array<MapCoordF, 4> imageCornersDraggedTo(const std::array<MapCoordF, 4>& corners, int corner, const MapCoordF& target, bool keep_aspect);
+
+/**
+ * Returns the RGB image of the ink of a spot colour image: each pixel in the
+ * colour, with its darkness (1 - grey) times its alpha as alpha.
+ */
+QImage spotInkImage(const QImage& image, const QColor& color);
+
+
 ImageObject* addImage(Map& map, const QString& path, bool embed, const MapCoordF& centre, const QSizeF& max_size_mm, QString* error);
 
 /**
@@ -192,6 +254,28 @@ const ImageObject* firstSelectedImage(const Map& map);
  * (image-properties). Returns the number of images changed.
  */
 int setSelectedImageProperties(Map& map, qreal opacity, ImageObject::Layer layer);
+
+/** As above, and sets the spot colour name (empty for none). */
+int setSelectedImageProperties(Map& map, qreal opacity, ImageObject::Layer layer, const QString& spot_color_name);
+
+/** Returns true if an image and a path object with a closed part are selected. */
+bool canClipSelectedImages(const Map& map);
+
+/**
+ * Clips the selected images to the outline of the closed parts of the
+ * selected path objects and deletes those paths, as one undo step
+ * (image-clip). Returns the number of images clipped.
+ */
+int clipSelectedImages(Map& map);
+
+/** Returns true if a clipped image is selected. */
+bool isClippedImageSelected(const Map& map);
+
+/**
+ * Removes the clip of the selected images, as one undo step (image-unclip).
+ * Returns the number of images changed.
+ */
+int unclipSelectedImages(Map& map);
 
 
 }  // namespace OpenOrienteering

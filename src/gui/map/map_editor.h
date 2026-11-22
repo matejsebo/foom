@@ -506,6 +506,12 @@ public slots:
 	void embedImageClicked();
 	/** foom: Asks for the opacity and layer of the selected images (image-properties). */
 	void imagePropertiesClicked();
+	/** foom: Clips the selected images to the selected areas (image-clip). */
+	void imageClipClicked();
+	/** foom: Removes the clip of the selected images (image-unclip). */
+	void imageUnclipClicked();
+	/** foom: Fills the selected areas with gradient images (gradient-create). */
+	void gradientClicked();
 	/** foom: The generators (gen-scale-bar, gen-north-lines, gen-legend). */
 	void generateScaleBarClicked();
 	void generateNorthLinesClicked();
@@ -1363,6 +1369,9 @@ private:
 	QAction* image_add_act = {};  // foom
 	QAction* image_embed_act = {};  // foom
 	QAction* image_properties_act = {};  // foom
+	QAction* image_clip_act = {};  // foom
+	QAction* image_unclip_act = {};  // foom
+	QAction* gradient_act = {};  // foom
 	QAction* gen_scale_bar_act = {};  // foom
 	QAction* gen_north_lines_act = {};  // foom
 	QAction* gen_legend_act = {};  // foom
