@@ -126,40 +126,48 @@ TemplateRelinkReport relinkTemplates(Map& map, const QString& old_folder, const 
 			continue;
 		}
 
-		auto const old_path = temp->getTemplatePath();
-		auto const old_state = temp->getTemplateState();
-		if (auto* placeholder = qobject_cast<TemplatePlaceholder*>(temp))
-		{
-			// As the Templates window does: the type is known once the file is.
-			placeholder->setTemplatePath(new_path);
-			auto actual = placeholder->makeActualTemplate();
-			if (!actual || !actual->loadTemplateFile())
-			{
-				placeholder->setTemplatePath(old_path);
-				placeholder->setTemplateState(old_state);
-				report.failed.push_back(new_path);
-				continue;
-			}
-			map.setTemplate(i, std::move(actual)).release()->deleteLater();
-		}
+		if (relinkTemplateFile(map, i, new_path))
+			report.relinked.push_back(new_path);
 		else
-		{
-			temp->switchTemplateFile(new_path, true);
-			if (temp->getTemplateState() != Template::Loaded)
-			{
-				temp->switchTemplateFile(old_path, old_state == Template::Loaded);
-				temp->setTemplateState(old_state);
-				report.failed.push_back(new_path);
-				continue;
-			}
-		}
-		map.getTemplate(i)->setTemplateAreaDirty();
-		map.emitTemplateChanged(map.getTemplate(i));
-		report.relinked.push_back(new_path);
+			report.failed.push_back(new_path);
 	}
-	if (!report.relinked.isEmpty())
-		map.setTemplatesDirty();
 	return report;
+}
+
+bool relinkTemplateFile(Map& map, int index, const QString& new_path)
+{
+	if (index < 0 || index >= map.getNumTemplates())
+		return false;
+	auto* temp = map.getTemplate(index);
+	auto const old_path = temp->getTemplatePath();
+	auto const old_state = temp->getTemplateState();
+	if (auto* placeholder = qobject_cast<TemplatePlaceholder*>(temp))
+	{
+		// As the Templates window does: the type is known once the file is.
+		placeholder->setTemplatePath(new_path);
+		auto actual = placeholder->makeActualTemplate();
+		if (!actual || !actual->loadTemplateFile())
+		{
+			placeholder->setTemplatePath(old_path);
+			placeholder->setTemplateState(old_state);
+			return false;
+		}
+		map.setTemplate(index, std::move(actual)).release()->deleteLater();
+	}
+	else
+	{
+		temp->switchTemplateFile(new_path, true);
+		if (temp->getTemplateState() != Template::Loaded)
+		{
+			temp->switchTemplateFile(old_path, old_state == Template::Loaded);
+			temp->setTemplateState(old_state);
+			return false;
+		}
+	}
+	map.getTemplate(index)->setTemplateAreaDirty();
+	map.emitTemplateChanged(map.getTemplate(index));
+	map.setTemplatesDirty();
+	return true;
 }
 
 QString relinkStartFolder(const QString& old_folder, const QString& map_path)

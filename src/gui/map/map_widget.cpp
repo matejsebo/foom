@@ -304,7 +304,7 @@ void MapWidget::visibilityChanged(MapView::VisibilityFeature feature, bool activ
 			auto const template_area = temp->calculateTemplateBoundingBox();
 			markTemplateCacheDirty(getMapView()->calculateViewBoundingBox(template_area),
 			                       temp->getTemplateBoundingBoxPixelBorder(),
-			                       pos >= getMapView()->getMap()->getFirstFrontTemplate());
+			                       pos >= getMapView()->getMap()->getFirstFrontTemplate() || temp->isBlockOut());  // foom: block out
 		
 		}
 		else if (temp && temp->getTemplateState() == Template::Unloaded && active)
@@ -935,7 +935,7 @@ void MapWidget::paintEvent(QPaintEvent* event)
 		painter.setOpacity(saved_opacity);
 	}
 	
-	if (!view->areAllTemplatesHidden() && isAboveTemplateVisible() && !above_template_cache.isNull() && view->getMap()->getNumTemplates() - view->getMap()->getFirstFrontTemplate() > 0)
+	if (!view->areAllTemplatesHidden() && isAboveTemplateVisible() && !above_template_cache.isNull())  // foom: block out, without front templates too
 		painter.drawImage(target, above_template_cache, exposed);
 	
 	//painter.setClipRect(exposed);
@@ -1307,7 +1307,16 @@ bool MapWidget::containsVisibleTemplate(int first_template, int last_template) c
 inline
 bool MapWidget::isAboveTemplateVisible() const
 {
-	return containsVisibleTemplate(view->getMap()->getFirstFrontTemplate(), view->getMap()->getNumTemplates() - 1);
+	if (containsVisibleTemplate(view->getMap()->getFirstFrontTemplate(), view->getMap()->getNumTemplates() - 1))
+		return true;
+	// foom: the design notes, "Block out, dim and colour infrared"
+	auto const* map = view->getMap();
+	for (int i = 0; i < map->getFirstFrontTemplate(); ++i)
+	{
+		if (map->getTemplate(i)->isBlockOut() && view->isTemplateVisible(map->getTemplate(i)))
+			return true;
+	}
+	return false;
 }
 
 inline

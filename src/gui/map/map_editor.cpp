@@ -212,6 +212,7 @@
 #include "gui/map/course_statistics_dialog.h"  // foom
 #include "check/issue.h"
 #include "check/legibility.h"
+#include "check/legibility_results.h"  // foom
 #include "check/map_check.h"
 #include "gui/map/extent_dialog.h"
 #include "gui/map/legibility_dialog.h"
@@ -317,6 +318,7 @@
 #include "util/backports.h" // IWYU pragma: keep
 
 #ifdef MAPPER_USE_GDAL
+#include "gdal/gdal_template.h"  // foom
 #include "gdal/ogr_template.h"
 #include "gdal/geodata_import.h"  // foom
 #include "gdal/geodata_import_dialog.h"  // foom
@@ -3281,6 +3283,45 @@ bool MapEditorController::setTemplateEmbedded(Template* temp, bool embedded, QSt
 	return embedded ? image->embed(TemplateImage::embedLimitBytes(), error) : image->unembed(error);
 }
 
+// foom: the design notes, "Block out, dim and colour infrared"
+void MapEditorController::setTemplateBlockOut(Template* temp, bool block_out)
+{
+	if (temp)
+		temp->setBlockOut(block_out);
+}
+
+// foom: the design notes, "Block out, dim and colour infrared"
+bool MapEditorController::setTemplateDim(Template* temp, double dim, QString* error)
+{
+	if (!qobject_cast<TemplateImage*>(temp))
+	{
+		if (error)
+			*error = tr("Only raster templates can be dimmed.");
+		return false;
+	}
+	temp->setDim(dim);
+	return true;
+}
+
+// foom: the design notes, "Block out, dim and colour infrared"
+bool MapEditorController::setTemplateInfrared(Template* temp, bool infrared, QString* error)
+{
+#ifdef MAPPER_USE_GDAL
+	auto* gdal_template = dynamic_cast<GdalTemplate*>(temp);
+	if (gdal_template && (!infrared || GdalTemplate::hasInfraredBands(temp->getTemplatePath())))
+	{
+		temp->setInfrared(infrared);
+		return true;
+	}
+#else
+	Q_UNUSED(temp)
+	Q_UNUSED(infrared)
+#endif
+	if (error)
+		*error = tr("Only an image of four bands read with GDAL can be loaded as colour infrared.");
+	return false;
+}
+
 // foom
 int MapEditorController::relinkTemplates(const QString& old_folder, const QString& new_folder)
 {
@@ -5567,7 +5608,11 @@ void MapEditorController::checkLegibilityClicked()
 int MapEditorController::runLegibilityCheck(const LegibilityParams& params)
 {
 	// the design notes, "Legibility".
-	last_check = [this, params]() { return checkLegibility(*map, params); };
+	last_check = [this, params]() {
+		auto issues = checkLegibility(*map, params);
+		recordLegibilityResults(*map, params, issues);  // the design notes, "Legibility", the results
+		return issues;
+	};
 	checkAgain();
 	return int(issue_model->issues().size());
 }
@@ -5601,9 +5646,30 @@ bool MapEditorController::fixIssueRow(int row)
 {
 	if (row < 0 || row >= issue_model->rowCount())
 		return false;
+	auto const& issue = issue_model->issueAt(row);
+	if (issue.rule == rule::template_missing)
+	{
+		// the design notes, "Map check", relink.
+		auto const start = relinkStartFolder(QFileInfo(issue.subject).path(), window->currentPath());
+		auto const path = FileDialog::getOpenFileName(window, tr("Relink %1").arg(QFileInfo(issue.subject).fileName()), start);
+		if (path.isEmpty())
+			return false;
+		return relinkIssueRow(row, path);
+	}
 	auto const fixed = fixIssue(*map, issue_model->issueAt(row));
 	checkAgain();
 	return fixed;
+}
+
+// foom: the design notes, "Map check", relink.
+bool MapEditorController::relinkIssueRow(int row, const QString& path)
+{
+	if (row < 0 || row >= issue_model->rowCount())
+		return false;
+	auto const relinked = relinkIssueTemplate(*map, issue_model->issueAt(row), path);
+	if (relinked)
+		checkAgain();
+	return relinked;
 }
 
 // foom: the design notes, "Map check", the assign-symbol fix.

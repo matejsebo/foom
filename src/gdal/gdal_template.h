@@ -46,6 +46,12 @@ public:
 	
 	static const char* applyCornerPassPointsProperty();
 	
+	/**
+	 * foom: Whether the file is a four-band raster which can be read as colour
+	 * infrared (the design notes, "Block out, dim and colour infrared").
+	 */
+	static bool hasInfraredBands(const QString& path);
+	
 	GdalTemplate(const QString& path, Map* map);
 	~GdalTemplate() override;
 	
@@ -62,6 +68,9 @@ public:
 	
 protected:
 	bool loadTemplateFileImpl() override;
+	
+	/** foom: Reads a loaded template again, as colour infrared or not. */
+	void infraredChanged() override;
 	
 	bool applyCornerPassPoints();
 };

@@ -116,12 +116,20 @@ bool GdalTemplate::fileExists() const
 }
 
 
+// foom
+bool GdalTemplate::hasInfraredBands(const QString& path)
+{
+	GdalImageReader reader(path);
+	return reader.canRead() && reader.infraredBands().size() == 4;
+}
+
 bool GdalTemplate::loadTemplateFileImpl()
 {
 	if (isEmbedded())  // foom: the design notes, "Embedded raster templates"
 		return TemplateImage::loadTemplateFileImpl();
 	
 	GdalImageReader reader(template_path);
+	reader.setInfrared(isInfrared());  // foom
 	if (!reader.canRead())
 	{
 		setErrorString(reader.errorString());
@@ -166,6 +174,20 @@ bool GdalTemplate::loadTemplateFileImpl()
 	}
 	
 	return true;
+}
+
+// foom: the design notes, "Block out, dim and colour infrared"
+void GdalTemplate::infraredChanged()
+{
+	auto const old_state = getTemplateState();
+	if (old_state != Template::Loaded && old_state != Template::Configuring)
+		return;
+	setTemplateAreaDirty();
+	unloadTemplateFile();
+	if (old_state == Template::Configuring)
+		setTemplateState(Template::Configuring);
+	loadTemplateFile();
+	setTemplateAreaDirty();
 }
 
 bool GdalTemplate::applyCornerPassPoints()

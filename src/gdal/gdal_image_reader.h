@@ -21,6 +21,7 @@
 #define OPENORIENTEERING_GDAL_IMAGE_READER_H
 
 #include <functional>
+#include <vector>
 
 #include <QByteArray>
 #include <QCoreApplication>
@@ -80,6 +81,17 @@ public:
 	
 	GDALColorInterp getColorInterpretationWithType(int index, GDALDataType data_type) const;
 	
+	/**
+	 * foom: The bands red, green, blue and near infrared of a four-band raster
+	 * of bytes, or nothing when the raster has no such four.
+	 *
+	 * See the design notes, "Block out, dim and colour infrared".
+	 */
+	std::vector<int> infraredBands() const;
+	
+	/** foom: Reads a four-band raster as colour infrared: near infrared, red, green as red, green, blue. */
+	void setInfrared(bool value) { infrared = value; }
+	
 	struct RasterInfo
 	{
 		QVarLengthArray<int, 4> bands;
@@ -124,6 +136,7 @@ private:
 	QString error_string;
 	GDALDatasetH dataset = nullptr;
 	int raster_count = 0;
+	bool infrared = false;  ///< foom
 	
 };
 

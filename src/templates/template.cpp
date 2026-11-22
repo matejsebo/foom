@@ -257,6 +257,9 @@ Template::Template(const Template& proto)
 , template_group(proto.template_group)
 , is_favourite(proto.is_favourite)  // foom
 , separation_color(proto.separation_color)  // foom
+, is_block_out(proto.is_block_out)  // foom
+, template_dim(proto.template_dim)  // foom
+, is_infrared(proto.is_infrared)  // foom
 , map_to_template(proto.map_to_template)
 , template_to_map(proto.template_to_map)
 , template_to_map_other(proto.template_to_map_other)
@@ -308,6 +311,12 @@ void Template::saveTemplateConfiguration(QXmlStreamWriter& xml, bool open, const
 		xml.writeAttribute(QString::fromLatin1("favourite"), QString::fromLatin1("true"));
 	if (separation_color && map->findColorIndex(separation_color) >= 0)  // foom
 		xml.writeAttribute(QString::fromLatin1("separation"), QString::number(map->findColorIndex(separation_color)));
+	if (is_block_out)  // foom
+		xml.writeAttribute(QString::fromLatin1("block_out"), QString::fromLatin1("true"));
+	if (qRound(template_dim * 100) > 0)  // foom
+		xml.writeAttribute(QString::fromLatin1("dim"), QString::number(qRound(template_dim * 100)));
+	if (is_infrared)  // foom
+		xml.writeAttribute(QString::fromLatin1("infrared"), QString::fromLatin1("true"));
 	
 	if (is_georeferenced)
 	{
@@ -370,6 +379,11 @@ std::unique_ptr<Template> Template::loadTemplateConfiguration(QXmlStreamReader& 
 		if (ok && index >= 0 && index < map.getNumColors())
 			temp->separation_color = map.getColor(index);
 	}
+	// foom: the design notes, "Block out, dim and colour infrared"
+	temp->is_block_out = (attributes.value(QLatin1String("block_out")) == QLatin1String("true"));
+	temp->is_infrared = (attributes.value(QLatin1String("infrared")) == QLatin1String("true"));
+	if (attributes.hasAttribute(QLatin1String("dim")))
+		temp->template_dim = qBound(0.0, attributes.value(QLatin1String("dim")).toInt() / 100.0, 1.0);
 	temp->is_georeferenced = (attributes.value(QLatin1String("georef")) == QLatin1String("true"));
 	if (attributes.hasAttribute(QLatin1String("group")))
 		temp->template_group = attributes.value(QLatin1String("group")).toInt();
@@ -952,6 +966,50 @@ void Template::setSeparationColor(const MapColor* color)
 		return;
 	separation_color = color;
 	map->setTemplatesDirty();
+}
+
+// foom: the design notes, "Block out, dim and colour infrared"
+void Template::setBlockOut(bool value)
+{
+	if (is_block_out == value)
+		return;
+	// The template moves between the passes below and above the map: repaint both.
+	if (template_state == Loaded)
+		setTemplateAreaDirty();
+	is_block_out = value;
+	map->setTemplatesDirty();
+	if (template_state == Loaded)
+		setTemplateAreaDirty();
+	map->emitTemplateChanged(this);
+}
+
+// foom: the design notes, "Block out, dim and colour infrared"
+void Template::setDim(double value)
+{
+	value = qBound(0.0, value, 1.0);
+	if (qFuzzyCompare(1.0 + template_dim, 1.0 + value))
+		return;
+	template_dim = value;
+	map->setTemplatesDirty();
+	if (template_state == Loaded)
+		setTemplateAreaDirty();
+	map->emitTemplateChanged(this);
+}
+
+// foom: the design notes, "Block out, dim and colour infrared"
+void Template::setInfrared(bool value)
+{
+	if (is_infrared == value)
+		return;
+	is_infrared = value;
+	map->setTemplatesDirty();
+	infraredChanged();
+	map->emitTemplateChanged(this);
+}
+
+void Template::infraredChanged()
+{
+	// nothing
 }
 
 void Template::setTemplatePath(const QString& value)

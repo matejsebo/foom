@@ -63,6 +63,7 @@
 #include "printsupport/advanced_pdf_printer.h"
 #endif
 #include "templates/template_image_open_dialog.h"
+#include "templates/template_raster_effects.h"  // foom
 #include "templates/world_file.h"
 #include "util/transformation.h"
 #include "util/util.h"
@@ -506,6 +507,7 @@ bool TemplateImage::postLoadSetup(QWidget* dialog_parent, bool& out_center_in_vi
 void TemplateImage::unloadTemplateFileImpl()
 {
 	image = QImage();
+	effect_image = QImage();  // foom
 }
 
 void TemplateImage::drawTemplate(QPainter* painter, const QRectF& /*clip_rect*/, double /*scale*/, bool /*on_screen*/, qreal opacity) const
@@ -525,7 +527,23 @@ void TemplateImage::drawTemplate(QPainter* painter, const QRectF& /*clip_rect*/,
 			painter->setBrush(Qt::white);
 	}
 #endif
-	painter->drawImage(QPointF(-image.width() * 0.5, -image.height() * 0.5), image);
+	// foom: the design notes, "Block out, dim and colour infrared"
+	if (dim() > 0 || isBlockOut())
+	{
+		if (effect_image.isNull() || effect_key != image.cacheKey() || effect_dim != dim() || effect_block_out != isBlockOut())
+		{
+			effect_image = templateEffectImage(image, dim(), isBlockOut());
+			effect_key = image.cacheKey();
+			effect_dim = dim();
+			effect_block_out = isBlockOut();
+		}
+		painter->drawImage(QPointF(-image.width() * 0.5, -image.height() * 0.5), effect_image);
+	}
+	else
+	{
+		effect_image = QImage();
+		painter->drawImage(QPointF(-image.width() * 0.5, -image.height() * 0.5), image);
+	}
 	painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
 }
 QRectF TemplateImage::getTemplateExtent() const

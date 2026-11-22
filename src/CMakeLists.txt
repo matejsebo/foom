@@ -191,6 +191,7 @@ set(Mapper_Common_SRCS
   core/objects/image_object.cpp
   check/issue.cpp
   check/legibility.cpp
+  check/legibility_results.cpp
   tools/legibility_feedback.cpp
   check/map_check.cpp
   layout/generator.cpp
@@ -380,6 +381,7 @@ set(Mapper_Common_SRCS
   templates/template_image_open_dialog.cpp
   templates/template_map.cpp
   templates/template_placeholder.cpp
+  templates/template_raster_effects.cpp
   templates/template_relink.cpp
   templates/template_position_dock_widget.cpp
   templates/template_positioning_dialog.cpp

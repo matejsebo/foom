@@ -56,6 +56,7 @@ struct Issue
 	Severity severity = Warning;
 	QVector<QUuid> objects;
 	MapCoordF where;
+	QVector<MapCoordF> points;  ///< foom: for a gap, the closest points on the two objects, in their order.
 	double measured = 0.0;
 	double limit = 0.0;
 	QString message;
