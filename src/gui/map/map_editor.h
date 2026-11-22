@@ -736,6 +736,10 @@ public slots:
 	void interpolateClicked();
 	/** foom: Asks for the objects, the shape and the options, then crops (crop). */
 	void cropClicked();
+	/** foom: Copies the selection as well-known text, in projected coordinates (copy-wkt). */
+	void copyWktClicked();
+	/** foom: Pastes the well-known text of the clipboard, in projected coordinates (paste-wkt). */
+	void pasteWktClicked();
 	/** foom: Asks for the text offset and converts the selection to points of the selected point symbol (convert-to-point). */
 	void convertToPointsClicked();
 	/** foom: Converts the selection as one undo step; see the design notes, "Convert objects". */
@@ -766,6 +770,10 @@ public slots:
 	void interpolate(int count, bool use_selected_symbol);
 	/** foom: Crops the objects of the current part, or of the symbols selected in the symbol pane, to the selected paths or to rect; see the design notes, "Crop". */
 	void crop(bool selected_symbols, bool use_rectangle, const QRectF& rect, bool hole, bool delete_shapes);
+	/** foom: Puts the selection on the clipboard as well-known text and returns it; see the design notes, "Well-known text". */
+	QString copyWkt(bool projected);
+	/** foom: Adds objects of the symbol selected in the symbol pane from well-known text as one undo step. */
+	bool pasteWkt(const QString& text, bool projected);
 	/** foom: Mirrors the selected objects about an axis at the given angle (degrees) through their centre. */
 	void mirror(double axis_angle, bool duplicate);
 	/** foom: Asks for the offset, then moves the selected objects. */
@@ -1463,6 +1471,8 @@ private:
 	QAction* convert_to_point_act = {};  // foom
 	QAction* interpolate_act = {};  // foom
 	QAction* crop_act = {};  // foom
+	QAction* copy_wkt_act = {};  // foom
+	QAction* paste_wkt_act = {};  // foom
 	QAction* object_info_act = {};  // foom
 	QAction* replace_font_act = {};  // foom
 	QAction* replace_color_act = {};  // foom

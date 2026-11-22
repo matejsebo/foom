@@ -1167,6 +1167,8 @@ void MapEditorController::createActions()
 	paste_original_act = newAction("paste-original", tr("Paste at original location"), paste_act_mapper, SLOT(map()), "paste-at-location.png", QString{}, "edit_menu.html");
 	paste_original_act->setMenuRole(QAction::TextHeuristicRole);
 	paste_act_mapper->setMapping(paste_original_act, 0);
+	copy_wkt_act = newAction("copy-wkt", tr("Copy as WKT"), this, SLOT(copyWktClicked()), nullptr, tr("Copy the selected objects as well-known text in projected coordinates."));  // foom
+	paste_wkt_act = newAction("paste-wkt", tr("Paste WKT"), this, SLOT(pasteWktClicked()), nullptr, tr("Add objects of the symbol selected in the symbol pane from the well-known text on the clipboard."));  // foom
 	delete_act = newAction("delete", tr("Delete"), this, SLOT(deleteClicked()), "delete.png", QString{}, "toolbars.html#delete");
 	select_all_act = newAction("select-all", tr("Select all"), this, SLOT(selectAll()), nullptr, QString{}, "edit_menu.html");
 	select_nothing_act = newAction("select-nothing", tr("Select nothing"), this, SLOT(selectNothing()), nullptr, QString{}, "edit_menu.html");
@@ -1613,6 +1615,8 @@ void MapEditorController::createMenuAndToolbars()
 	edit_menu->addAction(copy_act);
 	edit_menu->addAction(paste_act);
 	edit_menu->addAction(paste_original_act);
+	edit_menu->addAction(copy_wkt_act);  // foom
+	edit_menu->addAction(paste_wkt_act);  // foom
 	edit_menu->addAction(delete_act);
 	edit_menu->addAction(to_layout_act);  // foom
 	edit_menu->addAction(to_map_act);  // foom
@@ -3512,6 +3516,8 @@ void MapEditorController::updateObjectDependentActions()
 	// have_selection
 	cut_act->setEnabled(have_selection);
 	copy_act->setEnabled(have_selection);
+	if (copy_wkt_act)
+		copy_wkt_act->setEnabled(have_selection);  // foom
 	delete_act->setEnabled(have_selection);
 	delete_act->setStatusTip(tr("Deletes the selected objects.") + (delete_act->isEnabled() ? QString{} : QString(QLatin1Char(' ') + tr("Select at least one object to activate this tool."))));
 	duplicate_act->setEnabled(have_selection);

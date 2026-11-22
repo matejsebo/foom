@@ -25,19 +25,24 @@
 
 #include <QtTest>
 #include <QAction>
+#include <QApplication>
+#include <QClipboard>
 #include <QObject>
+#include <QPointF>
 #include <QRectF>
 #include <QSettings>
 #include <QString>
 #include <QTemporaryDir>
 
 #include "global.h"
+#include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_color.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
 #include "core/ops/crop.h"
+#include "core/ops/wkt.h"
 #include "core/symbols/area_symbol.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
@@ -338,6 +343,152 @@ private slots:
 			else if (object->getSymbol() == t.other_line)
 				QVERIFY(std::abs(object->asPath()->getPaperLength() - 20.0) < 0.01);
 		}
+		window->deleteLater();
+	}
+
+
+	void wktTest()
+	{
+		// the design notes, "Well-known text", Accept.
+		TestMap t;
+		Georeferencing georef;
+		georef.setScaleDenominator(10000);
+		georef.setProjectedRefPoint(QPointF(350000, 150000));
+		t.map.setGeoreferencing(georef);
+		auto const check = t.map.getGeoreferencing().toProjectedCoords(MapCoordF(10, -20));
+		QVERIFY(std::abs(check.x() - 350100) < 1e-6 && std::abs(check.y() - 150200) < 1e-6);
+
+		ops::WktParams projected;
+		ops::WktParams paper;
+		paper.projected = false;
+		for (auto* p : { &projected, &paper })
+		{
+			p->point_symbol = t.point;
+			p->line_symbol = t.line;
+			p->area_symbol = t.area;
+		}
+
+		// (1), (2)
+		std::unique_ptr<PathObject> line(makePath(t.line, { {0, 0}, {10, -20} }, false));
+		std::unique_ptr<PointObject> point(makePoint(t.point, 1, -2.5));
+		QCOMPARE(ops::toWkt(t.map, { line.get() }, projected), QStringLiteral("LINESTRING (350000 150000, 350100 150200)"));
+		QCOMPARE(ops::toWkt(t.map, { line.get() }, paper), QStringLiteral("LINESTRING (0 0, 10 20)"));
+		QCOMPARE(ops::toWkt(t.map, { point.get() }, projected), QStringLiteral("POINT (350010 150025)"));
+
+		// (3)
+		MapCoordVector holed_coords = { MapCoord(0, 0), MapCoord(10, 0), MapCoord(10, 10), MapCoord(0, 10), MapCoord(0, 0),
+		                                MapCoord(2, 2), MapCoord(4, 2), MapCoord(4, 4), MapCoord(2, 2) };
+		holed_coords[4].setClosePoint(true);
+		holed_coords[4].setHolePoint(true);
+		holed_coords[8].setClosePoint(true);
+		std::unique_ptr<PathObject> holed(new PathObject(t.area, holed_coords));
+		QCOMPARE(int(holed->parts().size()), 2);
+		auto const polygon = ops::toWkt(t.map, { holed.get() }, paper);
+		QCOMPARE(polygon, QStringLiteral("POLYGON ((0 0, 10 0, 10 -10, 0 -10, 0 0), (2 -2, 4 -2, 4 -4, 2 -2))"));
+		MapCoordVector two_coords = { MapCoord(0, 0), MapCoord(5, 0), MapCoord(0, 5), MapCoord(5, 5) };
+		two_coords[1].setHolePoint(true);
+		std::unique_ptr<PathObject> two_parts(new PathObject(t.line, two_coords));
+		QCOMPARE(ops::toWkt(t.map, { two_parts.get() }, paper), QStringLiteral("MULTILINESTRING ((0 0, 5 0), (0 -5, 5 -5))"));
+
+		// (4)
+		{
+			MapCoordVector arc = { MapCoord(10.0, 0.0), MapCoord(10.0, 5.523), MapCoord(5.523, 10.0), MapCoord(0.0, 10.0) };
+			arc[0].setCurveStart(true);
+			std::unique_ptr<PathObject> curve(new PathObject(t.line, arc));
+			auto const text = ops::toWkt(t.map, { curve.get() }, paper);
+			QVERIFY(text.startsWith(QLatin1String("LINESTRING (10 0, ")));
+			QVERIFY(text.endsWith(QLatin1String(", 0 -10)")));
+			QVERIFY(text.count(QLatin1Char(',')) >= 4);
+		}
+
+		// (5)
+		{
+			auto const text = ops::toWkt(t.map, { line.get(), holed.get() }, projected);
+			auto result = ops::fromWkt(t.map, text, projected);
+			QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+			QCOMPARE(int(result.out.size()), 2);
+			for (int i = 0; i < 2; ++i)
+			{
+				auto const* original = i == 0 ? line.get() : holed.get();
+				auto const* pasted = result.out[std::size_t(i)]->asPath();
+				pasted->update();
+				QCOMPARE(pasted->parts().size(), original->parts().size());
+				auto const& a = original->getRawCoordinateVector();
+				auto const& b = pasted->getRawCoordinateVector();
+				QCOMPARE(b.size(), a.size());
+				for (std::size_t k = 0; k < a.size(); ++k)
+					QVERIFY(MapCoordF(a[k]).distanceTo(MapCoordF(b[k])) <= 0.001);
+			}
+			QCOMPARE(result.out[0]->getSymbol(), t.line);
+			QCOMPARE(result.out[1]->getSymbol(), t.area);
+		}
+
+		// (6)
+		{
+			auto result = ops::fromWkt(t.map, QStringLiteral("polygon z ((0 0 5, 10 0 5, 10 10 5, 0 0 5))"), paper);
+			QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+			QCOMPARE(int(result.out.size()), 1);
+			auto const* area = result.out.front()->asPath();
+			area->update();
+			QCOMPARE(int(area->parts().size()), 1);
+			QVERIFY(area->parts().front().isClosed());
+			QCOMPARE(int(area->parts().front().size()), 4);  // three corners and the close point
+
+			for (auto const* text : { "MULTIPOINT ((1 2), (3 4))", "MULTIPOINT (1 2, 3 4)" })
+			{
+				result = ops::fromWkt(t.map, QString::fromLatin1(text), paper);
+				QVERIFY2(result.error.isEmpty(), text);
+				QCOMPARE(int(result.out.size()), 2);
+				QCOMPARE(result.out.front()->getType(), Object::Point);
+			}
+			result = ops::fromWkt(t.map, QStringLiteral("SRID=26954;POINT(1 2)"), paper);
+			QCOMPARE(int(result.out.size()), 1);
+			QVERIFY(MapCoordF(result.out.front()->getRawCoordinateVector().front()).distanceTo(MapCoordF(1, -2)) < 0.001);
+			result = ops::fromWkt(t.map, QStringLiteral("GEOMETRYCOLLECTION (POINT (1 2), LINESTRING (0 0, 1 1))"), paper);
+			QCOMPARE(int(result.out.size()), 2);
+			QCOMPARE(result.out[0]->getType(), Object::Point);
+			QCOMPARE(result.out[1]->getType(), Object::Path);
+
+			QVERIFY(!ops::fromWkt(t.map, QStringLiteral("POINT EMPTY"), paper).error.isEmpty());
+			QVERIFY(!ops::fromWkt(t.map, QStringLiteral("hello"), paper).error.isEmpty());
+			auto no_line = paper;
+			no_line.line_symbol = nullptr;
+			result = ops::fromWkt(t.map, QStringLiteral("LINESTRING (0 0, 1 1)"), no_line);
+			QVERIFY(!result.error.isEmpty());
+			QVERIFY(result.out.empty());
+		}
+	}
+
+
+	void wktCommand()
+	{
+		// the design notes, "Well-known text", Accept (editor).
+		TestMap t;
+		auto* line = makePath(t.line, { {0, 0}, {10, -20} }, false);
+		t.map.addObject(line);
+		auto* window = new MainWindow();
+		auto* editor = new MapEditorController(MapEditorController::MapEditor, &t.map);
+		window->setController(editor);
+		t.taken = true;
+		auto* copy_action = editor->getAction("copy-wkt");
+		QVERIFY(copy_action);
+		QVERIFY(editor->getAction("paste-wkt"));
+		t.map.clearObjectSelection(true);
+		QVERIFY(!copy_action->isEnabled());
+		t.map.addObjectToSelection(line, true);
+		QVERIFY(copy_action->isEnabled());
+		auto const text = editor->copyWkt(true);
+		QVERIFY(text.startsWith(QLatin1String("LINESTRING")));
+		QCOMPARE(QApplication::clipboard()->text(), text);
+
+		editor->getSymbolWidget()->selectSingleSymbol(t.line);
+		auto const objects = t.map.getNumObjects();
+		auto const steps = t.map.undoManager().undoStepCount();
+		QVERIFY(editor->pasteWkt(text, true));
+		QCOMPARE(t.map.getNumObjects(), objects + 1);
+		QCOMPARE(t.map.undoManager().undoStepCount(), steps + 1);
+		QCOMPARE(t.map.getNumSelectedObjects(), 1);
+		QCOMPARE(t.map.getFirstSelectedObject()->getSymbol(), t.line);
 		window->deleteLater();
 	}
 };

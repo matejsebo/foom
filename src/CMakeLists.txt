@@ -205,6 +205,7 @@ set(Mapper_Common_SRCS
   core/object_groups.cpp
   core/ops/transform.cpp
   core/ops/vertex_type.cpp
+  core/ops/wkt.cpp
   
   core/renderables/renderable.cpp
   core/renderables/renderable_implementation.cpp
