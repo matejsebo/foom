@@ -21,6 +21,7 @@
 #ifndef FOOM_ROUTE_SEARCH_H
 #define FOOM_ROUTE_SEARCH_H
 
+#include <cstddef>
 #include <functional>
 #include <vector>
 
@@ -129,6 +130,15 @@ public:
 	 */
 	RouteResult fastestVia(const MapCoordF& from, const std::vector<MapCoordF>& via, const MapCoordF& to);
 	
+	/**
+	 * Alternatives to the fastest route between two places: routes which
+	 * keep away from it and from each other over more than a fifth of their
+	 * length, and take at most a quarter longer. At most count of them, by
+	 * their time. See the design notes, "Route analysis:
+	 * alternative routes".
+	 */
+	std::vector<RouteResult> alternatives(const MapCoordF& from, const MapCoordF& to, const RouteResult& fastest, int count);
+	
 	/** The time of the straight line between two places as if nothing were impassable, in s: what a course costs without routes. */
 	double straightTime(const MapCoordF& from, const MapCoordF& to) const;
 	
@@ -140,6 +150,9 @@ public:
 	RouteResult followLine(const MapCoordF& from, const MapCoordF& to) const;
 	
 private:
+	/** The search; with chain, the pixels of the route from the beginning. */
+	RouteResult search(const MapCoordF& from, const MapCoordF& to, std::vector<std::size_t>* chain);
+	
 	struct Data;
 	Data* d;
 };

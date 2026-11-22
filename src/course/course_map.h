@@ -30,6 +30,7 @@
 #include <QString>
 #include <QStringList>
 
+#include "core/map_coord.h"
 #include "course/course_data.h"
 #include "course/course_description.h"
 #include "course/course_relay.h"
@@ -136,6 +137,9 @@ void paintCourseMap(QPainter* painter, Map* map, const CourseMapDrawing& drawing
  * maps of the courses".
  */
 void paintCourseRoutes(QPainter* painter, const CourseRoutes& routes);
+
+/** Paints the perimeter of the route analysis as a dashed grey line; the design notes, "Route analysis: the perimeter". */
+void paintRoutePerimeter(QPainter* painter, const std::vector<MapCoordF>& perimeter);
 
 
 /** The symbol has a course role whose objects a course map draws itself: start, control, finish, marked route, description, title, start number, variant code. */

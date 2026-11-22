@@ -54,6 +54,8 @@ struct CourseRouteLeg
 	bool known = true;
 	/** The straight length of the leg in m; for a marked route that of its path. */
 	double straight_m = 0.0;
+	/** One of its ends lies outside the perimeter of the analysis: it has no route. */
+	bool outside = false;
 	RouteResult route;
 	/** The kept routes of the leg over via points and their indexes, where the routes are those which the map keeps. */
 	std::vector<RouteResult> via_routes;
@@ -80,6 +82,8 @@ struct CourseRoutes
 	bool with_heights = false;
 	/** The legs for which no route was found; their straights count in the sums. */
 	int missing = 0;
+	/** The legs which lie out of the perimeter; they are not among the missing ones. */
+	int outside = 0;
 	/** The legs which have not been analysed; their straights count in the sums. */
 	int unknown = 0;
 };
@@ -137,6 +141,18 @@ ViaRouteAdded addViaRoute(StoredRoutes& store, RouteSearch& search, const QStrin
  * The leg whose route passes nearest to a place, within a reach in mm of
  * the map; -1 when there is none. A marked route is no leg.
  */
+/**
+ * Searches up to count alternatives to the kept fastest route of a leg and
+ * keeps them in the place of its earlier alternatives; the routes over via
+ * points stay. Returns how many were kept: none for a leg whose fastest
+ * route is not kept, or was searched with other heights. See
+ * the design notes, "Route analysis: alternative routes".
+ */
+int addAlternativeRoutes(StoredRoutes& store, RouteSearch& search, const QString& from, const QString& to, int count);
+
+/** addAlternativeRoutes() for every leg of a course whose fastest route is kept; returns how many were kept. */
+int addCourseAlternatives(const Map& map, const CourseData& data, const QString& course, int part, RouteSearch& search, StoredRoutes& store, int count);
+
 int routeLegAt(const CourseRoutes& routes, const MapCoordF& place, double reach);
 
 /** The same for the routes over via points: the leg, and which of its routes. False when there is none. */
@@ -150,6 +166,8 @@ struct AllCourseRoutes
 	std::vector<CourseRoutes> tables;
 	/** The relays which were left out for a fault of their variations. */
 	QStringList skipped;
+	/** How many alternative routes were kept. */
+	int alternatives = 0;
 };
 
 /**
@@ -163,12 +181,22 @@ AllCourseRoutes analyseAllRoutes(const Map& map, const CourseData& data, RouteSe
 /** The same from the routes which the course data keep, without a search. */
 AllCourseRoutes storedAllRoutes(const Map& map, const CourseData& data);
 
+/** The legs of the tables which lie out of the perimeter, every leg once. */
+int routeLegsOutside(const AllCourseRoutes& all);
+
 /**
  * Analyses all courses of a map with its route settings, the rasters of
  * its terrain and the heights of its terrain model. The store is emptied
  * first.
  */
-AllCourseRoutes analyseAllRoutesOfMap(Map& map, StoredRoutes& store);
+AllCourseRoutes analyseAllRoutesOfMap(Map& map, StoredRoutes& store, int alternatives = 0);
+
+/**
+ * As above, with the rasters of the cache at cache_path (none when empty);
+ * source says where they came from. See the design notes,
+ * "Route analysis: the cache of the rasters".
+ */
+AllCourseRoutes analyseAllRoutesOfMap(Map& map, StoredRoutes& store, int alternatives, const QString& cache_path, RouteTerrainSource* source);
 
 /**
  * The heights of the terrain model of a map for the search, by the

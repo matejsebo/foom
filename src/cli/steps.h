@@ -91,6 +91,7 @@ private:
 	StepResult saveAs(const Step& step);
 	StepResult exportCourseMapsStep(const Step& step);  // foom
 	StepResult analyseRoutesStep(const Step& step);  // foom
+	StepResult exportRoutesMapStep(const Step& step);  // foom
 	StepResult checkStep(const Step& step);  // foom
 	StepResult courseStatisticsStep(const Step& step);  // foom
 	StepResult exportCoursesStep(const Step& step);  // foom

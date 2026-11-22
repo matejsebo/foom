@@ -134,6 +134,7 @@ set(Mapper_Common_SRCS
   course/route_search.cpp  # foom
   course/route_settings.cpp  # foom
   course/route_store.cpp  # foom
+  course/route_print.cpp  # foom
   course/route_terrain.cpp  # foom
   sketch/sketch.cpp
   sync/field_copy.cpp

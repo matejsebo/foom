@@ -467,6 +467,25 @@ void paintCourseRoutes(QPainter* painter, const CourseRoutes& routes)
 
 
 
+void paintRoutePerimeter(QPainter* painter, const std::vector<MapCoordF>& perimeter)
+{
+	if (perimeter.size() < 3)
+		return;
+	QPolygonF polygon;
+	for (auto const& point : perimeter)
+		polygon.push_back(QPointF(point));
+	painter->save();
+	painter->setRenderHint(QPainter::Antialiasing, true);
+	painter->setBrush(Qt::NoBrush);
+	QPen pen(QColor(110, 110, 110), 0.25, Qt::DashLine);
+	pen.setJoinStyle(Qt::MiterJoin);
+	painter->setPen(pen);
+	painter->drawPolygon(polygon);
+	painter->restore();
+}
+
+
+
 #ifdef QT_PRINTSUPPORT_LIB
 
 namespace {

@@ -26,6 +26,8 @@
 
 #include <QString>
 
+#include "core/map_coord.h"
+
 class QXmlStreamReader;
 class QXmlStreamWriter;
 
@@ -78,6 +80,12 @@ struct RouteSettings
 	double climb_factor = 1.0;
 	/** The runnability of single symbols where it is not the default, by their numbers ("406.000"). */
 	std::vector<std::pair<QString, Runnability>> symbols;
+	/**
+	 * The perimeter of the analysis, a polygon in mm of the map; empty for
+	 * the whole map. See the design notes, "Route analysis:
+	 * the perimeter".
+	 */
+	std::vector<MapCoordF> perimeter;
 	
 	/** Nothing is set which a file would have to keep. */
 	bool isDefault() const;

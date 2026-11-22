@@ -41,6 +41,9 @@
 #include "course/course_data.h"
 #include "course/course_storage.h"
 #include "course/route_store.h"
+#include "course/route_terrain.h"
+#include "gui/main_window.h"
+#include "gui/map/map_editor.h"
 #include "gui/map/map_widget.h"
 #include "gui/modifier_key.h"
 #include "gui/widgets/course_widget.h"
@@ -111,7 +114,9 @@ RouteSearch& RouteTool::routeSearch()
 	if (!search)
 	{
 		auto const settings = map()->courseData().route;
-		terrain = std::make_unique<RouteTerrain>(buildRouteTerrain(*map(), settings));
+		// the design notes, "Route analysis: the cache of the rasters"
+		auto const path = editor->getWindow() ? routeTerrainCachePath(editor->getWindow()->currentPath()) : QString{};
+		terrain = std::make_unique<RouteTerrain>(cachedRouteTerrain(*map(), settings, path));
 		search = std::make_unique<RouteSearch>(*terrain, settings, map()->getScaleDenominator());
 		setRouteHeights(*search, *map());
 	}

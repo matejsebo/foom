@@ -33,6 +33,8 @@
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 
+#include "course/route_store.h"
+
 namespace OpenOrienteering {
 
 namespace {
@@ -83,6 +85,24 @@ bool runnabilityKindFromName(const QString& name, Runnability::Kind& kind)
 
 
 
+namespace {
+
+/** The same points, to what the file keeps. */
+bool samePoints(const std::vector<MapCoordF>& lhs, const std::vector<MapCoordF>& rhs)
+{
+	if (lhs.size() != rhs.size())
+		return false;
+	for (std::size_t i = 0; i < lhs.size(); ++i)
+	{
+		if (std::abs(lhs[i].x() - rhs[i].x()) >= 0.0005 || std::abs(lhs[i].y() - rhs[i].y()) >= 0.0005)
+			return false;
+	}
+	return true;
+}
+
+}  // namespace
+
+
 bool RouteSettings::isDefault() const
 {
 	return *this == RouteSettings{};
@@ -95,7 +115,8 @@ bool operator==(const RouteSettings& lhs, const RouteSettings& rhs)
 	       && lhs.use_runnability == rhs.use_runnability
 	       && lhs.use_elevation == rhs.use_elevation
 	       && std::abs(lhs.climb_factor - rhs.climb_factor) < 0.0005
-	       && lhs.symbols == rhs.symbols;
+	       && lhs.symbols == rhs.symbols
+	       && samePoints(lhs.perimeter, rhs.perimeter);
 }
 
 
@@ -117,6 +138,8 @@ void saveRouteSettings(const RouteSettings& settings, QXmlStreamWriter& xml)
 		xml.writeAttribute(QStringLiteral("kind"), runnabilityKindName(entry.second.kind));
 		xml.writeAttribute(QStringLiteral("percent"), QString::number(entry.second.percent));
 	}
+	if (!settings.perimeter.empty())
+		xml.writeTextElement(QStringLiteral("perimeter"), routePointsText(settings.perimeter));
 	xml.writeEndElement();
 }
 
@@ -143,6 +166,13 @@ RouteSettings loadRouteSettings(QXmlStreamReader& xml)
 				runnability.percent = qBound(0, inner.value(QLatin1String("percent")).toInt(), 100);
 				settings.symbols.push_back({ number, runnability });
 			}
+		}
+		else if (xml.name() == QLatin1String("perimeter"))
+		{
+			std::vector<MapCoordF> points;
+			if (routePointsFromText(xml.readElementText(), points) && points.size() >= 3)
+				settings.perimeter = std::move(points);
+			continue;
 		}
 		xml.skipCurrentElement();
 	}

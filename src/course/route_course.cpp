@@ -29,6 +29,8 @@
 #include <QCoreApplication>
 #include <QLatin1Char>
 #include <QLatin1String>
+#include <QPointF>
+#include <QPolygonF>
 #include <QStringList>
 
 #include "core/georeferencing.h"
@@ -116,6 +118,13 @@ CourseRoutes routesOf(const Map& map, const CourseData& data, const QString& cou
 	}
 	auto const stops = courseStops(map, data, *course);
 	auto const mm_to_m = map.getScaleDenominator() / 1000.0;
+	// the design notes, "Route analysis: the perimeter".
+	QPolygonF perimeter;
+	for (auto const& point : data.route.perimeter)
+		perimeter.push_back(QPointF(point));
+	auto const within = [&perimeter](const MapCoordF& place) {
+		return perimeter.size() < 3 || perimeter.containsPoint(QPointF(place), Qt::OddEvenFill);
+	};
 	
 	// The leg from a marked route with which the course begins to the start is not in the length of the course.
 	auto const leading_route = stops.size() >= 2
@@ -139,6 +148,7 @@ CourseRoutes routesOf(const Map& map, const CourseData& data, const QString& cou
 			leg.from = course->items[std::size_t(previous.item)].code;
 			leg.to = item.code;
 			leg.straight_m = std::hypot(stop.entry.x() - previous.exit.x(), stop.entry.y() - previous.exit.y()) * mm_to_m;
+			leg.outside = !within(previous.exit) || !within(stop.entry);
 			auto const* stored = kept ? kept->find(leg.from, leg.to) : nullptr;
 			if (stored && stored->fits(previous.exit, stop.entry))
 			{
@@ -146,7 +156,7 @@ CourseRoutes routesOf(const Map& map, const CourseData& data, const QString& cou
 			}
 			else if (search)
 			{
-				leg.route = search->fastest(previous.exit, stop.entry);
+				leg.route = leg.outside ? RouteResult{} : search->fastest(previous.exit, stop.entry);
 				if (store)
 					store->put(storedOf(leg, previous.exit, stop.entry));
 			}
@@ -240,7 +250,10 @@ CourseRoutes routesOf(const Map& map, const CourseData& data, const QString& cou
 		else
 		{
 			routes.length_m += leg.straight_m;
-			++(leg.known ? routes.missing : routes.unknown);
+			if (leg.outside && !leg.route.found)
+				++routes.outside;
+			else
+				++(leg.known ? routes.missing : routes.unknown);
 		}
 	}
 	routes.analysed = !routes.legs.empty();
@@ -357,14 +370,57 @@ AllCourseRoutes storedAllRoutes(const Map& map, const CourseData& data)
 }
 
 
-AllCourseRoutes analyseAllRoutesOfMap(Map& map, StoredRoutes& store)
+int routeLegsOutside(const AllCourseRoutes& all)
+{
+	std::vector<std::pair<QString, QString>> legs;
+	for (auto const& table : all.tables)
+	{
+		for (auto const& leg : table.legs)
+		{
+			auto const key = std::make_pair(leg.from, leg.to);
+			if (leg.outside && !leg.route.found && std::find(legs.begin(), legs.end(), key) == legs.end())
+				legs.push_back(key);
+		}
+	}
+	return int(legs.size());
+}
+
+
+AllCourseRoutes analyseAllRoutesOfMap(Map& map, StoredRoutes& store, int alternatives)
+{
+	return analyseAllRoutesOfMap(map, store, alternatives, {}, nullptr);
+}
+
+
+AllCourseRoutes analyseAllRoutesOfMap(Map& map, StoredRoutes& store, int alternatives, const QString& cache_path, RouteTerrainSource* source)
 {
 	store = {};
 	auto const settings = map.courseData().route;
-	auto const terrain = buildRouteTerrain(map, settings);
+	RouteTerrain terrain;
+	if (cache_path.isEmpty() && !source)
+		terrain = buildRouteTerrain(map, settings);
+	else
+		terrain = cachedRouteTerrain(map, settings, cache_path, {}, source);
 	RouteSearch search(terrain, settings, map.getScaleDenominator());
 	setRouteHeights(search, map);
-	return analyseAllRoutes(map, map.courseData(), search, store);
+	auto all = analyseAllRoutes(map, map.courseData(), search, store);
+	if (alternatives > 0)
+	{
+		// Every leg once, however many courses run it.
+		std::vector<std::pair<QString, QString>> done;
+		for (auto const& table : all.tables)
+		{
+			for (auto const& leg : table.legs)
+			{
+				auto const key = std::make_pair(leg.from, leg.to);
+				if (leg.marked || !leg.route.found || std::find(done.begin(), done.end(), key) != done.end())
+					continue;
+				done.push_back(key);
+				all.alternatives += addAlternativeRoutes(store, search, leg.from, leg.to, alternatives);
+			}
+		}
+	}
+	return all;
 }
 
 
@@ -403,6 +459,47 @@ ViaRouteAdded addViaRoute(StoredRoutes& store, RouteSearch& search, const QStrin
 	added.reason = ViaRouteAdded::Added;
 	// The fastest route is no longer looked at after this: the store may move it.
 	store.put(std::move(stored));
+	return added;
+}
+
+
+int addAlternativeRoutes(StoredRoutes& store, RouteSearch& search, const QString& from, const QString& to, int count)
+{
+	auto const* kept = store.find(from, to);
+	if (!kept || !kept->found || kept->isMarkedRoute() || kept->points.size() < 2 || search.usesHeights() != store.with_heights)
+		return 0;
+	auto const fastest = resultOf(*kept);
+	// The earlier alternatives of the leg go; the routes over via points stay.
+	store.routes.erase(std::remove_if(store.routes.begin(), store.routes.end(), [&from, &to](const StoredRoute& route) {
+		return route.alternative && route.from == from && route.to == to;
+	}), store.routes.end());
+	auto const found = search.alternatives(fastest.points.front(), fastest.points.back(), fastest, count);
+	for (auto const& route : found)
+	{
+		StoredRoute stored;
+		stored.from = from;
+		stored.to = to;
+		stored.index = store.nextIndex(from, to);
+		stored.alternative = true;
+		stored.points = route.points;
+		stored.length_m = route.length_m;
+		stored.time_s = route.time_s;
+		stored.climb_m = route.climb_m;
+		store.put(std::move(stored));
+	}
+	return int(found.size());
+}
+
+
+int addCourseAlternatives(const Map& map, const CourseData& data, const QString& course, int part, RouteSearch& search, StoredRoutes& store, int count)
+{
+	auto const routes = routesOf(map, data, course, part, &store, nullptr, nullptr);
+	auto added = 0;
+	for (auto const& leg : routes.legs)
+	{
+		if (!leg.marked && leg.known && leg.route.found)
+			added += addAlternativeRoutes(store, search, leg.from, leg.to, count);
+	}
 	return added;
 }
 

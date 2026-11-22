@@ -110,7 +110,7 @@ bool transformMap(Map& map, const QTransform& transform, const MapTransformOptio
 		save(MapDataUndoStep::Bookmarks);
 		save(MapDataUndoStep::Templates);
 	}
-	if (!map.courseData().routes.isEmpty())
+	if (!map.courseData().routes.isEmpty() || !map.courseData().route.perimeter.empty())
 		save(MapDataUndoStep::Courses);
 	if (options.georeferencing)
 		save(MapDataUndoStep::Georef);
@@ -179,6 +179,14 @@ bool transformMap(Map& map, const QTransform& transform, const MapTransformOptio
 			for (auto& point : route.via)
 				point = mapped(transform, point);
 		}
+		map.setCourseData(data);
+	}
+	// foom: the design notes, "Route analysis: the perimeter"
+	if (!map.courseData().route.perimeter.empty())
+	{
+		auto data = map.courseData();
+		for (auto& point : data.route.perimeter)
+			point = mapped(transform, point);
 		map.setCourseData(data);
 	}
 	
@@ -402,7 +410,7 @@ bool warpMap(Map& map, const std::function<bool (const MapCoordF&)>& inside,
 	auto undo_step = std::make_unique<CombinedUndoStep>(&map);
 	for (auto* step : data_steps)
 		undo_step->push(step);
-	auto const has_routes = !map.courseData().routes.isEmpty();
+	auto const has_routes = !map.courseData().routes.isEmpty() || !map.courseData().route.perimeter.empty();
 	if (has_routes)
 		undo_step->push(new MapDataUndoStep(&map, MapDataUndoStep::Courses, MapDataUndoStep::currentXml(map, MapDataUndoStep::Courses)));
 	
@@ -503,6 +511,9 @@ bool warpMap(Map& map, const std::function<bool (const MapCoordF&)>& inside,
 				if (inside(point))
 					point = moved(point);
 		}
+		for (auto& point : data.route.perimeter)
+			if (inside(point))
+				point = moved(point);
 		map.setCourseData(data);
 	}
 	
