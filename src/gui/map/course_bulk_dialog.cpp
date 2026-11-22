@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include <Qt>
@@ -93,6 +94,16 @@ CourseBulkDialog::CourseBulkDialog(Map* map, Mode mode, const QString& code, QWi
 	object_box = new QComboBox();
 	object_box->setObjectName(QStringLiteral("course-bulk-object"));
 	fillObjects(object_box, data);
+	// The markers, which have no course object, after the objects.
+	for (auto const& marker : {
+	         std::make_pair(CourseItem::CrossingPoint, tr("Mandatory crossing point")),
+	         std::make_pair(CourseItem::Passage, tr("Mandatory passage")),
+	         std::make_pair(CourseItem::MapExchange, tr("Map exchange")),
+	         std::make_pair(CourseItem::MapFlip, tr("Map flip")) })
+	{
+		object_box->addItem(marker.second, QString{});
+		object_box->setItemData(object_box->count() - 1, int(marker.first), markerRole());
+	}
 	object_box->setCurrentIndex(std::max(0, object_box->findData(code)));
 	
 	course_list = new QListWidget();
@@ -208,6 +219,7 @@ bool CourseBulkDialog::apply(QString* message)
 {
 	QString text;
 	auto const code = object_box->currentData().toString();
+	auto const marker = object_box->currentData(markerRole());
 	QStringList courses;
 	for (int i = 0; i < course_list->count(); ++i)
 	{
@@ -216,8 +228,18 @@ bool CourseBulkDialog::apply(QString* message)
 	}
 	
 	auto data = map->courseData();
-	auto const report = mode == Insert ? insertIntoCourses(data, code, courses, condition())
-	                                   : removeFromCourses(data, code, courses, condition());
+	CourseBulkReport report;
+	if (marker.isValid())
+	{
+		auto const type = CourseItem::Type(marker.toInt());
+		report = mode == Insert ? insertMarkerIntoCourses(data, type, courses, condition())
+		                        : removeMarkerFromCourses(data, type, courses, condition());
+	}
+	else
+	{
+		report = mode == Insert ? insertIntoCourses(data, code, courses, condition())
+		                        : removeFromCourses(data, code, courses, condition());
+	}
 	switch (report.error)
 	{
 	case CourseBulkReport::NoError:
@@ -245,8 +267,9 @@ bool CourseBulkDialog::apply(QString* message)
 	}
 	
 	changeCourseData(*map, std::move(data));
-	last_report = mode == Insert ? tr("%1 was put into %n course(s).", nullptr, int(report.changed.size())).arg(code)
-	                             : tr("%1 was taken out of %n course(s).", nullptr, int(report.changed.size())).arg(code);
+	auto const what = marker.isValid() ? object_box->currentText() : code;
+	last_report = mode == Insert ? tr("%1 was put into %n course(s).", nullptr, int(report.changed.size())).arg(what)
+	                             : tr("%1 was taken out of %n course(s).", nullptr, int(report.changed.size())).arg(what);
 	if (!report.unchanged.isEmpty())
 		last_report += QLatin1Char(' ') + tr("Not changed: %1.").arg(report.unchanged.join(QLatin1String(", ")));
 	if (message)

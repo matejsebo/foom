@@ -18,6 +18,7 @@
  */
 
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <map>
@@ -30,14 +31,17 @@
 #include <QAction>
 #include <QByteArray>
 #include <QChar>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDir>
 #include <QFile>
 #include <QIODevice>
+#include <QImage>
 #include <QLabel>
 #include <QLatin1Char>
 #include <QLatin1String>
 #include <QObject>
+#include <QPoint>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QString>
@@ -54,6 +58,7 @@
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
 #include "course/course_data.h"
+#include "course/course_diagram.h"
 #include "course/course_edit.h"
 #include "course/course_relay.h"
 #include "course/course_relay_edit.h"
@@ -63,6 +68,7 @@
 #include "fileformats/file_format.h"
 #include "fileformats/file_format_registry.h"
 #include "fileformats/file_import_export.h"
+#include "gui/widgets/course_diagram_widget.h"
 #include "gui/widgets/course_widget.h"
 #include "undo/object_undo.h"
 #include "undo/undo.h"
@@ -303,6 +309,8 @@ private slots:
 	void dockTest();
 	void editTest();
 	void dockEditTest();
+	void diagramTest();
+	void diagramDockTest();
 };
 
 
@@ -1109,6 +1117,161 @@ void CourseRelayTest::dockEditTest()
 	widget.removeCurrentItem();
 	QVERIFY(widget.lastRefusal().isEmpty());
 	QCOMPARE(itemsOf("Two"), QStringLiteral("S1 r2 v v 32 q 33 r2 v 31 v 32 q F1"));
+}
+
+
+/// Relays: the branch diagram, Accept (1) to (4)
+void CourseRelayTest::diagramTest()
+{
+	using Cell = CourseDiagram::Cell;
+	/// "text@row,column" for each cell, in the order of the items.
+	auto const cellsOf = [](const CourseDiagram& diagram) {
+		QStringList words;
+		for (auto const& cell : diagram.cells)
+			words.push_back(cell.text + QLatin1Char('@') + QString::number(cell.row) + QLatin1Char(',') + QString::number(cell.column));
+		return words.join(QStringLiteral("; "));
+	};
+	/// The number of lines which enter the cell of an item.
+	auto const into = [](const CourseDiagram& diagram, int item) {
+		auto const cell = diagram.cellOfItem(item);
+		return int(std::count_if(begin(diagram.lines), end(diagram.lines), [cell](const CourseDiagram::Line& line) { return line.to == cell; }));
+	};
+	
+	// (1) A normal course is a column.
+	auto diagram = courseDiagram(courseOf(QStringLiteral("N"), Course::Normal, 0, "S1 31 32 F1"));
+	QCOMPARE(cellsOf(diagram), QStringLiteral("S1@0,0; 31@1,0; 32@2,0; F1@3,0"));
+	QCOMPARE(diagram.rows, 4);
+	QCOMPARE(diagram.columns, 1);
+	QCOMPARE(int(diagram.lines.size()), 3);
+	QCOMPARE(diagram.cells[1].kind, Cell::Object);
+	
+	// (2) Relay Women.
+	diagram = courseDiagram(relayWomen());
+	QCOMPARE(int(diagram.cells.size()), 30);
+	QCOMPARE(diagram.rows, 19);
+	QCOMPARE(diagram.columns, 3);
+	for (int i = 0; i < 30; ++i)
+		QCOMPARE(diagram.cells[std::size_t(i)].item, i);
+	auto const at = [&diagram](int item) -> QString {
+		auto const& cell = diagram.cells[std::size_t(diagram.cellOfItem(item))];
+		return cell.text + QLatin1Char('@') + QString::number(cell.row) + QLatin1Char(',') + QString::number(cell.column);
+	};
+	QCOMPARE(diagram.cells[2].kind, Cell::Begin);
+	QCOMPARE(at(3), QStringLiteral("A@3,0"));
+	QCOMPARE(at(6), QStringLiteral("B@3,1"));
+	QCOMPARE(at(9), QStringLiteral("C@3,2"));
+	QCOMPARE(diagram.cells[3].kind, Cell::Branch);
+	QCOMPARE(at(5), QStringLiteral("55@5,0"));
+	QCOMPARE(at(8), QStringLiteral("57@5,1"));
+	QCOMPARE(at(11), QStringLiteral("56@5,2"));
+	QCOMPARE(diagram.cells[12].kind, Cell::End);
+	QCOMPARE(diagram.cells[12].row, 6);
+	QCOMPARE(diagram.cells[12].column, 0);
+	QCOMPARE(at(13), QStringLiteral("59@7,0"));
+	QCOMPARE(at(15), QStringLiteral("1-2@9,0"));
+	QCOMPARE(diagram.cells[16].kind, Cell::Begin);
+	QCOMPARE(diagram.cells[16].row, 10);
+	QCOMPARE(at(17), QStringLiteral("A@11,0"));
+	QCOMPARE(at(20), QStringLiteral("65@12,1"));
+	QCOMPARE(at(22), QStringLiteral("62@14,0"));
+	QCOMPARE(at(23), QStringLiteral("3@9,2"));
+	QCOMPARE(at(25), QStringLiteral("61@11,2"));
+	QCOMPARE(diagram.cells[26].row, 15);
+	QCOMPARE(at(29), QStringLiteral("F3@18,0"));
+	QCOMPARE(diagram.cellAt(18, 0), 29);
+	QCOMPARE(diagram.cellAt(18, 1), -1);
+	
+	// The lines: the begin to every branch, every branch to the end.
+	QCOMPARE(into(diagram, 3), 1);
+	QCOMPARE(into(diagram, 12), 3);
+	QCOMPARE(into(diagram, 21), 2);
+	QCOMPARE(into(diagram, 26), 2);
+	QCOMPARE(into(diagram, 13), 1);
+	QCOMPARE(into(diagram, 0), 0);
+	auto const leaving = std::count_if(begin(diagram.lines), end(diagram.lines), [&diagram](const CourseDiagram::Line& line) {
+		return line.from == diagram.cellOfItem(2);
+	});
+	QCOMPARE(int(leaving), 3);
+	
+	// (3) An empty branch goes from the begin to the end.
+	diagram = courseDiagram(courseOf(QStringLiteral("E"), Course::Relay, 2, "S1 r2 v v q F1"));
+	QCOMPARE(cellsOf(diagram).section(QStringLiteral("; "), 2, 4), QString(QStringLiteral("A@2,0; B@2,1; ") + diagram.cells[4].text + QStringLiteral("@3,0")));
+	QCOMPARE(into(diagram, 4), 2);
+	QCOMPARE(diagram.columns, 2);
+	
+	// (4) A variation without its end is closed at the end of the course.
+	diagram = courseDiagram(courseOf(QStringLiteral("U"), Course::Relay, 2, "S1 r2 v 31 v 32 33 F1"));
+	QCOMPARE(int(diagram.cells.size()), 8);
+	QCOMPARE(cellsOf(diagram).section(QStringLiteral("; "), 2), QStringLiteral("A@2,0; 31@3,0; B@2,1; 32@3,1; 33@4,1; F1@5,1"));
+	QVERIFY(std::none_of(begin(diagram.cells), end(diagram.cells), [](const Cell& cell) { return cell.kind == Cell::End; }));
+	// A stray end is a cell of its own.
+	diagram = courseDiagram(courseOf(QStringLiteral("V"), Course::Relay, 2, "S1 31 q F1"));
+	QCOMPARE(int(diagram.cells.size()), 4);
+	QCOMPARE(diagram.cells[2].kind, Cell::End);
+	QCOMPARE(diagram.cells[3].row, 3);
+	// A course without items has no cells.
+	QVERIFY(courseDiagram(Course{}).cells.empty());
+}
+
+
+/// Relays: the branch diagram, Accept (5)
+void CourseRelayTest::diagramDockTest()
+{
+	Map map;
+	fillRelayMap(map);
+	CourseWidget widget(&map);
+	auto* items = widget.findChild<QTreeWidget*>(QStringLiteral("course-items"));
+	auto* view = widget.findChild<CourseDiagramWidget*>(QStringLiteral("course-diagram"));
+	auto* area = widget.findChild<QWidget*>(QStringLiteral("course-diagram-area"));
+	auto* check = widget.findChild<QCheckBox*>(QStringLiteral("course-diagram-check"));
+	QVERIFY(items && view && area && check);
+	
+	// A normal course has its list.
+	widget.setCurrentCourse(QStringLiteral("N"));
+	QVERIFY(!items->isHidden());
+	QVERIFY(area->isHidden());
+	QVERIFY(!check->isEnabled());
+	
+	// The relay R has its diagram: S1, the begin, A, 31, B, 32, the end, 33, F1.
+	widget.setCurrentCourse(QStringLiteral("R"));
+	QVERIFY(items->isHidden());
+	QVERIFY(!area->isHidden());
+	QVERIFY(check->isEnabled() && check->isChecked());
+	QCOMPARE(int(view->diagram().cells.size()), 9);
+	QCOMPARE(view->diagram().columns, 2);
+	QVERIFY(view->sizeHint().width() > view->sizeHint().height() / 5);
+	
+	// The current item is marked; a click on a cell makes its item current.
+	items->setCurrentItem(items->topLevelItem(5));
+	QCOMPARE(view->currentItem(), 5);
+	auto const rect = view->cellRect(view->diagram().cellOfItem(4));
+	QVERIFY(rect.isValid());
+	QCOMPARE(view->itemAt(rect.center()), 4);
+	QCOMPARE(view->itemAt(QPoint(-5, -5)), -1);
+	QTest::mouseClick(view, Qt::LeftButton, {}, rect.center());
+	QCOMPARE(items->indexOfTopLevelItem(items->currentItem()), 4);
+	QCOMPARE(view->currentItem(), 4);
+	
+	// Removing the variation of that branch marker gives the list back; undo, the diagram.
+	QVERIFY2(widget.removeCurrentVariation(), qPrintable(widget.lastRefusal()));
+	QVERIFY(!items->isHidden());
+	QVERIFY(area->isHidden());
+	QVERIFY(map.undoManager().undo());
+	QVERIFY(items->isHidden());
+	
+	// The list instead of the diagram.
+	check->setChecked(false);
+	QVERIFY(!items->isHidden());
+	QVERIFY(area->isHidden());
+	check->setChecked(true);
+	QVERIFY(items->isHidden());
+	
+	// It paints.
+	view->resize(view->sizeHint());
+	QImage image(view->size(), QImage::Format_ARGB32_Premultiplied);
+	image.fill(Qt::transparent);
+	view->render(&image);
+	QVERIFY(image.pixel(view->cellRect(0).center()) != 0);
 }
 
 

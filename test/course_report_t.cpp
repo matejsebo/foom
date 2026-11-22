@@ -28,16 +28,20 @@
 #include <QtTest>
 #include <QByteArray>
 #include <QCheckBox>
+#include <QDate>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QIODevice>
 #include <QObject>
 #include <QPlainTextEdit>
+#include <QPushButton>
 #include <QString>
 #include <QStringList>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTemporaryDir>
+#include <QTextBrowser>
 #include <QUuid>
 #include <QVector>
 
@@ -51,12 +55,14 @@
 #include "course/course_data.h"
 #include "course/course_edit.h"
 #include "course/course_report.h"
+#include "course/course_report_print.h"
 #include "course/course_render.h"
 #include "course/course_storage.h"
 #include "fileformats/file_format.h"
 #include "fileformats/file_format_registry.h"
 #include "fileformats/file_import_export.h"
 #include "gui/main_window.h"
+#include "gui/map/course_report_dialog.h"
 #include "gui/map/course_statistics_dialog.h"
 #include "gui/map/map_editor.h"
 #include "undo/object_undo.h"
@@ -230,6 +236,8 @@ private slots:
 	void checkTest();
 	void dialogTest();
 	void editorTest();
+	void printTest();
+	void printDialogTest();
 };
 
 
@@ -605,6 +613,120 @@ void CourseReportTest::editorTest()
 	window->deleteLater();
 }
 
+
+
+/// Accept (11)
+void CourseReportTest::printTest()
+{
+	Map map;
+	fillReportMap(map);
+	auto const issues = checkCourses(map, map.courseData());
+	
+	// Every rule of the check has its part.
+	auto const sections = courseCheckSections();
+	QCOMPARE(sections.size(), 8);
+	for (auto const& issue : issues)
+		QVERIFY2(courseCheckSection(issue.rule) >= 0, issue.rule.constData());
+	QCOMPARE(courseCheckSection(rule::course_start_missing), 0);
+	QCOMPARE(courseCheckSection(rule::control_unused), 1);
+	QCOMPARE(courseCheckSection(rule::description_fg_missing), 2);
+	QCOMPARE(courseCheckSection(rule::punch_repeated), 3);
+	QCOMPARE(courseCheckSection(rule::relay_structure), 7);
+	QCOMPARE(courseCheckSection("crt-sym"), -1);
+	
+	CourseReportOptions options;
+	options.title = QStringLiteral("Spring <Cup>");
+	options.date = QDate(2026, 11, 21);
+	auto const html = courseReportHtml(map, map.courseData(), options);
+	QVERIFY(html.contains(QStringLiteral("<h1>Spring &lt;Cup&gt;</h1>")));
+	QVERIFY(html.contains(QStringLiteral("2026-11-21")));
+	QVERIFY(html.contains(QStringLiteral("Errors: 6, warnings: 10, notes: 1.")));
+	for (auto const& section : sections)
+		QVERIFY2(html.contains(QLatin1String("<h3>") + section.toHtmlEscaped() + QLatin1String("</h3>")), qPrintable(section));
+	for (auto const& issue : issues)
+		QVERIFY2(html.contains(issue.message.toHtmlEscaped()), qPrintable(issue.message));
+	// The issues stand in the order of the parts: the unused control before the descriptions.
+	QVERIFY(html.indexOf(QStringLiteral("The control 35 is in no course.")) < html.indexOf(QStringLiteral("Control 31: column D")));
+	
+	// The statistics: the tables of the dialog and the lists of the event.
+	for (auto const* part : { "<h2>Statistics</h2>", "<h3>Courses</h3>", "<h3>Course objects</h3>", "<h3>Legs</h3>", "<h3>Controls and courses</h3>" })
+		QVERIFY2(html.contains(QLatin1String(part)), part);
+	QVERIFY(html.contains(QStringLiteral("<td>A</td><td>H21, H20</td><td>50</td>")));
+	QVERIFY(html.contains(QStringLiteral("<td>31</td><td>32</td><td>100 m</td><td>3</td><td>50</td><td>A, C, D</td>")));
+	QVERIFY(html.contains(QStringLiteral("<td>33</td><td>34</td><td>20 m</td>")));
+	
+	// Either part alone.
+	options.statistics = false;
+	auto const check_only = courseReportHtml(map, map.courseData(), options);
+	QVERIFY(check_only.contains(QStringLiteral("<h2>Consistency check</h2>")));
+	QVERIFY(!check_only.contains(QStringLiteral("<h2>Statistics</h2>")));
+	options.statistics = true;
+	options.check = false;
+	auto const statistics_only = courseReportHtml(map, map.courseData(), options);
+	QVERIFY(!statistics_only.contains(QStringLiteral("<h2>Consistency check</h2>")));
+	QVERIFY(statistics_only.contains(QStringLiteral("<h2>Statistics</h2>")));
+	
+	// A part of the check without issues says so.
+	Map clean;
+	clean.setScaleDenominator(10000);
+	auto const empty_html = courseReportHtml(clean, clean.courseData(), CourseReportOptions{});
+	QVERIFY(empty_html.contains(QStringLiteral("<h1>Courses</h1>")));
+	QVERIFY(empty_html.contains(QStringLiteral("Errors: 0, warnings: 0, notes: 0.")));
+	QCOMPARE(empty_html.count(QStringLiteral("<p>None.</p>")), 8 + 8);
+	
+	// The PDF.
+	QTemporaryDir folder;
+	QVERIFY(folder.isValid());
+	auto const path = folder.filePath(QStringLiteral("report.pdf"));
+	QVERIFY(writeCourseReportPdf(html, path));
+	QFile file(path);
+	QVERIFY(file.open(QIODevice::ReadOnly));
+	auto const bytes = file.readAll();
+	QVERIFY(bytes.startsWith("%PDF-"));
+	QVERIFY(bytes.contains("/Type /Page"));
+	QVERIFY(!writeCourseReportPdf(html, folder.filePath(QStringLiteral("no folder/report.pdf"))));
+}
+
+
+/// Accept (12)
+void CourseReportTest::printDialogTest()
+{
+	auto* map = new Map();
+	fillReportMap(*map);
+	auto* window = new MainWindow();
+	auto* editor = new MapEditorController(MapEditorController::MapEditor, map);
+	window->setController(editor);
+	QVERIFY(editor->getAction("course-report"));
+	
+	CourseReportDialog dialog(map, QStringLiteral("Spring Cup"));
+	auto* check = dialog.findChild<QCheckBox*>(QStringLiteral("course-report-check"));
+	auto* statistics = dialog.findChild<QCheckBox*>(QStringLiteral("course-report-statistics"));
+	auto* view = dialog.findChild<QTextBrowser*>(QStringLiteral("course-report-view"));
+	QVERIFY(check && statistics && view);
+	QVERIFY(dialog.findChild<QPushButton*>(QStringLiteral("course-report-print")));
+	QVERIFY(dialog.findChild<QPushButton*>(QStringLiteral("course-report-pdf")));
+	QVERIFY(dialog.findChild<QPushButton*>(QStringLiteral("course-report-html")));
+	QVERIFY(check->isChecked() && statistics->isChecked());
+	
+	QVERIFY(dialog.html().contains(QStringLiteral("<h1>Spring Cup</h1>")));
+	QVERIFY(dialog.html().contains(QDate::currentDate().toString(Qt::ISODate)));
+	QVERIFY(view->toPlainText().contains(QStringLiteral("The control 35 is in no course.")));
+	statistics->setChecked(false);
+	QVERIFY(!dialog.html().contains(QStringLiteral("<h2>Statistics</h2>")));
+	QVERIFY(!view->toPlainText().contains(QStringLiteral("Course objects")));
+	
+	QTemporaryDir folder;
+	QVERIFY(folder.isValid());
+	auto const html_path = folder.filePath(QStringLiteral("report.html"));
+	QVERIFY(dialog.saveHtml(html_path));
+	QFile file(html_path);
+	QVERIFY(file.open(QIODevice::ReadOnly));
+	QCOMPARE(QString::fromUtf8(file.readAll()), dialog.html());
+	QVERIFY(dialog.savePdf(folder.filePath(QStringLiteral("report.pdf"))));
+	QVERIFY(QFileInfo(folder.filePath(QStringLiteral("report.pdf"))).size() > 0);
+	
+	window->deleteLater();
+}
 
 
 /*

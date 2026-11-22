@@ -47,8 +47,10 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QMetaObject>
+#include <QPalette>
 #include <QPixmap>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSet>
 #include <QSignalBlocker>
 #include <QSize>
@@ -70,12 +72,14 @@
 #include "core/objects/object.h"
 #include "core/symbols/symbol.h"
 #include "course/course_description.h"
+#include "course/course_diagram.h"
 #include "course/course_edit.h"
 #include "course/course_parts.h"
 #include "course/course_relay.h"
 #include "course/course_relay_edit.h"
 #include "course/course_render.h"
 #include "course/course_storage.h"
+#include "gui/widgets/course_diagram_widget.h"
 #include "undo/map_data_undo.h"
 #include "undo/object_undo.h"
 #include "undo/undo.h"
@@ -362,6 +366,20 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	item_list->setEditTriggers(QAbstractItemView::NoEditTriggers);
 	item_list->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
 	
+	// the design notes, "Relays: the branch diagram"
+	diagram_view = new CourseDiagramWidget();
+	diagram_area = new QScrollArea();
+	diagram_area->setObjectName(QStringLiteral("course-diagram-area"));
+	diagram_area->setWidget(diagram_view);
+	diagram_area->setWidgetResizable(false);
+	diagram_area->setBackgroundRole(QPalette::Base);
+	diagram_area->hide();
+	diagram_check = new QCheckBox(tr("Diagram"));
+	diagram_check->setObjectName(QStringLiteral("course-diagram-check"));
+	diagram_check->setToolTip(tr("Show a course with variations as a diagram, its branches side by side."));
+	diagram_check->setChecked(true);
+	diagram_check->setEnabled(false);
+	
 	auto* item_buttons = new QHBoxLayout();
 	insert_button = makeButton(tr("Insert"), "course-item-insert", item_buttons);
 	insert_button->setToolTip(tr("Put the selected course objects into the course, behind the current item."));
@@ -394,6 +412,7 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	remove_variation_button = makeButton(tr("Remove variation"), "course-variation-remove", variation_buttons);
 	remove_variation_button->setToolTip(tr("Take the variation of the current marker out of the course, with all that is in it."));
 	variation_buttons->addStretch(1);
+	variation_buttons->addWidget(diagram_check);
 	
 	class_table = new QTableWidget(0, 4);
 	class_table->setObjectName(QStringLiteral("course-classes"));
@@ -421,6 +440,7 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	layout->addLayout(length_layout);
 	layout->addLayout(climb_layout);
 	layout->addWidget(item_list, 4);
+	layout->addWidget(diagram_area, 4);
 	layout->addLayout(item_buttons);
 	layout->addLayout(variation_buttons);
 	layout->addWidget(class_table, 2);
@@ -431,6 +451,14 @@ CourseWidget::CourseWidget(Map* map, QWidget* parent)
 	connect(selector, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &CourseWidget::courseChosen);
 	connect(variant_box, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &CourseWidget::variantChosen);
 	connect(item_list, &QTreeWidget::currentItemChanged, this, &CourseWidget::updateButtons);
+	connect(item_list, &QTreeWidget::currentItemChanged, this, [this]() {
+		diagram_view->setCurrentItem(item_list->indexOfTopLevelItem(item_list->currentItem()));
+	});
+	connect(diagram_view, &CourseDiagramWidget::itemClicked, this, [this](int item) {
+		if (item >= 0 && item < item_list->topLevelItemCount())
+			item_list->setCurrentItem(item_list->topLevelItem(item));
+	});
+	connect(diagram_check, &QCheckBox::toggled, this, &CourseWidget::refreshDiagram);
 	connect(class_table, &QTableWidget::cellChanged, this, &CourseWidget::classCellChanged);
 	connect(class_table, &QTableWidget::currentCellChanged, this, &CourseWidget::updateButtons);
 	
@@ -752,7 +780,10 @@ void CourseWidget::refreshItems(int current, int top)
 	auto const* course = data.findCourse(currentCourse());
 	item_list->setEnabled(course != nullptr);
 	if (!course)
+	{
+		refreshDiagram();
 		return;
+	}
 	
 	auto const has_variation = std::any_of(begin(course->items), end(course->items), [](const CourseItem& item) {
 		return isVariationItem(item.type);
@@ -805,6 +836,22 @@ void CourseWidget::refreshItems(int current, int top)
 		item_list->setCurrentItem(item_list->topLevelItem(current));
 	else
 		item_list->setCurrentItem(nullptr);
+	refreshDiagram();
+}
+
+
+void CourseWidget::refreshDiagram()
+{
+	auto const* course = map->courseData().findCourse(currentCourse());
+	auto const has_variation = course && std::any_of(begin(course->items), end(course->items), [](const CourseItem& item) {
+		return isVariationItem(item.type);
+	});
+	diagram_check->setEnabled(has_variation);
+	auto const shown = has_variation && diagram_check->isChecked();
+	diagram_view->setDiagram(shown ? courseDiagram(*course) : CourseDiagram{});
+	diagram_view->setCurrentItem(item_list->indexOfTopLevelItem(item_list->currentItem()));
+	diagram_area->setVisible(shown);
+	item_list->setVisible(!shown);
 }
 
 

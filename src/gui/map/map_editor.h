@@ -681,6 +681,8 @@ public slots:
 	void punchIdsClicked();
 	/** foom: Shows the statistics of the courses and of the event. */
 	void courseStatisticsClicked();
+	/** foom: Shows the consistency check and the statistics as a report to print or save. */
+	void courseReportClicked();
 	/** foom: Runs the consistency check of the courses and shows the issues; returns their number. */
 	int runCourseCheck();
 	/** foom: Write the courses as IOF XML 3.0, GPX or KML, after asking for the file. */
@@ -1449,6 +1451,7 @@ private:
 	QAction* course_punch_ids_act = {};  // foom
 	QAction* course_statistics_act = {};  // foom
 	QAction* course_check_act = {};  // foom
+	QAction* course_report_act = {};  // foom
 	QAction* course_export_iof_act = {};  // foom
 	QAction* course_export_gpx_act = {};  // foom
 	QAction* course_export_kml_act = {};  // foom
@@ -1657,6 +1660,7 @@ private:
 	QToolBar* toolbar_editing;
 	QToolBar* toolbar_advanced_editing;
 	QToolBar* toolbar_mapparts = nullptr;
+	QToolBar* toolbar_course = nullptr;  // foom
 	
 	// For mobile UI
 	ActionGridBar* bottom_action_bar = nullptr;
