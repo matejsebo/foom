@@ -18,6 +18,7 @@
  */
 
 
+#include <cmath>
 #include <memory>
 
 #include <QtTest>
@@ -41,6 +42,7 @@
 #include "fileformats/xml_file_format.h"
 #include "templates/template.h"
 #include "templates/template_image.h"
+#include "templates/world_file.h"
 #ifdef MAPPER_USE_GDAL
 #  include "gdal/gdal_template.h"
 #endif
@@ -242,6 +244,82 @@ private slots:
 		QCOMPARE(readFile(file("a.png")), original);
 	}
 	
+	/// Accept (9)
+	void worldFileTest()
+	{
+		double const expected[6] = { 1.0, 0.0, 0.0, -1.0, 500000.5, 4999999.5 };
+		auto const check = [&](const char* name) {
+			WorldFile written;
+			if (!written.load(file(name)))
+				return false;
+			for (int i = 0; i < 6; ++i)
+			{
+				if (std::abs(written.parameters[i] - expected[i]) > 1e-9)
+					return false;
+			}
+			return true;
+		};
+
+		// Image and world file missing: both are written
+		makeEmbeddedMap(file("world.foom"));
+		QVERIFY(QFile::remove(file("a.png")));
+		QVERIFY(QFile::remove(file("a.pgw")));
+		{
+			Map map;
+			auto* temp = openMap(map, file("world.foom"));
+			QVERIFY(temp);
+			QString error;
+			QVERIFY2(temp->unembed(&error), qPrintable(error));
+			QVERIFY(QFileInfo::exists(file("a.png")));
+			QVERIFY(check("a.pgw"));
+		}
+
+		// A world file which is there stays as it is
+		makeEmbeddedMap(file("world.foom"));
+		QVERIFY(QFile::remove(file("a.png")));
+		QVERIFY(writeText(file("a.pgw"), "2.0\n0.0\n0.0\n-2.0\n1.0\n2.0\n"));
+		{
+			Map map;
+			auto* temp = openMap(map, file("world.foom"));
+			QVERIFY(temp);
+			QString error;
+			QVERIFY2(temp->unembed(&error), qPrintable(error));
+			QCOMPARE(readFile(file("a.pgw")), QByteArray("2.0\n0.0\n0.0\n-2.0\n1.0\n2.0\n"));
+		}
+
+		// A template without a transform writes no world file
+		QVERIFY(writeImage(file("c.png"), Qt::blue));
+		{
+			Map map;
+			map.addTemplate(-1, std::make_unique<TemplateImage>(file("c.png"), &map));
+			auto* temp = qobject_cast<TemplateImage*>(map.getTemplate(0));
+			QVERIFY(temp->loadTemplateFile());
+			QString error;
+			QVERIFY2(temp->embed(two_mb, &error), qPrintable(error));
+			QVERIFY(QFile::remove(file("c.png")));
+			QVERIFY2(temp->unembed(&error), qPrintable(error));
+			QVERIFY(QFileInfo::exists(file("c.png")));
+			QVERIFY(!QFileInfo::exists(file("c.pgw")));
+		}
+
+#ifdef MAPPER_USE_GDAL
+		// The same for a GdalTemplate, whose transform GDAL read from the world file
+		writeSource();
+		{
+			Map map;
+			map.addTemplate(-1, std::make_unique<GdalTemplate>(file("a.png"), &map));
+			auto* temp = qobject_cast<TemplateImage*>(map.getTemplate(0));
+			QVERIFY(temp->loadTemplateFile());
+			QString error;
+			QVERIFY2(temp->embed(two_mb, &error), qPrintable(error));
+			QVERIFY(QFile::remove(file("a.png")));
+			QVERIFY(QFile::remove(file("a.pgw")));
+			QVERIFY2(temp->unembed(&error), qPrintable(error));
+			QVERIFY(check("a.pgw"));
+		}
+#endif
+	}
+
 	/// Accept (7)
 	void omapTest()
 	{

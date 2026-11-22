@@ -31,6 +31,9 @@
 #include <QLatin1String>
 #include <QMetaObject>
 #include <QPainter>
+#include <QPointF>
+#include <QVector>
+#include <QStringList>
 #include <QStandardPaths>
 #include <QThread>
 #include <QTransform>
@@ -43,6 +46,7 @@
 #include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_coord.h"
+#include "core/map_view.h"
 #include "gdal/gdal_manager.h"
 #include "gdal/tile_worker.h"
 
@@ -80,6 +84,30 @@ bool TileServiceTemplate::driversAvailable(QString* reason)
 	return true;
 }
 
+// static, foom
+QString TileServiceTemplate::printWarning(const Map& map, const MapView* view)
+{
+	if (view && view->areAllTemplatesHidden())
+		return {};
+	QStringList names;
+	for (int i = 0; i < map.getNumTemplates(); ++i)
+	{
+		auto const* temp = qobject_cast<const TileServiceTemplate*>(map.getTemplate(i));
+		if (!temp || temp->getTemplateState() != Loaded)
+			continue;
+		if (view && !view->isTemplateVisible(temp))
+			continue;
+		names.append(temp->getTemplateFilename());
+	}
+	if (names.isEmpty())
+		return {};
+	return tr("Map services are printed only from the tiles already fetched for the screen, "
+	          "at the screen's resolution: %1. "
+	          "Areas not yet seen on screen stay empty. "
+	          "Download extent in the Add map service dialog makes an ordinary raster template for a complete print.")
+	        .arg(names.join(QLatin1String(", ")));
+}
+
 // static
 QString TileServiceTemplate::cacheDirectory()
 {
@@ -109,7 +137,8 @@ TileServiceTemplate::TileServiceTemplate(const MapService& service, Map* map)
 	template_path = service.url;
 	template_file = service.name;
 	is_georeferenced = true;
-	cache.setMaxCost(qMax(1, Settings::getInstance().getSettingCached(Settings::Templates_TileCacheMB).toInt()) * 1024 * 1024);
+	applyCacheSetting();
+	connect(&Settings::getInstance(), &Settings::settingsChanged, this, &TileServiceTemplate::applyCacheSetting);  // foom
 	connect(&map->getGeoreferencing(), &Georeferencing::projectionChanged, this, &TileServiceTemplate::projectionChanged);
 	connect(&map->getGeoreferencing(), &Georeferencing::transformationChanged, this, [this]() {
 		if (getTemplateState() == Loaded)
@@ -123,7 +152,8 @@ TileServiceTemplate::TileServiceTemplate(const QString& path, Map* map)
 	service_.url = path;
 	template_path = path;
 	is_georeferenced = true;
-	cache.setMaxCost(qMax(1, Settings::getInstance().getSettingCached(Settings::Templates_TileCacheMB).toInt()) * 1024 * 1024);
+	applyCacheSetting();
+	connect(&Settings::getInstance(), &Settings::settingsChanged, this, &TileServiceTemplate::applyCacheSetting);  // foom
 	connect(&map->getGeoreferencing(), &Georeferencing::projectionChanged, this, &TileServiceTemplate::projectionChanged);
 	connect(&map->getGeoreferencing(), &Georeferencing::transformationChanged, this, [this]() {
 		if (getTemplateState() == Loaded)
@@ -131,11 +161,21 @@ TileServiceTemplate::TileServiceTemplate(const QString& path, Map* map)
 	});
 }
 
+// static
+std::unique_ptr<TileServiceTemplate> TileServiceTemplate::fromDescriptor(const QString& path, Map* map)
+{
+	MapService service;
+	if (!MapService::loadDescriptor(path, service))
+		return {};
+	return std::make_unique<TileServiceTemplate>(service, map);
+}
+
 TileServiceTemplate::TileServiceTemplate(const TileServiceTemplate& proto)
 : Template(proto)
 , service_(proto.service_)
 {
 	cache.setMaxCost(proto.cache.maxCost());
+	connect(&Settings::getInstance(), &Settings::settingsChanged, this, &TileServiceTemplate::applyCacheSetting);  // foom
 	connect(&map->getGeoreferencing(), &Georeferencing::projectionChanged, this, &TileServiceTemplate::projectionChanged);
 	connect(&map->getGeoreferencing(), &Georeferencing::transformationChanged, this, [this]() {
 		if (getTemplateState() == Loaded)
@@ -259,6 +299,7 @@ bool TileServiceTemplate::loadTemplateFileImpl()
 	in_flight.clear();
 	last_requests.clear();
 	last_tile_error.clear();
+	setWarning({});
 	return true;
 }
 
@@ -268,6 +309,21 @@ void TileServiceTemplate::unloadTemplateFileImpl()
 	cache.clear();
 	failed_until.clear();
 	r0 = 0;
+	setWarning({});
+}
+
+void TileServiceTemplate::applyCacheSetting()
+{
+	auto const mb = qMax(1, Settings::getInstance().getSettingCached(Settings::Templates_TileCacheMB).toInt());
+	cache.setMaxCost(mb * 1024 * 1024);
+}
+
+void TileServiceTemplate::setWarning(const QString& text)
+{
+	if (warning == text)
+		return;
+	warning = text;
+	emit warningChanged();
 }
 
 void TileServiceTemplate::projectionChanged()
@@ -285,6 +341,16 @@ void TileServiceTemplate::projectionChanged()
 QRectF TileServiceTemplate::projectedBounds(const Georeferencing& georef, const QRectF& map_rect_mm)
 {
 	return georef.mapToProjected().mapRect(map_rect_mm);
+}
+
+// static, foom
+QPolygonF TileServiceTemplate::downloadWindowOutline(const Georeferencing& georef, const QRectF& projected_rect)
+{
+	if (projected_rect.isEmpty())
+		return {};
+	auto const to_map = georef.projectedToMap();
+	return QPolygonF{ QVector<QPointF>{ to_map.map(projected_rect.topLeft()), to_map.map(projected_rect.topRight()),
+	                                    to_map.map(projected_rect.bottomRight()), to_map.map(projected_rect.bottomLeft()) } };
 }
 
 QRectF TileServiceTemplate::projectedBounds(const QRectF& map_rect_mm) const
@@ -394,6 +460,7 @@ void TileServiceTemplate::tileReady(const TileKey& key, const QImage& image)
 {
 	in_flight.remove(key);
 	failed_until.remove(key);
+	setWarning({});
 	if (getTemplateState() == Loaded && r0 > 0)
 	{
 		auto* copy = new QImage(image);
@@ -410,6 +477,7 @@ void TileServiceTemplate::tileFailed(const TileKey& key, const QString& message)
 	failed_until.insert(key, QDateTime::currentMSecsSinceEpoch() + failure_hold_ms);
 	last_tile_error = message;
 	setErrorString(message);
+	setWarning(message);
 	emit tilesChanged();
 }
 

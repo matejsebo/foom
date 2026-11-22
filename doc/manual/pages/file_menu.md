@@ -51,6 +51,7 @@ The following formats are supported:
 OpenOrienteering Mapper (.omap, .xmap),
 OCD version 8 .. 12, 2018 (.ocd),
 geospatial vector data (formats supported by [GDAL](gdal.md)).
+Geospatial data are read with the options of the [Import geodata](import_geodata.md) dialog.
 
 
 #### Export as...

@@ -21,6 +21,7 @@
 #ifndef OPENORIENTEERING_TILE_SERVICE_TEMPLATE_H
 #define OPENORIENTEERING_TILE_SERVICE_TEMPLATE_H
 
+#include <memory>
 #include <vector>
 
 #include <QtGlobal>
@@ -28,6 +29,7 @@
 #include <QHash>
 #include <QImage>
 #include <QObject>
+#include <QPolygonF>
 #include <QRectF>
 #include <QSet>
 #include <QString>
@@ -45,6 +47,7 @@ namespace OpenOrienteering {
 
 class Georeferencing;
 class Map;
+class MapView;
 class TileWorker;
 
 
@@ -69,6 +72,15 @@ public:
 	/** Whether GDAL offers the WMS and WMTS drivers; otherwise reason says what is missing. */
 	static bool driversAvailable(QString* reason = nullptr);
 
+	/**
+	 * foom: The warning before printing or exporting, naming the loaded
+	 * service templates which the view shows (every loaded one when view is
+	 * nullptr); empty when there is none.
+	 * 
+	 * Printing draws only the tiles already fetched for the screen.
+	 */
+	static QString printWarning(const Map& map, const MapView* view);
+	
 	/** The directory for GDAL's disk cache of fetched tiles. */
 	static QString cacheDirectory();
 	static void setCacheDirectory(const QString& path);
@@ -81,6 +93,13 @@ public:
 
 	/** For Template::templateForType: the service is read from the XML later. */
 	TileServiceTemplate(const QString& path, Map* map);
+	
+	/**
+	 * For Template::templateForPath: a template of the service in a
+	 * descriptor file (MapService::loadDescriptor), nullptr when the file
+	 * is none.
+	 */
+	static std::unique_ptr<TileServiceTemplate> fromDescriptor(const QString& path, Map* map);
 
 protected:
 	TileServiceTemplate(const TileServiceTemplate& proto);
@@ -117,6 +136,12 @@ public:
 	bool loadTypeSpecificTemplateConfiguration(QXmlStreamReader& xml) override;
 
 
+	/**
+	 * foom: The outline on the map, in mm, of a window in projected
+	 * coordinates: its four corners from the minimum, empty for an empty window.
+	 */
+	static QPolygonF downloadWindowOutline(const Georeferencing& georef, const QRectF& projected_rect);
+	
 	/** The bounding rectangle, in projected coordinates, of a rectangle in map coordinates (mm). */
 	static QRectF projectedBounds(const Georeferencing& georef, const QRectF& map_rect_mm);
 	QRectF projectedBounds(const QRectF& map_rect_mm) const;
@@ -130,11 +155,20 @@ public:
 	/** The number of tiles requested and not yet received. */
 	int pendingCount() const { return in_flight.size(); }
 
+	/** foom: The byte budget of the memory cache, from the setting Templates/tile_cache_mb. */
+	qint64 cacheBudgetBytes() const { return cache.maxCost(); }
+	
 	/** The number of tiles in the memory cache. */
 	int cachedTileCount() const { return cache.count(); }
 
 	/** The message of the last failed tile, empty when none failed. */
 	QString lastTileError() const { return last_tile_error; }
+	
+	/**
+	 * foom: The message of the last failed tile, until a tile arrives or the
+	 * template is unloaded; shown in the template list.
+	 */
+	QString warningText() const override { return warning; }
 
 
 	/**
@@ -169,12 +203,15 @@ private slots:
 private:
 	void startWorker();
 	void stopWorker();
+	void setWarning(const QString& text);
+	void applyCacheSetting();
 	void drawCached(QPainter* painter, const QRectF& projected_bounds, int level) const;
 
 	MapService service_;
 	double r0 = 0;
 	bool downloading = false;
 	QString last_tile_error;
+	QString warning;
 
 	mutable QCache<TileKey, QImage> cache;
 	mutable QHash<TileKey, qint64> failed_until;

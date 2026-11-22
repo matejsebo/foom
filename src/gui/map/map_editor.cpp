@@ -180,6 +180,7 @@
 #include "gui/map/image_properties_dialog.h"  // foom
 #include "gui/map/object_style_dialog.h"  // foom
 #include "gui/map/import_points_dialog.h"  // foom
+#include "gui/map/map_import_dialog.h"  // foom
 #include "gui/symbols/symbol_setting_dialog.h"  // foom
 #include "layout/generator.h"  // foom
 #include "sketch/sketch.h"  // foom
@@ -3283,9 +3284,30 @@ void MapEditorController::updateMapServiceAction()
 }
 
 // foom
+void MapEditorController::setDownloadWindow(const QPolygonF& outline)
+{
+	// the design notes, "Download window on the map".
+	download_window = outline;
+	if (window && map_widget)
+		map_widget->update();
+}
+
+// foom
 void MapEditorController::drawTemplateAttributions(QPainter* painter, MapWidget* widget) const
 {
 	// the design notes, "Attribution and fair use".
+	if (download_window.size() >= 3)
+	{
+		QPolygonF outline;
+		for (auto const& corner : download_window)
+			outline.append(widget->mapToViewport(corner));
+		painter->save();
+		painter->setRenderHint(QPainter::Antialiasing, false);
+		painter->setBrush(QColor(200, 0, 160, 40));
+		painter->setPen(QPen(QColor(200, 0, 160), 3));
+		painter->drawPolygon(outline);
+		painter->restore();
+	}
 #ifdef MAPPER_USE_GDAL
 	QStringList attributions;
 	auto const* view = widget->getMapView();
@@ -8321,7 +8343,29 @@ bool MapEditorController::importMapFile(const QString& filename, bool show_error
 	if (show_errors && !importer->warnings().empty())
 	    MainWindow::showMessageBox(window, tr("Warning"), tr("The map import generated warnings."), importer->warnings());
 	
-	return importMapWithReplacement(imported_map, Map::MinimalObjectImport | Map::GeorefImport, filename);
+	// foom: the import policies, the design notes, "Map import policies"
+	if (!SymbolReplacement(imported_map, *map).withAutoCrtFile(window, filename))
+	{
+		if (QMessageBox::question(window, ::OpenOrienteering::Map::tr("Import..."),
+		                          ::OpenOrienteering::Map::tr("Symbol replacement was canceled.\n"
+		                                                      "Import the data anyway?"),
+		                          QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::No)
+			return false;
+	}
+	MapImportDialog dialog(imported_map, *map, window);
+	auto const center = main_view->center();
+	dialog.setViewCenter(QPointF(center.x(), center.y()));
+	if (dialog.exec() != QDialog::Accepted)
+		return false;
+	auto const result = importMapWithPolicy(*map, imported_map, dialog.policy());
+	if (!result.ok)
+	{
+		QMessageBox::warning(window, tr("Error"), result.error);
+		return false;
+	}
+	if (!result.warnings.isEmpty())
+		window->showStatusBarMessage(result.warnings.join(QLatin1Char(' ')), 6000);
+	return true;
 }
 
 bool MapEditorController::importOgrFile(const QString& filename)

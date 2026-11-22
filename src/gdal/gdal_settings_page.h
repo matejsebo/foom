@@ -26,6 +26,7 @@
 #include "gui/widgets/settings_page.h"
 
 class QCheckBox;
+class QSpinBox;
 class QTableWidget;
 class QWidget;
 
@@ -58,6 +59,7 @@ private:
 	QCheckBox* import_gpx;
 	QCheckBox* view_hatch;
 	QCheckBox* view_baseline;
+	QSpinBox* tile_cache_mb;  // foom
 	QCheckBox* export_one_layer_per_symbol;
 	QTableWidget* parameters;
 };

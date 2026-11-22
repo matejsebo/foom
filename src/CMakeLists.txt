@@ -200,6 +200,7 @@ set(Mapper_Common_SRCS
   core/colour_swatch.cpp
   core/colour_usage.cpp
   core/crt_rules.cpp
+  core/map_import_policy.cpp
   core/extent_printing.cpp
   core/extents.cpp
   core/guides.cpp  # foom
@@ -296,6 +297,7 @@ set(Mapper_Common_SRCS
   gui/map/merge_overlay.cpp
   gui/map/sketch_dialog.cpp
   gui/map/import_points_dialog.cpp
+  gui/map/map_import_dialog.cpp
   gui/map/rectangle_box_dialog.cpp
   gui/map/lengthen_line_text_dialog.cpp
   gui/map/find_replace_text_dialog.cpp

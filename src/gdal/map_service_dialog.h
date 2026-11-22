@@ -70,6 +70,8 @@ private slots:
 	void currentServiceChanged(int row);
 	void addService();
 	void removeService();
+	void openDescriptor();  // foom
+	void saveDescriptor();  // foom
 	void fieldEdited();
 	void kindChanged();
 	void connectClicked();
@@ -95,6 +97,7 @@ private:
 
 	QListWidget* list;
 	QPushButton* remove_button;
+	QPushButton* save_button = nullptr;  // foom
 	QLineEdit* name_edit;
 	QComboBox* kind_combo;
 	QLineEdit* url_edit;

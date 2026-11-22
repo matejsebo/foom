@@ -21,7 +21,9 @@
 #include "geodata_import_dialog.h"
 
 #include <algorithm>
+#include <initializer_list>
 #include <map>
+#include <utility>
 
 #include <Qt>
 #include <QAbstractButton>
@@ -44,6 +46,7 @@
 #include <QPolygonF>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QSettings>
 #include <QVariant>
 
 #include "core/georeferencing.h"
@@ -198,13 +201,29 @@ GeodataImportDialog::GeodataImportDialog(const QStringList& paths, const Map& ma
 	crt_layout->addWidget(crt_button);
 	layout->addRow(tr("CRT file:"), crt_layout);
 	
-	buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+	buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::Help);  // foom: Help
 	layout->addRow(buttons);
 	
 	fillLayers();
 	
+	// foom: object names for the tests, and the options of the last import
+	for (auto const& pair : std::initializer_list<std::pair<QObject*, const char*>>{
+	         { detected_radio, "detected_radio" }, { override_radio, "override_radio" },
+	         { unreferenced_radio, "unreferenced_radio" }, { crs_edit, "crs_edit" },
+	         { units_combo, "units_combo" }, { custom_spin, "custom_spin" },
+	         { offset_x_spin, "offset_x_spin" }, { offset_y_spin, "offset_y_spin" },
+	         { rotation_spin, "rotation_spin" }, { clip_combo, "clip_combo" },
+	         { box_spins[0], "box_spin_0" }, { box_spins[1], "box_spin_1" },
+	         { box_spins[2], "box_spin_2" }, { box_spins[3], "box_spin_3" },
+	         { layer_tag_combo, "layer_tag_combo" }, { text_combo, "text_combo" },
+	         { blocks_check, "blocks_check" }, { simplify_spin, "simplify_spin" },
+	         { symbols_combo, "symbols_combo" }, { crt_edit, "crt_edit" } })
+		pair.first->setObjectName(QLatin1String(pair.second));
+	restoreOptions();
+	
 	connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
 	connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+	connect(buttons, &QDialogButtonBox::helpRequested, this, [this]() { Util::showHelp(this, "import_geodata.html"); });  // foom
 	connect(crt_button, &QPushButton::clicked, this, &GeodataImportDialog::browseCrtFile);
 	connect(layer_list, &QListWidget::itemChanged, this, &GeodataImportDialog::updateWidgets);
 	for (auto* radio : { detected_radio, override_radio, unreferenced_radio })
@@ -218,6 +237,92 @@ GeodataImportDialog::GeodataImportDialog(const QStringList& paths, const Map& ma
 
 
 GeodataImportDialog::~GeodataImportDialog() = default;
+
+
+// foom: the design notes, "Remembered options"
+void GeodataImportDialog::accept()
+{
+	storeOptions();
+	QDialog::accept();
+}
+
+void GeodataImportDialog::storeOptions() const
+{
+	QSettings settings;
+	settings.beginGroup(QStringLiteral("GeodataImport"));
+	settings.setValue(QStringLiteral("crs_mode"), QLatin1String(override_radio->isChecked() ? "override"
+	                                                           : unreferenced_radio->isChecked() ? "unreferenced" : "detected"));
+	settings.setValue(QStringLiteral("crs_spec"), crs_edit->text().trimmed());
+	settings.setValue(QStringLiteral("units"), units_combo->currentData().toInt());
+	settings.setValue(QStringLiteral("custom_mm_per_unit"), custom_spin->value());
+	settings.setValue(QStringLiteral("offset_x"), offset_x_spin->value());
+	settings.setValue(QStringLiteral("offset_y"), offset_y_spin->value());
+	settings.setValue(QStringLiteral("rotation"), rotation_spin->value());
+	settings.setValue(QStringLiteral("clip"), clip_combo->currentData().toInt());
+	if (clip_combo->currentData().toInt() == ClipBox)
+		settings.setValue(QStringLiteral("box"), QVariantList{ box_spins[0]->value(), box_spins[1]->value(),
+		                                                       box_spins[2]->value(), box_spins[3]->value() });
+	auto const layer_tag = layer_tag_combo->currentIndex() == 0 ? QStringLiteral("none")
+	                       : layer_tag_combo->currentIndex() == 1 ? QStringLiteral("layer")
+	                       : QStringLiteral("attribute:") + layer_tag_combo->currentData().toString();
+	settings.setValue(QStringLiteral("layer_tag"), layer_tag);
+	settings.setValue(QStringLiteral("text_attribute"), text_combo->currentData().toString());
+	if (blocks_check->isEnabled())
+		settings.setValue(QStringLiteral("blocks"), blocks_check->isChecked());
+	settings.setValue(QStringLiteral("simplify"), simplify_spin->value());
+	settings.setValue(QStringLiteral("symbols"), QLatin1String(symbols_combo->currentData().toInt() == CrtSymbols ? "crt" : "default"));
+	settings.setValue(QStringLiteral("crt_file"), crt_edit->text().trimmed());
+}
+
+void GeodataImportDialog::restoreOptions()
+{
+	QSettings settings;
+	settings.beginGroup(QStringLiteral("GeodataImport"));
+	auto const select_data = [](QComboBox* combo, const QVariant& value) {
+		auto const index = combo->findData(value);
+		if (index >= 0)
+			combo->setCurrentIndex(index);
+	};
+	
+	auto const mode = settings.value(QStringLiteral("crs_mode")).toString();
+	if (detected_radio->isEnabled())  // a georeferenced map
+	{
+		if (mode == QLatin1String("override"))
+			override_radio->setChecked(true);
+		else if (mode == QLatin1String("unreferenced"))
+			unreferenced_radio->setChecked(true);
+	}
+	crs_edit->setText(settings.value(QStringLiteral("crs_spec")).toString());
+	if (settings.contains(QStringLiteral("units")))
+		select_data(units_combo, settings.value(QStringLiteral("units")).toInt());
+	custom_spin->setValue(settings.value(QStringLiteral("custom_mm_per_unit"), custom_spin->value()).toDouble());
+	offset_x_spin->setValue(settings.value(QStringLiteral("offset_x"), 0.0).toDouble());
+	offset_y_spin->setValue(settings.value(QStringLiteral("offset_y"), 0.0).toDouble());
+	rotation_spin->setValue(settings.value(QStringLiteral("rotation"), 0.0).toDouble());
+	if (settings.contains(QStringLiteral("clip")))
+		select_data(clip_combo, settings.value(QStringLiteral("clip")).toInt());
+	auto const box = settings.value(QStringLiteral("box")).toList();
+	if (box.size() == 4)
+	{
+		for (int i = 0; i < 4; ++i)
+			box_spins[i]->setValue(box[i].toDouble());
+	}
+	
+	auto const layer_tag = settings.value(QStringLiteral("layer_tag")).toString();
+	if (layer_tag == QLatin1String("layer"))
+		layer_tag_combo->setCurrentIndex(1);
+	else if (layer_tag.startsWith(QLatin1String("attribute:")))
+		select_data(layer_tag_combo, layer_tag.mid(10));
+	auto const text_attribute = settings.value(QStringLiteral("text_attribute")).toString();
+	if (!text_attribute.isEmpty())
+		select_data(text_combo, text_attribute);
+	if (blocks_check->isEnabled())
+		blocks_check->setChecked(settings.value(QStringLiteral("blocks"), false).toBool());
+	simplify_spin->setValue(settings.value(QStringLiteral("simplify"), 0.0).toDouble());
+	crt_edit->setText(settings.value(QStringLiteral("crt_file")).toString());
+	if (settings.value(QStringLiteral("symbols")).toString() == QLatin1String("crt"))
+		select_data(symbols_combo, int(CrtSymbols));
+}
 
 
 void GeodataImportDialog::fillLayers()

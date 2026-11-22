@@ -24,6 +24,11 @@
 #include <cmath>
 
 #include <QtGlobal>
+#include <QCoreApplication>
+#include <QFile>
+#include <QFileInfo>
+#include <QIODevice>
+#include <QSaveFile>
 #include <QLatin1String>
 #include <QPointF>
 #include <QSettings>
@@ -406,6 +411,66 @@ void MapService::toSettings(const std::vector<MapService>& services)
 		settings.setValue(QStringLiteral("bulk_download"), service.bulk_download);
 	}
 	settings.endArray();
+}
+
+
+// static
+bool MapService::isDescriptorPath(const QString& path)
+{
+	auto const suffix = descriptorSuffix();
+	return path.size() > suffix.size()
+	       && path.endsWith(suffix, Qt::CaseInsensitive)
+	       && path[path.size() - suffix.size() - 1] != QLatin1Char('/')
+	       && path[path.size() - suffix.size() - 1] != QLatin1Char('\\');
+}
+
+bool MapService::saveDescriptor(const QString& path, QString* error) const
+{
+	QSaveFile file(path);
+	if (file.open(QIODevice::WriteOnly))
+	{
+		QXmlStreamWriter xml(&file);
+		xml.setAutoFormatting(true);
+		xml.writeStartDocument();
+		xml.writeStartElement(QStringLiteral("map_service"));
+		xml.writeAttribute(QStringLiteral("name"), name);
+		save(xml);
+		xml.writeEndElement();
+		xml.writeEndDocument();
+		if (!xml.hasError() && file.commit())
+			return true;
+	}
+	if (error)
+		*error = QCoreApplication::translate("OpenOrienteering::MapService", "The file %1 cannot be written.").arg(path);
+	return false;
+}
+
+// static
+bool MapService::loadDescriptor(const QString& path, MapService& service, QString* error)
+{
+	auto const fail = [error, &path](const QString& message) {
+		if (error)
+			*error = message.arg(QFileInfo(path).fileName());
+		return false;
+	};
+	QFile file(path);
+	if (!file.open(QIODevice::ReadOnly))
+		return fail(QCoreApplication::translate("OpenOrienteering::MapService", "The file %1 cannot be read."));
+	QXmlStreamReader xml(&file);
+	if (!xml.readNextStartElement() || xml.name() != QLatin1String("map_service"))
+		return fail(QCoreApplication::translate("OpenOrienteering::MapService", "The file %1 is no map service descriptor."));
+	auto const service_name = xml.attributes().value(QLatin1String("name")).toString();
+	while (xml.readNextStartElement())
+	{
+		if (xml.name() == literal::service)
+		{
+			service = load(xml);
+			service.name = service_name;
+			return true;
+		}
+		xml.skipCurrentElement();
+	}
+	return fail(QCoreApplication::translate("OpenOrienteering::MapService", "The file %1 holds no service."));
 }
 
 

@@ -68,10 +68,15 @@ public:
 	 */
 	GeodataImportOptions options() const;
 	
+	/** foom: Stores the options for the next import, then accepts. */
+	void accept() override;
+	
 private:
 	void fillLayers();
 	void updateWidgets();
 	void browseCrtFile();
+	void storeOptions() const;  // foom
+	void restoreOptions();  // foom
 	
 	const Map& map;
 	QStringList paths;

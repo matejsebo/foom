@@ -25,7 +25,11 @@
 
 #include <QtGlobal>
 #include <QtTest>
+#include <QComboBox>
+#include <QCoreApplication>
+#include <QDialogButtonBox>
 #include <QDir>
+#include <QDoubleSpinBox>
 #include <QFile>
 #include <QFileInfo>
 #include <QIODevice>
@@ -33,13 +37,16 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLatin1String>
+#include <QLineEdit>
 #include <QLineF>
 #include <QObject>
 #include <QPointF>
 #include <QPolygonF>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QRadioButton>
 #include <QRectF>
+#include <QSettings>
 #include <QString>
 #include <QStringList>
 #include <QTemporaryDir>
@@ -62,6 +69,7 @@
 #include "fileformats/file_format_registry.h"
 #include "fileformats/file_import_export.h"
 #include "gdal/geodata_import.h"
+#include "gdal/geodata_import_dialog.h"
 #include "undo/undo_manager.h"
 
 using namespace OpenOrienteering;
@@ -202,6 +210,25 @@ double distanceToPolyline(const QPointF& p, const MapCoordVector& coords)
 }  // namespace
 
 
+
+template <class T>
+T* child(QObject& parent, const char* name)
+{
+	auto* found = parent.findChild<T*>(QString::fromLatin1(name));
+	if (!found)
+		qFatal("No child %s", name);
+	return found;
+}
+
+void selectData(QComboBox* combo, int data)
+{
+	combo->setCurrentIndex(combo->findData(data));
+}
+
+void selectText(QComboBox* combo, const QString& text)
+{
+	combo->setCurrentIndex(combo->findText(text));
+}
 
 /**
  * Tests the import options for geodata.
@@ -508,6 +535,133 @@ private slots:
 	}
 
 	/// Accept (13)
+	/// Remembering the options between imports (the design notes, "Remembered options")
+	void rememberOptionsTest()
+	{
+		QCoreApplication::setOrganizationName(QStringLiteral("OpenOrienteering.org"));
+		QCoreApplication::setApplicationName(QStringLiteral("GeodataImportTest"));
+		QSettings().remove(QStringLiteral("GeodataImport"));
+		Map map;
+		setupMap(map);
+		QRectF const view(-10.0, -10.0, 20.0, 20.0);
+		auto const box = QRectF(QPointF(500000, 4999990), QPointF(500100, 5000100));
+
+		// (1) Without anything remembered: the defaults
+		{
+			GeodataImportDialog dialog({ gpkg() }, map, view);
+			auto const options = dialog.options();
+			QCOMPARE(options.crs_mode, GeodataImportOptions::CrsDetected);
+			QVERIFY(options.clip.isEmpty());
+			QCOMPARE(options.layer_tag, GeodataImportOptions::NoLayerTag);
+			QVERIFY(options.text_attribute.isEmpty());
+			QCOMPARE(options.simplify_mm, 0.0);
+			QVERIFY(options.crt_file.isEmpty());
+
+			// Chosen and accepted
+			child<QRadioButton>(dialog, "override_radio")->setChecked(true);
+			child<QLineEdit>(dialog, "crs_edit")->setText(QStringLiteral("EPSG:32613"));
+			selectData(child<QComboBox>(dialog, "clip_combo"), 3);  // box
+			double const values[4] = { box.left(), box.top(), box.right(), box.bottom() };
+			for (int i = 0; i < 4; ++i)
+				child<QDoubleSpinBox>(dialog, QByteArray(QByteArray("box_spin_") + QByteArray::number(i)).constData())->setValue(values[i]);
+			selectText(child<QComboBox>(dialog, "layer_tag_combo"), QStringLiteral("kind"));
+			selectText(child<QComboBox>(dialog, "text_combo"), QStringLiteral("name"));
+			child<QDoubleSpinBox>(dialog, "simplify_spin")->setValue(0.5);
+			selectData(child<QComboBox>(dialog, "symbols_combo"), 1);  // CRT file
+			child<QLineEdit>(dialog, "crt_edit")->setText(dir.filePath(QStringLiteral("rules.crt")));
+			dialog.accept();
+		}
+
+		// (2) The next dialog starts with what was accepted
+		{
+			GeodataImportDialog dialog({ gpkg() }, map, view);
+			auto const options = dialog.options();
+			QCOMPARE(options.crs_mode, GeodataImportOptions::CrsOverride);
+			QCOMPARE(options.crs_spec, QStringLiteral("EPSG:32613"));
+			QCOMPARE(options.clip, geodataClipBox(map, box));
+			QCOMPARE(options.layer_tag, GeodataImportOptions::AttributeTag);
+			QCOMPARE(options.layer_tag_attribute, QStringLiteral("kind"));
+			QCOMPARE(options.text_attribute, QStringLiteral("name"));
+			QCOMPARE(options.simplify_mm, 0.5);
+			QCOMPARE(options.crt_file, dir.filePath(QStringLiteral("rules.crt")));
+			QVERIFY(options.layers.isEmpty());  // the layers are not remembered: all checked
+
+			// (3) A rejected dialog stores nothing
+			child<QDoubleSpinBox>(dialog, "simplify_spin")->setValue(2.0);
+			dialog.reject();
+		}
+		{
+			GeodataImportDialog dialog({ gpkg() }, map, view);
+			QCOMPARE(dialog.options().simplify_mm, 0.5);
+
+			// Unreferenced with its units
+			child<QRadioButton>(dialog, "unreferenced_radio")->setChecked(true);
+			selectData(child<QComboBox>(dialog, "units_combo"), int(GeodataImportOptions::CustomMillimetres));
+			child<QDoubleSpinBox>(dialog, "custom_spin")->setValue(2.5);
+			child<QDoubleSpinBox>(dialog, "offset_x_spin")->setValue(10.0);
+			child<QDoubleSpinBox>(dialog, "offset_y_spin")->setValue(20.0);
+			child<QDoubleSpinBox>(dialog, "rotation_spin")->setValue(90.0);
+			selectData(child<QComboBox>(dialog, "clip_combo"), 2);  // current view
+			dialog.accept();
+		}
+		{
+			GeodataImportDialog dialog({ gpkg() }, map, view);
+			auto const options = dialog.options();
+			QCOMPARE(options.crs_mode, GeodataImportOptions::CrsUnreferenced);
+			QCOMPARE(options.units, GeodataImportOptions::CustomMillimetres);
+			QCOMPARE(options.custom_mm_per_unit, 2.5);
+			QCOMPARE(options.offset_mm, QPointF(10.0, 20.0));
+			QCOMPARE(options.rotation_deg, 90.0);
+			QCOMPARE(options.clip.boundingRect(), view);
+		}
+
+		// (4) Attributes which the files lack are not chosen
+		{
+			GeodataImportDialog dialog({ smallShp() }, map, view);
+			auto const options = dialog.options();
+			QCOMPARE(options.layer_tag, GeodataImportOptions::NoLayerTag);
+			QVERIFY(options.text_attribute.isEmpty());
+			QCOMPARE(options.simplify_mm, 0.5);
+		}
+
+		// (5) A map without georeferencing gets unreferenced coordinates whatever was remembered
+		QSettings().setValue(QStringLiteral("GeodataImport/crs_mode"), QStringLiteral("override"));
+		{
+			Map local;
+			GeodataImportDialog dialog({ gpkg() }, local, view);
+			QCOMPARE(dialog.options().crs_mode, GeodataImportOptions::CrsUnreferenced);
+		}
+		QSettings().remove(QStringLiteral("GeodataImport"));
+	}
+
+	/// The help page (the design notes, "Help page")
+	void helpPageTest()
+	{
+		Map map;
+		setupMap(map);
+		GeodataImportDialog dialog({ gpkg() }, map, QRectF(-10.0, -10.0, 20.0, 20.0));
+		auto* buttons = dialog.findChild<QDialogButtonBox*>();
+		QVERIFY(buttons);
+		QVERIFY(buttons->button(QDialogButtonBox::Help));
+
+		auto const pages = QDir(QString::fromUtf8(MAPPER_TEST_SOURCE_DIR)).absoluteFilePath(QStringLiteral("../doc/manual/pages"));
+		QFile page(pages + QStringLiteral("/import_geodata.md"));
+		QVERIFY(page.open(QIODevice::ReadOnly));
+		auto const text = QString::fromUtf8(page.readAll());
+		QVERIFY(text.startsWith(QLatin1String("---")));
+		QVERIFY(text.contains(QLatin1String("title: Importing Data")));
+		for (auto const* heading : { "### Layers", "### Coordinate system", "### Options", "### The options of the last import" })
+			QVERIFY2(text.contains(QLatin1String(heading)), heading);
+		for (auto const* option : { "**As detected**", "**Override**", "**Unreferenced**", "**Clip**", "**Layer name tag**",
+		                            "**Text from attribute**", "**Import block references as point objects**",
+		                            "**Simplify**", "**Symbols**" })
+			QVERIFY2(text.contains(QLatin1String(option)), option);
+
+		QFile file_menu(pages + QStringLiteral("/file_menu.md"));
+		QVERIFY(file_menu.open(QIODevice::ReadOnly));
+		QVERIFY(file_menu.readAll().contains("(import_geodata.md)"));
+	}
+
 	void runnerTest()
 	{
 		auto const executable = QString::fromUtf8(FOOM_CLI_EXECUTABLE);

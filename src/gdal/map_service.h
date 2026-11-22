@@ -104,6 +104,23 @@ struct MapService
 
 	/** Stores the user's service list in the application settings (without credentials). */
 	static void toSettings(const std::vector<MapService>& services);
+	
+	/**
+	 * The file name suffix of a descriptor file, `.tms.xml`.
+	 * 
+	 * A descriptor file holds one service: a `map_service` element with the
+	 * attribute `name` around the `service` element of the map file.
+	 */
+	static QString descriptorSuffix() { return QStringLiteral(".tms.xml"); }
+	
+	/** Whether the path ends with the descriptor suffix, ignoring case, after a base name. */
+	static bool isDescriptorPath(const QString& path);
+	
+	/** Writes the service, without credentials, to a descriptor file. */
+	bool saveDescriptor(const QString& path, QString* error = nullptr) const;
+	
+	/** Reads a descriptor file; returns false, with a message, when it is none. */
+	static bool loadDescriptor(const QString& path, MapService& service, QString* error = nullptr);
 };
 
 

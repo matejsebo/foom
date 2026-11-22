@@ -35,15 +35,19 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QIcon>
 #include <QImage>
 #include <QIODevice>
 #include <QLatin1String>
+#include <QLineF>
 #include <QObject>
 #include <QPainter>
 #include <QPoint>
 #include <QPointF>
+#include <QPolygonF>
 #include <QRectF>
 #include <QSet>
+#include <QSpinBox>
 #include <QString>
 #include <QStringList>
 #include <QTcpServer>
@@ -59,17 +63,21 @@
 #include "test_config.h"
 
 #include "global.h"
+#include "settings.h"
 #include "core/georeferencing.h"
 #include "core/latlon.h"
 #include "core/map.h"
 #include "core/map_coord.h"
+#include "core/map_view.h"
 #include "fileformats/xml_file_format.h"
 #include "fileformats/file_import_export.h"
+#include "gdal/gdal_settings_page.h"
 #include "gdal/map_service.h"
 #include "gdal/map_service_capabilities.h"
 #include "gdal/tile_pyramid.h"
 #include "gdal/tile_service_template.h"
 #include "templates/template.h"
+#include "templates/template_table_model.h"
 
 using namespace OpenOrienteering;
 
@@ -153,6 +161,7 @@ public:
 	}
 
 	QStringList requests;
+	bool fail_tiles = false;  ///< When set, XYZ tiles are answered with 500
 
 private:
 	static QByteArray readAll(const QString& path)
@@ -202,7 +211,11 @@ private:
 			else
 			{
 				auto const items = path.section(QLatin1Char('/'), 2).split(QLatin1Char('/'));
-				if (items.size() == 3)
+				if (fail_tiles && path.startsWith(QLatin1String("/xyz/")))
+				{
+					status = 500;
+				}
+				else if (items.size() == 3)
 				{
 					auto const z = items[0].toInt();
 					auto const second = items[1].toLongLong();
@@ -818,6 +831,245 @@ private slots:
 			}
 		QVERIFY(checked > 150);
 		GDALClose(dataset);
+	}
+
+	void descriptorTest()
+	{
+		// Accept of the descriptor file (the design notes, "Descriptor file")
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		auto service = xyzService(stub);
+		service.bbox = QRectF(QPointF(-1000.5, 2000.25), QPointF(3000.0, 4000.0));
+		service.resolution = 0.5;
+		service.bulk_download = false;
+		service.user = QStringLiteral("alice");
+		service.password = QStringLiteral("s3cret");
+		auto const path = dir.filePath(QStringLiteral("checker.tms.xml"));
+
+		// (1) Written without credentials, read back equal
+		QString error;
+		QVERIFY2(service.saveDescriptor(path, &error), qPrintable(error));
+		QFile file(path);
+		QVERIFY(file.open(QIODevice::ReadOnly));
+		auto const text = QString::fromUtf8(file.readAll());
+		file.close();
+		QVERIFY(text.contains(QLatin1String("<map_service ")));
+		QVERIFY(text.contains(QLatin1String("<service ")));
+		QVERIFY(!text.contains(QLatin1String("alice")));
+		QVERIFY(!text.contains(QLatin1String("s3cret")));
+		MapService loaded;
+		QVERIFY2(MapService::loadDescriptor(path, loaded, &error), qPrintable(error));
+		QVERIFY(loaded == service);
+		QCOMPARE(loaded.name, service.name);
+		QVERIFY(loaded.user.isEmpty());
+
+		// (2) The suffix
+		QVERIFY(MapService::isDescriptorPath(path));
+		QVERIFY(MapService::isDescriptorPath(QStringLiteral("C:/x/A.TMS.XML")));
+		QVERIFY(!MapService::isDescriptorPath(QStringLiteral("a.xml")));
+		QVERIFY(!MapService::isDescriptorPath(QStringLiteral("tms.xml")));
+		auto const& extensions = Template::supportedExtensions();
+		QVERIFY(std::find(extensions.begin(), extensions.end(), QByteArray("tms.xml")) != extensions.end());
+
+		// (3) Opened as a template: a tile service template of that service, which loads
+		Map map;
+		setupMap(map);
+		auto temp = Template::templateForPath(path, &map);
+		auto* tile = qobject_cast<TileServiceTemplate*>(temp.get());
+		QVERIFY(tile);
+		QVERIFY(tile->service() == service);
+		QCOMPARE(tile->getTemplateFilename(), service.name);
+		QCOMPARE(tile->getTemplatePath(), service.url);
+		QVERIFY(tile->isTemplateGeoreferenced());
+		map.addTemplate(0, std::move(temp));
+		QVERIFY2(tile->setupAndLoad(nullptr, nullptr), qPrintable(tile->errorString()));
+		QCOMPARE(tile->getTemplateState(), Template::Loaded);
+
+		// (4) A file which is not a descriptor is refused with a message, and is no template
+		auto const broken = dir.filePath(QStringLiteral("broken.tms.xml"));
+		QFile broken_file(broken);
+		QVERIFY(broken_file.open(QIODevice::WriteOnly));
+		broken_file.write("<?xml version=\"1.0\"?><something_else/>");
+		broken_file.close();
+		error.clear();
+		QVERIFY(!MapService::loadDescriptor(broken, loaded, &error));
+		QVERIFY(!error.isEmpty());
+		QVERIFY(!Template::templateForPath(broken, &map));
+		error.clear();
+		QVERIFY(!MapService::loadDescriptor(dir.filePath(QStringLiteral("missing.tms.xml")), loaded, &error));
+		QVERIFY(!error.isEmpty());
+	}
+
+	void warningTest()
+	{
+		// Accept of the warning in the template list (the design notes, "Warning in the template list")
+		Map map;
+		setupMap(map);
+		MapView map_view(&map);
+		auto service = xyzService(stub);
+		service.url += QStringLiteral("?warning");  // not in GDAL's disk cache from the other tests
+		auto temp = std::make_unique<TileServiceTemplate>(service, &map);
+		auto* raw = temp.get();
+		map.addTemplate(0, std::move(temp));
+		TemplateTableModel model(map, map_view);
+		auto const row = model.rowFromPos(0);
+		auto const name_index = model.index(row, TemplateTableModel::nameColumn());
+		QVERIFY2(raw->setupAndLoad(nullptr, nullptr), qPrintable(raw->errorString()));
+
+		// (1) The template base class has no warning; a working service has none either
+		QVERIFY(raw->warningText().isEmpty());
+		QVERIFY(model.data(name_index, Qt::DecorationRole).isNull());
+		QCOMPARE(model.data(name_index, Qt::ToolTipRole).toString(), raw->getTemplatePath());
+
+		// (2) Failing tiles: a warning with the message, signalled, shown as an icon and in the tool tip
+		QSignalSpy warning_spy(raw, &Template::warningChanged);
+		QSignalSpy model_spy(&model, &QAbstractItemModel::dataChanged);
+		stub.fail_tiles = true;
+		View view{ QPointF(0, 0), 10.0, 400, 300 };
+		paintTemplates(map, view);
+		QVERIFY(!raw->lastRequests().empty());
+		QTRY_VERIFY_WITH_TIMEOUT(raw->pendingCount() == 0, 60000);
+		QVERIFY(!raw->warningText().isEmpty());
+		QCOMPARE(raw->warningText(), raw->lastTileError());
+		QVERIFY(warning_spy.count() >= 1);
+		QVERIFY(model_spy.count() >= 1);
+		auto const icon = model.data(name_index, Qt::DecorationRole);
+		QVERIFY(icon.canConvert<QIcon>());
+		QVERIFY(!icon.value<QIcon>().isNull());
+		auto const tool_tip = model.data(name_index, Qt::ToolTipRole).toString();
+		QVERIFY(tool_tip.startsWith(raw->getTemplatePath()));
+		QVERIFY(tool_tip.contains(raw->warningText()));
+
+		// (3) A tile which arrives takes the warning away
+		stub.fail_tiles = false;
+		auto const signals_before = warning_spy.count();
+		View panned{ QPointF(400, 0), 10.0, 400, 300 };
+		paintTemplates(map, panned);
+		QVERIFY(!raw->lastRequests().empty());
+		QTRY_VERIFY_WITH_TIMEOUT(raw->pendingCount() == 0, 60000);
+		QVERIFY(raw->cachedTileCount() > 0);
+		QVERIFY(raw->warningText().isEmpty());
+		QVERIFY(warning_spy.count() > signals_before);
+		QVERIFY(model.data(name_index, Qt::DecorationRole).isNull());
+
+		// (4) Reloading starts without a warning
+		stub.fail_tiles = true;
+		View elsewhere{ QPointF(-800, 0), 10.0, 400, 300 };
+		paintTemplates(map, elsewhere);
+		QTRY_VERIFY_WITH_TIMEOUT(raw->pendingCount() == 0, 60000);
+		stub.fail_tiles = false;
+		QVERIFY(!raw->warningText().isEmpty());
+		raw->unloadTemplateFile();
+		QVERIFY(raw->warningText().isEmpty());
+	}
+
+	void printWarningTest()
+	{
+		// Accept of the print warning (the design notes, "Print warning")
+		Map map;
+		setupMap(map);
+		MapView map_view(&map);
+
+		// (1) No service template: no warning
+		QVERIFY(TileServiceTemplate::printWarning(map, &map_view).isEmpty());
+
+		auto first = xyzService(stub);
+		first.name = QStringLiteral("First service");
+		auto second = xyzService(stub);
+		second.name = QStringLiteral("Second service");
+		auto* a = new TileServiceTemplate(first, &map);
+		auto* b = new TileServiceTemplate(second, &map);
+		map.addTemplate(0, std::unique_ptr<Template>(a));
+		map.addTemplate(1, std::unique_ptr<Template>(b));
+
+		// (2) Not loaded: no warning
+		QVERIFY(TileServiceTemplate::printWarning(map, &map_view).isEmpty());
+
+		QVERIFY2(a->setupAndLoad(nullptr, nullptr), qPrintable(a->errorString()));
+		QVERIFY2(b->setupAndLoad(nullptr, nullptr), qPrintable(b->errorString()));
+
+		// (3) Loaded and visible: both names
+		map_view.setTemplateVisibility(a, { 1.0, true });
+		map_view.setTemplateVisibility(b, { 1.0, true });
+		auto const both = TileServiceTemplate::printWarning(map, &map_view);
+		QVERIFY(both.contains(first.name));
+		QVERIFY(both.contains(second.name));
+
+		// (4) One hidden: only the other
+		map_view.setTemplateVisibility(b, { 1.0, false });
+		auto const one = TileServiceTemplate::printWarning(map, &map_view);
+		QVERIFY(one.contains(first.name));
+		QVERIFY(!one.contains(second.name));
+
+		// (5) All templates hidden in the view: none
+		map_view.setAllTemplatesHidden(true);
+		QVERIFY(TileServiceTemplate::printWarning(map, &map_view).isEmpty());
+
+		// (6) Without a view, every loaded service
+		auto const any = TileServiceTemplate::printWarning(map, nullptr);
+		QVERIFY(any.contains(first.name));
+		QVERIFY(any.contains(second.name));
+	}
+
+	void downloadWindowOutlineTest()
+	{
+		// Accept (1) of the download window on the map (the design notes, "Download window on the map")
+		Map map;
+		setupMap(map);
+		auto const& georef = map.getGeoreferencing();
+		auto const center = georef.toProjectedCoords(MapCoordF(0, 0));
+		QRectF const window(center + QPointF(-1000, -800), QSizeF(2000, 1600));
+		auto const outline = TileServiceTemplate::downloadWindowOutline(georef, window);
+		QCOMPARE(outline.size(), 4);
+		QPointF const corners[4] = { window.topLeft(), window.topRight(), window.bottomRight(), window.bottomLeft() };
+		for (int i = 0; i < 4; ++i)
+		{
+			auto const back = georef.toProjectedCoords(MapCoordF(outline[i]));
+			QVERIFY2(std::abs(back.x() - corners[i].x()) < 1e-3 && std::abs(back.y() - corners[i].y()) < 1e-3,
+			         qPrintable(QStringLiteral("corner %1").arg(i)));
+		}
+		// With grivation the outline is turned on the map: not axis-parallel
+		QVERIFY(std::abs(outline[0].y() - outline[1].y()) > 1.0);
+		// 2000 m at 1:10,000 is 200 mm on the map
+		QVERIFY(std::abs(QLineF(outline[0], outline[1]).length() - 200.0) < 1.0);
+		QVERIFY(TileServiceTemplate::downloadWindowOutline(georef, QRectF()).isEmpty());
+	}
+
+	void cacheSettingTest()
+	{
+		// Accept of the cache size in the settings (the design notes, "Cache size in the settings")
+		auto& settings = Settings::getInstance();
+		settings.setSetting(Settings::Templates_TileCacheMB, 256);
+		Map map;
+		setupMap(map);
+		auto* temp = new TileServiceTemplate(xyzService(stub), &map);
+		map.addTemplate(0, std::unique_ptr<Template>(temp));
+		QCOMPARE(temp->cacheBudgetBytes(), qint64(256) * 1024 * 1024);
+
+		// (1) The field shows the setting, with its range
+		GdalSettingsPage page;
+		auto* spin = page.findChild<QSpinBox*>(QStringLiteral("tile_cache_mb"));
+		QVERIFY(spin);
+		QCOMPARE(spin->value(), 256);
+		QCOMPARE(spin->minimum(), 16);
+		QCOMPARE(spin->maximum(), 16384);
+
+		// (2) Applied, it changes the setting and the budget of an existing template
+		spin->setValue(64);
+		page.apply();
+		QCOMPARE(settings.getSetting(Settings::Templates_TileCacheMB).toInt(), 64);
+		QCOMPARE(temp->cacheBudgetBytes(), qint64(64) * 1024 * 1024);
+		auto* other = new TileServiceTemplate(xyzService(stub), &map);
+		map.addTemplate(1, std::unique_ptr<Template>(other));
+		QCOMPARE(other->cacheBudgetBytes(), qint64(64) * 1024 * 1024);
+
+		// (3) Reset shows the stored value again
+		spin->setValue(1000);
+		page.reset();
+		QCOMPARE(spin->value(), 64);
+
+		settings.setSetting(Settings::Templates_TileCacheMB, 256);
+		QCOMPARE(temp->cacheBudgetBytes(), qint64(256) * 1024 * 1024);
 	}
 
 	void localMapTest()

@@ -133,10 +133,17 @@ MapServiceDialog::MapServiceDialog(MapEditorController* controller, QWidget* par
 	auto* list_buttons = new QHBoxLayout();
 	list_buttons->addWidget(new_button);
 	list_buttons->addWidget(remove_button);
+	// foom: descriptor files, the design notes
+	auto* open_button = new QPushButton(tr("Open..."));
+	save_button = new QPushButton(tr("Save..."));
+	auto* file_buttons = new QHBoxLayout();
+	file_buttons->addWidget(open_button);
+	file_buttons->addWidget(save_button);
 	auto* list_layout = new QVBoxLayout();
 	list_layout->addWidget(new QLabel(tr("Services:")));
 	list_layout->addWidget(list, 1);
 	list_layout->addLayout(list_buttons);
+	list_layout->addLayout(file_buttons);  // foom
 
 	// Service fields
 	name_edit = new QLineEdit();
@@ -225,6 +232,8 @@ MapServiceDialog::MapServiceDialog(MapEditorController* controller, QWidget* par
 	connect(list, &QListWidget::currentRowChanged, this, &MapServiceDialog::currentServiceChanged);
 	connect(new_button, &QPushButton::clicked, this, &MapServiceDialog::addService);
 	connect(remove_button, &QPushButton::clicked, this, &MapServiceDialog::removeService);
+	connect(open_button, &QPushButton::clicked, this, &MapServiceDialog::openDescriptor);  // foom
+	connect(save_button, &QPushButton::clicked, this, &MapServiceDialog::saveDescriptor);  // foom
 	connect(connect_button, &QPushButton::clicked, this, &MapServiceDialog::connectClicked);
 	connect(layer_table, &QTableWidget::itemSelectionChanged, this, &MapServiceDialog::layerSelectionChanged);
 	for (auto* edit : { name_edit, url_edit, layers_edit, attribution_edit, user_edit, password_edit })
@@ -277,6 +286,43 @@ void MapServiceDialog::addService()
 	list->setCurrentRow(list->count() - 1);
 	name_edit->setFocus();
 	name_edit->selectAll();
+}
+
+// foom
+void MapServiceDialog::openDescriptor()
+{
+	auto const filter = tr("Map service descriptors") + QLatin1String(" (*") + MapService::descriptorSuffix() + QLatin1String(")");
+	auto const path = FileDialog::getOpenFileName(this, tr("Open map service"), {}, filter);
+	if (path.isEmpty())
+		return;
+	MapService service;
+	QString error;
+	if (!MapService::loadDescriptor(path, service, &error))
+	{
+		QMessageBox::warning(this, tr("Open map service"), error);
+		return;
+	}
+	services.push_back(service);
+	list->addItem(service.name.isEmpty() ? tr("(unnamed)") : service.name);
+	list->setCurrentRow(list->count() - 1);
+	saveServices();
+}
+
+// foom
+void MapServiceDialog::saveDescriptor()
+{
+	auto const service = fieldsToService();
+	auto const suffix = MapService::descriptorSuffix();
+	auto const filter = tr("Map service descriptors") + QLatin1String(" (*") + suffix + QLatin1String(")");
+	auto const start = QString(service.name).replace(QRegExp(QStringLiteral("[^A-Za-z0-9_-]+")), QStringLiteral("_")) + suffix;
+	auto path = FileDialog::getSaveFileName(this, tr("Save map service"), start, filter);
+	if (path.isEmpty())
+		return;
+	if (!MapService::isDescriptorPath(path))
+		path += suffix;
+	QString error;
+	if (!service.saveDescriptor(path, &error))
+		QMessageBox::warning(this, tr("Save map service"), error);
 }
 
 void MapServiceDialog::removeService()
@@ -594,6 +640,7 @@ void MapServiceDialog::updateButtons()
 	download_button->setEnabled(georeferenced && complete && service.bulk_download);
 	download_button->setToolTip(service.bulk_download ? QString{} : tr("The service does not allow bulk download."));
 	remove_button->setEnabled(current >= 0);
+	save_button->setEnabled(current >= 0);  // foom
 }
 
 
@@ -647,6 +694,7 @@ void MapServiceDialog::downloadClicked()
 		auto const w = qint64(std::ceil(window.width() / resolution_edit->value()));
 		auto const h = qint64(std::ceil(window.height() / resolution_edit->value()));
 		size_label->setText(tr("%1 by %2 pixels (at most %3 on a side)").arg(w).arg(h).arg(TileServiceTemplate::max_download_pixels));
+		controller->setDownloadWindow(TileServiceTemplate::downloadWindowOutline(georef, window));  // foom
 	};
 	for (auto* edit : { min_x, min_y, max_x, max_y, resolution_edit })
 		connect(edit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), &dialog, update_size);
@@ -675,7 +723,9 @@ void MapServiceDialog::downloadClicked()
 	layout->addLayout(form);
 	layout->addWidget(buttons);
 	dialog.setLayout(layout);
-	if (dialog.exec() != QDialog::Accepted)
+	auto const accepted = dialog.exec() == QDialog::Accepted;
+	controller->setDownloadWindow({});  // foom
+	if (!accepted)
 		return;
 
 	auto const window = current_view->isChecked() ? view_bounds
