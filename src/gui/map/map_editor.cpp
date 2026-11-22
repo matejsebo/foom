@@ -230,6 +230,7 @@
 #include "course/course_report.h"  // foom
 #include "course/course_storage.h"  // foom
 #include "course/route_course.h"  // foom
+#include "course/route_print.h"  // foom
 #include "course/route_search.h"  // foom
 #include "course/route_store.h"  // foom
 #include "course/route_terrain.h"  // foom
@@ -1462,6 +1463,7 @@ void MapEditorController::createActions()
 	course_routes_perimeter_act = newAction("course-routes-perimeter", tr("Define route perimeter"), this, SLOT(defineRoutePerimeterClicked()), nullptr, tr("Keep the route analysis within the outline of the selected object."));
 	course_routes_perimeter_clear_act = newAction("course-routes-perimeter-clear", tr("Clear route perimeter"), this, SLOT(clearRoutePerimeterClicked()), nullptr, tr("Analyse the routes on the whole map again."));
 	course_routes_reset_act = newAction("course-routes-reset", tr("Reset routing graph"), this, SLOT(resetRoutingGraphClicked()), nullptr, tr("Make the rasters of the route analysis anew at the next analysis, and remove their file beside the map."));
+	course_routes_print_act = newAction("course-routes-print", tr("Print routes (PDF)..."), this, SLOT(printCourseRoutesClicked()), nullptr, tr("Write a PDF file with a page for every course whose routes are kept: the map with the routes and their captions, without the courses."));
 	course_routes_settings_act = newAction("course-routes-settings", tr("Route settings..."), this, SLOT(routeSettingsClicked()), nullptr, tr("The base pace of the route analysis, whether it uses runnability and elevation, and the runnability of the symbols."));
 	course_export_maps_act = newAction("course-export-maps", tr("Export course maps (PDF)..."), this, SLOT(exportCourseMapsClicked()), nullptr, tr("Write a PDF file with the map of every course, of every part of a course with a map exchange, and of every variant or runner of a relay."));
 	course_relay_variations_act = newAction("course-relay-variations", tr("Export relay variations..."), this, SLOT(exportRelayVariationsClicked()), nullptr, tr("Write which team runs which variant of the relays, as a text file."));
@@ -1975,6 +1977,7 @@ void MapEditorController::createMenuAndToolbars()
 	courses_menu->addAction(course_routes_leg_act);
 	courses_menu->addAction(course_routes_delete_act);
 	courses_menu->addAction(course_routes_export_act);
+	courses_menu->addAction(course_routes_print_act);
 	courses_menu->addAction(course_routes_settings_act);
 	courses_menu->addAction(course_import_iof_act);
 	courses_menu->addAction(course_import_geodata_act);
@@ -6070,6 +6073,36 @@ void MapEditorController::clearRoutePerimeterClicked()
 	data.route.perimeter.clear();
 	changeCourseData(*map, std::move(data));
 	map_widget->update();
+}
+
+
+void MapEditorController::printCourseRoutesClicked()
+{
+	auto const title = tr("Print routes");
+	if (map->courseData().routes.isEmpty())
+	{
+		QMessageBox::information(window, title, tr("The map keeps no routes. Analyse the routes of a course or of all courses first."));
+		return;
+	}
+	auto const map_path = window->currentPath();
+	QString proposal;
+	if (!map_path.isEmpty())
+		proposal = QDir(QFileInfo(map_path).path()).filePath(QFileInfo(map_path).completeBaseName() + QLatin1String(".routes.pdf"));
+	auto path = QFileDialog::getSaveFileName(window, title, proposal, tr("PDF files (*.pdf)"));
+	if (path.isEmpty())
+		return;
+	if (QFileInfo(path).suffix().isEmpty())
+		path += QLatin1String(".pdf");
+	RouteMapOptions options;
+	options.path = path;
+	options.view = main_view;
+	QApplication::setOverrideCursor(Qt::WaitCursor);
+	auto const report = exportRoutesMap(*map, options);
+	QApplication::restoreOverrideCursor();
+	if (!report.ok)
+		QMessageBox::warning(window, title, report.error);
+	else
+		QMessageBox::information(window, title, tr("%n page(s) were written.", nullptr, report.pages));
 }
 
 

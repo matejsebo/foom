@@ -68,6 +68,7 @@
 #include "course/course_interchange.h"  // foom
 #include "course/course_report.h"  // foom
 #include "course/route_course.h"  // foom
+#include "course/route_print.h"  // foom
 #include "course/route_store.h"  // foom
 #include "core/map.h"
 #include "core/map_coord.h"
@@ -1187,6 +1188,15 @@ void StepRunner::validate(const Step& step, bool& map_open)
 				p.fail(QLatin1String("parameter \"alternatives\" must be a whole number from 0 to 5"));
 		}
 	}
+	else if (name == QLatin1String("export-routes-map"))  // foom
+	{
+		p.requireMap(map_open);
+		p.checkKnown({ "out", "courses", "extent", "captions" });
+		p.requireString("out");
+		parseCourseNames(p);
+		p.optionalString("extent");
+		p.optionalBool("captions", true);
+	}
 	else if (name == QLatin1String("save-as"))
 	{
 		p.requireMap(map_open);
@@ -1253,6 +1263,8 @@ StepResult StepRunner::run(const Step& step)
 		return exportCourseMapsStep(step);
 	if (name == QLatin1String("analyse-routes"))  // foom
 		return analyseRoutesStep(step);
+	if (name == QLatin1String("export-routes-map"))  // foom
+		return exportRoutesMapStep(step);
 	if (name == QLatin1String("check"))  // foom
 		return checkStep(step);
 	if (name == QLatin1String("course-statistics"))  // foom
@@ -1766,6 +1778,27 @@ StepResult StepRunner::analyseRoutesStep(const Step& step)
 		                                                 : source == RouteTerrainSource::File ? QStringLiteral("file") : QStringLiteral("made"));
 	if (!all.skipped.isEmpty())
 		result.details.insert(QLatin1String("skipped"), QJsonArray::fromStringList(all.skipped));
+	return result;
+}
+
+
+// foom: the design notes, "Route analysis: a print of the routes"
+StepResult StepRunner::exportRoutesMapStep(const Step& step)
+{
+	Params p(step);
+	RouteMapOptions options;
+	options.path = job.resolvePath(p.requireString("out"));
+	options.courses = parseCourseNames(p);
+	options.extent = p.optionalString("extent");
+	options.captions = p.optionalBool("captions", true);
+	// The routes are printed over the background maps.
+	loadTemplateFiles(*map);
+	auto const report = exportRoutesMap(*map, options);
+	if (!report.ok)
+		return failure(report.error);
+	StepResult result;
+	result.details.insert(QLatin1String("path"), options.path);
+	result.details.insert(QLatin1String("pages"), report.pages);
 	return result;
 }
 

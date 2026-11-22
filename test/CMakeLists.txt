@@ -301,6 +301,9 @@ add_system_test(route_perimeter_t)  # foom: the design notes, Route analysis: th
 add_system_test(route_cache_t)  # foom: the design notes, Route analysis: the cache of the rasters
 target_compile_definitions(route_cache_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
 add_dependencies(route_cache_t foom-cli)
+add_system_test(route_print_t)  # foom: the design notes, Route analysis: a print of the routes
+target_compile_definitions(route_print_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
+add_dependencies(route_print_t foom-cli)
 add_system_test(runner_template_t)  # foom: the design notes, Headless runner: the files of the templates
 target_compile_definitions(runner_template_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
 add_dependencies(runner_template_t foom-cli)
