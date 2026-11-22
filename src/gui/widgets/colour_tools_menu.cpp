@@ -27,6 +27,7 @@
 #include <QFileDialog>
 #include <QInputDialog>
 #include <QLabel>
+#include <QLatin1Char>
 #include <QLatin1String>
 #include <QMenu>
 #include <QMessageBox>
@@ -37,7 +38,9 @@
 
 #include "core/colour_load.h"
 #include "core/colour_swatch.h"
+#include "core/colour_usage.h"
 #include "core/map.h"
+#include "core/map_color.h"
 #include "fileformats/file_format.h"
 #include "fileformats/file_import_export.h"
 #include "gui/main_window.h"
@@ -132,6 +135,38 @@ void loadColours(Map* map, QWidget* parent)
 	           report.text());
 }
 
+// the design notes, "Colour usage report"
+void showUsage(Map* map, QWidget* parent)
+{
+	auto const usage = colourUsage(*map);
+	int unused = 0;
+	for (auto const& use : usage)
+		unused += use.used ? 0 : 1;
+	showReport(parent, tr("Colour usage"),
+	           tr("%1 colour(s), %2 of them not used.").arg(usage.size()).arg(unused),
+	           colourUsageText(usage));
+}
+
+void deleteUnused(Map* map, QWidget* parent)
+{
+	auto const title = tr("Delete unused colours");
+	QStringList names;
+	for (auto const& use : colourUsage(*map))
+	{
+		if (!use.used)
+			names.append(use.color->getName());
+	}
+	if (names.isEmpty())
+	{
+		QMessageBox::information(parent, title, tr("Every colour is used."));
+		return;
+	}
+	if (QMessageBox::question(parent, title, tr("Delete %1 colour(s)?\n\n%2").arg(names.size()).arg(names.join(QLatin1Char('\n'))))
+	    != QMessageBox::Yes)
+		return;
+	deleteUnusedColours(*map);
+}
+
 }  // namespace
 
 QMenu* createColourToolsMenu(Map* map, MainWindow* window, QWidget* parent)
@@ -143,6 +178,13 @@ QMenu* createColourToolsMenu(Map* map, MainWindow* window, QWidget* parent)
 	});
 	QObject::connect(menu->addAction(tr("Load colours from file...")), &QAction::triggered, parent, [map, parent]() {
 		loadColours(map, parent);
+	});
+	menu->addSeparator();
+	QObject::connect(menu->addAction(tr("Colour usage...")), &QAction::triggered, parent, [map, parent]() {
+		showUsage(map, parent);
+	});
+	QObject::connect(menu->addAction(tr("Delete unused colours...")), &QAction::triggered, parent, [map, parent]() {
+		deleteUnused(map, parent);
 	});
 	return menu;
 }

@@ -191,6 +191,7 @@ set(Mapper_Common_SRCS
   core/color_group.cpp
   core/colour_load.cpp
   core/colour_swatch.cpp
+  core/colour_usage.cpp
   core/crt_rules.cpp
   core/extent_printing.cpp
   core/extents.cpp

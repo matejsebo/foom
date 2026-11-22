@@ -28,12 +28,14 @@
 #include <QByteArray>
 #include <QDir>
 #include <QIODevice>
+#include <QLatin1String>
 #include <QObject>
 #include <QString>
 #include <QStringList>
 
 #include "core/colour_load.h"
 #include "core/colour_swatch.h"
+#include "core/colour_usage.h"
 #include "core/map.h"
 #include "core/map_color.h"
 #include "core/map_coord.h"
@@ -79,6 +81,7 @@ private slots:
 	void blendModeCopy();
 	void loadReplaceAndAppend();
 	void loadSpotComposition();
+	void usageReport();
 };
 
 
@@ -355,6 +358,48 @@ void ColourToolsTest::loadSpotComposition()
 	QCOMPARE(mixed->getComponents().front().spot_color, spot);
 	QVERIFY(mixed->getCmyk() == source_mixed->getCmyk());
 	QVERIFY(near(spot->getCmyk(), 0, 0.6f, 1, 0.2f));
+}
+
+// Colour usage report, Accept (1)
+void ColourToolsTest::usageReport()
+{
+	Map map;
+	auto* black = addColor(map, QStringLiteral("Black"), MapColorCmyk(0, 0, 0, 1));
+	auto* pms = addColor(map, QStringLiteral("PMS 471"), MapColorCmyk(0, 0.6f, 1, 0.2f), QStringLiteral("PMS 471"));
+	auto* mixed = addMixedColor(map, QStringLiteral("Brown 50%"), pms, 0.5f);
+	auto* unused_spot = addColor(map, QStringLiteral("PMS 299"), MapColorCmyk(1, 0.2f, 0, 0), QStringLiteral("PMS 299"));
+	addMixedColor(map, QStringLiteral("Blue 50%"), unused_spot, 0.5f);
+	addColor(map, QStringLiteral("Green"), MapColorCmyk(1, 0, 1, 0));
+
+	auto* road = addLineSymbol(map, 501, QStringLiteral("Road"), black);
+	addLineSymbol(map, 502, QStringLiteral("Track"), black);
+	auto* contour = addLineSymbol(map, 101, QStringLiteral("Contour"), mixed);
+	for (int i = 0; i < 3; ++i)
+		map.addObject(new PathObject(road, MapCoordVector{ MapCoord(0.0, double(i)), MapCoord(10.0, double(i)) }));
+	map.addObject(new PathObject(contour, MapCoordVector{ MapCoord(0.0, 5.0), MapCoord(10.0, 5.0) }));
+
+	auto const usage = colourUsage(map);
+	QCOMPARE(int(usage.size()), 6);
+	QCOMPARE(usage[0].symbols, (QStringList{ QStringLiteral("501 Road"), QStringLiteral("502 Track") }));
+	QCOMPARE(usage[0].objects, 3);
+	QVERIFY(usage[0].used);
+	QVERIFY(usage[1].symbols.isEmpty());
+	QCOMPARE(usage[1].mixed_into, QStringList{ QStringLiteral("Brown 50%") });
+	QVERIFY(usage[1].used);
+	QCOMPARE(usage[2].objects, 1);
+	QCOMPARE(usage[3].mixed_into, QStringList{ QStringLiteral("Blue 50%") });
+	QVERIFY(!usage[3].used);
+	QVERIFY(!usage[4].used);
+	QVERIFY(!usage[5].used);
+	auto const text = colourUsageText(usage);
+	QVERIFY2(text.contains(QLatin1String("Black: 2 symbol(s), 3 object(s)")), qPrintable(text));
+	QVERIFY(text.contains(QLatin1String("  501 Road\n")));
+	QVERIFY(text.contains(QLatin1String("Green: not used")));
+
+	auto const deleted = deleteUnusedColours(map);
+	QCOMPARE(deleted, (QStringList{ QStringLiteral("PMS 299"), QStringLiteral("Blue 50%"), QStringLiteral("Green") }));
+	QCOMPARE(colourNames(map), (QStringList{ QStringLiteral("Black"), QStringLiteral("PMS 471"), QStringLiteral("Brown 50%") }));
+	QVERIFY(deleteUnusedColours(map).isEmpty());
 }
 
 
