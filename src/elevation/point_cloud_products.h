@@ -34,6 +34,7 @@
 namespace OpenOrienteering {
 
 class ElevationModel;
+class GridTileCache;
 
 
 /**
@@ -53,16 +54,20 @@ struct FeatureMapParams
  * The highest return inside the band per cell, slope-shaded; Grayscale8, cells without returns black.
  */
 RasterProduct featureMap(const QStringList& paths, const ElevationModel& dtm, const FeatureMapParams& params);
+/// The same, the terrain model read through a tile cache.
+RasterProduct featureMap(const QStringList& paths, const GridTileCache& dtm, const FeatureMapParams& params);
 
 /**
  * The mean first-return intensity per cell, stretched from the 2nd to the 98th percentile; Grayscale8.
  */
 RasterProduct intensityMap(const QStringList& paths, const ElevationModel& dtm, double cell = 1.0);
+RasterProduct intensityMap(const QStringList& paths, const GridTileCache& dtm, double cell = 1.0);
 
 /**
  * The most frequent class per cell, coloured by classColor(); RGB32, cells without returns black.
  */
 RasterProduct classificationMap(const QStringList& paths, const ElevationModel& dtm, double cell = 1.0);
+RasterProduct classificationMap(const QStringList& paths, const GridTileCache& dtm, double cell = 1.0);
 
 /// The colour of a LAS class in the classification map.
 QRgb classColor(int classification);

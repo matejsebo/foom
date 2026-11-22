@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <iterator>
+#include <utility>
 
 #include <Qt>
 #include <QBrush>
@@ -54,6 +55,7 @@
 #include "core/background_extents.h"
 #include "core/extents.h"
 #include "core/map.h"
+#include "core/map_printer.h"
 #include "core/symbols/symbol.h"
 #include "course/course_data.h"
 #include "course/course_parts.h"
@@ -221,7 +223,14 @@ CourseCanvasesDialog::CourseCanvasesDialog(const Map* map, QWidget* parent)
 
 	auto* form = new QFormLayout();
 	form->addRow(tr("Export scale:"), scale_edit);
-	form->addRow(tr("Extent:"), extent_box);
+	// the design notes, "Canvases: defining an extent in the dialog"
+	define_extent_button = new QPushButton(tr("Define..."));
+	define_extent_button->setObjectName(QStringLiteral("canvas-define-extent"));
+	define_extent_button->setEnabled(false);
+	auto* extent_layout = new QHBoxLayout();
+	extent_layout->addWidget(extent_box, 1);
+	extent_layout->addWidget(define_extent_button);
+	form->addRow(tr("Extent:"), extent_layout);
 	form->addRow(tr("Load extent from background map:"), load_extent_box);
 	form->addRow(tr("Description box:"), box_edit);
 	form->addRow(tr("Rows of the description:"), rows_edit);
@@ -259,6 +268,7 @@ CourseCanvasesDialog::CourseCanvasesDialog(const Map* map, QWidget* parent)
 	connect(rename_button, &QPushButton::clicked, this, &CourseCanvasesDialog::renameClicked);
 	connect(delete_button, &QPushButton::clicked, this, [this]() { removeCanvas(currentCanvas()); });
 	connect(load_xml_button, &QPushButton::clicked, this, &CourseCanvasesDialog::loadXmlClicked);
+	connect(define_extent_button, &QPushButton::clicked, this, &CourseCanvasesDialog::defineExtentClicked);
 	connect(save_xml_button, &QPushButton::clicked, this, &CourseCanvasesDialog::saveXmlClicked);
 	connect(scale_edit, QOverload<int>::of(&QSpinBox::valueChanged), this, &CourseCanvasesDialog::valuesChanged);
 	connect(extent_box, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &CourseCanvasesDialog::valuesChanged);
@@ -468,6 +478,48 @@ void CourseCanvasesDialog::backgroundExtentChosen(int index)
 	extent_box->setCurrentIndex(extent_box->findText(extent.name));
 	QSignalBlocker blocker(load_extent_box);
 	load_extent_box->setCurrentIndex(0);
+}
+
+// the design notes, "Canvases: defining an extent in the dialog"
+void CourseCanvasesDialog::setExtentDefiner(ExtentDefiner definer)
+{
+	extent_definer = std::move(definer);
+	define_extent_button->setEnabled(bool(extent_definer));
+}
+
+void CourseCanvasesDialog::defineExtentClicked()
+{
+	auto const index = currentCanvas();
+	if (!extent_definer || index < 0 || std::size_t(index) >= data.canvases.size())
+		return;
+	auto const& name = data.canvases[std::size_t(index)].extent;
+	auto const known = [this](const QString& text) -> const Extent* {
+		auto const same = [&text](const Extent& other) { return other.name == text; };
+		auto const& extents = map->extents();
+		auto const loaded = std::find_if(loaded_extents.begin(), loaded_extents.end(), same);
+		if (loaded != loaded_extents.end())
+			return &*loaded;
+		auto const own = std::find_if(extents.begin(), extents.end(), same);
+		return own != extents.end() ? &*own : nullptr;
+	};
+	Extent extent;
+	if (auto const* existing = name.isEmpty() ? nullptr : known(name))
+	{
+		extent = *existing;
+	}
+	else
+	{
+		// As the command proposes a new extent.
+		auto number = int(map->extents().size()) + 1;
+		while (known(tr("Extent %1").arg(number)))
+			++number;
+		extent.name = tr("Extent %1").arg(number);
+		extent.rect_mm = map->printerConfig().print_area;
+	}
+	if (!extent_definer(extent) || extent.name.trimmed().isEmpty())
+		return;
+	keepLoadedExtent(extent);
+	extent_box->setCurrentIndex(extent_box->findText(extent.name));
 }
 
 void CourseCanvasesDialog::keepLoadedExtent(const Extent& extent)

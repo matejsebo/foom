@@ -34,6 +34,7 @@ set(MAPPER_ELEVATION_SOURCES
   elevation_wizard.cpp
   embedded_grid.cpp
   grid_frame.cpp
+  grid_tiles.cpp
   landforms.cpp
   point_cloud.cpp
   point_cloud_products.cpp
@@ -57,7 +58,9 @@ target_include_directories(mapper-elevation PRIVATE "${PROJECT_SOURCE_DIR}/src")
 
 target_link_libraries(mapper-elevation ${GDAL_LIBRARIES} Qt5::Core Qt5::Gui mapper-gdal Mapper_Common)
 
-set_target_properties(mapper-elevation PROPERTIES PREFIX "")
+# The static libraries depend on each other in a cycle; a third pass lets a user of the
+# raster products (whose templates need the template classes of Mapper_Common) link.
+set_target_properties(mapper-elevation PROPERTIES PREFIX "" LINK_INTERFACE_MULTIPLICITY 3)
 
 # LASzip's own library: its laszip_api3 is a loader which looks for LASzip64.dll.
 find_path(LASZIP_INCLUDE_DIR laszip/laszip_api.h)

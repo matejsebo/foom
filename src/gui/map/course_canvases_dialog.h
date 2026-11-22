@@ -21,6 +21,7 @@
 #ifndef FOOM_COURSE_CANVASES_DIALOG_H
 #define FOOM_COURSE_CANVASES_DIALOG_H
 
+#include <functional>
 #include <vector>
 
 #include <QDialog>
@@ -82,6 +83,15 @@ public:
 	/** Writes the canvases as a canvas XML file, with the rectangles of their extents. */
 	bool saveXml(const QString& path) const;
 
+	/**
+	 * Defines an extent: receives the proposed one, returns false when cancelled.
+	 * See the design notes, "Canvases: defining an extent in the dialog".
+	 */
+	using ExtentDefiner = std::function<bool (Extent& extent)>;
+	
+	/** Enables Define... beside the extent; the defined extent is kept as a loaded one. */
+	void setExtentDefiner(ExtentDefiner definer);
+	
 	/** The text of an entry of the list of courses: "Map Exchange - Map exchange #1". */
 	static QString entryText(const CanvasCourse& entry);
 	
@@ -96,6 +106,7 @@ private:
 	void renameClicked();
 	void backgroundExtentChosen(int index);
 	void keepLoadedExtent(const Extent& extent);
+	void defineExtentClicked();
 	void loadXmlClicked();
 	void saveXmlClicked();
 	
@@ -113,6 +124,8 @@ private:
 	QSpinBox* scale_edit;
 	QComboBox* extent_box;
 	QComboBox* load_extent_box;
+	QPushButton* define_extent_button;
+	ExtentDefiner extent_definer;
 	std::vector<BackgroundExtent> background_extents;
 	std::vector<Extent> loaded_extents;
 	QDoubleSpinBox* box_edit;

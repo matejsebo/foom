@@ -34,6 +34,7 @@
 #include <QTextStream>
 
 #include "elevation/elevation_model.h"
+#include "elevation/grid_tiles.h"
 
 namespace OpenOrienteering {
 
@@ -61,7 +62,8 @@ struct CellLayout
 	QString crs_spec;
 	QString error;
 
-	CellLayout(const ElevationModel& dtm, double cell_size)
+	template <class Grid>
+	CellLayout(const Grid& dtm, double cell_size)
 	: cell(cell_size)
 	, crs_spec(dtm.crsSpec())
 	{
@@ -112,7 +114,8 @@ struct CellLayout
 
 
 /// The terrain model's height under a point, falling back to the cell's value at the grid's edge.
-double groundAt(const ElevationModel& dtm, double x, double y)
+template <class Grid>
+double groundAt(const Grid& dtm, double x, double y)
 {
 	auto base = dtm.at(QPointF(x, y));
 	if (std::isnan(base))
@@ -213,7 +216,10 @@ VegetationIndices vegetationIndices(const QStringList& paths, const ElevationMod
 
 
 
-RasterProduct featureMap(const QStringList& paths, const ElevationModel& dtm, const FeatureMapParams& params)
+namespace {
+
+template <class Grid>
+RasterProduct featureMapOf(const QStringList& paths, const Grid& dtm, const FeatureMapParams& params)
 {
 	// the design notes, "Feature map, intensity and classification maps".
 	RasterProduct product;
@@ -275,7 +281,8 @@ RasterProduct featureMap(const QStringList& paths, const ElevationModel& dtm, co
 }
 
 
-RasterProduct intensityMap(const QStringList& paths, const ElevationModel& dtm, double cell)
+template <class Grid>
+RasterProduct intensityMapOf(const QStringList& paths, const Grid& dtm, double cell)
 {
 	RasterProduct product;
 	CellLayout const layout(dtm, cell);
@@ -349,6 +356,30 @@ RasterProduct intensityMap(const QStringList& paths, const ElevationModel& dtm, 
 }
 
 
+}  // namespace
+
+
+RasterProduct featureMap(const QStringList& paths, const ElevationModel& dtm, const FeatureMapParams& params)
+{
+	return featureMapOf(paths, dtm, params);
+}
+
+RasterProduct featureMap(const QStringList& paths, const GridTileCache& dtm, const FeatureMapParams& params)
+{
+	return featureMapOf(paths, dtm, params);
+}
+
+RasterProduct intensityMap(const QStringList& paths, const ElevationModel& dtm, double cell)
+{
+	return intensityMapOf(paths, dtm, cell);
+}
+
+RasterProduct intensityMap(const QStringList& paths, const GridTileCache& dtm, double cell)
+{
+	return intensityMapOf(paths, dtm, cell);
+}
+
+
 QRgb classColor(int classification)
 {
 	switch (classification)
@@ -369,7 +400,10 @@ QRgb classColor(int classification)
 }
 
 
-RasterProduct classificationMap(const QStringList& paths, const ElevationModel& dtm, double cell)
+namespace {
+
+template <class Grid>
+RasterProduct classificationMapOf(const QStringList& paths, const Grid& dtm, double cell)
 {
 	RasterProduct product;
 	CellLayout const layout(dtm, cell);
@@ -433,6 +467,20 @@ RasterProduct classificationMap(const QStringList& paths, const ElevationModel& 
 	product.extent = layout.extent();
 	product.crs_spec = layout.crs_spec;
 	return product;
+}
+
+
+}  // namespace
+
+
+RasterProduct classificationMap(const QStringList& paths, const ElevationModel& dtm, double cell)
+{
+	return classificationMapOf(paths, dtm, cell);
+}
+
+RasterProduct classificationMap(const QStringList& paths, const GridTileCache& dtm, double cell)
+{
+	return classificationMapOf(paths, dtm, cell);
 }
 
 

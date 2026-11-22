@@ -20,16 +20,19 @@
 #include "elevation_commands.h"
 
 #include <algorithm>
+#include <functional>
 #include <iterator>
 #include <utility>
 
 #include <QCoreApplication>
+#include <QFile>
 #include <QFileInfo>
 
 #include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/objects/object.h"
 #include "elevation/cliffs.h"
+#include "elevation/grid_tiles.h"
 #include "elevation/landforms.h"
 #include "elevation/point_cloud.h"
 #include "elevation/point_cloud_products.h"
@@ -166,19 +169,135 @@ bool importPointClouds(Map& map, const QString& map_path, const QStringList& pat
 		setError(error, tr("No point cloud was chosen."));
 		return false;
 	}
+	// the design notes, "Grids on disk, a tile cache, and a progress bar":
+	// a cancelled run removes what it wrote and leaves the map unchanged.
+	bool cancelled = false;
+	TileProgress progress;
+	if (params.progress)
+	{
+		progress = [&params, &cancelled](const QString& step, int done, int total) {
+			auto const go_on = params.progress(step, done, total);
+			cancelled = cancelled || !go_on;
+			return go_on;
+		};
+	}
+	QStringList written;
+	std::unique_ptr<GridTileCache> dtm_cache, dsm_cache;
+	auto const fail = [&](const QString& message) {
+		if (cancelled)
+		{
+			// Closed first: Windows does not remove an open file.
+			dtm_cache.reset();
+			dsm_cache.reset();
+			for (auto const& path : written)
+				QFile::remove(path);
+		}
+		setError(error, message);
+		return false;
+	};
+
 	auto grid_params = params;
 	grid_params.dtm = params.dtm || products.vegetation_height || products.vegetation_map
 	                  || products.feature_map || products.intensity_map || products.classification_map;
 	grid_params.dsm = params.dsm || products.vegetation_height;
+	// Named before gridding, so that the grids can be written on disk.
+	grid_params.dtm_path = productPath(map_path, paths.front(), QStringLiteral("DTM"));
+	grid_params.dsm_path = productPath(map_path, paths.front(), QStringLiteral("DSM"));
+	grid_params.progress = progress;
 	auto result = PointCloud::grid(paths, grid_params);
 	if (!result.error.isEmpty())
+		return fail(result.error);
+	auto const on_disk = !result.dtm_path.isEmpty() || !result.dsm_path.isEmpty();
+	if (on_disk)
 	{
-		setError(error, result.error);
-		return false;
+		for (auto const* path : { &result.dtm_path, &result.dsm_path })
+		{
+			if (!path->isEmpty())
+				written.push_back(*path);
+		}
+		QString message;
+		if (!result.dtm_path.isEmpty() && !(dtm_cache = GridTileCache::open(result.dtm_path, 0, &message)))
+			return fail(message);
+		if (!result.dsm_path.isEmpty() && !(dsm_cache = GridTileCache::open(result.dsm_path, 0, &message)))
+			return fail(message);
 	}
+	auto const has_dtm = bool(result.dtm) || bool(dtm_cache);
+	auto const has_dsm = bool(result.dsm) || bool(dsm_cache);
+
 	auto const target_crs = mapCrs(map);
 	QStringList grid_paths;
 	QStringList raster_paths;
+	// The products, from the grids in the clouds' system; attached at the end.
+	auto const product = [&](const RasterProduct& raster, const QString& suffix) {
+		if (!raster.error.isEmpty())
+			return fail(raster.error);
+		auto const path = productPath(map_path, paths.front(), suffix);
+		QString message;
+		if (!writeGeoTiff(raster, path, &message))
+			return fail(message);
+		written.push_back(path);
+		raster_paths.push_back(path);
+		return true;
+	};
+	auto const file_product = [&](const QString& suffix, const std::function<bool (const QString&, QString*)>& write) {
+		auto const path = productPath(map_path, paths.front(), suffix);
+		QString message;
+		if (!write(path, &message))
+			return fail(message);
+		written.push_back(path);
+		raster_paths.push_back(path);
+		return true;
+	};
+	if (products.vegetation_height && has_dtm && has_dsm)
+	{
+		if (on_disk)
+		{
+			if (!file_product(QStringLiteral("vegetation_height"), [&](const QString& path, QString* message) {
+				return vegetationHeightToFile(*dsm_cache, *dtm_cache, VegetationHeightOptions(), path, grid_params.tile_size, progress, message);
+			}))
+				return false;
+		}
+		else
+		{
+			auto const heights = ElevationModel::difference(*result.dsm, *result.dtm);
+			if (!heights)
+				return fail(tr("The surface and terrain models do not overlap."));
+			if (!product(vegetationHeightRaster(*heights, defaultHeightClasses()), QStringLiteral("vegetation_height")))
+				return false;
+		}
+	}
+	if (products.vegetation_map && has_dtm)
+	{
+		if (on_disk)
+		{
+			if (!file_product(QStringLiteral("vegetation"), [&](const QString& path, QString* message) {
+				return PointCloud::vegetationBaseMapToFile(paths, *dtm_cache, products.vegetation, path, progress, message);
+			}))
+				return false;
+		}
+		else if (!product(PointCloud::vegetationBaseMap(paths, *result.dtm, products.vegetation, progress), QStringLiteral("vegetation")))
+		{
+			return false;
+		}
+	}
+	// "Feature map, intensity and classification maps".
+	if (products.feature_map && has_dtm)
+	{
+		FeatureMapParams features;
+		features.cell = params.cell;
+		features.band_from = products.feature_from;
+		features.band_to = products.feature_to;
+		if (!product(on_disk ? featureMap(paths, *dtm_cache, features) : featureMap(paths, *result.dtm, features), QStringLiteral("features")))
+			return false;
+	}
+	if (products.intensity_map && has_dtm
+	    && !product(on_disk ? intensityMap(paths, *dtm_cache, params.cell) : intensityMap(paths, *result.dtm, params.cell), QStringLiteral("intensity")))
+		return false;
+	if (products.classification_map && has_dtm
+	    && !product(on_disk ? classificationMap(paths, *dtm_cache, params.cell) : classificationMap(paths, *result.dtm, params.cell), QStringLiteral("classes")))
+		return false;
+
+	// The grids become the map's.
 	auto const store = [&](std::unique_ptr<ElevationModel> grid, ElevationSet::Kind kind, const QString& suffix) {
 		if (!grid)
 			return true;
@@ -204,56 +323,49 @@ bool importPointClouds(Map& map, const QString& map_path, const QStringList& pat
 		grid_paths.push_back(href);
 		return true;
 	};
-	// The products, from the grids in the clouds' system.
-	auto const product = [&](const RasterProduct& raster, const QString& suffix) {
-		if (!raster.error.isEmpty())
-		{
-			setError(error, raster.error);
-			return false;
-		}
-		auto const path = productPath(map_path, paths.front(), suffix);
-		if (!writeGeoTiff(raster, path, error) || (attach && !attachProductTemplate(map, path, error)))
-			return false;
-		raster_paths.push_back(path);
-		return true;
-	};
-	if (products.vegetation_height && result.dtm && result.dsm)
+	dtm_cache.reset();
+	dsm_cache.reset();
+	if (on_disk)
 	{
-		auto const heights = ElevationModel::difference(*result.dsm, *result.dtm);
-		if (!heights)
+		// A model made only for the products is not kept, as in memory.
+		if (!params.dtm && !result.dtm_path.isEmpty())
+			QFile::remove(result.dtm_path);
+		if (!params.dsm && !result.dsm_path.isEmpty())
+			QFile::remove(result.dsm_path);
+		// Set by href, loaded (and warped into the map's system) when a command uses them.
+		if (params.dtm && !result.dtm_path.isEmpty())
 		{
-			setError(error, tr("The surface and terrain models do not overlap."));
-			return false;
+			map.elevationSet().setHref(ElevationSet::Terrain, result.dtm_path);
+			grid_paths.push_back(result.dtm_path);
 		}
-		if (!product(vegetationHeightRaster(*heights, defaultHeightClasses()), QStringLiteral("vegetation_height")))
+		if (params.dsm && !result.dsm_path.isEmpty())
+		{
+			map.elevationSet().setHref(ElevationSet::Surface, result.dsm_path);
+			grid_paths.push_back(result.dsm_path);
+		}
+	}
+	else
+	{
+		if (!params.dtm)
+			result.dtm.reset();
+		if (!params.dsm)
+			result.dsm.reset();
+		if (!store(std::move(result.dtm), ElevationSet::Terrain, QStringLiteral("DTM"))
+		    || !store(std::move(result.dsm), ElevationSet::Surface, QStringLiteral("DSM")))
 			return false;
 	}
-	if (products.vegetation_map && result.dtm
-	    && !product(PointCloud::vegetationBaseMap(paths, *result.dtm, products.vegetation), QStringLiteral("vegetation")))
-		return false;
-	// "Feature map, intensity and classification maps".
-	if (products.feature_map && result.dtm)
+	if (attach)
 	{
-		FeatureMapParams features;
-		features.cell = params.cell;
-		features.band_from = products.feature_from;
-		features.band_to = products.feature_to;
-		if (!product(featureMap(paths, *result.dtm, features), QStringLiteral("features")))
-			return false;
+		for (auto const& path : raster_paths)
+		{
+			QString message;
+			if (!attachProductTemplate(map, path, &message))
+			{
+				setError(error, tr("Cannot attach %1: %2").arg(path, message));
+				return false;
+			}
+		}
 	}
-	if (products.intensity_map && result.dtm
-	    && !product(intensityMap(paths, *result.dtm, params.cell), QStringLiteral("intensity")))
-		return false;
-	if (products.classification_map && result.dtm
-	    && !product(classificationMap(paths, *result.dtm, params.cell), QStringLiteral("classes")))
-		return false;
-	if (!params.dtm)
-		result.dtm.reset();
-	if (!params.dsm)
-		result.dsm.reset();
-	if (!store(std::move(result.dtm), ElevationSet::Terrain, QStringLiteral("DTM"))
-	    || !store(std::move(result.dsm), ElevationSet::Surface, QStringLiteral("DSM")))
-		return false;
 	map.setHasUnsavedChanges(true);
 	if (grids)
 		*grids = grid_paths;

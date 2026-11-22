@@ -28,6 +28,8 @@
 #include <QByteArray>
 #include <QDir>
 #include <QFileInfo>
+#include <QImage>
+#include <QVector>
 #include <QPointF>
 
 #include "elevation/elevation_model.h"
@@ -50,6 +52,15 @@ namespace {
 /// The largest grid, in cells (20 by 20 km at 1 m): the grids are held whole,
 /// the points are gridded a row of tiles at a time.
 constexpr qint64 max_cells = 400000000;
+
+/// The largest grid written to disk (100 by 100 km at 1 m), and the default memory ceiling.
+/// See the design notes, "Grids on disk, a tile cache, and a progress bar".
+constexpr qint64 max_disk_cells = 10000000000LL;
+constexpr qint64 default_memory_limit = qint64(2) << 30;
+
+/// Estimated bytes of a cell of a row of tiles: per model in gridding, in all for the base map.
+constexpr qint64 band_bytes_per_cell = 24;
+constexpr qint64 base_map_bytes_per_cell = 44;
 
 /// Floor and ceiling which forgive the rounding of coordinates read with a scale.
 double floorTo(double value, double cell)
@@ -403,9 +414,77 @@ qint64 PointCloud::maxCells()
 
 
 // static
+qint64 PointCloud::maxDiskCells()
+{
+	return max_disk_cells;
+}
+
+
+// static
+qint64 PointCloud::defaultMemoryLimit()
+{
+	return default_memory_limit;
+}
+
+
+namespace {
+
+/// The extent of the points of one file, read rather than taken from the header.
+struct FileBounds
+{
+	double min_x = std::numeric_limits<double>::max();
+	double min_y = std::numeric_limits<double>::max();
+	double max_x = std::numeric_limits<double>::lowest();
+	double max_y = std::numeric_limits<double>::lowest();
+	qint64 count = 0;
+
+	bool reaches(double left, double bottom, double right, double top) const
+	{
+		return count > 0 && max_y >= bottom && min_y <= top && max_x >= left && min_x <= right;
+	}
+};
+
+bool readFileBounds(const QStringList& paths, std::vector<FileBounds>& bounds, std::vector<QString>* crs_of_file, QString* error)
+{
+	bounds.assign(std::size_t(paths.size()), FileBounds());
+	for (std::size_t i = 0; i < bounds.size(); ++i)
+	{
+		auto& b = bounds[i];
+		auto const extend = [&b](const CloudPoint& p) {
+			++b.count;
+			b.min_x = std::min(b.min_x, p.x);
+			b.min_y = std::min(b.min_y, p.y);
+			b.max_x = std::max(b.max_x, p.x);
+			b.max_y = std::max(b.max_y, p.y);
+		};
+#ifdef FOOM_WITH_LASZIP
+		QString crs;
+		if (!readFile(paths[int(i)], true, extend, &crs, error))
+			return false;
+		if (crs_of_file)
+			(*crs_of_file)[i] = crs;
+#else
+		Q_UNUSED(extend)
+		Q_UNUSED(crs_of_file)
+		Q_UNUSED(error)
+#endif
+	}
+	return true;
+}
+
+QString cancelledMessage()
+{
+	return PointCloud::tr("Cancelled.");
+}
+
+}  // namespace
+
+
+// static
 GriddingResult PointCloud::grid(const QStringList& paths, const GriddingParams& params)
 {
-	// the design notes, "Reading point clouds and gridding them" and "Tiles of 1 km".
+	// the design notes, "Reading point clouds and gridding them", "Tiles of 1 km"
+	// and "Grids on disk, a tile cache, and a progress bar".
 	GriddingResult result;
 	if (!supported())
 	{
@@ -420,46 +499,15 @@ GriddingResult PointCloud::grid(const QStringList& paths, const GriddingParams& 
 	auto const cell = params.cell;
 	auto const num_files = std::size_t(paths.size());
 	std::vector<QString> crs_of_file(num_files);
-
-	// The extent of every file's points, read rather than taken from the header.
-	struct Bounds
-	{
-		double min_x = std::numeric_limits<double>::max();
-		double min_y = std::numeric_limits<double>::max();
-		double max_x = std::numeric_limits<double>::lowest();
-		double max_y = std::numeric_limits<double>::lowest();
-		qint64 count = 0;
-	};
-	std::vector<Bounds> file_bounds;
-	auto const readBounds = [&]() {
-		file_bounds.assign(num_files, Bounds());
-		for (std::size_t i = 0; i < num_files; ++i)
-		{
-			auto& b = file_bounds[i];
-			auto const extend = [&b](const CloudPoint& p) {
-				++b.count;
-				b.min_x = std::min(b.min_x, p.x);
-				b.min_y = std::min(b.min_y, p.y);
-				b.max_x = std::max(b.max_x, p.x);
-				b.max_y = std::max(b.max_y, p.y);
-			};
-#ifdef FOOM_WITH_LASZIP
-			if (!readFile(paths[int(i)], true, extend, &crs_of_file[i], &result.error))
-				return false;
-#else
-			Q_UNUSED(extend)
-#endif
-		}
-		return true;
-	};
+	std::vector<FileBounds> file_bounds;
 
 	// The edges.
 	QRectF bounds = params.box;
 	if (bounds.isEmpty())
 	{
-		if (!readBounds())
+		if (!readFileBounds(paths, file_bounds, &crs_of_file, &result.error))
 			return result;
-		Bounds all;
+		FileBounds all;
 		for (auto const& b : file_bounds)
 		{
 			if (b.count == 0)
@@ -484,28 +532,74 @@ GriddingResult PointCloud::grid(const QStringList& paths, const GriddingParams& 
 	auto const top = bottom + height * cell;
 	auto const right = left + width * cell;
 	auto const cells = qint64(width) * qint64(height);
-	if (cells > max_cells)
+
+	// In memory or on disk.
+	auto const limit = params.memory_limit > 0 ? params.memory_limit : default_memory_limit;
+	auto const models = qint64(params.dtm) + qint64(params.dsm);
+	auto const on_disk = params.to_disk || cells * 4 * models > limit || cells > max_cells;
+	if (on_disk)
 	{
-		result.error = tr("The grid of %1 by %2 cells is too large; choose a larger cell or a box.").arg(width).arg(height);
-		return result;
+		if ((params.dtm && params.dtm_path.isEmpty()) || (params.dsm && params.dsm_path.isEmpty()))
+		{
+			result.error = tr("The grid of %1 by %2 cells does not fit in memory; choose a larger cell or a box.").arg(width).arg(height);
+			return result;
+		}
+		if (cells > max_disk_cells)
+		{
+			result.error = tr("The grid of %1 by %2 cells is too large; choose a larger cell or a box.").arg(width).arg(height);
+			return result;
+		}
 	}
 
 	// Rows of tiles, from the north. The buffer covers the reach of the void
 	// filling, so that every cell is filled from the same cells as in one piece.
-	auto const tile_rows = std::max(1, int(std::lround(params.tile_size / cell)));
+	auto tile_rows = std::max(1, int(std::lround(params.tile_size / cell)));
 	auto const buffer_rows = std::max(std::max(0, params.fill_cells), int(std::ceil(params.tile_buffer / cell - 1e-9)));
+	auto const rows_in_limit = limit / (band_bytes_per_cell * qint64(width) * models);
+	if (rows_in_limit < 1 + 2 * qint64(buffer_rows))
+	{
+		result.error = tr("The memory ceiling is too low for a row of tiles %1 cells wide.").arg(width);
+		return result;
+	}
+	tile_rows = int(std::min(qint64(tile_rows), rows_in_limit - 2 * qint64(buffer_rows)));
 	auto const num_bands = (height + tile_rows - 1) / tile_rows;
-	if (num_bands > 1 && file_bounds.empty() && !readBounds())
+	if (num_bands > 1 && file_bounds.empty() && !readFileBounds(paths, file_bounds, &crs_of_file, &result.error))
 		return result;
 	result.tile_rows = num_bands;
 
-	auto const n = std::size_t(cells);
 	auto const nan = std::numeric_limits<float>::quiet_NaN();
 	std::vector<float> dtm_values, dsm_values;
-	if (params.dtm)
-		dtm_values.assign(n, nan);
-	if (params.dsm)
-		dsm_values.assign(n, nan);
+	GridFileWriter dtm_writer, dsm_writer;
+	auto const discard = [&]() {
+		dtm_writer.discard();
+		dsm_writer.discard();
+	};
+	if (on_disk)
+	{
+		if ((params.dtm && !dtm_writer.open(params.dtm_path, width, height, QPointF(left, top), cell, {}, &result.error))
+		    || (params.dsm && !dsm_writer.open(params.dsm_path, width, height, QPointF(left, top), cell, {}, &result.error)))
+		{
+			discard();
+			return result;
+		}
+	}
+	else
+	{
+		auto const n = std::size_t(cells);
+		if (params.dtm)
+			dtm_values.assign(n, nan);
+		if (params.dsm)
+			dsm_values.assign(n, nan);
+	}
+	auto const step = tr("Gridding");
+	auto const cancel = [&]() {
+		discard();
+		result.cancelled = true;
+		result.error = cancelledMessage();
+		return std::move(result);
+	};
+	if (params.progress && !params.progress(step, 0, num_bands))
+		return cancel();
 
 	// Sums relative to the first height keep the precision of float.
 	auto reference = std::numeric_limits<double>::quiet_NaN();
@@ -557,36 +651,44 @@ GriddingResult PointCloud::grid(const QStringList& paths, const GriddingParams& 
 		};
 		for (std::size_t i = 0; i < num_files; ++i)
 		{
-			if (!file_bounds.empty())
-			{
-				auto const& b = file_bounds[i];
-				if (b.count == 0 || b.max_y < band_bottom || b.min_y > band_top || b.max_x < left || b.min_x > right)
-					continue;
-			}
+			if (!file_bounds.empty() && !file_bounds[i].reaches(left, band_bottom, right, band_top))
+				continue;
 			++result.file_reads;
 			if (!read(paths[int(i)], add, &crs_of_file[i], &result.error))
+			{
+				discard();
 				return result;
+			}
 		}
 
-		// The band's grids, filled, and its own rows copied out.
-		auto const finish = [&](std::vector<float>& sum, std::vector<quint32>& count, std::vector<float>& out) {
+		// The band's grids, filled, and its own rows copied out or written.
+		auto const finish = [&](std::vector<float>& sum, std::vector<quint32>& count, std::vector<float>& out, GridFileWriter& writer) {
 			std::vector<float> values(m, nan);
 			for (std::size_t k = 0; k < m; ++k)
 			{
 				if (count[k] > 0)
 					values[k] = float(reference + double(sum[k]) / count[k]);
 			}
+			sum = {};
+			count = {};
 			ElevationModel piece(width, band_height, QPointF(left, band_top), cell, std::move(values));
 			fillVoids(piece, params.fill_cells);
 			auto const& filled = piece.values();
-			std::copy(filled.begin() + std::ptrdiff_t(std::size_t(r0 - b0) * std::size_t(width)),
-			          filled.begin() + std::ptrdiff_t(std::size_t(r1 - b0) * std::size_t(width)),
+			auto const from = filled.begin() + std::ptrdiff_t(std::size_t(r0 - b0) * std::size_t(width));
+			if (on_disk)
+				return writer.writeRows(r0, r1 - r0, &*from, &result.error);
+			std::copy(from, filled.begin() + std::ptrdiff_t(std::size_t(r1 - b0) * std::size_t(width)),
 			          out.begin() + std::ptrdiff_t(std::size_t(r0) * std::size_t(width)));
+			return true;
 		};
-		if (params.dtm)
-			finish(dtm_sum, dtm_count, dtm_values);
-		if (params.dsm)
-			finish(dsm_sum, dsm_count, dsm_values);
+		if ((params.dtm && !finish(dtm_sum, dtm_count, dtm_values, dtm_writer))
+		    || (params.dsm && !finish(dsm_sum, dsm_count, dsm_values, dsm_writer)))
+		{
+			discard();
+			return result;
+		}
+		if (params.progress && !params.progress(step, band + 1, num_bands))
+			return cancel();
 	}
 
 	QString crs_spec;
@@ -598,6 +700,23 @@ GriddingResult PointCloud::grid(const QStringList& paths, const GriddingParams& 
 			break;
 		}
 	}
+	if (on_disk)
+	{
+		auto const finish = [&](GridFileWriter& writer, const QString& path, QString& out) {
+			if (!writer.setCrs(crs_spec, &result.error) || !writer.close(&result.error))
+				return false;
+			out = path;
+			return true;
+		};
+		if ((params.dtm && !finish(dtm_writer, params.dtm_path, result.dtm_path))
+		    || (params.dsm && !finish(dsm_writer, params.dsm_path, result.dsm_path)))
+		{
+			discard();
+			result.dtm_path.clear();
+			result.dsm_path.clear();
+		}
+		return result;
+	}
 	if (params.dtm)
 		result.dtm = std::make_unique<ElevationModel>(width, height, QPointF(left, top), cell, std::move(dtm_values), crs_spec);
 	if (params.dsm)
@@ -607,98 +726,26 @@ GriddingResult PointCloud::grid(const QStringList& paths, const GriddingParams& 
 
 
 
-// static
-RasterProduct PointCloud::vegetationBaseMap(const QStringList& paths, const ElevationModel& dtm, const VegetationParams& params)
+namespace {
+
+/// The terrain model's height under a point, falling back to the cell's value at the grid's edge.
+template <class Grid>
+double baseHeight(const Grid& dtm, const CloudPoint& p)
 {
-	// the design notes, "Vegetation height and vegetation base map".
-	RasterProduct product;
-	if (!supported())
+	auto base = dtm.at(QPointF(p.x, p.y));
+	if (std::isnan(base))
 	{
-		product.error = tr("This build of FOOM does not read point clouds.");
-		return product;
+		int c, r;
+		if (!dtm.cellAt(QPointF(p.x, p.y), c, r) || std::isnan(dtm.value(c, r)))
+			return std::numeric_limits<double>::quiet_NaN();
+		base = dtm.value(c, r);
 	}
-	auto const extent = dtm.extent();
-	auto const cell = params.cell;
-	if (!(cell > 0))
-	{
-		product.error = tr("Nothing to grid.");
-		return product;
-	}
-	auto const width = std::max(1, int(std::lround(extent.width() / cell)));
-	auto const height = std::max(1, int(std::lround(extent.height() / cell)));
-	if (qint64(width) * qint64(height) > max_cells)
-	{
-		product.error = tr("The grid of %1 by %2 cells is too large; choose a larger cell or a box.").arg(width).arg(height);
-		return product;
-	}
-	auto const left = extent.left();
-	auto const top = extent.top() + extent.height();
-	
-	// Counts per cell.
-	auto const n = std::size_t(width) * std::size_t(height);
-	std::vector<quint32> returns(n, 0), raised(n, 0), ground(n, 0), vegetation(n, 0), undergrowth(n, 0);
-	auto const add = [&](const CloudPoint& p) {
-		auto const col = int(std::floor((p.x - left) / cell));
-		auto const row = height - 1 - int(std::floor((p.y - (top - height * cell)) / cell));
-		if (col < 0 || row < 0 || col >= width || row >= height)
-			return;
-		auto const k = std::size_t(row) * std::size_t(width) + std::size_t(col);
-		++returns[k];
-		auto base = dtm.at(QPointF(p.x, p.y));
-		if (std::isnan(base))
-		{
-			int c, r;
-			if (!dtm.cellAt(QPointF(p.x, p.y), c, r) || std::isnan(dtm.value(c, r)))
-				return;
-			base = dtm.value(c, r);
-		}
-		auto const h = p.z - base;
-		if (p.classification == 2 || p.classification == 9)
-			++ground[k];
-		if (h >= params.open_height)
-			++raised[k];
-		if (h >= params.vegetation_from && h < params.vegetation_to)
-			++vegetation[k];
-		if (h >= params.undergrowth_from && h < params.undergrowth_to)
-			++undergrowth[k];
-	};
-	for (auto const& path : paths)
-	{
-		if (!read(path, add, nullptr, &product.error))
-			return product;
-	}
-	
-	// Sums over windows through summed-area tables.
-	auto const table = [width, height](const std::vector<quint32>& counts) {
-		std::vector<qint64> sums(std::size_t(width + 1) * std::size_t(height + 1), 0);
-		for (int row = 0; row < height; ++row)
-		{
-			qint64 line = 0;
-			for (int col = 0; col < width; ++col)
-			{
-				line += counts[std::size_t(row) * std::size_t(width) + std::size_t(col)];
-				sums[std::size_t(row + 1) * std::size_t(width + 1) + std::size_t(col + 1)] = sums[std::size_t(row) * std::size_t(width + 1) + std::size_t(col + 1)] + line;
-			}
-		}
-		return sums;
-	};
-	auto const ground_sums = table(ground);
-	auto const vegetation_sums = table(vegetation);
-	auto const undergrowth_sums = table(undergrowth);
-	auto const window = [width, height](const std::vector<qint64>& sums, int col, int row, int size) {
-		auto const half = size / 2;
-		auto const c0 = std::max(0, col - half), c1 = std::min(width, col + half + 1);
-		auto const r0 = std::max(0, row - half), r1 = std::min(height, row + half + 1);
-		auto const at = [&sums, width](int c, int r) { return sums[std::size_t(r) * std::size_t(width + 1) + std::size_t(c)]; };
-		return at(c1, r1) - at(c0, r1) - at(c1, r0) + at(c0, r0);
-	};
-	// The normalised difference of vegetation and ground; returns 2 when undefined.
-	auto const ndvd = [](qint64 v, qint64 g) {
-		return v + g > 0 ? double(v - g) / double(v + g) : 2.0;
-	};
-	
-	product.image = QImage(width, height, QImage::Format_Indexed8);
-	product.image.setColorTable({
+	return base;
+}
+
+QVector<QRgb> baseMapPalette(const VegetationParams& params)
+{
+	return {
 	    params.no_data_red ? qRgb(255, 0, 0) : qRgb(255, 255, 255),
 	    qRgb(255, 201, 15),
 	    qRgb(255, 255, 255),
@@ -708,41 +755,289 @@ RasterProduct PointCloud::vegetationBaseMap(const QStringList& paths, const Elev
 	    qRgb(128, 0, 255),
 	    qRgb(255, 224, 119),
 	    qRgb(191, 128, 255),
-	});
+	};
+}
+
+/// The layout of the base map over the terrain model.
+struct BaseMapLayout
+{
+	int width = 0;
+	int height = 0;
+	double left = 0.0;
+	double top = 0.0;
+	double cell = 1.0;
+	QRectF extent;
+
+	BaseMapLayout(const QRectF& dtm_extent, double cell_size)
+	: cell(cell_size)
+	{
+		width = std::max(1, int(std::lround(dtm_extent.width() / cell)));
+		height = std::max(1, int(std::lround(dtm_extent.height() / cell)));
+		left = dtm_extent.left();
+		top = dtm_extent.top() + dtm_extent.height();
+		extent = QRectF(left, dtm_extent.top(), width * cell, height * cell);
+	}
+};
+
+/**
+ * The base map, row of tiles by row of tiles: the rows of each go to the sink.
+ * See the design notes, "Vegetation height and vegetation base map"
+ * and "Grids on disk, a tile cache, and a progress bar".
+ */
+template <class Grid>
+bool baseMapRows(const QStringList& paths, const Grid& dtm, const VegetationParams& params, const BaseMapLayout& layout,
+                 const TileProgress& progress, const std::function<bool (int, const QImage&)>& sink, QString* error, bool* cancelled)
+{
+	auto const width = layout.width;
+	auto const height = layout.height;
+	auto const cell = layout.cell;
+	auto const left = layout.left;
+	auto const top = layout.top;
+	auto const palette = baseMapPalette(params);
+
+	// Rows of tiles with a buffer of half the larger kernel: every window sees the same cells as in one piece.
+	auto const half = std::max(std::max(params.undergrowth_kernel, params.vegetation_kernel), 1) / 2;
+	auto rows_per_band = std::max(1, int(std::lround(params.tile_size / cell)));
+	auto const limit = params.memory_limit > 0 ? params.memory_limit : default_memory_limit;
+	auto const rows_in_limit = limit / (base_map_bytes_per_cell * qint64(width));
+	if (rows_in_limit < 1 + 2 * qint64(half))
+	{
+		*error = PointCloud::tr("The memory ceiling is too low for a row of tiles %1 cells wide.").arg(width);
+		return false;
+	}
+	rows_per_band = int(std::min(qint64(rows_per_band), rows_in_limit - 2 * qint64(half)));
+	auto const bands = (height + rows_per_band - 1) / rows_per_band;
+	std::vector<FileBounds> file_bounds;
+	if (bands > 1 && !readFileBounds(paths, file_bounds, nullptr, error))
+		return false;
+	auto const step = PointCloud::tr("Vegetation base map");
+	if (progress && !progress(step, 0, bands))
+	{
+		*cancelled = true;
+		return false;
+	}
+
+	// The normalised difference of vegetation and ground; returns 2 when undefined.
+	auto const ndvd = [](qint64 v, qint64 g) {
+		return v + g > 0 ? double(v - g) / double(v + g) : 2.0;
+	};
 	auto const& u = params.undergrowth_thresholds;
 	auto const& t = params.vegetation_thresholds;
-	for (int row = 0; row < height; ++row)
+	for (int band = 0; band < bands; ++band)
 	{
-		auto* line = product.image.scanLine(row);
-		for (int col = 0; col < width; ++col)
+		auto const r0 = band * rows_per_band;
+		auto const r1 = std::min(height, r0 + rows_per_band);
+		auto const b0 = std::max(0, r0 - half);
+		auto const b1 = std::min(height, r1 + half);
+		auto const band_height = b1 - b0;
+		auto const band_top = top - b0 * cell;
+		auto const band_bottom = top - b1 * cell;
+
+		// Counts per cell of the band and its buffers.
+		auto const n = std::size_t(width) * std::size_t(band_height);
+		std::vector<quint32> returns(n, 0), raised(n, 0), ground(n, 0), vegetation(n, 0), undergrowth(n, 0);
+		auto const add = [&](const CloudPoint& p) {
+			auto const col = int(std::floor((p.x - left) / cell));
+			auto const row = height - 1 - int(std::floor((p.y - (top - height * cell)) / cell));
+			if (col < 0 || row < b0 || col >= width || row >= b1)
+				return;
+			auto const k = std::size_t(row - b0) * std::size_t(width) + std::size_t(col);
+			++returns[k];
+			auto const base = baseHeight(dtm, p);
+			if (std::isnan(base))
+				return;
+			auto const h = p.z - base;
+			if (p.classification == 2 || p.classification == 9)
+				++ground[k];
+			if (h >= params.open_height)
+				++raised[k];
+			if (h >= params.vegetation_from && h < params.vegetation_to)
+				++vegetation[k];
+			if (h >= params.undergrowth_from && h < params.undergrowth_to)
+				++undergrowth[k];
+		};
+		for (int i = 0; i < paths.size(); ++i)
 		{
-			auto const k = std::size_t(row) * std::size_t(width) + std::size_t(col);
-			auto value = Runnable;
-			if (returns[k] == 0)
+			if (!file_bounds.empty() && !file_bounds[std::size_t(i)].reaches(left, band_bottom, left + width * cell, band_top))
+				continue;
+			if (!PointCloud::read(paths[i], add, nullptr, error))
+				return false;
+		}
+
+		// Sums over windows through summed-area tables.
+		auto const table = [width, band_height](const std::vector<quint32>& counts) {
+			std::vector<qint64> sums(std::size_t(width + 1) * std::size_t(band_height + 1), 0);
+			for (int row = 0; row < band_height; ++row)
 			{
-				value = NoData;
+				qint64 line = 0;
+				for (int col = 0; col < width; ++col)
+				{
+					line += counts[std::size_t(row) * std::size_t(width) + std::size_t(col)];
+					sums[std::size_t(row + 1) * std::size_t(width + 1) + std::size_t(col + 1)] = sums[std::size_t(row) * std::size_t(width + 1) + std::size_t(col + 1)] + line;
+				}
 			}
-			else if (raised[k] == 0)
+			return sums;
+		};
+		auto const ground_sums = table(ground);
+		auto const vegetation_sums = table(vegetation);
+		auto const undergrowth_sums = table(undergrowth);
+		ground = {};
+		vegetation = {};
+		undergrowth = {};
+		// The window in the band's rows; the band holds every row of the grid a window of its own rows reaches.
+		auto const window = [width, band_height](const std::vector<qint64>& sums, int col, int row, int size) {
+			auto const h = size / 2;
+			auto const c0 = std::max(0, col - h), c1 = std::min(width, col + h + 1);
+			auto const w0 = std::max(0, row - h), w1 = std::min(band_height, row + h + 1);
+			auto const at = [&sums, width](int c, int r) { return sums[std::size_t(r) * std::size_t(width + 1) + std::size_t(c)]; };
+			return at(c1, w1) - at(c0, w1) - at(c1, w0) + at(c0, w0);
+		};
+
+		QImage rows(width, r1 - r0, QImage::Format_Indexed8);
+		if (rows.isNull())
+		{
+			*error = ElevationModel::tr("The raster is too large");
+			return false;
+		}
+		rows.setColorTable(palette);
+		for (int row = r0; row < r1; ++row)
+		{
+			auto* line = rows.scanLine(row - r0);
+			auto const local = row - b0;
+			for (int col = 0; col < width; ++col)
 			{
-				value = Open;
+				auto const k = std::size_t(local) * std::size_t(width) + std::size_t(col);
+				auto value = PointCloud::Runnable;
+				if (returns[k] == 0)
+				{
+					value = PointCloud::NoData;
+				}
+				else if (raised[k] == 0)
+				{
+					value = PointCloud::Open;
+				}
+				else
+				{
+					auto const iu = ndvd(window(undergrowth_sums, col, local, params.undergrowth_kernel), window(ground_sums, col, local, params.undergrowth_kernel));
+					auto const iv = ndvd(window(vegetation_sums, col, local, params.vegetation_kernel), window(ground_sums, col, local, params.vegetation_kernel));
+					auto const has_iu = iu <= 1.0;
+					auto const has_iv = iv <= 1.0;
+					if (has_iu && iu >= u[0] && (!has_iv || iu >= iv))
+						value = iu >= u[1] ? PointCloud::UndergrowthDense : PointCloud::UndergrowthSome;
+					else if (has_iv)
+						value = iv >= t[2] ? PointCloud::Fight : iv >= t[1] ? PointCloud::Walk : iv >= t[0] ? PointCloud::Slow : PointCloud::Runnable;
+				}
+				line[col] = quint8(value);
 			}
-			else
-			{
-				auto const iu = ndvd(window(undergrowth_sums, col, row, params.undergrowth_kernel), window(ground_sums, col, row, params.undergrowth_kernel));
-				auto const iv = ndvd(window(vegetation_sums, col, row, params.vegetation_kernel), window(ground_sums, col, row, params.vegetation_kernel));
-				auto const has_iu = iu <= 1.0;
-				auto const has_iv = iv <= 1.0;
-				if (has_iu && iu >= u[0] && (!has_iv || iu >= iv))
-					value = iu >= u[1] ? UndergrowthDense : UndergrowthSome;
-				else if (has_iv)
-					value = iv >= t[2] ? Fight : iv >= t[1] ? Walk : iv >= t[0] ? Slow : Runnable;
-			}
-			line[col] = quint8(value);
+		}
+		if (!sink(r0, rows))
+			return false;
+		if (progress && !progress(step, band + 1, bands))
+		{
+			*cancelled = true;
+			return false;
 		}
 	}
-	product.extent = QRectF(left, extent.top(), width * cell, height * cell);
+	return true;
+}
+
+template <class Grid>
+RasterProduct baseMapImage(const QStringList& paths, const Grid& dtm, const VegetationParams& params, const TileProgress& progress)
+{
+	RasterProduct product;
+	if (!PointCloud::supported())
+	{
+		product.error = PointCloud::tr("This build of FOOM does not read point clouds.");
+		return product;
+	}
+	if (!(params.cell > 0))
+	{
+		product.error = PointCloud::tr("Nothing to grid.");
+		return product;
+	}
+	BaseMapLayout const layout(dtm.extent(), params.cell);
+	if (qint64(layout.width) * qint64(layout.height) > max_cells)
+	{
+		product.error = PointCloud::tr("The grid of %1 by %2 cells is too large; choose a larger cell or a box.").arg(layout.width).arg(layout.height);
+		return product;
+	}
+	QImage image(layout.width, layout.height, QImage::Format_Indexed8);
+	if (image.isNull())
+	{
+		product.error = ElevationModel::tr("The raster is too large");
+		return product;
+	}
+	image.setColorTable(baseMapPalette(params));
+	auto const sink = [&image](int first_row, const QImage& rows) {
+		for (int r = 0; r < rows.height(); ++r)
+			std::copy(rows.constScanLine(r), rows.constScanLine(r) + rows.width(), image.scanLine(first_row + r));
+		return true;
+	};
+	bool cancelled = false;
+	if (!baseMapRows(paths, dtm, params, layout, progress, sink, &product.error, &cancelled))
+	{
+		if (cancelled)
+			product.error = cancelledMessage();
+		return product;
+	}
+	product.image = std::move(image);
+	product.extent = layout.extent;
 	product.crs_spec = dtm.crsSpec();
 	return product;
+}
+
+}  // namespace
+
+
+// static
+RasterProduct PointCloud::vegetationBaseMap(const QStringList& paths, const ElevationModel& dtm, const VegetationParams& params, const TileProgress& progress)
+{
+	return baseMapImage(paths, dtm, params, progress);
+}
+
+
+// static
+RasterProduct PointCloud::vegetationBaseMap(const QStringList& paths, const GridTileCache& dtm, const VegetationParams& params, const TileProgress& progress)
+{
+	return baseMapImage(paths, dtm, params, progress);
+}
+
+
+// static
+bool PointCloud::vegetationBaseMapToFile(const QStringList& paths, const GridTileCache& dtm, const VegetationParams& params,
+                                         const QString& path, const TileProgress& progress, QString* error)
+{
+	QString message;
+	auto const fail = [&](const QString& text) {
+		if (error)
+			*error = text;
+		return false;
+	};
+	if (!supported())
+		return fail(tr("This build of FOOM does not read point clouds."));
+	if (!(params.cell > 0))
+		return fail(tr("Nothing to grid."));
+	BaseMapLayout const layout(dtm.extent(), params.cell);
+	if (qint64(layout.width) * qint64(layout.height) > max_disk_cells)
+		return fail(tr("The grid of %1 by %2 cells is too large; choose a larger cell or a box.").arg(layout.width).arg(layout.height));
+	RasterFileWriter writer;
+	if (!writer.open(path, layout.width, layout.height, layout.extent, dtm.crsSpec(), QImage::Format_Indexed8, baseMapPalette(params), &message))
+		return fail(message);
+	auto const sink = [&writer, &message](int first_row, const QImage& rows) {
+		return writer.writeRows(first_row, rows, &message);
+	};
+	bool cancelled = false;
+	if (!baseMapRows(paths, dtm, params, layout, progress, sink, &message, &cancelled))
+	{
+		writer.discard();
+		return fail(cancelled ? cancelledMessage() : message);
+	}
+	if (!writer.close(&message))
+	{
+		writer.discard();
+		return fail(message);
+	}
+	return true;
 }
 
 }  // namespace OpenOrienteering

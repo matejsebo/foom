@@ -31,6 +31,7 @@
 #include <QString>
 #include <QStringList>
 
+#include "elevation/grid_tiles.h"
 #include "elevation/raster_products.h"
 
 namespace OpenOrienteering {
@@ -81,6 +82,13 @@ struct GriddingParams
 	int fill_cells = 10;    ///< reach of the void filling, in cells
 	double tile_size = 1000.0;  ///< rows of tiles of this many metres are gridded one at a time
 	double tile_buffer = 20.0;  ///< metres read beyond a row of tiles; at least the reach of the void filling
+	/// Bytes the gridding may hold; 0 for PointCloud::defaultMemoryLimit().
+	/// See the design notes, "Grids on disk, a tile cache, and a progress bar".
+	qint64 memory_limit = 0;
+	QString dtm_path;           ///< Where the grids are written when they do not fit (or with to_disk).
+	QString dsm_path;
+	bool to_disk = false;       ///< Write the grids to the paths whatever their size.
+	TileProgress progress;      ///< Called per row of tiles; also by the products of an import.
 };
 
 
@@ -91,6 +99,9 @@ struct GriddingResult
 	QString error;
 	int tile_rows = 0;       ///< rows of tiles gridded
 	int file_reads = 0;      ///< files read for the rows, the extent pass not counted
+	QString dtm_path;        ///< The files written, in the place of the models, when the grids are on disk.
+	QString dsm_path;
+	bool cancelled = false;
 	
 	GriddingResult();
 	GriddingResult(GriddingResult&&);
@@ -117,6 +128,8 @@ struct VegetationParams
 	std::array<double, 3> vegetation_thresholds = {{ -0.60, -0.30, -0.10 }};
 	double open_height = 0.1;        ///< A cell without a return this high above the terrain model is open.
 	bool no_data_red = true;         ///< Otherwise white.
+	double tile_size = 1000.0;       ///< Rows of this many metres are counted one at a time.
+	qint64 memory_limit = 0;         ///< Bytes for the counts of a row; 0 for PointCloud::defaultMemoryLimit().
 };
 
 
@@ -179,8 +192,14 @@ public:
 	
 	static PointCloudInfo analyse(const QStringList& paths);
 	
-	/// The largest grid grid() makes, in cells.
+	/// The largest grid grid() makes in memory, in cells.
 	static qint64 maxCells();
+	
+	/// The largest grid grid() writes to disk, in cells.
+	static qint64 maxDiskCells();
+	
+	/// The memory ceiling of a memory_limit of 0, in bytes: 2 GiB.
+	static qint64 defaultMemoryLimit();
 	
 	static GriddingResult grid(const QStringList& paths, const GriddingParams& params);
 	
@@ -189,7 +208,14 @@ public:
 	 * 
 	 * An Indexed8 image of VegetationClass values with the palette.
 	 */
-	static RasterProduct vegetationBaseMap(const QStringList& paths, const ElevationModel& dtm, const VegetationParams& params);
+	static RasterProduct vegetationBaseMap(const QStringList& paths, const ElevationModel& dtm, const VegetationParams& params, const TileProgress& progress = {});
+	
+	/// The same, the terrain model read through a tile cache.
+	static RasterProduct vegetationBaseMap(const QStringList& paths, const GridTileCache& dtm, const VegetationParams& params, const TileProgress& progress = {});
+	
+	/// The same, written to a GeoTIFF row of tiles by row of tiles.
+	static bool vegetationBaseMapToFile(const QStringList& paths, const GridTileCache& dtm, const VegetationParams& params,
+	                                    const QString& path, const TileProgress& progress, QString* error);
 };
 
 
