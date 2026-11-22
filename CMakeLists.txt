@@ -73,6 +73,7 @@ set(Mapper_BUILD_CLIPPER "auto" CACHE STRING
 )
 
 option(Mapper_USE_GDAL   "Use the GDAL library" ON)
+option(Mapper_USE_POPPLER "Import PDF files with the Poppler library when it is found" ON)  # foom
 
 if(ANDROID)
 	set(Mapper_WITH_COVE_DEFAULT OFF)
@@ -227,6 +228,20 @@ if(Mapper_USE_GDAL)
 	find_package(GDAL MODULE REQUIRED)
 endif()
 
+# foom: PDF import, the design notes, "PDF import".
+# Optional: without Poppler there is no PDF importer.
+if(Mapper_USE_POPPLER)
+	find_package(PkgConfig)
+	if(PKG_CONFIG_FOUND)
+		pkg_check_modules(POPPLER IMPORTED_TARGET poppler)
+	endif()
+	if(POPPLER_FOUND)
+		message(STATUS "PDF import: Poppler ${POPPLER_VERSION}")
+	else()
+		message(STATUS "PDF import: Poppler not found, not supported")
+	endif()
+endif()
+
 set(Mapper_QT "Qt5" CACHE STRING "Qt version and prefix")
 mark_as_advanced(Mapper_QT)
 find_package("${Mapper_QT}" REQUIRED COMPONENTS Core Widgets)
@@ -302,6 +317,9 @@ if (Mapper_USE_GDAL)
 endif()
 if(NOT ANDROID)
 	add_subdirectory("src/printsupport")
+endif()
+if(Mapper_USE_POPPLER AND POPPLER_FOUND)
+	add_subdirectory("src/pdf")  # foom
 endif()
 add_subdirectory("src/sensors")
 add_subdirectory("src")

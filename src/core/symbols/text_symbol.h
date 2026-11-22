@@ -177,6 +177,8 @@ public:
 	void setFontWeight(int weight) { font_weight = weight; updateQFont(); }
 	/** Sets the bold flag and updates the font. */
 	void setBold(bool value) { bold = value; updateQFont(); }
+	/** Sets the italic flag and updates the font. */
+	void setItalic(bool value) { italic = value; updateQFont(); }
 	/** Returns the indent of the first line of a paragraph in 1/1000 mm. */
 	int getIndentFirst() const { return indent_first; }
 	/** Returns the indent of the other lines of a paragraph in 1/1000 mm. */

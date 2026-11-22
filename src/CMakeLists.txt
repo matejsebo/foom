@@ -518,6 +518,7 @@ foreach(lib
   mapper-config
   mapper-gdal
   mapper-elevation
+  mapper-pdf  # foom
   mapper-sensors
   printsupport
   scaling-icon-engine
