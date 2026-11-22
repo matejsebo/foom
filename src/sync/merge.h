@@ -84,11 +84,26 @@ struct MergeSymbolRow
 	Action action = KeepMine;
 };
 
+/**
+ * A colour of theirs which I lack and a listed symbol uses, or one whose
+ * definition differs from that of my colour which matches it.
+ */
+struct MergeColorRow
+{
+	enum Status { New, Differs };
+	
+	QString name;      ///< Their name.
+	QString own_name;  ///< The name of my colour which matches; empty for a new one.
+	Status status = New;
+	MergeSymbolRow::Action action = MergeSymbolRow::KeepMine;
+};
+
 struct MergePlan
 {
 	bool two_way = false;  ///< True when there was no base.
 	std::vector<MergeRow> rows;
 	std::vector<MergeSymbolRow> symbols;
+	std::vector<MergeColorRow> colors;
 	
 	int count(MergeRow::Status status) const;
 	int unresolved() const;
@@ -100,7 +115,7 @@ struct MergePlan
 	/** Marks every conflict resolved with the action it has. */
 	void acceptPrefilled();
 	
-	/** Gives every definition which differs the action. */
+	/** Gives every symbol and colour whose definition differs the action. */
 	void resolveDefinitions(MergeSymbolRow::Action action);
 };
 
@@ -129,9 +144,9 @@ struct MergeResult
  * Carries out the actions of the plan's rows in my map, as one undo step.
  * A plan which changes nothing adds no undo step.
  *
- * Symbols and colours come first: a symbol which I lack and an object needs
- * is imported, and a symbol whose row says "keep theirs" takes their
- * definition under my number and in my place. Their colours are matched to
+ * Symbols and colours come first: a colour and a symbol whose row says
+ * "keep theirs" take their definition in my place (a symbol under my
+ * number), and a symbol which I lack and an object needs is imported. Their colours are matched to
  * mine by name, then by CMYK and spot colour; a colour which I lack is
  * appended below my colours. Neither is part of the undo step.
  */

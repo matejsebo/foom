@@ -8195,7 +8195,7 @@ void MapEditorController::mergeFromFileClicked()
 	auto plan = compareMaps(input.base.get(), *map, *input.theirs);
 	auto const decisions_path = decisionsFilePath(map_path, input.copy.id);
 	loadDecisions(decisions_path, plan);
-	auto const differs = !plan.rows.empty() || !plan.symbols.empty();
+	auto const differs = !plan.rows.empty() || !plan.symbols.empty() || !plan.colors.empty();
 	
 	if (differs)
 	{

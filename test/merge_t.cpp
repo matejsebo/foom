@@ -660,10 +660,13 @@ private slots:
 		auto* definitions = dialog.findChild<QTableWidget*>(QStringLiteral("definitions"));
 		QVERIFY(definitions);
 		QVERIFY(!definitions->isHidden());
-		QCOMPARE(definitions->rowCount(), 2);
+		// The new red of the new symbol follows the symbols.
+		QCOMPARE(definitions->rowCount(), 3);
 		QCOMPARE(definitions->columnCount(), 3);
 		QCOMPARE(definitions->item(0, 0)->text(), QStringLiteral("Symbol 2 Other"));
 		QCOMPARE(definitions->item(1, 0)->text(), QStringLiteral("Symbol 9 New line"));
+		QCOMPARE(definitions->item(2, 0)->text(), QStringLiteral("Colour Red"));
+		QVERIFY(!(definitions->item(2, 2)->flags() & Qt::ItemIsUserCheckable));
 		// Only a definition which differs can be taken.
 		auto* differs = definitions->item(0, 2);
 		QVERIFY(differs->flags() & Qt::ItemIsUserCheckable);
@@ -690,6 +693,87 @@ private slots:
 		QVERIFY(empty.findChild<QTableWidget*>(QStringLiteral("definitions"))->isHidden());
 	}
 	
+	/// Accept (20)
+	void colorsTest()
+	{
+		loadThree();
+		// They darken my black, add a red for a new symbol, and a colour which nothing uses.
+		theirs->getMapColor(0)->setCmyk({ 0.0f, 0.0f, 0.0f, 0.5f });
+		auto const* red = addColor(*theirs, QStringLiteral("Red"), 1.0f);
+		addLine(*theirs, QStringLiteral("New line"), 9, red);
+		addObject(*theirs, 'e', 9, -1, 3000);
+		addColor(*theirs, QStringLiteral("Unused"), 0.5f);
+		
+		auto plan = compareMaps(base.get(), *mine, *theirs);
+		// A colour which differs does not make the symbols which use it differ.
+		QCOMPARE(plan.symbols.size(), std::size_t(1));
+		QCOMPARE(plan.symbols[0].status, MergeSymbolRow::New);
+		QCOMPARE(plan.colors.size(), std::size_t(2));
+		QCOMPARE(plan.colors[0].name, QStringLiteral("Black"));
+		QCOMPARE(plan.colors[0].status, MergeColorRow::Differs);
+		QCOMPARE(plan.colors[0].action, MergeSymbolRow::KeepMine);
+		QCOMPARE(plan.colors[1].name, QStringLiteral("Red"));
+		QCOMPARE(plan.colors[1].status, MergeColorRow::New);
+		
+		// Keep mine: my black stays, the red is appended below my colours.
+		auto const colors = mine->getNumColors();
+		MergeResult result;
+		QString error;
+		QVERIFY2(applyMerge(*mine, *theirs, plan, &result, &error), qPrintable(error));
+		QCOMPARE(result.colors, 1);
+		QCOMPARE(result.definitions, 0);
+		QCOMPARE(mine->getNumColors(), colors + 1);
+		QCOMPARE(mine->getColor(colors)->getName(), QStringLiteral("Red"));
+		QCOMPARE(mine->getColor(0)->getCmyk().k, 1.0f);
+		QCOMPARE(symbolNumbered(*mine, 9)->asLine()->getColor(), mine->getColor(colors));
+		
+		// Keep theirs: my black takes their definition, in its place.
+		loadThree();
+		theirs->getMapColor(0)->setCmyk({ 0.0f, 0.0f, 0.0f, 0.5f });
+		plan = compareMaps(base.get(), *mine, *theirs);
+		QCOMPARE(plan.colors.size(), std::size_t(1));
+		auto const* black = mine->getColor(0);
+		plan.resolveDefinitions(MergeSymbolRow::KeepTheirs);
+		QCOMPARE(plan.colors[0].action, MergeSymbolRow::KeepTheirs);
+		QVERIFY2(applyMerge(*mine, *theirs, plan, &result, &error), qPrintable(error));
+		QCOMPARE(result.definitions, 1);
+		QCOMPARE(mine->getColor(0), black);
+		QCOMPARE(black->getPriority(), 0);
+		QCOMPARE(black->getCmyk().k, 0.5f);
+		QCOMPARE(symbolNumbered(*mine, 1)->asLine()->getColor(), black);
+		QVERIFY(compareMaps(base.get(), *mine, *theirs).colors.empty());
+		
+		// A colour which they renamed is matched by its CMYK and listed under both names.
+		loadThree();
+		theirs->getMapColor(0)->setName(QStringLiteral("Schwarz"));
+		plan = compareMaps(base.get(), *mine, *theirs);
+		QCOMPARE(plan.colors.size(), std::size_t(1));
+		QCOMPARE(plan.colors[0].name, QStringLiteral("Schwarz"));
+		QCOMPARE(plan.colors[0].own_name, QStringLiteral("Black"));
+		QCOMPARE(plan.colors[0].status, MergeColorRow::Differs);
+		QVERIFY(plan.symbols.empty());
+		plan.resolveDefinitions(MergeSymbolRow::KeepTheirs);
+		QVERIFY2(applyMerge(*mine, *theirs, plan, &result, &error), qPrintable(error));
+		QCOMPARE(mine->getNumColors(), colors);
+		QCOMPARE(mine->getColor(0)->getName(), QStringLiteral("Schwarz"));
+		
+		// The dialog lists the colours below the symbols, and the choice is kept on pause.
+		loadThree();
+		theirs->getMapColor(0)->setCmyk({ 0.0f, 0.0f, 0.0f, 0.5f });
+		plan = compareMaps(base.get(), *mine, *theirs);
+		MergeDialog dialog(*mine, *theirs, plan);
+		auto* definitions = dialog.findChild<QTableWidget*>(QStringLiteral("definitions"));
+		QVERIFY(definitions);
+		QCOMPARE(definitions->rowCount(), 1);
+		QCOMPARE(definitions->item(0, 0)->text(), QStringLiteral("Colour Black"));
+		definitions->item(0, 2)->setCheckState(Qt::Checked);
+		QCOMPARE(dialog.plan().colors[0].action, MergeSymbolRow::KeepTheirs);
+		auto const path = file("colors.json");
+		QVERIFY2(saveDecisions(path, dialog.plan(), &error), qPrintable(error));
+		loadDecisions(path, plan);
+		QCOMPARE(plan.colors[0].action, MergeSymbolRow::KeepTheirs);
+	}
+
 	/// Accept (9)
 	void partsTest()
 	{

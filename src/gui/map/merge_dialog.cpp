@@ -294,6 +294,15 @@ void MergeModel::setSymbolAction(int index, MergeSymbolRow::Action action)
 }
 
 
+void MergeModel::setColorAction(int index, MergeSymbolRow::Action action)
+{
+	if (index < 0 || index >= int(merge_plan.colors.size()))
+		return;
+	merge_plan.colors[std::size_t(index)].action = action;
+	emit decisionsChanged();
+}
+
+
 // ### MergeFilterModel ###
 
 MergeFilterModel::MergeFilterModel(QObject* parent)
@@ -388,7 +397,7 @@ MergeDialog::MergeDialog(const Map& mine, const Map& theirs, const MergePlan& pl
 	decide_layout->addWidget(accept_button);
 	decide_layout->addWidget(reject_button);
 	
-	// The symbols which are new or differ. A definition which differs can be taken.
+	// The symbols and colours which are new or differ. A definition which differs can be taken.
 	definitions = new QTableWidget(0, 3);
 	definitions->setObjectName(QStringLiteral("definitions"));
 	definitions->setHorizontalHeaderLabels({ tr("Symbols and colours"), tr("Status"), tr("Use theirs") });
@@ -413,6 +422,25 @@ MergeDialog::MergeDialog(const Map& mine, const Map& theirs, const MergePlan& pl
 		take->setFlags(differs ? Qt::ItemIsEnabled | Qt::ItemIsUserCheckable : Qt::ItemFlags{});
 		if (differs)
 			take->setCheckState(symbol.action == MergeSymbolRow::KeepTheirs ? Qt::Checked : Qt::Unchecked);
+		definitions->setItem(row, 2, take);
+	}
+	for (std::size_t i = 0; i < plan.colors.size(); ++i)
+	{
+		auto const& color = plan.colors[i];
+		auto const differs = color.status == MergeColorRow::Differs;
+		auto name = tr("Colour %1").arg(color.name);
+		if (differs && color.own_name != color.name)
+			name = tr("Colour %1 (here: %2)").arg(color.name, color.own_name);
+		auto const row = definitions->rowCount();
+		definitions->insertRow(row);
+		definitions->setItem(row, 0, new QTableWidgetItem(name));
+		definitions->setItem(row, 1, new QTableWidgetItem(differs ? tr("Differs") : tr("New, appended below the colours")));
+		auto* take = new QTableWidgetItem();
+		take->setData(Qt::UserRole, int(i));
+		take->setData(Qt::UserRole + 1, true);
+		take->setFlags(differs ? Qt::ItemIsEnabled | Qt::ItemIsUserCheckable : Qt::ItemFlags{});
+		if (differs)
+			take->setCheckState(color.action == MergeSymbolRow::KeepTheirs ? Qt::Checked : Qt::Unchecked);
 		definitions->setItem(row, 2, take);
 	}
 	definitions->setVisible(definitions->rowCount() > 0);
@@ -487,7 +515,10 @@ void MergeDialog::definitionChanged(QTableWidgetItem* item)
 	if (!item || item->column() != 2 || !(item->flags() & Qt::ItemIsUserCheckable))
 		return;
 	auto const action = item->checkState() == Qt::Checked ? MergeSymbolRow::KeepTheirs : MergeSymbolRow::KeepMine;
-	model->setSymbolAction(item->data(Qt::UserRole).toInt(), action);
+	if (item->data(Qt::UserRole + 1).toBool())
+		model->setColorAction(item->data(Qt::UserRole).toInt(), action);
+	else
+		model->setSymbolAction(item->data(Qt::UserRole).toInt(), action);
 }
 
 void MergeDialog::currentRowChanged(const QModelIndex& current)

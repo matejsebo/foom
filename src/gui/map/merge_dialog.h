@@ -89,6 +89,9 @@ public:
 	/** Chooses whose definition a symbol which differs keeps. */
 	void setSymbolAction(int index, MergeSymbolRow::Action action);
 	
+	/** Chooses whose definition a colour which differs keeps. */
+	void setColorAction(int index, MergeSymbolRow::Action action);
+	
 signals:
 	void decisionsChanged();
 	

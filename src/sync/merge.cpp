@@ -134,21 +134,6 @@ const Symbol* ownSymbol(const Map& map, const Symbol* theirs)
 	return nullptr;
 }
 
-/** Their symbol with the number which has a counterpart of another definition in my map. */
-const Symbol* differingSymbol(const Map& mine, const Map& theirs, const QString& number)
-{
-	for (int i = 0; i < theirs.getNumPublicSymbols(); ++i)
-	{
-		auto const* symbol = theirs.getSymbol(i);
-		if (symbol->getNumberAsString() != number)
-			continue;
-		auto const* own = ownSymbol(mine, symbol);
-		if (own && !own->equals(symbol))
-			return symbol;
-	}
-	return nullptr;
-}
-
 bool sameCmykAndSpot(const MapColor& a, const MapColor& b)
 {
 	return a.getCmyk() == b.getCmyk()
@@ -168,22 +153,62 @@ bool hasColorNamed(const Map& map, const QString& name)
 }
 
 /**
- * My colour which stands for theirs: the one of the same name, else one with
- * the same CMYK and spot colour whose name they do not have (a colour which
- * one side renamed).
+ * The index of my colour which stands for theirs: the one of the same name,
+ * else one with the same CMYK and spot colour whose name they do not have
+ * (a colour which one side renamed). -1 when there is none.
  */
-MapColor* matchingColor(Map& mine, const Map& theirs, const MapColor& color)
+int matchingColor(const Map& mine, const Map& theirs, const MapColor& color)
 {
 	for (int i = 0; i < mine.getNumColors(); ++i)
 	{
 		if (mine.getColor(i)->getName().compare(color.getName(), Qt::CaseInsensitive) == 0)
-			return mine.getMapColor(i);
+			return i;
 	}
 	for (int i = 0; i < mine.getNumColors(); ++i)
 	{
 		auto const* own = mine.getColor(i);
 		if (sameCmykAndSpot(*own, color) && !hasColorNamed(theirs, own->getName()))
-			return mine.getMapColor(i);
+			return i;
+	}
+	return -1;
+}
+
+/** Their colours to my matching ones; a colour which I lack to itself. */
+MapColorMap matchedColors(const Map& mine, const Map& theirs)
+{
+	MapColorMap colors;
+	for (int i = 0; i < theirs.getNumColors(); ++i)
+	{
+		auto const* color = theirs.getColor(i);
+		auto const own = matchingColor(mine, theirs, *color);
+		colors[color] = own < 0 ? color : mine.getColor(own);
+	}
+	return colors;
+}
+
+/**
+ * True when their symbol has my symbol's definition, apart from the
+ * definitions of the colours: those are compared on their own.
+ */
+bool sameDefinition(const Symbol& own, const Symbol& other, const MapColorMap& colors)
+{
+	auto const copy = duplicate(other);
+	copy->replaceColors(colors);
+	return own.equals(copy.get());
+}
+
+/** Their symbol with the number which has a counterpart of another definition in my map. */
+const Symbol* differingSymbol(const Map& mine, const Map& theirs, const QString& number)
+{
+	auto const colors = matchedColors(mine, theirs);
+	for (int i = 0; i < theirs.getNumPublicSymbols(); ++i)
+	{
+		auto const* symbol = theirs.getSymbol(i);
+		if (symbol->getNumberAsString() != number)
+			continue;
+		auto const* own = ownSymbol(mine, symbol);
+		if (own && !sameDefinition(*own, *symbol, colors))
+			return symbol;
 	}
 	return nullptr;
 }
@@ -205,7 +230,8 @@ public:
 			return other;  // one of the reserved colours, which all maps share
 		if (colors.contains(other))
 			return colors.value(other);
-		auto* own = matchingColor(mine, theirs, *other);
+		auto const match = matchingColor(mine, theirs, *other);
+		auto* own = match < 0 ? nullptr : mine.getMapColor(match);
 		if (!own)
 		{
 			own = other->duplicate();
@@ -225,6 +251,24 @@ public:
 		for (auto& component : result)
 			component.spot_color = color(component.spot_color);
 		return result;
+	}
+	
+	/** Gives my colour which matches theirs their definition, in its place. */
+	void takeColor(const MapColor& other)
+	{
+		auto const match = matchingColor(mine, theirs, other);
+		if (match < 0)
+			return;
+		auto* own = mine.getMapColor(match);
+		auto const composition = other.getSpotColorMethod() == MapColor::CustomColor ? components(other) : SpotColorComponents{};
+		*own = other;
+		own->setPriority(match);
+		if (own->getSpotColorMethod() == MapColor::CustomColor)
+			own->setSpotColorComposition(composition);
+		colors[&other] = own;
+		mine.setColor(own, match);
+		mine.setColorsDirty();
+		mine.updateAllObjects();
 	}
 	
 	/**
@@ -418,6 +462,11 @@ void MergePlan::resolveDefinitions(MergeSymbolRow::Action action)
 		if (row.status == MergeSymbolRow::Differs)
 			row.action = action;
 	}
+	for (auto& row : colors)
+	{
+		if (row.status == MergeColorRow::Differs)
+			row.action = action;
+	}
 }
 
 
@@ -488,17 +537,43 @@ MergePlan compareMaps(const Map* base, const Map& mine, const Map& theirs)
 	
 	// Their symbols, in the order of their symbol list: those which the rows
 	// need and I lack, and those which both have with another definition.
+	auto const colors = matchedColors(mine, theirs);
+	std::vector<const Symbol*> listed;
 	for (int i = 0; i < theirs.getNumPublicSymbols(); ++i)
 	{
 		auto const* symbol = theirs.getSymbol(i);
 		auto const* own = ownSymbol(mine, symbol);
-		if (own ? own->equals(symbol) : !their_symbols.contains(symbol))
+		if (own ? sameDefinition(*own, *symbol, colors) : !their_symbols.contains(symbol))
 			continue;
+		listed.push_back(symbol);
 		MergeSymbolRow row;
 		row.number = symbol->getNumberAsString();
 		row.name = symbol->getPlainTextName();
 		row.status = own ? MergeSymbolRow::Differs : MergeSymbolRow::New;
 		plan.symbols.push_back(row);
+	}
+	
+	// Their colours, in the order of their colour table: those which differ
+	// from mine, and those which I lack and a listed symbol uses.
+	for (int i = 0; i < theirs.getNumColors(); ++i)
+	{
+		auto const* color = theirs.getColor(i);
+		auto const match = matchingColor(mine, theirs, *color);
+		MergeColorRow row;
+		row.name = color->getName();
+		if (match >= 0)
+		{
+			auto const* own = mine.getColor(match);
+			if (own->equals(*color))
+				continue;
+			row.own_name = own->getName();
+			row.status = MergeColorRow::Differs;
+		}
+		else if (std::none_of(begin(listed), end(listed), [color](const Symbol* symbol) { return symbol->containsColor(color); }))
+		{
+			continue;
+		}
+		plan.colors.push_back(row);
 	}
 	return plan;
 }
@@ -567,17 +642,37 @@ bool applyMerge(Map& mine, const Map& theirs, const MergePlan& plan, MergeResult
 	auto const takes = [](const MergeSymbolRow& row) {
 		return row.status == MergeSymbolRow::Differs && row.action == MergeSymbolRow::KeepTheirs;
 	};
+	auto const takes_color = [](const MergeColorRow& row) {
+		return row.status == MergeColorRow::Differs && row.action == MergeSymbolRow::KeepTheirs;
+	};
 	if (deletions.empty() && replacements.empty() && additions.empty()
-	    && std::none_of(begin(plan.symbols), end(plan.symbols), takes))
+	    && std::none_of(begin(plan.symbols), end(plan.symbols), takes)
+	    && std::none_of(begin(plan.colors), end(plan.colors), takes_color))
 	{
 		if (result)
 			*result = counts;
 		return true;
 	}
 	
-	// Their definitions first, so that the objects below use them. Then
-	// the symbols which the objects need: mine by number, else theirs.
+	// Their definitions first, colours before symbols, so that the objects
+	// below use them. Then the symbols which the objects need: mine by
+	// number, else theirs.
 	Adopter adopter(mine, theirs);
+	for (auto const& row : plan.colors)
+	{
+		if (!takes_color(row))
+			continue;
+		for (int i = 0; i < theirs.getNumColors(); ++i)
+		{
+			auto const* color = theirs.getColor(i);
+			if (color->getName() == row.name)
+			{
+				adopter.takeColor(*color);
+				++counts.definitions;
+				break;
+			}
+		}
+	}
 	for (auto const& row : plan.symbols)
 	{
 		if (!takes(row))

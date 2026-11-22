@@ -39,14 +39,14 @@ QString decisionsFilePath(const QString& map_path, const QString& id);
 
 /**
  * Writes the action of every row of the plan, and whether it is decided,
- * and whose definition each symbol which differs keeps.
+ * and whose definition each symbol and colour which differs keeps.
  */
 bool saveDecisions(const QString& path, const MergePlan& plan, QString* error);
 
 /**
  * Reads decisions into the plan. A stored decision is taken for a row which
  * is still there with the same status and the same sides; a choice of
- * definition is taken for a symbol which still differs.
+ * definition is taken for a symbol or colour which still differs.
  * Returns the number of rows which took one; 0 when there is no file.
  */
 int loadDecisions(const QString& path, MergePlan& plan);

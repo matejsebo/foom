@@ -2102,6 +2102,11 @@ StepResult StepRunner::mergeFromFile(const Step& step)
 		if (symbol.status == MergeSymbolRow::Differs && symbol.action == MergeSymbolRow::KeepMine)
 			warnings.push_back(QString::fromLatin1("symbol %1 %2 differs in the copy; the map's definition is kept").arg(symbol.number, symbol.name));
 	}
+	for (auto const& color : plan.colors)
+	{
+		if (color.status == MergeColorRow::Differs && color.action == MergeSymbolRow::KeepMine)
+			warnings.push_back(QString::fromLatin1("colour %1 differs in the copy; the map's definition is kept").arg(color.name));
+	}
 	addWarnings(result, warnings);
 	return result;
 }
