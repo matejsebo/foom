@@ -1030,7 +1030,7 @@ void StepRunner::validate(const Step& step, bool& map_open)
 	}
 	else if (name == QLatin1String("new-map"))  // foom
 	{
-		p.checkKnown({ "box", "symbol_set", "scale", "crs", "declination", "rotate_to_magnetic", "osm", "osm_config", "endpoint", "crt", "tile_service", "path" });
+		p.checkKnown({ "box", "symbol_set", "scale", "crs", "declination", "rotate_to_magnetic", "osm", "osm_config", "endpoint", "crt", "tile_service", "elevation", "elevation_cell", "path" });
 		if (!p.has("box"))
 			p.fail(QLatin1String("needs \"box\": [south, west, north, east] in degrees"));
 		p.numberArray(p.value("box"), 4, QLatin1String("\"box\""));
@@ -1044,6 +1044,9 @@ void StepRunner::validate(const Step& step, bool& map_open)
 		p.optionalBool("rotate_to_magnetic", true);
 		for (auto parameter : { "osm", "osm_config", "endpoint", "crt", "tile_service" })
 			p.optionalString(parameter);
+		p.optionalString("elevation");  // foom
+		if (p.has("elevation_cell"))
+			p.requireNumber("elevation_cell");
 #ifndef MAPPER_USE_GDAL
 		p.fail(QLatin1String("step \"new-map\" needs GDAL"));
 #endif
@@ -1393,6 +1396,11 @@ StepResult StepRunner::newMap(const Step& step)
 	if (!crt.isEmpty())
 		params.crt_file = job.resolvePath(crt);
 	params.tile_service = p.optionalString("tile_service");
+	auto const elevation = p.optionalString("elevation");
+	if (!elevation.isEmpty())
+		params.elevation_path = job.resolvePath(elevation);
+	if (p.has("elevation_cell"))
+		params.elevation_cell = p.requireNumber("elevation_cell");
 	
 	auto outcome = createNewMap(params);
 	if (!outcome.ok)

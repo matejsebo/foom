@@ -20,7 +20,9 @@
 
 #include "new_map.h"
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -36,8 +38,10 @@
 #include <QNetworkRequest>
 #include <QObject>
 #include <QPointF>
+#include <QRectF>
 #include <QSaveFile>
 #include <QSettings>
+#include <QTemporaryDir>
 #include <QTimer>
 #include <QUrl>
 #include <QVariant>
@@ -49,6 +53,9 @@
 #include "core/map_coord.h"
 #include "core/map_view.h"
 #include "core/symbols/symbol.h"
+#include "elevation/elevation_model.h"
+#include "elevation/elevation_set.h"
+#include "elevation/point_cloud.h"
 #include "fileformats/file_format.h"
 #include "fileformats/file_format_registry.h"
 #include "fileformats/file_import_export.h"
@@ -217,6 +224,33 @@ QPolygonF newMapBoxPolygon(const Map& map, const GeoBox& box)
 }
 
 
+QRectF newMapProjectedArea(const Map& map, const GeoBox& box)
+{
+	auto const& georef = map.getGeoreferencing();
+	constexpr int samples = 16;
+	auto min_x = std::numeric_limits<double>::max(), min_y = min_x;
+	auto max_x = std::numeric_limits<double>::lowest(), max_y = max_x;
+	auto const add = [&](double lat, double lon) {
+		auto const p = georef.toProjectedCoords(LatLon(lat, lon));
+		min_x = std::min(min_x, p.x());
+		min_y = std::min(min_y, p.y());
+		max_x = std::max(max_x, p.x());
+		max_y = std::max(max_y, p.y());
+	};
+	for (int i = 0; i <= samples; ++i)
+	{
+		auto const t = double(i) / samples;
+		auto const lat = box.south + t * (box.north - box.south);
+		auto const lon = box.west + t * (box.east - box.west);
+		add(box.south, lon);
+		add(box.north, lon);
+		add(lat, box.west);
+		add(lat, box.east);
+	}
+	return QRectF(QPointF(min_x, min_y), QPointF(max_x, max_y));
+}
+
+
 bool downloadOverpass(const QString& endpoint, const GeoBox& box, const QString& out_path, int retry_delay_ms, QString* error)
 {
 	QNetworkAccessManager network;
@@ -269,6 +303,138 @@ bool downloadOverpass(const QString& endpoint, const GeoBox& box, const QString&
 }
 
 
+namespace {
+
+/// The path beside the map: <map dir>/<map base>_<suffix>.tif
+QString besideMap(const QString& map_path, const QString& suffix)
+{
+	QFileInfo const info(map_path);
+	return info.path() + QLatin1Char('/') + info.completeBaseName() + QLatin1Char('_') + suffix + QLatin1String(".tif");
+}
+
+/// A grid in the map's system, cropped to the area, or nullptr with the error set.
+std::unique_ptr<ElevationModel> fitToArea(std::unique_ptr<ElevationModel> grid, const QRectF& area, const QString& source, NewMapResult& result)
+{
+	if (!grid)
+	{
+		result.error = tr("Cannot read the elevation data %1:\n%2").arg(source, ElevationModel::lastError());
+		return nullptr;
+	}
+	auto const extent = grid->extent();
+	if (!extent.intersects(area))
+	{
+		result.error = tr("The elevation data %1 does not overlap the area of the map.").arg(source);
+		return nullptr;
+	}
+	if (!extent.contains(area))
+		result.warnings.push_back(tr("The elevation data %1 covers only part of the area of the map.").arg(source));
+	return grid->cropped(area);
+}
+
+/**
+ * Adds the elevation grids of params.elevation_path to the map, saved beside it.
+ *
+ * See the design notes, "Elevation on the data page".
+ */
+bool addElevation(Map& map, const NewMapParams& params, NewMapResult& result)
+{
+	auto const& source = params.elevation_path;
+	if (params.map_path.isEmpty())
+	{
+		result.error = tr("Choose where to save the map before adding elevation data.");
+		return false;
+	}
+	auto const area = newMapProjectedArea(map, params.box);
+	auto const target_crs = map.getGeoreferencing().getProjectedCRSSpec();
+	
+	// The grids to save, made completely before any file is written.
+	std::vector<std::pair<ElevationSet::Kind, std::unique_ptr<ElevationModel>>> grids;
+	QStringList suffixes;
+	auto const suffix = QFileInfo(source).suffix().toLower();
+	if (suffix == QLatin1String("las") || suffix == QLatin1String("laz"))
+	{
+		auto const info = PointCloud::analyse({ source });
+		if (!info.error.isEmpty())
+		{
+			result.error = tr("Cannot read the elevation data %1:\n%2").arg(source, info.error);
+			return false;
+		}
+		auto const same_system = info.crs_spec.isEmpty() || target_crs.isEmpty() || ElevationModel::sameCrs(info.crs_spec, target_crs);
+		GriddingParams gridding;
+		gridding.cell = params.elevation_cell > 0 ? params.elevation_cell : 1.0;
+		gridding.dtm = true;
+		gridding.dsm = true;
+		if (same_system)
+		{
+			if (!info.extent.intersects(area))
+			{
+				result.error = tr("The elevation data %1 does not overlap the area of the map.").arg(source);
+				return false;
+			}
+			if (!info.extent.contains(area))
+				result.warnings.push_back(tr("The elevation data %1 covers only part of the area of the map.").arg(source));
+			gridding.box = area;
+		}
+		auto gridded = PointCloud::grid({ source }, gridding);
+		if (!gridded.error.isEmpty())
+		{
+			result.error = tr("Cannot read the elevation data %1:\n%2").arg(source, gridded.error);
+			return false;
+		}
+		QTemporaryDir temp;
+		auto const reproject = [&](std::unique_ptr<ElevationModel> grid, const QString& name) -> std::unique_ptr<ElevationModel> {
+			if (same_system)
+			{
+				if (grid && grid->crsSpec().isEmpty())
+					grid->setCrsSpec(target_crs);
+				return grid;
+			}
+			// Warped into the map's system through a file, as an imported grid is.
+			auto const path = temp.filePath(name + QLatin1String(".tif"));
+			if (!grid || !temp.isValid() || !grid->save(path))
+				return fitToArea(nullptr, area, source, result);
+			ElevationModel::OpenOptions options;
+			options.target_crs = target_crs;
+			return fitToArea(ElevationModel::open(path, options), area, source, result);
+		};
+		auto dtm = reproject(std::move(gridded.dtm), QStringLiteral("DTM"));
+		if (!dtm)
+			return false;
+		auto dsm = reproject(std::move(gridded.dsm), QStringLiteral("DSM"));
+		if (!dsm)
+			return false;
+		grids.emplace_back(ElevationSet::Terrain, std::move(dtm));
+		suffixes.push_back(QStringLiteral("DTM"));
+		grids.emplace_back(ElevationSet::Surface, std::move(dsm));
+		suffixes.push_back(QStringLiteral("DSM"));
+	}
+	else
+	{
+		ElevationModel::OpenOptions options;
+		options.target_crs = target_crs;
+		auto grid = fitToArea(ElevationModel::open(source, options), area, source, result);
+		if (!grid)
+			return false;
+		grids.emplace_back(ElevationSet::Terrain, std::move(grid));
+		suffixes.push_back(ElevationSet::kindName(ElevationSet::Terrain));
+	}
+	
+	for (std::size_t i = 0; i < grids.size(); ++i)
+	{
+		auto const href = besideMap(params.map_path, suffixes[int(i)]);
+		if (!grids[i].second->save(href))
+		{
+			result.error = tr("Cannot save the elevation grid %1:\n%2").arg(href, ElevationModel::lastError());
+			return false;
+		}
+		map.elevationSet().setModel(grids[i].first, std::move(grids[i].second), href);
+	}
+	return true;
+}
+
+}  // namespace
+
+
 NewMapResult createNewMap(const NewMapParams& params)
 {
 	NewMapResult result;
@@ -280,6 +446,10 @@ NewMapResult createNewMap(const NewMapParams& params)
 	
 	auto map = std::make_unique<Map>();
 	if (!loadSymbolSet(*map, params, result) || !setupGeoreferencing(*map, params, result))
+		return result;
+	
+	// Before the download, so that a bad file fails before any request.
+	if (!params.elevation_path.isEmpty() && !addElevation(*map, params, result))
 		return result;
 	
 	result.osm_path = params.osm_path;

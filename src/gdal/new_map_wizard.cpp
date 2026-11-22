@@ -579,6 +579,29 @@ public:
 		template_check = new QCheckBox();
 		layout->addRow(template_check);
 		
+		// foom: "Elevation on the data page"
+		elevation_edit = new QLineEdit();
+		elevation_edit->setPlaceholderText(trWizard("None"));
+		auto* elevation_browse = new QPushButton(trWizard("Browse..."));
+		auto* elevation_layout = new QHBoxLayout();
+		elevation_layout->addWidget(elevation_edit, 1);
+		elevation_layout->addWidget(elevation_browse);
+		layout->addRow(trWizard("Elevation (optional):"), elevation_layout);
+		cell_spin = new QDoubleSpinBox();
+		cell_spin->setRange(0.25, 100.0);
+		cell_spin->setDecimals(2);
+		cell_spin->setSingleStep(0.5);
+		cell_spin->setValue(1.0);
+		cell_spin->setSuffix(QLatin1String(" m"));
+		layout->addRow(trWizard("Cell size for a point cloud:"), cell_spin);
+		connect(elevation_browse, &QPushButton::clicked, this, [this]() {
+			auto const filter = trWizard("Elevation grids and point clouds") + QLatin1String(" (*.tif *.tiff *.asc *.xyz *.hgt *.ocdDem *.img *.vrt *.dem *.las *.laz);;")
+			                    + trWizard("All files") + QLatin1String(" (*.*)");
+			auto const path = QFileDialog::getOpenFileName(this, trWizard("Open elevation data"), elevation_edit->text(), filter);
+			if (!path.isEmpty())
+				elevation_edit->setText(QDir::toNativeSeparators(path));
+		});
+		
 		connect(browse, &QPushButton::clicked, this, [this]() {
 			auto const path = QFileDialog::getOpenFileName(this, trWizard("Open OpenStreetMap file"), file_edit->text(), trWizard("OpenStreetMap") + QLatin1String(" (*.osm *.pbf);;") + trWizard("All files") + QLatin1String(" (*.*)"));
 			if (!path.isEmpty())
@@ -618,6 +641,16 @@ public:
 		return file_radio->isChecked() ? QDir::fromNativeSeparators(file_edit->text().trimmed()) : QString{};
 	}
 	
+	QString elevationPath() const
+	{
+		return QDir::fromNativeSeparators(elevation_edit->text().trimmed());
+	}
+	
+	double elevationCell() const
+	{
+		return cell_spin->value();
+	}
+	
 	QString tileService() const
 	{
 		auto const* service = area_page->service();
@@ -631,6 +664,8 @@ private:
 	QLineEdit* file_edit;
 	QLabel* limit_label;
 	QCheckBox* template_check;
+	QLineEdit* elevation_edit;
+	QDoubleSpinBox* cell_spin;
 };
 
 
@@ -736,6 +771,8 @@ NewMapParams NewMapWizard::params() const
 	params.rotate_to_magnetic = georef_page->rotate();
 	params.osm_path = data_page->osmPath();
 	params.tile_service = data_page->tileService();
+	params.elevation_path = data_page->elevationPath();
+	params.elevation_cell = data_page->elevationCell();
 	params.map_path = run_page->mapPath();
 	return params;
 }
