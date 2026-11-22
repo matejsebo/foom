@@ -40,6 +40,7 @@
 
 #include "elevation/elevation_model.h"
 #include "elevation/point_cloud.h"
+#include "elevation/point_cloud_products.h"
 
 using namespace OpenOrienteering;
 
@@ -501,6 +502,186 @@ private slots:
 	}
 	
 	
+
+	/// Flat ground at 100 m over width by height metres, four ground returns per square metre,
+	/// plus whatever add() puts into a cell (col and row from the south-west corner).
+	std::vector<CloudPoint> flatCloud(int width, int height, const std::function<void (int, int, std::vector<CloudPoint>&)>& add)
+	{
+		std::vector<CloudPoint> points;
+		for (int col = 0; col < width; ++col)
+		{
+			for (int row = 0; row < height; ++row)
+			{
+				for (int k = 0; k < 4; ++k)
+				{
+					CloudPoint p;
+					p.x = east0 + col + 0.25 + 0.5 * (k % 2);
+					p.y = north0 + row + 0.25 + 0.5 * (k / 2);
+					p.z = 100.0;
+					p.classification = 2;
+					points.push_back(p);
+				}
+				add(col, row, points);
+			}
+		}
+		return points;
+	}
+
+
+	void featureMapTest()
+	{
+		// the design notes, "Feature map, intensity and classification maps", Accept (1).
+		auto points = flatCloud(30, 20, [](int col, int row, std::vector<CloudPoint>& points) {
+			auto const raise = [&](double h) {
+				for (int k = 0; k < 4; ++k)
+				{
+					CloudPoint p;
+					p.x = east0 + col + 0.3 + 0.4 * (k % 2);
+					p.y = north0 + row + 0.3 + 0.4 * (k / 2);
+					p.z = 100.0 + h;
+					p.classification = 1;
+					points.push_back(p);
+				}
+			};
+			if (col >= 5 && col < 13 && row >= 5 && row < 13)
+				raise(1.0);
+			if (col >= 18 && col < 26 && row >= 5 && row < 13)
+				raise(5.0);
+		});
+		points.erase(std::remove_if(points.begin(), points.end(), [](const CloudPoint& p) {
+			return p.x >= east0 + 28 && p.x < east0 + 29 && p.y >= north0 + 17 && p.y < north0 + 18;
+		}), points.end());
+		auto const path = writeCloud(QStringLiteral("features.laz"), points);
+		auto const grid = PointCloud::grid({ path }, GriddingParams());
+		QVERIFY2(grid.dtm, qPrintable(grid.error));
+		auto const product = featureMap({ path }, *grid.dtm, FeatureMapParams());
+		QVERIFY2(product.error.isEmpty(), qPrintable(product.error));
+		QCOMPARE(product.image.format(), QImage::Format_Grayscale8);
+		QCOMPARE(product.image.width(), 30);
+		QCOMPARE(product.image.height(), 20);
+		QCOMPARE(product.extent, grid.dtm->extent());
+		// Image rows run from the north; local row r from the south is image row 19 - r.
+		auto const grey = [&product](int col, int row) { return qGray(product.image.pixel(col, 19 - row)); };
+		QCOMPARE(grey(1, 1), 255);
+		QCOMPARE(grey(15, 17), 255);
+		QCOMPARE(grey(2, 16), 255);
+		for (int col = 7; col <= 10; ++col)
+			QCOMPARE(grey(col, 8), 255);
+		for (int i = 5; i < 13; ++i)
+		{
+			QVERIFY2(grey(i, 5) <= 200, qPrintable(QString::number(grey(i, 5))));
+			QVERIFY2(grey(i, 12) <= 200, qPrintable(QString::number(grey(i, 12))));
+			QVERIFY2(grey(5, i) <= 200, qPrintable(QString::number(grey(5, i))));
+			QVERIFY2(grey(12, i) <= 200, qPrintable(QString::number(grey(12, i))));
+		}
+		for (int col = 17; col <= 26; ++col)
+		{
+			for (int row = 4; row <= 13; ++row)
+				QCOMPARE(grey(col, row), 255);
+		}
+		QCOMPARE(grey(28, 17), 0);
+		QCOMPARE(grey(27, 17), 255);
+	}
+
+
+	void intensityMapTest()
+	{
+		// Accept (2).
+		std::vector<CloudPoint> points;
+		for (int col = 0; col < 100; ++col)
+		{
+			for (int row = 0; row < 10; ++row)
+			{
+				for (int k = 0; k < 5; ++k)
+				{
+					CloudPoint p;
+					p.x = east0 + col + 0.1 + 0.2 * k;
+					p.y = north0 + row + 0.5;
+					p.z = 100.0;
+					p.classification = 2;
+					p.intensity = quint16(10 * col);
+					if (k == 4)
+					{
+						p.intensity = 5000;
+						p.return_number = 2;
+						p.number_of_returns = 2;
+					}
+					points.push_back(p);
+				}
+			}
+		}
+		auto const path = writeCloud(QStringLiteral("intensity.laz"), points);
+		auto const grid = PointCloud::grid({ path }, GriddingParams());
+		QVERIFY2(grid.dtm, qPrintable(grid.error));
+		QCOMPARE(grid.dtm->width(), 100);
+		auto const product = intensityMap({ path }, *grid.dtm);
+		QVERIFY2(product.error.isEmpty(), qPrintable(product.error));
+		QCOMPARE(product.image.format(), QImage::Format_Grayscale8);
+		QCOMPARE(product.extent, grid.dtm->extent());
+		auto const grey = [&product](int col) { return qGray(product.image.pixel(col, 5)); };
+		QVERIFY2(std::abs(grey(50) - 130) <= 1, qPrintable(QString::number(grey(50))));
+		QCOMPARE(grey(0), 0);
+		QCOMPARE(grey(1), 0);
+		QCOMPARE(grey(97), 255);
+		QCOMPARE(grey(99), 255);
+
+		auto constant = flatCloud(10, 10, [](int, int, std::vector<CloudPoint>&) {});
+		for (auto& p : constant)
+			p.intensity = 100;
+		constant.erase(std::remove_if(constant.begin(), constant.end(), [](const CloudPoint& p) {
+			return p.x >= east0 + 4 && p.x < east0 + 5 && p.y >= north0 + 4 && p.y < north0 + 5;
+		}), constant.end());
+		auto const constant_path = writeCloud(QStringLiteral("intensity100.laz"), constant);
+		auto const constant_grid = PointCloud::grid({ constant_path }, GriddingParams());
+		QVERIFY2(constant_grid.dtm, qPrintable(constant_grid.error));
+		auto const flat = intensityMap({ constant_path }, *constant_grid.dtm);
+		QVERIFY2(flat.error.isEmpty(), qPrintable(flat.error));
+		for (int col = 0; col < 10; ++col)
+		{
+			for (int row = 0; row < 10; ++row)
+				QCOMPARE(qGray(flat.image.pixel(col, row)), (col == 4 && row == 5) ? 0 : 254);
+		}
+	}
+
+
+	void classificationMapTest()
+	{
+		// Accept (3): five cells in a row; the ground of flatCloud is replaced.
+		struct Cell { std::vector<int> classes; QRgb expected; };
+		std::vector<Cell> const cells = {
+		    { { 5, 5, 5, 2, 2 }, qRgb(0, 120, 0) },
+		    { { 2, 2, 5, 5 }, qRgb(170, 110, 50) },
+		    { { 6 }, qRgb(230, 50, 40) },
+		    { { 42 }, qRgb(100, 100, 100) },
+		    { {}, qRgb(0, 0, 0) },
+		    { { 2 }, qRgb(170, 110, 50) },
+		};
+		std::vector<CloudPoint> points;
+		for (std::size_t i = 0; i < cells.size(); ++i)
+		{
+			int k = 0;
+			for (auto c : cells[i].classes)
+			{
+				CloudPoint p;
+				p.x = east0 + int(i) + 0.1 + 0.15 * k++;
+				p.y = north0 + 0.5;
+				p.z = 100.0;
+				p.classification = quint8(c);
+				points.push_back(p);
+			}
+		}
+		// The terrain model only gives the extent.
+		ElevationModel dtm(int(cells.size()), 1, QPointF(east0, north0 + 1.0), 1.0, std::vector<float>(cells.size(), 100.0f));
+		auto const path = writeCloud(QStringLiteral("classes.laz"), points);
+		auto const product = classificationMap({ path }, dtm);
+		QVERIFY2(product.error.isEmpty(), qPrintable(product.error));
+		QCOMPARE(product.image.format(), QImage::Format_RGB32);
+		QCOMPARE(product.extent, dtm.extent());
+		for (std::size_t i = 0; i < cells.size(); ++i)
+			QCOMPARE(product.image.pixel(int(i), 0) | 0xff000000u, cells[i].expected | 0xff000000u);
+		QCOMPARE(classColor(9), qRgb(40, 110, 240));
+		QCOMPARE(classColor(18), qRgb(255, 0, 255));
+	}
 };
 
 

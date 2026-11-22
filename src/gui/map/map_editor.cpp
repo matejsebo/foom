@@ -129,6 +129,7 @@
 #include "elevation/profile.h"  // foom
 #include "elevation/trees.h"  // foom
 #include "elevation/point_cloud.h"  // foom
+#include "elevation/point_cloud_products.h"  // foom
 #include "core/map_transform.h"  // foom
 #include "gui/map/map_transform_dialogs.h"  // foom
 #include "tools/affine_transform_tool.h"  // foom
@@ -8921,7 +8922,8 @@ bool MapEditorController::importPointClouds(const QStringList& paths, const Grid
 	if (paths.isEmpty())
 		return false;
 	auto grid_params = params;
-	grid_params.dtm = params.dtm || products.vegetation_height || products.vegetation_map;
+	grid_params.dtm = params.dtm || products.vegetation_height || products.vegetation_map
+	                  || products.feature_map || products.intensity_map || products.classification_map;
 	grid_params.dsm = params.dsm || products.vegetation_height;
 	auto result = PointCloud::grid(paths, grid_params);
 	if (!result.error.isEmpty())
@@ -8982,6 +8984,22 @@ bool MapEditorController::importPointClouds(const QStringList& paths, const Grid
 	}
 	if (products.vegetation_map && result.dtm
 	    && !product(PointCloud::vegetationBaseMap(paths, *result.dtm, products.vegetation), QStringLiteral("vegetation")))
+		return false;
+	// foom: "Feature map, intensity and classification maps".
+	if (products.feature_map && result.dtm)
+	{
+		FeatureMapParams features;
+		features.cell = params.cell;
+		features.band_from = products.feature_from;
+		features.band_to = products.feature_to;
+		if (!product(featureMap(paths, *result.dtm, features), QStringLiteral("features")))
+			return false;
+	}
+	if (products.intensity_map && result.dtm
+	    && !product(intensityMap(paths, *result.dtm, params.cell), QStringLiteral("intensity")))
+		return false;
+	if (products.classification_map && result.dtm
+	    && !product(classificationMap(paths, *result.dtm, params.cell), QStringLiteral("classes")))
 		return false;
 	if (!params.dtm)
 		result.dtm.reset();

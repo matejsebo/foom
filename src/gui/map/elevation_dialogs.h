@@ -176,6 +176,10 @@ private:
 	QSpinBox* undergrowth_kernel_edit;
 	QSpinBox* vegetation_kernel_edit;
 	QCheckBox* no_data_check;
+	QGroupBox* feature_box;
+	std::array<QDoubleSpinBox*, 2> feature_edits;       ///< the band, from and to
+	QCheckBox* intensity_check;
+	QCheckBox* classification_check;
 };
 
 

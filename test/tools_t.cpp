@@ -2388,10 +2388,17 @@ void ToolsTest::demPointCloud()
 	PointCloudProducts products;
 	products.vegetation_height = true;
 	products.vegetation_map = true;
+	// "Feature map, intensity and classification maps", Accept (4).
+	products.feature_map = true;
+	products.intensity_map = true;
+	products.classification_map = true;
 	QVERIFY2(editor.editor->importPointClouds({ cloud }, GriddingParams(), products, &error), qPrintable(error));
 	QVERIFY(QFileInfo::exists(dir.filePath(QStringLiteral("plane_vegetation_height.tif"))));
 	QVERIFY(QFileInfo::exists(dir.filePath(QStringLiteral("plane_vegetation.tif"))));
-	QCOMPARE(map.map->getNumTemplates(), templates + 2);
+	QVERIFY(QFileInfo::exists(dir.filePath(QStringLiteral("plane_features.tif"))));
+	QVERIFY(QFileInfo::exists(dir.filePath(QStringLiteral("plane_intensity.tif"))));
+	QVERIFY(QFileInfo::exists(dir.filePath(QStringLiteral("plane_classes.tif"))));
+	QCOMPARE(map.map->getNumTemplates(), templates + 5);
 	auto& set = map.map->elevationSet();
 	QCOMPARE(QFileInfo(set.href(ElevationSet::Terrain)).fileName(), QStringLiteral("plane_DTM.tif"));
 	QCOMPARE(QFileInfo(set.href(ElevationSet::Surface)).fileName(), QStringLiteral("plane_DSM.tif"));

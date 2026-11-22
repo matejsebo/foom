@@ -400,6 +400,19 @@ PointCloudDialog::PointCloudDialog(const QStringList& paths, QWidget* parent)
 	vegetation_layout->addRow(tr("Thresholds:"), makeRow({ vegetation_edits[2], vegetation_edits[3], vegetation_edits[4] }));
 	vegetation_layout->addRow(no_data_check);
 	
+	// the design notes, "Feature map, intensity and classification maps".
+	PointCloudProducts const product_defaults;
+	feature_edits = {{ makeEdit(product_defaults.feature_from, 0.0, 10.0, 1), makeEdit(product_defaults.feature_to, 0.0, 10.0, 1) }};
+	feature_box = new QGroupBox(tr("Feature map"));
+	feature_box->setCheckable(true);
+	feature_box->setChecked(false);
+	auto* feature_layout = new QFormLayout(feature_box);
+	feature_layout->addRow(tr("Highest return from:"), makeRow({ feature_edits[0], new QLabel(tr("to")), feature_edits[1], new QLabel(tr("m above ground")) }));
+	intensity_check = new QCheckBox(tr("Intensity map (first returns)"));
+	intensity_check->setChecked(true);
+	classification_check = new QCheckBox(tr("Classification map (colour by class)"));
+	classification_check->setChecked(false);
+	
 	auto* layout = new QFormLayout();
 	layout->addRow(tr("Files:"), files_label);
 	layout->addRow(analyse_button, report_label);
@@ -410,15 +423,22 @@ PointCloudDialog::PointCloudDialog(const QStringList& paths, QWidget* parent)
 	auto* main_layout = new QVBoxLayout(this);
 	main_layout->addLayout(layout);
 	main_layout->addWidget(vegetation_box);
+	main_layout->addWidget(feature_box);
+	main_layout->addWidget(intensity_check);
+	main_layout->addWidget(classification_check);
 	auto* buttons = makeButtons(this);
 	main_layout->addWidget(buttons);
 	auto const update = [this, buttons]() {
-		buttons->button(QDialogButtonBox::Ok)->setEnabled(dtm_check->isChecked() || dsm_check->isChecked() || height_check->isChecked() || vegetation_box->isChecked());
+		buttons->button(QDialogButtonBox::Ok)->setEnabled(dtm_check->isChecked() || dsm_check->isChecked() || height_check->isChecked() || vegetation_box->isChecked()
+		                                                  || feature_box->isChecked() || intensity_check->isChecked() || classification_check->isChecked());
 	};
 	connect(dtm_check, &QCheckBox::toggled, this, update);
 	connect(dsm_check, &QCheckBox::toggled, this, update);
 	connect(height_check, &QCheckBox::toggled, this, update);
 	connect(vegetation_box, &QGroupBox::toggled, this, update);
+	connect(feature_box, &QGroupBox::toggled, this, update);
+	connect(intensity_check, &QCheckBox::toggled, this, update);
+	connect(classification_check, &QCheckBox::toggled, this, update);
 }
 
 PointCloudDialog::~PointCloudDialog() = default;
@@ -474,6 +494,11 @@ PointCloudProducts PointCloudDialog::products() const
 	v.vegetation_thresholds = {{ vegetation_edits[2]->value(), vegetation_edits[3]->value(), vegetation_edits[4]->value() }};
 	v.vegetation_kernel = vegetation_kernel_edit->value();
 	v.no_data_red = no_data_check->isChecked();
+	products.feature_map = feature_box->isChecked();
+	products.feature_from = feature_edits[0]->value();
+	products.feature_to = feature_edits[1]->value();
+	products.intensity_map = intensity_check->isChecked();
+	products.classification_map = classification_check->isChecked();
 	return products;
 }
 
