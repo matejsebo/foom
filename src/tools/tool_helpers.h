@@ -199,7 +199,10 @@ public:
 		GridCorners = 1 << 2,
 		LineBorders = 1 << 3,
 		
-		AllTypes = 1 + 2 + 4 + 8
+		AllTypes = 1 + 2 + 4 + 8,
+		
+		/** foom: snapped onto a guide; guides are snapped onto whatever the filter, when it is not NoSnapping. */
+		GuideLines = 1 << 4
 	};
 	
 	/**

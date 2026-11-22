@@ -341,6 +341,11 @@ bool XMLFileExporter::exportImplementation()
 			exportBookmarks();
 			writeLineBreak(xml);
 		}
+		if (XMLFileFormat::foom_revision >= 1 && !map->guides().isDefault())  // foom
+		{
+			saveGuides(map->guides(), xml);
+			writeLineBreak(xml);
+		}
 		if (XMLFileFormat::foom_revision >= 1 && !map->savedSelections().empty())  // foom
 		{
 			exportSavedSelections();
@@ -903,6 +908,8 @@ void XMLFileImporter::importElements()
 			importObjectGroups();
 		else if (name == literal::bookmarks)  // foom
 			importBookmarks();
+		else if (name == QLatin1String("guides"))  // foom
+			map->setGuides(loadGuides(xml));
 		else if (name == literal::saved_selections)  // foom
 			importSavedSelections();
 		else if (name == literal::status_sets)  // foom

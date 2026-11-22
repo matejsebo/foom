@@ -328,6 +328,7 @@ add_system_test(ocd_layout_image_t)  # foom: the design notes, OCD embedded imag
 add_system_test(ocd2018_t)
 add_system_test(template_t)
 add_system_test(tools_t)
+add_system_test(view_aids_t)  # foom: the design notes, view aids
 add_system_test(track_t)  # Could be unit test, but needs Georeferencing
 add_system_test(transform_t)
 add_system_test(undo_manager_t)

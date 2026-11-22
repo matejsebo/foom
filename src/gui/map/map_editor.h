@@ -116,6 +116,7 @@ class MapWidget;
 class PaintOnTemplateFeature;
 class CourseWidget;  // foom
 class RangefinderWidget;  // foom
+class ViewAids;  // foom
 class PrintWidget;
 class ReopenTemplateDialog;
 class Symbol;
@@ -305,6 +306,9 @@ public:
 	 * This allows the reuse of the controller's actions in dock widgets etc.
 	 */
 	QAction* getAction(const char* id);
+	
+	/** foom: Returns the view aids: rulers, guides, find selected, move to coordinates. */
+	ViewAids* viewAids() const { return view_aids; }
 	
 	/** Override from MainWindowController */
 	bool saveTo(const QString& path, const FileFormat& format) override;
@@ -1567,6 +1571,7 @@ private:
 	QAction* bookmark_manage_act = {};  // foom
 	QMenu* bookmarks_menu = nullptr;  // foom
 	ViewHistory view_history;  // foom
+	ViewAids* view_aids = nullptr;  // foom: rulers, guides, find selected, move to
 	QTimer view_history_timer;  // foom
 	bool applying_view_history = false;  // foom
 	QAction* vertex_type_normal_act = {};  // foom

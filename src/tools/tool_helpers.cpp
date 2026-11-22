@@ -426,8 +426,22 @@ MapCoord SnappingToolHelper::snapToObject(const MapCoordF& position, MapWidget* 
 		}
 	}
 	
+	// foom: the guides, after the objects and before the grid.
+	// the design notes, "Rulers, guides and shortcut editor: detail".
+	auto const& guides = map->guides();
+	if (filter != NoSnapping && result_info.type == NoSnapping && guides.visible)
+	{
+		MapCoordF on_guide;
+		if (snapToGuides(guides.list, position, snap_distance, on_guide))
+		{
+			result_position = MapCoord(on_guide);
+			result_info.type = GuideLines;
+		}
+	}
+	
 	// Find closest grid snap position
-	if ((filter & GridCorners) && widget->getMapView()->isGridVisible() &&
+	if (result_info.type != GuideLines &&  // foom
+	    (filter & GridCorners) && widget->getMapView()->isGridVisible() &&
 		map->getGrid().isSnappingEnabled() && map->getGrid().getDisplayMode() == MapGrid::AllLines)
 	{
 		MapCoordF closest_grid_point = map->getGrid().getClosestPointOnGrid(position, map);
