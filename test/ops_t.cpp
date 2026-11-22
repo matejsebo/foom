@@ -22,6 +22,7 @@
 #include <cmath>
 #include <cstddef>
 #include <initializer_list>
+#include <limits>
 #include <memory>
 #include <type_traits>
 #include <utility>
@@ -163,6 +164,7 @@ private slots:
 	void symbolUpdateTest();
 	void buildingsTest();
 	void smoothTest();
+	void smoothContourTest();
 	void toCurveTest();
 	void stairwayTest();
 	void frameTest();
@@ -2319,6 +2321,97 @@ void OpsTest::smoothTest()
 	QVERIFY(!ops::smoothPaths(map, { point }, params).error.isEmpty());
 }
 
+
+void OpsTest::smoothContourTest()
+{
+	// the design notes, "Smooth", Accept (the contour option).
+	Map map;
+	auto* symbol = new LineSymbol();
+	map.addSymbol(symbol, 0);
+	auto const line = [&map, symbol](const MapCoordVector& coords) {
+		auto* object = new PathObject(symbol, coords);
+		map.addObject(object);
+		return object;
+	};
+	auto const vertices = [](const Object* object) {
+		std::vector<QPointF> out;
+		auto const& coords = object->asPath()->getRawCoordinateVector();
+		for (std::size_t i = 0; i < coords.size(); ++i)
+		{
+			out.emplace_back(coords[i].x(), coords[i].y());
+			if (coords[i].isCurveStart())
+				i += 2;
+		}
+		return out;
+	};
+	// The ground rises 1 m per mm of y and has a ridge 0.08 mm high at x = 5,
+	// so the contour of height 0 runs along y = 0 with a spike up to (5, 0.08).
+	auto const spike = [](double x) { return 0.08 * std::max(0.0, 1.0 - std::abs(x - 5.0)); };
+	auto const ground = [spike](const QPointF& p) { return p.y() - spike(p.x()); };
+	auto* contour = line({ MapCoord(0.0, 0.0), MapCoord(4.0, 0.0), MapCoord(5.0, 0.08), MapCoord(6.0, 0.0), MapCoord(10.0, 0.0) });
+
+	ops::SmoothParams params;
+	params.tolerance = 0.1;
+	auto plain = ops::smoothPaths(map, { contour }, params);
+	QCOMPARE(plain.out.size(), std::size_t(1));
+	QCOMPARE(plain.out.front()->asPath()->getCoordinateCount(), MapCoordVector::size_type(2));
+
+	// Without a grid the option is an error.
+	params.contour = true;
+	QVERIFY(!ops::smoothPaths(map, { contour }, params).error.isEmpty());
+
+	// With the grid the spike stays, and no point of the result is off the contour by more than 3 cm.
+	params.height_at = ground;
+	auto kept = ops::smoothPaths(map, { contour }, params);
+	QVERIFY2(kept.error.isEmpty(), kept.error.toLatin1());
+	QCOMPARE(kept.out.size(), std::size_t(1));
+	QCOMPARE(kept.out.front()->uuid(), contour->uuid());
+	auto const kept_vertices = vertices(kept.out.front().get());
+	QVERIFY(std::any_of(kept_vertices.begin(), kept_vertices.end(), [](const QPointF& p) {
+		return std::abs(p.x() - 5.0) < 0.002 && std::abs(p.y() - 0.08) < 0.002;
+	}));
+	auto const* kept_path = kept.out.front()->asPath();
+	kept_path->update();
+	auto worst = 0.0;
+	for (auto const& part : kept_path->parts())
+	{
+		for (auto const& coord : part.path_coords)
+			worst = std::max(worst, std::abs(ground(QPointF(coord.pos.x(), coord.pos.y()))));
+	}
+	QVERIFY2(worst <= 0.03 + 1e-6, QByteArray::number(worst));
+
+	// A looser height tolerance lets the spike go.
+	params.height_tolerance_m = 0.1;
+	auto loose = ops::smoothPaths(map, { contour }, params);
+	QCOMPARE(loose.out.front()->asPath()->getCoordinateCount(), MapCoordVector::size_type(2));
+	params.height_tolerance_m = 0.03;
+
+	// The "ele" tag sets the line's height: a line a metre below its tag may
+	// move downhill, which brings it nearer to its height, so the spike goes.
+	contour->setTag(QStringLiteral("ele"), QStringLiteral("-1"));
+	auto tagged = ops::smoothPaths(map, { contour }, params);
+	QCOMPARE(tagged.out.front()->asPath()->getCoordinateCount(), MapCoordVector::size_type(2));
+	contour->setTag(QStringLiteral("ele"), QStringLiteral("0"));
+	auto tagged_zero = ops::smoothPaths(map, { contour }, params);
+	QVERIFY(tagged_zero.out.front()->asPath()->getCoordinateCount() > 2);
+
+	// A zigzag across an even slope smooths as without the option: the
+	// straight line is nearer to its height (the median, 0) than the zigzag.
+	MapCoordVector zigzag;
+	for (int i = 0; i <= 10; ++i)
+		zigzag.emplace_back(double(i), 20.0 + ((i == 0 || i == 10) ? 0.0 : (i % 2 ? 0.05 : -0.05)));
+	auto* zig = line(zigzag);
+	params.height_at = [](const QPointF& p) { return p.y() - 20.0; };
+	auto zig_smoothed = ops::smoothPaths(map, { zig }, params);
+	QCOMPARE(zig_smoothed.out.size(), std::size_t(1));
+	QCOMPARE(zig_smoothed.out.front()->asPath()->getCoordinateCount(), MapCoordVector::size_type(2));
+
+	// Outside the grid nothing is tested.
+	params.height_at = [](const QPointF&) { return std::numeric_limits<double>::quiet_NaN(); };
+	contour->setTag(QStringLiteral("ele"), QString{});
+	auto outside = ops::smoothPaths(map, { contour }, params);
+	QCOMPARE(outside.out.front()->asPath()->getCoordinateCount(), MapCoordVector::size_type(2));
+}
 
 void OpsTest::toCurveTest()
 {

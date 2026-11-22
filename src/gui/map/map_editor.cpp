@@ -4644,7 +4644,7 @@ void MapEditorController::removeDuplicateVertices()
 // foom
 void MapEditorController::smoothClicked()
 {
-	SmoothDialog dialog(window);
+	SmoothDialog dialog(window, !map->elevationSet().href(ElevationSet::Terrain).isEmpty());
 	if (dialog.exec() == QDialog::Accepted)
 		smoothPaths(dialog.params());
 }
@@ -4655,6 +4655,23 @@ void MapEditorController::smoothPaths(const ops::SmoothParams& params)
 	// the design notes, "Smooth".
 	auto const& selection = map->selectedObjects();
 	std::vector<const Object*> in(begin(selection), end(selection));
+	if (params.contour && !params.height_at)
+	{
+		// The contour option: heights from the terrain grid, see the design notes, "Smooth".
+		auto const& georef = map->getGeoreferencing();
+		auto const* terrain = map->elevationSet().model(ElevationSet::Terrain, georef.getProjectedCRSSpec());
+		if (!terrain)
+		{
+			QMessageBox::warning(window, tr("Smooth"), tr("The contour option needs a terrain grid, which cannot be loaded."));
+			return;
+		}
+		auto with_heights = params;
+		with_heights.height_at = [terrain, &georef](const QPointF& map_pos) {
+			return terrain->at(georef.toProjectedCoords(MapCoordF(map_pos.x(), map_pos.y())));
+		};
+		applyOpResult(ops::smoothPaths(*map, in, with_heights));
+		return;
+	}
 	applyOpResult(ops::smoothPaths(*map, in, params));
 }
 

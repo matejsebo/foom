@@ -107,6 +107,8 @@
 #include "tools/rubbersheet_tool.h"
 #include "tools/point_pairs_window.h"  // foom
 #include "gui/map/map_transform_dialogs.h"  // foom
+#include <QCheckBox>  // foom
+#include <QComboBox>  // foom
 #include <QDoubleSpinBox>  // foom
 #include <QPointer>  // foom
 #include <QSpinBox>  // foom
@@ -3194,6 +3196,61 @@ void ToolsTest::smooth()
 	QCOMPARE(map.map->getNumSelectedObjects(), 1);
 	QCOMPARE(map.map->getFirstSelectedObject()->asPath()->getCoordinateCount(), MapCoordVector::size_type(2));
 	QVERIFY(map.map->undoManager().undo());
+	
+	// The contour option is offered only with a terrain grid.
+	{
+		SmoothDialog no_grid(editor.window, false);
+		auto* check = no_grid.findChild<QCheckBox*>(QStringLiteral("contour_check"));
+		QVERIFY(check);
+		QVERIFY(!check->isEnabled());
+		QVERIFY(!no_grid.params().contour);
+		SmoothDialog with_grid(editor.window, true);
+		auto* height = with_grid.findChild<QDoubleSpinBox*>(QStringLiteral("height_edit"));
+		QVERIFY(height);
+		QCOMPARE(height->value(), 3.0);
+		QVERIFY(!height->isEnabled());
+		with_grid.findChild<QCheckBox*>(QStringLiteral("contour_check"))->setChecked(true);
+		QVERIFY(height->isEnabled());
+		QVERIFY(with_grid.params().contour);
+		QCOMPARE(with_grid.params().height_tolerance_m, 0.03);
+	}
+	
+	// With a terrain grid whose contour of height 0 has a spike to (5, 0.08) on the map,
+	// the contour option keeps the spike which plain smoothing removes.
+	auto const& georef = map.map->getGeoreferencing();
+	auto const spike = [](double x) { return 0.08 * std::max(0.0, 1.0 - std::abs(x - 5.0)); };
+	auto const corner_a = georef.toProjectedCoords(MapCoordF(-1.0, -1.0));
+	auto const corner_b = georef.toProjectedCoords(MapCoordF(11.0, 1.0));
+	auto const metres_per_mm = std::abs(georef.toProjectedCoords(MapCoordF(1.0, 0.0)).x() - georef.toProjectedCoords(MapCoordF(0.0, 0.0)).x());
+	auto const cell = metres_per_mm * 0.005;
+	auto const west = std::min(corner_a.x(), corner_b.x());
+	auto const north = std::max(corner_a.y(), corner_b.y());
+	auto const width = int(std::ceil(std::abs(corner_b.x() - corner_a.x()) / cell));
+	auto const height = int(std::ceil(std::abs(corner_b.y() - corner_a.y()) / cell));
+	std::vector<float> values(std::size_t(width) * std::size_t(height));
+	for (int row = 0; row < height; ++row)
+	{
+		for (int col = 0; col < width; ++col)
+		{
+			auto const at = georef.toMapCoordF(QPointF(west + (col + 0.5) * cell, north - (row + 0.5) * cell));
+			values[std::size_t(row) * std::size_t(width) + std::size_t(col)] = float(at.y() - spike(at.x()));
+		}
+	}
+	map.map->elevationSet().setModel(ElevationSet::Terrain, std::make_unique<ElevationModel>(width, height, QPointF(west, north), cell, values), QStringLiteral("ridge.tif"));
+	auto* contour = new PathObject(map.line_symbol, { MapCoord(0.0, 0.0), MapCoord(4.0, 0.0), MapCoord(5.0, 0.08), MapCoord(6.0, 0.0), MapCoord(10.0, 0.0) });
+	map.map->addObject(contour);
+	map.map->clearObjectSelection(false);
+	map.map->addObjectToSelection(contour, true);
+	auto contour_params = params;
+	contour_params.contour = true;
+	editor.editor->smoothPaths(contour_params);
+	QCOMPARE(map.map->getNumSelectedObjects(), 1);
+	QVERIFY(map.map->getFirstSelectedObject()->asPath()->getCoordinateCount() > 2);
+	QVERIFY(map.map->undoManager().undo());
+	map.map->clearObjectSelection(false);
+	map.map->addObjectToSelection(map.map->getCurrentPart()->getObject(map.map->getCurrentPart()->getNumObjects() - 1), true);
+	editor.editor->smoothPaths(params);
+	QCOMPARE(map.map->getFirstSelectedObject()->asPath()->getCoordinateCount(), MapCoordVector::size_type(2));
 }
 
 void ToolsTest::rectangleBox()

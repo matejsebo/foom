@@ -131,7 +131,8 @@ class SmoothDialog : public QDialog
 {
 Q_OBJECT
 public:
-	SmoothDialog(QWidget* parent);
+	/** has_terrain enables the contour option, which needs the map's terrain grid. */
+	SmoothDialog(QWidget* parent, bool has_terrain = false);
 	~SmoothDialog() override;
 
 	ops::SmoothParams params() const;
@@ -141,6 +142,8 @@ private:
 	QCheckBox* corners_check;
 	QDoubleSpinBox* angle_edit;
 	QCheckBox* inflections_check;
+	QCheckBox* contour_check;
+	QDoubleSpinBox* height_edit;
 };
 
 
