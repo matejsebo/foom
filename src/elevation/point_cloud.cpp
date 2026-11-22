@@ -47,8 +47,9 @@ GriddingResult::~GriddingResult() = default;
 
 namespace {
 
-/// The largest grid, in cells (10 by 10 km at 1 m).
-constexpr qint64 max_cells = 100000000;
+/// The largest grid, in cells (20 by 20 km at 1 m): the grids are held whole,
+/// the points are gridded a row of tiles at a time.
+constexpr qint64 max_cells = 400000000;
 
 /// Floor and ceiling which forgive the rounding of coordinates read with a scale.
 double floorTo(double value, double cell)
@@ -395,9 +396,16 @@ PointCloudInfo PointCloud::analyse(const QStringList& paths)
 
 
 // static
+qint64 PointCloud::maxCells()
+{
+	return max_cells;
+}
+
+
+// static
 GriddingResult PointCloud::grid(const QStringList& paths, const GriddingParams& params)
 {
-	// the design notes, "Reading point clouds and gridding them".
+	// the design notes, "Reading point clouds and gridding them" and "Tiles of 1 km".
 	GriddingResult result;
 	if (!supported())
 	{
@@ -410,118 +418,193 @@ GriddingResult PointCloud::grid(const QStringList& paths, const GriddingParams& 
 		return result;
 	}
 	auto const cell = params.cell;
-	
+	auto const num_files = std::size_t(paths.size());
+	std::vector<QString> crs_of_file(num_files);
+
+	// The extent of every file's points, read rather than taken from the header.
+	struct Bounds
+	{
+		double min_x = std::numeric_limits<double>::max();
+		double min_y = std::numeric_limits<double>::max();
+		double max_x = std::numeric_limits<double>::lowest();
+		double max_y = std::numeric_limits<double>::lowest();
+		qint64 count = 0;
+	};
+	std::vector<Bounds> file_bounds;
+	auto const readBounds = [&]() {
+		file_bounds.assign(num_files, Bounds());
+		for (std::size_t i = 0; i < num_files; ++i)
+		{
+			auto& b = file_bounds[i];
+			auto const extend = [&b](const CloudPoint& p) {
+				++b.count;
+				b.min_x = std::min(b.min_x, p.x);
+				b.min_y = std::min(b.min_y, p.y);
+				b.max_x = std::max(b.max_x, p.x);
+				b.max_y = std::max(b.max_y, p.y);
+			};
+#ifdef FOOM_WITH_LASZIP
+			if (!readFile(paths[int(i)], true, extend, &crs_of_file[i], &result.error))
+				return false;
+#else
+			Q_UNUSED(extend)
+#endif
+		}
+		return true;
+	};
+
 	// The edges.
 	QRectF bounds = params.box;
 	if (bounds.isEmpty())
 	{
-		auto min_x = std::numeric_limits<double>::max(), min_y = min_x;
-		auto max_x = std::numeric_limits<double>::lowest(), max_y = max_x;
-		qint64 count = 0;
-		auto const extend = [&](const CloudPoint& p) {
-			++count;
-			min_x = std::min(min_x, p.x);
-			min_y = std::min(min_y, p.y);
-			max_x = std::max(max_x, p.x);
-			max_y = std::max(max_y, p.y);
-		};
-#ifdef FOOM_WITH_LASZIP
-		for (auto const& path : paths)
+		if (!readBounds())
+			return result;
+		Bounds all;
+		for (auto const& b : file_bounds)
 		{
-			if (!readFile(path, true, extend, nullptr, &result.error))
-				return result;
+			if (b.count == 0)
+				continue;
+			all.count += b.count;
+			all.min_x = std::min(all.min_x, b.min_x);
+			all.min_y = std::min(all.min_y, b.min_y);
+			all.max_x = std::max(all.max_x, b.max_x);
+			all.max_y = std::max(all.max_y, b.max_y);
 		}
-#endif
-		if (count == 0)
+		if (all.count == 0)
 		{
 			result.error = tr("The files hold no points.");
 			return result;
 		}
-		bounds = QRectF(min_x, min_y, max_x - min_x, max_y - min_y);
+		bounds = QRectF(all.min_x, all.min_y, all.max_x - all.min_x, all.max_y - all.min_y);
 	}
 	auto const left = floorTo(bounds.left(), cell);
 	auto const bottom = floorTo(bounds.top(), cell);
 	auto const width = std::max(1, int(std::lround((ceilTo(bounds.right(), cell) - left) / cell)));
 	auto const height = std::max(1, int(std::lround((ceilTo(bounds.bottom(), cell) - bottom) / cell)));
 	auto const top = bottom + height * cell;
+	auto const right = left + width * cell;
 	auto const cells = qint64(width) * qint64(height);
 	if (cells > max_cells)
 	{
 		result.error = tr("The grid of %1 by %2 cells is too large; choose a larger cell or a box.").arg(width).arg(height);
 		return result;
 	}
-	
-	// The points: sums relative to the first height keep the precision of float.
+
+	// Rows of tiles, from the north. The buffer covers the reach of the void
+	// filling, so that every cell is filled from the same cells as in one piece.
+	auto const tile_rows = std::max(1, int(std::lround(params.tile_size / cell)));
+	auto const buffer_rows = std::max(std::max(0, params.fill_cells), int(std::ceil(params.tile_buffer / cell - 1e-9)));
+	auto const num_bands = (height + tile_rows - 1) / tile_rows;
+	if (num_bands > 1 && file_bounds.empty() && !readBounds())
+		return result;
+	result.tile_rows = num_bands;
+
 	auto const n = std::size_t(cells);
 	auto const nan = std::numeric_limits<float>::quiet_NaN();
-	std::vector<float> dtm_sum, dsm_sum;
-	std::vector<quint32> dtm_count, dsm_count;
+	std::vector<float> dtm_values, dsm_values;
 	if (params.dtm)
-	{
-		dtm_sum.assign(n, 0.0f);
-		dtm_count.assign(n, 0);
-	}
+		dtm_values.assign(n, nan);
 	if (params.dsm)
-	{
-		dsm_sum.assign(n, 0.0f);
-		dsm_count.assign(n, 0);
-	}
+		dsm_values.assign(n, nan);
+
+	// Sums relative to the first height keep the precision of float.
 	auto reference = std::numeric_limits<double>::quiet_NaN();
-	QString crs_spec;
-	auto const right = left + width * cell;
-	auto const add = [&](const CloudPoint& p) {
-		if (p.x < left || p.x > right || p.y < bottom || p.y > top)
-			return;
-		auto const col = std::min(width - 1, int((p.x - left) / cell));
-		// Cells include their south and west edges.
-		auto const row = height - 1 - std::min(height - 1, int((p.y - bottom) / cell));
-		auto const k = std::size_t(row) * std::size_t(width) + std::size_t(col);
-		auto const c = p.classification;
-		if (std::isnan(reference))
-			reference = p.z;
-		if (params.dtm && (c == 2 || c == 9) && p.return_number >= p.number_of_returns)
-		{
-			dtm_sum[k] += float(p.z - reference);
-			++dtm_count[k];
-		}
-		// The mean.
-		if (params.dsm && (c == 2 || c == 3 || c == 4 || c == 5 || c == 6 || c == 9) && p.return_number <= 1)
-		{
-			dsm_sum[k] += float(p.z - reference);
-			++dsm_count[k];
-		}
-	};
-	for (auto const& path : paths)
+	for (int band = 0; band < num_bands; ++band)
 	{
-		QString crs;
-		if (!read(path, add, &crs, &result.error))
-			return result;
-		if (crs_spec.isEmpty())
-			crs_spec = crs;
-	}
-	
-	// The grids.
-	auto const makeGrid = [&](std::vector<float>& sum, std::vector<quint32>& count) {
-		std::vector<float> values(n, nan);
-		for (std::size_t k = 0; k < n; ++k)
+		auto const r0 = band * tile_rows;
+		auto const r1 = std::min(height, r0 + tile_rows);
+		auto const b0 = std::max(0, r0 - buffer_rows);
+		auto const b1 = std::min(height, r1 + buffer_rows);
+		auto const band_height = b1 - b0;
+		auto const band_top = top - b0 * cell;
+		auto const band_bottom = top - b1 * cell;
+		auto const m = std::size_t(width) * std::size_t(band_height);
+		std::vector<float> dtm_sum, dsm_sum;
+		std::vector<quint32> dtm_count, dsm_count;
+		if (params.dtm)
 		{
-			if (count[k] > 0)
-				values[k] = float(reference + double(sum[k]) / count[k]);
+			dtm_sum.assign(m, 0.0f);
+			dtm_count.assign(m, 0);
 		}
-		sum.clear();
-		sum.shrink_to_fit();
-		count.clear();
-		count.shrink_to_fit();
-		auto grid = std::make_unique<ElevationModel>(width, height, QPointF(left, top), cell, std::move(values), crs_spec);
-		fillVoids(*grid, params.fill_cells);
-		return grid;
-	};
+		if (params.dsm)
+		{
+			dsm_sum.assign(m, 0.0f);
+			dsm_count.assign(m, 0);
+		}
+		auto const add = [&](const CloudPoint& p) {
+			if (p.x < left || p.x > right || p.y < bottom || p.y > top)
+				return;
+			// Cells include their south and west edges.
+			auto const row = height - 1 - std::min(height - 1, int((p.y - bottom) / cell));
+			if (row < b0 || row >= b1)
+				return;
+			auto const col = std::min(width - 1, int((p.x - left) / cell));
+			auto const k = std::size_t(row - b0) * std::size_t(width) + std::size_t(col);
+			auto const c = p.classification;
+			if (std::isnan(reference))
+				reference = p.z;
+			if (params.dtm && (c == 2 || c == 9) && p.return_number >= p.number_of_returns)
+			{
+				dtm_sum[k] += float(p.z - reference);
+				++dtm_count[k];
+			}
+			// The mean.
+			if (params.dsm && (c == 2 || c == 3 || c == 4 || c == 5 || c == 6 || c == 9) && p.return_number <= 1)
+			{
+				dsm_sum[k] += float(p.z - reference);
+				++dsm_count[k];
+			}
+		};
+		for (std::size_t i = 0; i < num_files; ++i)
+		{
+			if (!file_bounds.empty())
+			{
+				auto const& b = file_bounds[i];
+				if (b.count == 0 || b.max_y < band_bottom || b.min_y > band_top || b.max_x < left || b.min_x > right)
+					continue;
+			}
+			++result.file_reads;
+			if (!read(paths[int(i)], add, &crs_of_file[i], &result.error))
+				return result;
+		}
+
+		// The band's grids, filled, and its own rows copied out.
+		auto const finish = [&](std::vector<float>& sum, std::vector<quint32>& count, std::vector<float>& out) {
+			std::vector<float> values(m, nan);
+			for (std::size_t k = 0; k < m; ++k)
+			{
+				if (count[k] > 0)
+					values[k] = float(reference + double(sum[k]) / count[k]);
+			}
+			ElevationModel piece(width, band_height, QPointF(left, band_top), cell, std::move(values));
+			fillVoids(piece, params.fill_cells);
+			auto const& filled = piece.values();
+			std::copy(filled.begin() + std::ptrdiff_t(std::size_t(r0 - b0) * std::size_t(width)),
+			          filled.begin() + std::ptrdiff_t(std::size_t(r1 - b0) * std::size_t(width)),
+			          out.begin() + std::ptrdiff_t(std::size_t(r0) * std::size_t(width)));
+		};
+		if (params.dtm)
+			finish(dtm_sum, dtm_count, dtm_values);
+		if (params.dsm)
+			finish(dsm_sum, dsm_count, dsm_values);
+	}
+
+	QString crs_spec;
+	for (auto const& crs : crs_of_file)
+	{
+		if (!crs.isEmpty())
+		{
+			crs_spec = crs;
+			break;
+		}
+	}
 	if (params.dtm)
-		result.dtm = makeGrid(dtm_sum, dtm_count);
+		result.dtm = std::make_unique<ElevationModel>(width, height, QPointF(left, top), cell, std::move(dtm_values), crs_spec);
 	if (params.dsm)
-		result.dsm = makeGrid(dsm_sum, dsm_count);
+		result.dsm = std::make_unique<ElevationModel>(width, height, QPointF(left, top), cell, std::move(dsm_values), crs_spec);
 	return result;
 }
+
 
 
 // static

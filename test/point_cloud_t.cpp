@@ -367,6 +367,59 @@ private slots:
 	}
 	
 	
+	/// the design notes, "Tiles of 1 km", Accept.
+	void tiledGridTest()
+	{
+		// Accept (1): the default tile holds the test cloud in one row.
+		CloudOptions options;
+		options.hole = 15.0;
+		options.vegetation = QRectF(30, 30, 10, 10);
+		auto const cloud = testCloud(options);
+		std::vector<CloudPoint> north, south;
+		for (auto const& p : cloud)
+			(p.y - north0 >= 25.0 ? north : south).push_back(p);
+		QStringList const paths = { writeCloud(QStringLiteral("tiles_north.laz"), north), writeCloud(QStringLiteral("tiles_south.laz"), south) };
+		GriddingParams params;
+		params.fill_cells = 3;
+		auto const whole = PointCloud::grid(paths, params);
+		QVERIFY2(whole.dtm && whole.dsm, qPrintable(whole.error));
+		QCOMPARE(whole.tile_rows, 1);
+		QCOMPARE(whole.file_reads, 2);
+
+		// Accept (2) and (3): rows of 10 m with the buffer of the void filling.
+		params.tile_size = 10.0;
+		params.tile_buffer = 0.0;
+		auto const tiled = PointCloud::grid(paths, params);
+		QVERIFY2(tiled.dtm && tiled.dsm, qPrintable(tiled.error));
+		QCOMPARE(tiled.tile_rows, 5);
+		QCOMPARE(tiled.file_reads, 6);
+		for (auto const& pair : { std::make_pair(whole.dtm.get(), tiled.dtm.get()), std::make_pair(whole.dsm.get(), tiled.dsm.get()) })
+		{
+			QCOMPARE(pair.second->width(), pair.first->width());
+			QCOMPARE(pair.second->height(), pair.first->height());
+			QCOMPARE(pair.second->extent(), pair.first->extent());
+			QCOMPARE(pair.second->crsSpec(), pair.first->crsSpec());
+			auto voids = 0;
+			for (int row = 0; row < pair.first->height(); ++row)
+			{
+				for (int col = 0; col < pair.first->width(); ++col)
+				{
+					auto const a = pair.first->value(col, row);
+					auto const b = pair.second->value(col, row);
+					QCOMPARE(std::isnan(a), std::isnan(b));
+					voids += std::isnan(a);
+					if (!std::isnan(a))
+						QVERIFY2(std::abs(a - b) < 1e-4, qPrintable(QStringLiteral("%1 %2: %3 %4").arg(col).arg(row).arg(a).arg(b)));
+				}
+			}
+			QVERIFY(voids > 0);  // the hole of 15 m stays void in its centre
+		}
+
+		// Accept (4): the limit.
+		QVERIFY(PointCloud::maxCells() >= qint64(400000000));
+	}
+
+
 	void crsTest()
 	{
 		// Accept (7).
