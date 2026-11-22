@@ -388,9 +388,19 @@ int routeLegsOutside(const AllCourseRoutes& all)
 
 AllCourseRoutes analyseAllRoutesOfMap(Map& map, StoredRoutes& store, int alternatives)
 {
+	return analyseAllRoutesOfMap(map, store, alternatives, {}, nullptr);
+}
+
+
+AllCourseRoutes analyseAllRoutesOfMap(Map& map, StoredRoutes& store, int alternatives, const QString& cache_path, RouteTerrainSource* source)
+{
 	store = {};
 	auto const settings = map.courseData().route;
-	auto const terrain = buildRouteTerrain(map, settings);
+	RouteTerrain terrain;
+	if (cache_path.isEmpty() && !source)
+		terrain = buildRouteTerrain(map, settings);
+	else
+		terrain = cachedRouteTerrain(map, settings, cache_path, {}, source);
 	RouteSearch search(terrain, settings, map.getScaleDenominator());
 	setRouteHeights(search, map);
 	auto all = analyseAllRoutes(map, map.courseData(), search, store);

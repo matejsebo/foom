@@ -26,6 +26,7 @@
 
 #include <QtGlobal>
 #include <QPolygonF>
+#include <QByteArray>
 #include <QRectF>
 #include <QString>
 
@@ -95,6 +96,45 @@ RouteTerrain buildRouteTerrain(const Map& map, const RouteSettings& settings, co
  * with a world file in mm of the map. Returns false when a file cannot be written.
  */
 bool saveRouteTerrain(const RouteTerrain& terrain, const QString& base_path);
+
+
+/*
+ * The cache of the rasters; the design notes, "Route
+ * analysis: the cache of the rasters".
+ */
+
+/** Where the rasters which cachedRouteTerrain() gives came from. */
+enum class RouteTerrainSource
+{
+	Memory,  ///< those which were made last in the program
+	File,    ///< the file of the cache
+	Made     ///< made anew
+};
+
+/**
+ * A hash of everything the rasters of buildRouteTerrain() are made of:
+ * the settings of the runnability and the perimeter, the area, the extent
+ * of the map, and the objects whose symbols count. Not the base pace, the
+ * elevation, or objects whose symbols do not count.
+ */
+QByteArray routeTerrainKey(const Map& map, const RouteSettings& settings, const QRectF& area = {});
+
+/**
+ * The rasters: those made last in the program when the key is theirs,
+ * else those of the file at cache_path when it has the key, else made
+ * anew, kept in memory, and written to cache_path (when it is not empty).
+ */
+RouteTerrain cachedRouteTerrain(const Map& map, const RouteSettings& settings, const QString& cache_path,
+                                const QRectF& area = {}, RouteTerrainSource* source = nullptr);
+
+/** The file of the cache beside a map file: "<file>.~route"; empty for none. */
+QString routeTerrainCachePath(const QString& map_path);
+
+/** Forgets the rasters which are kept in memory. */
+void forgetRouteTerrainMemory();
+
+/** Forgets the rasters in memory and removes the file of the cache, when a path is given. */
+void resetRouteTerrainCache(const QString& cache_path);
 
 
 }  // namespace OpenOrienteering

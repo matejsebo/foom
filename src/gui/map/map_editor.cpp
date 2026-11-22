@@ -1461,6 +1461,7 @@ void MapEditorController::createActions()
 	course_routes_alternatives_act = newAction("course-routes-alternatives", tr("Search alternative routes of the course"), this, SLOT(searchAlternativeRoutesClicked()), nullptr, tr("Search routes beside the fastest route of every leg of the course which is chosen in the course dock, and keep them in the map."));
 	course_routes_perimeter_act = newAction("course-routes-perimeter", tr("Define route perimeter"), this, SLOT(defineRoutePerimeterClicked()), nullptr, tr("Keep the route analysis within the outline of the selected object."));
 	course_routes_perimeter_clear_act = newAction("course-routes-perimeter-clear", tr("Clear route perimeter"), this, SLOT(clearRoutePerimeterClicked()), nullptr, tr("Analyse the routes on the whole map again."));
+	course_routes_reset_act = newAction("course-routes-reset", tr("Reset routing graph"), this, SLOT(resetRoutingGraphClicked()), nullptr, tr("Make the rasters of the route analysis anew at the next analysis, and remove their file beside the map."));
 	course_routes_settings_act = newAction("course-routes-settings", tr("Route settings..."), this, SLOT(routeSettingsClicked()), nullptr, tr("The base pace of the route analysis, whether it uses runnability and elevation, and the runnability of the symbols."));
 	course_export_maps_act = newAction("course-export-maps", tr("Export course maps (PDF)..."), this, SLOT(exportCourseMapsClicked()), nullptr, tr("Write a PDF file with the map of every course, of every part of a course with a map exchange, and of every variant or runner of a relay."));
 	course_relay_variations_act = newAction("course-relay-variations", tr("Export relay variations..."), this, SLOT(exportRelayVariationsClicked()), nullptr, tr("Write which team runs which variant of the relays, as a text file."));
@@ -1967,6 +1968,7 @@ void MapEditorController::createMenuAndToolbars()
 	courses_menu->addAction(course_routes_alternatives_act);
 	courses_menu->addAction(course_routes_perimeter_act);
 	courses_menu->addAction(course_routes_perimeter_clear_act);
+	courses_menu->addAction(course_routes_reset_act);
 	courses_menu->addAction(course_routes_show_act);
 	courses_menu->addAction(course_routes_hide_act);
 	courses_menu->addAction(course_routes_via_act);
@@ -5904,7 +5906,8 @@ void MapEditorController::analyseCourseRoutesClicked()
 	}
 	QApplication::setOverrideCursor(Qt::WaitCursor);
 	auto const settings = map->courseData().route;
-	auto const terrain = buildRouteTerrain(*map, settings);
+	// the design notes, "Route analysis: the cache of the rasters"
+	auto const terrain = cachedRouteTerrain(*map, settings, routeTerrainCachePath(window->currentPath()));
 	RouteSearch search(terrain, settings, map->getScaleDenominator());
 	setRouteHeights(search, *map);
 	// Every leg of the course is searched anew.
@@ -5953,7 +5956,8 @@ void MapEditorController::analyseAllCourseRoutesClicked()
 	}
 	QApplication::setOverrideCursor(Qt::WaitCursor);
 	StoredRoutes fresh;
-	auto const all = analyseAllRoutesOfMap(*map, fresh);
+	RouteTerrainSource source;
+	auto const all = analyseAllRoutesOfMap(*map, fresh, 0, routeTerrainCachePath(window->currentPath()), &source);
 	QApplication::restoreOverrideCursor();
 	if (all.tables.empty())
 	{
@@ -6005,7 +6009,8 @@ void MapEditorController::searchAlternativeRoutesClicked()
 		return;
 	QApplication::setOverrideCursor(Qt::WaitCursor);
 	auto const settings = map->courseData().route;
-	auto const terrain = buildRouteTerrain(*map, settings);
+	// the design notes, "Route analysis: the cache of the rasters"
+	auto const terrain = cachedRouteTerrain(*map, settings, routeTerrainCachePath(window->currentPath()));
 	RouteSearch search(terrain, settings, map->getScaleDenominator());
 	setRouteHeights(search, *map);
 	auto data = map->courseData();
@@ -6065,6 +6070,13 @@ void MapEditorController::clearRoutePerimeterClicked()
 	data.route.perimeter.clear();
 	changeCourseData(*map, std::move(data));
 	map_widget->update();
+}
+
+
+void MapEditorController::resetRoutingGraphClicked()
+{
+	resetRouteTerrainCache(routeTerrainCachePath(window->currentPath()));
+	QMessageBox::information(window, tr("Reset routing graph"), tr("The rasters of the route analysis are made anew at the next analysis."));
 }
 
 

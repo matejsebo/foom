@@ -27,7 +27,10 @@
 #include <map>
 
 #include <Qt>
+#include <QByteArray>
 #include <QColor>
+#include <QCryptographicHash>
+#include <QDataStream>
 #include <QFile>
 #include <QImage>
 #include <QIODevice>
@@ -38,6 +41,7 @@
 #include <QPen>
 #include <QPointF>
 #include <QPolygonF>
+#include <QSaveFile>
 #include <QTextStream>
 
 #include "core/map.h"
@@ -523,6 +527,236 @@ RouteTerrain buildRouteTerrain(const Map& map, const RouteSettings& settings, co
 	}
 	return terrain;
 }
+
+
+namespace {
+
+/** The mark and the version of the file of the cache. */
+constexpr quint32 cache_mark = 0x464f5254;  // "FORT"
+constexpr quint32 cache_version = 1;
+/** Changes when the way the rasters are made changes, so that older files are made anew. */
+constexpr int terrain_rules = 1;
+
+/** The rasters which were made last in the program, with their key. */
+struct Memory
+{
+	QByteArray key;
+	RouteTerrain terrain;
+};
+
+Memory& memory()
+{
+	static Memory kept;
+	return kept;
+}
+
+void addDouble(QCryptographicHash& hash, double value)
+{
+	hash.addData(reinterpret_cast<const char*>(&value), int(sizeof(value)));
+}
+
+void addInt(QCryptographicHash& hash, qint64 value)
+{
+	hash.addData(reinterpret_cast<const char*>(&value), int(sizeof(value)));
+}
+
+void addRect(QCryptographicHash& hash, const QRectF& rect)
+{
+	addInt(hash, rect.isValid() ? 1 : 0);
+	addDouble(hash, rect.left());
+	addDouble(hash, rect.top());
+	addDouble(hash, rect.width());
+	addDouble(hash, rect.height());
+}
+
+bool readCache(const QString& path, const QByteArray& key, RouteTerrain& terrain)
+{
+	QFile file(path);
+	if (path.isEmpty() || !file.open(QIODevice::ReadOnly))
+		return false;
+	QDataStream stream(&file);
+	stream.setVersion(QDataStream::Qt_5_12);
+	quint32 mark = 0;
+	quint32 version = 0;
+	QByteArray file_key;
+	stream >> mark >> version;
+	if (stream.status() != QDataStream::Ok || mark != cache_mark || version != cache_version)
+		return false;
+	stream >> file_key;
+	if (stream.status() != QDataStream::Ok || file_key != key)
+		return false;
+	RouteTerrain read;
+	qint32 width = 0;
+	qint32 height = 0;
+	QByteArray runnability;
+	QByteArray impassable;
+	stream >> read.area >> read.pixel >> width >> height >> read.perimeter >> runnability >> impassable;
+	if (stream.status() != QDataStream::Ok || width <= 0 || height <= 0)
+		return false;
+	runnability = qUncompress(runnability);
+	impassable = qUncompress(impassable);
+	auto const count = qint64(width) * qint64(height);
+	if (runnability.size() != count || impassable.size() != count)
+		return false;
+	read.width = width;
+	read.height = height;
+	read.runnability.assign(runnability.constBegin(), runnability.constEnd());
+	read.impassable.assign(impassable.constBegin(), impassable.constEnd());
+	terrain = std::move(read);
+	return true;
+}
+
+bool writeCache(const QString& path, const QByteArray& key, const RouteTerrain& terrain)
+{
+	if (path.isEmpty() || terrain.isEmpty())
+		return false;
+	QSaveFile file(path);
+	if (!file.open(QIODevice::WriteOnly))
+		return false;
+	QDataStream stream(&file);
+	stream.setVersion(QDataStream::Qt_5_12);
+	auto const bytes = [](const std::vector<quint8>& values) {
+		return qCompress(QByteArray(reinterpret_cast<const char*>(values.data()), int(values.size())));
+	};
+	stream << cache_mark << cache_version << key << terrain.area << terrain.pixel
+	       << qint32(terrain.width) << qint32(terrain.height) << terrain.perimeter
+	       << bytes(terrain.runnability) << bytes(terrain.impassable);
+	return stream.status() == QDataStream::Ok && file.commit();
+}
+
+}  // namespace
+
+
+
+QByteArray routeTerrainKey(const Map& map, const RouteSettings& settings, const QRectF& area)
+{
+	QCryptographicHash hash(QCryptographicHash::Sha1);
+	addInt(hash, terrain_rules);
+	addDouble(hash, RouteTerrain{}.pixel);
+	addInt(hash, settings.use_runnability ? 1 : 0);
+	addRect(hash, area);
+	addInt(hash, qint64(settings.perimeter.size()));
+	for (auto const& point : settings.perimeter)
+	{
+		addDouble(hash, point.x());
+		addDouble(hash, point.y());
+	}
+	addRect(hash, map.calculateExtent(false, true));
+
+	// The maps whose objects count, as buildRouteTerrain() takes them.
+	std::vector<std::pair<const Map*, const Template*>> sources = { { &map, nullptr } };
+	for (int i = 0; i < map.getNumTemplates(); ++i)
+	{
+		auto const* temp = map.getTemplate(i);
+		if (temp->getTemplateState() != Template::Loaded)
+			continue;
+		if (auto const* template_map = qobject_cast<const TemplateMap*>(temp))
+		{
+			if (template_map->templateMap())
+				sources.push_back({ template_map->templateMap(), temp });
+		}
+	}
+	// A symbol by the order in which it is first met: the surfaces of one symbol multiply once.
+	std::map<const Symbol*, qint64> symbol_order;
+	for (auto const& source : sources)
+	{
+		addInt(hash, -1);
+		for (int p = 0; p < source.first->getNumParts(); ++p)
+		{
+			auto const* part = source.first->getPart(std::size_t(p));
+			for (int o = 0; o < part->getNumObjects(); ++o)
+			{
+				auto const* object = part->getObject(o);
+				auto const* symbol = object->getSymbol();
+				if (!source.second && symbol && symbol->courseRole() != Symbol::NoCourseRole)
+				{
+					for (auto const& coord : object->getRawCoordinateVector())
+					{
+						addDouble(hash, coord.x());
+						addDouble(hash, coord.y());
+					}
+				}
+				if (!symbol || object->getType() != Object::Path)
+					continue;
+				auto const runnability = runnabilityOf(settings, *symbol);
+				if (runnability.kind == Runnability::None)
+					continue;
+				auto const order = symbol_order.emplace(symbol, qint64(symbol_order.size())).first->second;
+				addInt(hash, order);
+				addInt(hash, int(runnability.kind));
+				addInt(hash, runnability.percent);
+				addInt(hash, int(symbol->getContainedTypes()));
+				addDouble(hash, strokeWidthOf(symbol));
+				object->update();
+				for (auto const& path_part : object->asPath()->parts())
+				{
+					addInt(hash, qint64(path_part.path_coords.size()));
+					for (auto const& coord : path_part.path_coords)
+					{
+						auto const pos = source.second ? QPointF(source.second->templateToMap(coord.pos)) : QPointF(coord.pos);
+						addDouble(hash, pos.x());
+						addDouble(hash, pos.y());
+					}
+				}
+			}
+		}
+	}
+	return hash.result();
+}
+
+
+RouteTerrain cachedRouteTerrain(const Map& map, const RouteSettings& settings, const QString& cache_path,
+                                const QRectF& area, RouteTerrainSource* source)
+{
+	auto const key = routeTerrainKey(map, settings, area);
+	auto& kept = memory();
+	if (!kept.key.isEmpty() && kept.key == key)
+	{
+		if (source)
+			*source = RouteTerrainSource::Memory;
+		// The file is written when it was not, so that the next session finds it.
+		if (!cache_path.isEmpty() && !QFile::exists(cache_path))
+			writeCache(cache_path, key, kept.terrain);
+		return kept.terrain;
+	}
+	RouteTerrain terrain;
+	if (readCache(cache_path, key, terrain))
+	{
+		if (source)
+			*source = RouteTerrainSource::File;
+	}
+	else
+	{
+		terrain = buildRouteTerrain(map, settings, area);
+		writeCache(cache_path, key, terrain);
+		if (source)
+			*source = RouteTerrainSource::Made;
+	}
+	kept.key = key;
+	kept.terrain = terrain;
+	return terrain;
+}
+
+
+QString routeTerrainCachePath(const QString& map_path)
+{
+	return map_path.isEmpty() ? QString{} : QString(map_path + QLatin1String(".~route"));
+}
+
+
+void forgetRouteTerrainMemory()
+{
+	memory() = {};
+}
+
+
+void resetRouteTerrainCache(const QString& cache_path)
+{
+	forgetRouteTerrainMemory();
+	if (!cache_path.isEmpty())
+		QFile::remove(cache_path);
+}
+
 
 
 bool saveRouteTerrain(const RouteTerrain& terrain, const QString& base_path)

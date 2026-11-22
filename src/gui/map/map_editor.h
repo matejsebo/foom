@@ -699,6 +699,8 @@ public slots:
 	/** foom: the design notes, "Route analysis: the perimeter". */
 	void defineRoutePerimeterClicked();
 	void clearRoutePerimeterClicked();
+	/** foom: the design notes, "Route analysis: the cache of the rasters". */
+	void resetRoutingGraphClicked();
 	/** foom: Shows or hides the rangefinder. */
 	void rangefinderClicked(bool checked);
 	/** foom: Switches to the tool which sets the reference of the rangefinder. */
@@ -1444,6 +1446,7 @@ private:
 	QAction* course_routes_alternatives_act = {};  // foom
 	QAction* course_routes_perimeter_act = {};  // foom
 	QAction* course_routes_perimeter_clear_act = {};  // foom
+	QAction* course_routes_reset_act = {};  // foom
 	/** foom: The routes which the map keeps are drawn with the course; the design notes, "Route analysis: all courses, and the routes in the file". */
 	bool show_course_routes = false;
 	QPointer<QWidget> course_dock_widget;  // foom

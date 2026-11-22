@@ -1176,7 +1176,8 @@ void StepRunner::validate(const Step& step, bool& map_open)
 	else if (name == QLatin1String("analyse-routes"))  // foom
 	{
 		p.requireMap(map_open);
-		p.checkKnown({ "out", "alternatives" });
+		p.checkKnown({ "out", "alternatives", "cache" });
+		p.optionalBool("cache", false);
 		p.optionalString("out");
 		if (p.has("alternatives"))
 		{
@@ -1725,10 +1726,14 @@ StepResult StepRunner::analyseRoutesStep(const Step& step)
 	Params p(step);
 	auto const out = p.optionalString("out");
 	auto const alternatives = p.has("alternatives") ? p.value("alternatives").toInt() : 0;
+	// the design notes, "Route analysis: the cache of the rasters"
+	auto const cache = p.optionalBool("cache", false);
 	// The terrain is that of the map and of its background maps.
 	loadTemplateFiles(*map);
 	StoredRoutes store;
-	auto const all = analyseAllRoutesOfMap(*map, store, alternatives);
+	RouteTerrainSource source = RouteTerrainSource::Made;
+	auto const all = cache ? analyseAllRoutesOfMap(*map, store, alternatives, routeTerrainCachePath(map_path), &source)
+	                       : analyseAllRoutesOfMap(*map, store, alternatives);
 	auto missing = 0;
 	for (auto const& route : store.routes)
 		missing += route.found ? 0 : 1;
@@ -1756,6 +1761,9 @@ StepResult StepRunner::analyseRoutesStep(const Step& step)
 		result.details.insert(QLatin1String("outside"), outside);
 	if (alternatives > 0)
 		result.details.insert(QLatin1String("alternatives"), all.alternatives);
+	if (cache)
+		result.details.insert(QLatin1String("terrain"), source == RouteTerrainSource::Memory ? QStringLiteral("memory")
+		                                                 : source == RouteTerrainSource::File ? QStringLiteral("file") : QStringLiteral("made"));
 	if (!all.skipped.isEmpty())
 		result.details.insert(QLatin1String("skipped"), QJsonArray::fromStringList(all.skipped));
 	return result;

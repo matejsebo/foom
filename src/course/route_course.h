@@ -192,6 +192,13 @@ int routeLegsOutside(const AllCourseRoutes& all);
 AllCourseRoutes analyseAllRoutesOfMap(Map& map, StoredRoutes& store, int alternatives = 0);
 
 /**
+ * As above, with the rasters of the cache at cache_path (none when empty);
+ * source says where they came from. See the design notes,
+ * "Route analysis: the cache of the rasters".
+ */
+AllCourseRoutes analyseAllRoutesOfMap(Map& map, StoredRoutes& store, int alternatives, const QString& cache_path, RouteTerrainSource* source);
+
+/**
  * The heights of the terrain model of a map for the search, by the
  * georeferencing of the map; no function for a map without a model.
  * The map and its model must outlive the function.
