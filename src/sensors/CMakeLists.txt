@@ -156,6 +156,7 @@ set(MAPPER_SENSORS_SOURCES
   compass.cpp
   fix_gate.cpp       # foom
   fix_gate_rows.cpp  # foom
+  gnss_file.cpp  # foom
   gps_display.cpp
   gps_path_recorder.cpp  # foom
   gps_tail.cpp  # foom

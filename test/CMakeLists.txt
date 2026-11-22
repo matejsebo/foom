@@ -386,6 +386,8 @@ if(TARGET mapper-sensors)
 			target_link_libraries(gnss_extras_t  PRIVATE ${lib})
 		endif()
 	endforeach()
+	add_system_test(gnss_file_t)  # foom: the design notes, NMEA and FRWD files
+	target_link_libraries(gnss_file_t  PRIVATE mapper-sensors)
 	add_system_test(gnss_offset_log_t)  # foom: the design notes, Position offset and sentence log
 	target_link_libraries(gnss_offset_log_t  PRIVATE mapper-sensors)
 	foreach(lib Qt5::Positioning Qt5::Network)

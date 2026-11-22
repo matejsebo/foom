@@ -217,6 +217,7 @@
 #include "gui/map/legibility_dialog.h"
 #include "gui/map/elevation_dialogs.h"
 #include "gui/map/elevation_wizard_dialog.h"  // foom
+#include "gui/map/gnss_import_dialog.h"  // foom
 #include "gui/map/selection_dialogs.h"  // foom
 #include "core/selection_queries.h"  // foom
 #include "core/object_information.h"  // foom
@@ -264,6 +265,7 @@
 #include "sensors/compass.h"
 #include "sensors/gps_display.h"
 #include "sensors/gps_path_recorder.h"  // foom
+#include "sensors/gnss_file.h"  // foom
 #include "sensors/gps_temporary_markers.h"
 #include "sensors/gps_track_recorder.h"
 #include "templates/paint_on_template_feature.h"
@@ -1488,6 +1490,8 @@ void MapEditorController::createActions()
 	gps_record_pause_act->setEnabled(false);
 	gps_add_vertex_act = newAction("gps-add-vertex", tr("Add vertex at GPS position"), this, SLOT(gpsAddVertexClicked()), "gps-add-vertex.png");
 	gps_add_vertex_act->setEnabled(false);
+	// foom: the design notes, "NMEA and FRWD files"
+	gps_import_file_act = newAction("gps-import-file", tr("Import GNSS file..."), this, SLOT(gpsImportFileClicked()), nullptr, tr("Loads an NMEA file as a track, as waypoints or as positions."));
 	gps_average_vertex_act = newCheckAction("gps-average-vertex", tr("Average GPS positions for a vertex"), this, SLOT(gpsAverageVertexClicked(bool)), "gps-average-vertex.png", tr("While it is on, the GPS positions are averaged. Switching it off adds the mean as a vertex."));
 	gps_average_vertex_act->setEnabled(false);
 	// foom: the offset of the GPS position; the design notes, "Position offset and sentence log"
@@ -1835,6 +1839,8 @@ void MapEditorController::createMenuAndToolbars()
 		gps_menu->addSeparator();
 		gps_menu->addAction(gps_set_offset_act);
 		gps_menu->addAction(gps_clear_offset_act);
+		gps_menu->addSeparator();
+		gps_menu->addAction(gps_import_file_act);  // foom
 	}
 	tools_menu->addAction(rangefinder_act);  // foom
 	tools_menu->addAction(draw_point_act);
@@ -7725,6 +7731,65 @@ void MapEditorController::gpsRecordPosition(const MapCoordF& position, float acc
 		return;
 	if (gps_path_recorder->accept(position))
 		current_tool->acceptNumericVertex(position);
+}
+
+// foom: the design notes, "NMEA and FRWD files"
+int MapEditorController::importGnssFile(const QString& path, GnssImportKind kind, const Symbol* symbol, QString* error)
+{
+	auto const data = readGnssFile(path);
+	if (!data.ok())
+	{
+		if (error)
+			*error = data.error;
+		return 0;
+	}
+	auto made = gnssObjects(*map, data, kind, symbol);
+	if (!made.error.isEmpty())
+	{
+		if (error)
+			*error = made.error;
+		return 0;
+	}
+	if (made.objects.empty())
+	{
+		if (error)
+			*error = tr("The file has nothing which can be loaded this way.");
+		return 0;
+	}
+	if (error)
+		error->clear();
+	return addGnssObjects(*map, std::move(made.objects));
+}
+
+void MapEditorController::gpsImportFileClicked()
+{
+	if (map->getGeoreferencing().getState() != Georeferencing::Geospatial)
+	{
+		QMessageBox::warning(window, tr("Import GNSS file"), tr("The map is not georeferenced. Set its georeferencing first."));
+		return;
+	}
+	auto const path = QFileDialog::getOpenFileName(window, tr("Import GNSS file"), {},
+	                                               tr("NMEA files (*.nmea *.nma *.txt *.log);;FRWD files (*.frwd);;All files (*.*)"));
+	if (path.isEmpty())
+		return;
+	auto const data = readGnssFile(path);
+	if (!data.ok())
+	{
+		QMessageBox::warning(window, tr("Import GNSS file"), data.error);
+		return;
+	}
+	GnssImportDialog dialog(*map, data, activeSymbol(), window);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	QString error;
+	auto const count = importGnssFile(path, dialog.kind(), dialog.symbol(), &error);
+	if (!error.isEmpty())
+	{
+		QMessageBox::warning(window, tr("Import GNSS file"), error);
+		return;
+	}
+	window->showStatusBarMessage(tr("%n object(s) added.", nullptr, count)
+	                             + (data.skipped > 0 ? QLatin1Char(' ') + tr("%n fix(es) without a valid position skipped.", nullptr, data.skipped) : QString{}), 5000);
 }
 
 void MapEditorController::gpsAddVertexClicked()
