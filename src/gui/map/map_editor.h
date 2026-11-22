@@ -328,6 +328,15 @@ public:
 	bool saveTo(const QString& path, const FileFormat& format) override;
 	/** Override from MainWindowController */
 	bool exportTo(const QString& path, const FileFormat& format) override;
+	
+	/**
+	 * foom: Writes the map as it is to the backup folder of path, without dialogs.
+	 *
+	 * Turns off the preview of a course map first, as exportTo() does.
+	 * Returns the backup's path, or an empty string and the reason in error.
+	 * See the design notes, "Manual backup".
+	 */
+	QString makeBackup(const QString& path, const FileFormat* format, int keep, bool compress, QString* error, std::vector<QString>* warnings);
 	/** Override from MainWindowController */
 	bool loadFrom(const QString& path, const FileFormat& format, QWidget* dialog_parent = nullptr) override;
 	

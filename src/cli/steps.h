@@ -100,6 +100,7 @@ private:
 	StepResult fieldCopyCreate(const Step& step);  // foom
 	StepResult mergeFromFile(const Step& step);  // foom
 	StepResult fieldCopyClose(const Step& step);  // foom
+	StepResult backupStep(const Step& step);  // foom
 	
 	StepResult exportImage(const Step& step, const QString& path, const QString& format);
 	StepResult exportPdf(const Step& step, const QString& path);
