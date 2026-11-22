@@ -34,14 +34,18 @@
 #include <QStringList>
 #include <QTemporaryDir>
 #include <QTime>
+#include <QAction>
 
 #include "global.h"
 #include "core/map.h"
+#include "core/objects/object.h"
+#include "core/symbols/point_symbol.h"
 #include "core/open_backup.h"
 #include "fileformats/file_format_registry.h"
 #include "fileformats/file_import_export.h"
 #include "fileformats/xml_file_format.h"
 #include "gui/main_window.h"
+#include "gui/map/map_editor.h"
 #include "gui/settings_transfer.h"
 #include "gui/widgets/backup_settings_page.h"
 
@@ -65,6 +69,43 @@ QByteArray readFile(const QString& path)
 QDateTime at(int hour, int minute, int second)
 {
 	return QDateTime(QDate(2026, 11, 21), QTime(hour, minute, second));
+}
+
+/** Writes an empty map to the path in FOOM's format. */
+bool writeEmptyMap(const QString& path)
+{
+	Map map;
+	XMLFileFormat format;
+	auto exporter = format.makeExporter(path, &map, nullptr);
+	return exporter && exporter->doExport();
+}
+
+/** Adds a point symbol and one point object to the map. */
+void addPoint(Map& map)
+{
+	auto* symbol = new PointSymbol();
+	map.addSymbol(symbol, map.getNumSymbols());
+	auto* object = new PointObject(symbol);
+	object->setPosition(MapCoord(10, 10));
+	map.addObject(object);
+}
+
+/** Returns the number of objects of the map in a backup, or -1 when it does not load. */
+int objectsInBackup(const QString& backup_path)
+{
+	bool ok = false;
+	auto const data = readBackup(backup_path, &ok);
+	if (!ok)
+		return -1;
+	QTemporaryDir dir;
+	auto name = QFileInfo(backup_path).fileName();
+	if (name.endsWith(QLatin1String(".gz")))
+		name.chop(3);
+	auto const path = dir.filePath(name);
+	if (!writeFile(path, data))
+		return -1;
+	Map map;
+	return map.loadFrom(path) ? map.getNumObjects() : -1;
 }
 
 }  // namespace
@@ -237,6 +278,133 @@ private slots:
 		QSettings().remove(QStringLiteral("Backup/OnOpen"));
 	}
 
+	
+	// ### Manual backup ###
+	
+	void manualBackup()
+	{
+		QTemporaryDir dir;
+		auto const path = dir.filePath(QStringLiteral("forest.foom"));
+		QVERIFY(writeEmptyMap(path));
+		auto const on_disk = readFile(path);
+		
+		Map map;
+		QVERIFY(map.loadFrom(path));
+		addPoint(map);
+		auto const* format = FileFormats.findFormat("XML");
+		QVERIFY(format);
+		
+		// The map as it is, not the file; the file stays.
+		OpenBackupOptions options;  // off: the manual backup does not care
+		QString error;
+		auto const backup = makeMapBackup(map, nullptr, path, format, options, at(10, 15, 0), &error);
+		QVERIFY2(!backup.isEmpty(), qPrintable(error));
+		QCOMPARE(backup, QDir(openBackupFolder(path)).filePath(QStringLiteral("forest_20261121-101500.foom")));
+		QCOMPARE(objectsInBackup(backup), 1);
+		QCOMPARE(readFile(path), on_disk);
+		{
+			Map disk;
+			QVERIFY(disk.loadFrom(path));
+			QCOMPARE(disk.getNumObjects(), 0);
+		}
+		
+		// Compressed.
+		options.compress = true;
+		auto const compressed = makeMapBackup(map, nullptr, path, format, options, at(10, 15, 0), &error);
+		QCOMPARE(QFileInfo(compressed).fileName(), QStringLiteral("forest_20261121-101500.foom.gz"));
+		QVERIFY(readFile(compressed).startsWith("\x1f\x8b"));
+		QCOMPARE(objectsInBackup(compressed), 1);
+		
+		// One series with the backups on open: keeping 2 leaves the two newest manual ones.
+		QDir(openBackupFolder(path)).removeRecursively();
+		options = {};
+		options.enabled = true;
+		options.keep = 2;
+		QVERIFY(!makeOpenBackup(path, options, at(11, 0, 0)).isEmpty());
+		auto const first = makeMapBackup(map, nullptr, path, format, options, at(12, 0, 0));
+		auto const second = makeMapBackup(map, nullptr, path, format, options, at(13, 0, 0));
+		QCOMPARE(openBackups(path), (QStringList{ first, second }));
+		
+		// No file: no backup, no folder, and a message.
+		QTemporaryDir other;
+		QVERIFY(makeMapBackup(map, nullptr, QString(), format, options, at(14, 0, 0), &error).isEmpty());
+		QVERIFY(!error.isEmpty());
+		QVERIFY(QDir(other.path()).entryList(QDir::NoDotAndDotDot | QDir::AllEntries).isEmpty());
+	}
+	
+	void manualBackupFormats()
+	{
+		QTemporaryDir dir;
+		Map map;
+		addPoint(map);
+		OpenBackupOptions options;
+		QString error;
+		
+		// The format of the file: OCD.
+		auto const ocd_path = dir.filePath(QStringLiteral("forest.ocd"));
+		auto const* ocd = FileFormats.findFormatForFilename(ocd_path, &FileFormat::supportsFileSave);
+		QVERIFY(ocd);
+		auto const ocd_backup = makeMapBackup(map, nullptr, ocd_path, ocd, options, at(10, 15, 0), &error);
+		QVERIFY2(!ocd_backup.isEmpty(), qPrintable(error));
+		QCOMPARE(QFileInfo(ocd_backup).fileName(), QStringLiteral("forest_20261121-101500.ocd"));
+		QCOMPARE(objectsInBackup(ocd_backup), 1);
+		
+		// No format which saves: FOOM's own, named .foom.
+		auto const gpx_path = dir.filePath(QStringLiteral("forest.gpx"));
+		auto const native = makeMapBackup(map, nullptr, gpx_path, nullptr, options, at(10, 15, 0), &error);
+		QVERIFY2(!native.isEmpty(), qPrintable(error));
+		QCOMPARE(QFileInfo(native).fileName(), QStringLiteral("forest_20261121-101500.foom"));
+		QCOMPARE(objectsInBackup(native), 1);
+	}
+	
+	void manualBackupWindow()
+	{
+		QTemporaryDir dir;
+		auto const path = dir.filePath(QStringLiteral("edited.foom"));
+		QVERIFY(writeEmptyMap(path));
+		QSettings().remove(QStringLiteral("Backup"));  // backup on open off, keep 10
+		
+		auto* window = new MainWindow();
+		window->setAttribute(Qt::WA_DontShowOnScreen);  // never on the screen
+		QVERIFY(window->openPath(path));
+		QVERIFY(openBackups(path).isEmpty());
+		
+		// In the File menu, after "Save as...".
+		auto* action = window->findChild<QAction*>(QStringLiteral("file-backup"));
+		QVERIFY(action);
+		QVERIFY(action->isEnabled());
+		
+		auto* editor = qobject_cast<MapEditorController*>(window->getController());
+		QVERIFY(editor);
+		auto* map = editor->getMap();
+		QVERIFY(map);
+		addPoint(*map);
+		map->setHasUnsavedChanges(true);
+		QString error;
+		auto const backup = window->makeManualBackup(&error);
+		QVERIFY2(!backup.isEmpty(), qPrintable(error));
+		QCOMPARE(openBackups(path), QStringList{ backup });
+		QCOMPARE(objectsInBackup(backup), 1);
+		QVERIFY(map->hasUnsavedChanges());
+		{
+			Map disk;
+			QVERIFY(disk.loadFrom(path));
+			QCOMPARE(disk.getNumObjects(), 0);
+		}
+		map->setHasUnsavedChanges(false);  // no question on closing
+		window->close();
+		window->deleteLater();
+		
+		// A new map which was never saved.
+		auto* fresh = new MainWindow();
+		fresh->setAttribute(Qt::WA_DontShowOnScreen);
+		fresh->setController(new MapEditorController(MapEditorController::MapEditor, new Map()), QString(), nullptr);
+		QVERIFY(fresh->makeManualBackup(&error).isEmpty());
+		QVERIFY(!error.isEmpty());
+		fresh->close();
+		fresh->deleteLater();
+	}
+	
 	
 	// ### Settings transfer ###
 	

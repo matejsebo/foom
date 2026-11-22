@@ -250,6 +250,52 @@ private slots:
 	}
 	
 	
+	/// backup: the map as the job has it, into "backup" beside its file (the design notes, "Manual backup").
+	void backupStepTest()
+	{
+		QDir(dir.path()).mkdir(QStringLiteral("backup-step"));
+		auto const map_path = outPath(QStringLiteral("backup-step/rotated.omap"));
+		QVERIFY(QFile::copy(testData(QStringLiteral("rotated.omap")), map_path));
+		QFile original(map_path);
+		QVERIFY(original.open(QIODevice::ReadOnly));
+		auto const original_bytes = original.readAll();
+		original.close();
+		
+		auto const job = writeJob(QStringLiteral("backup.json"), {
+			step(QStringLiteral("open"), {{ QStringLiteral("path"), map_path }}),
+			step(QStringLiteral("change-scale"), {{ QStringLiteral("scale"), 10000 }}),
+			step(QStringLiteral("backup"), {}),
+			step(QStringLiteral("backup"), {{ QStringLiteral("keep"), 1 }}),
+		});
+		auto const result = run(job);
+		QVERIFY2(result.exit_code == int(Success), result.out.constData());
+		auto const lines = result.logLines();
+		QCOMPARE(lines.size(), 4);
+		auto const first = QJsonDocument::fromJson(lines[2]).object().value(QLatin1String("path")).toString();
+		auto const second = QJsonDocument::fromJson(lines[3]).object().value(QLatin1String("path")).toString();
+		QVERIFY(!first.isEmpty());
+		QVERIFY(!second.isEmpty());
+		QCOMPARE(QFileInfo(second).absolutePath(), outPath(QStringLiteral("backup-step/backup")));
+		QVERIFY(QFileInfo(second).fileName().startsWith(QLatin1String("rotated_")));
+		QVERIFY(QFileInfo(second).fileName().endsWith(QLatin1String(".omap")));
+		
+		// keep 1: the second backup removed the first.
+		QVERIFY(!QFileInfo::exists(first));
+		QCOMPARE(QDir(outPath(QStringLiteral("backup-step/backup"))).entryList(QDir::Files).size(), 1);
+		
+		Map backup;
+		QVERIFY(backup.loadFrom(second));
+		QCOMPARE(backup.getScaleDenominator(), 10000u);
+		
+		// The file itself is not written.
+		QVERIFY(original.open(QIODevice::ReadOnly));
+		QCOMPARE(original.readAll(), original_bytes);
+		Map map;
+		QVERIFY(map.loadFrom(map_path));
+		QCOMPARE(map.getScaleDenominator(), 4000u);
+	}
+	
+	
 	/// change-scale and save-as to .foom and to OCD.
 	void changeScaleAndSaveAsTest()
 	{
@@ -431,6 +477,17 @@ private slots:
 		});
 		QTest::newRow("save-as before open") << jobDocument({
 			step(QStringLiteral("save-as"), {{ QStringLiteral("path"), outPath(QStringLiteral("malformed.foom")) }}),
+		});
+		QTest::newRow("backup before open") << jobDocument({
+			step(QStringLiteral("backup"), {}),
+		});
+		QTest::newRow("backup keeping none") << jobDocument({
+			step(QStringLiteral("open"), {{ QStringLiteral("path"), testData(QStringLiteral("rotated.omap")) }}),
+			step(QStringLiteral("backup"), {{ QStringLiteral("keep"), 0 }}),
+		});
+		QTest::newRow("backup with text compress") << jobDocument({
+			step(QStringLiteral("open"), {{ QStringLiteral("path"), testData(QStringLiteral("rotated.omap")) }}),
+			step(QStringLiteral("backup"), {{ QStringLiteral("compress"), QStringLiteral("yes") }}),
 		});
 		QTest::newRow("export without path") << jobDocument({
 			step(QStringLiteral("open"), {{ QStringLiteral("path"), testData(QStringLiteral("rotated.omap")) }}),
