@@ -131,6 +131,15 @@ TileServiceTemplate::TileServiceTemplate(const QString& path, Map* map)
 	});
 }
 
+// static
+std::unique_ptr<TileServiceTemplate> TileServiceTemplate::fromDescriptor(const QString& path, Map* map)
+{
+	MapService service;
+	if (!MapService::loadDescriptor(path, service))
+		return {};
+	return std::make_unique<TileServiceTemplate>(service, map);
+}
+
 TileServiceTemplate::TileServiceTemplate(const TileServiceTemplate& proto)
 : Template(proto)
 , service_(proto.service_)

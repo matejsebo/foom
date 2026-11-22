@@ -21,6 +21,7 @@
 #ifndef OPENORIENTEERING_TILE_SERVICE_TEMPLATE_H
 #define OPENORIENTEERING_TILE_SERVICE_TEMPLATE_H
 
+#include <memory>
 #include <vector>
 
 #include <QtGlobal>
@@ -81,6 +82,13 @@ public:
 
 	/** For Template::templateForType: the service is read from the XML later. */
 	TileServiceTemplate(const QString& path, Map* map);
+	
+	/**
+	 * For Template::templateForPath: a template of the service in a
+	 * descriptor file (MapService::loadDescriptor), nullptr when the file
+	 * is none.
+	 */
+	static std::unique_ptr<TileServiceTemplate> fromDescriptor(const QString& path, Map* map);
 
 protected:
 	TileServiceTemplate(const TileServiceTemplate& proto);

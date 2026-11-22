@@ -1011,6 +1011,9 @@ const std::vector<QByteArray>& Template::supportedExtensions()
 		extensions.insert(end(extensions), begin(gdal_extensions), end(gdal_extensions));
 		extensions.insert(end(extensions), begin(ogr_extensions), end(ogr_extensions));
 		extensions.insert(end(extensions), begin(track_extensions), end(track_extensions));
+#ifdef MAPPER_USE_GDAL
+		extensions.push_back("tms.xml");  // foom: map service descriptor
+#endif
 	}
 	return extensions;
 }
@@ -1038,6 +1041,10 @@ std::unique_ptr<Template> Template::templateForPath(const QString& path, Map* ma
 #endif
 	
 	std::unique_ptr<Template> t;
+#ifdef MAPPER_USE_GDAL
+	if (MapService::isDescriptorPath(path))  // foom: map service descriptor
+		return TileServiceTemplate::fromDescriptor(path, map);
+#endif
 	if (endsWithAnyOf(path, TemplateImage::supportedExtensions())
 	    && !HANDLED_BY_GDAL(endsWithAnyOf(path, GdalTemplate::supportedExtensions())))
 		t = std::make_unique<TemplateImage>(path, map);

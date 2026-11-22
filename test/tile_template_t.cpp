@@ -820,6 +820,73 @@ private slots:
 		GDALClose(dataset);
 	}
 
+	void descriptorTest()
+	{
+		// Accept of the descriptor file (the design notes, "Descriptor file")
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		auto service = xyzService(stub);
+		service.bbox = QRectF(QPointF(-1000.5, 2000.25), QPointF(3000.0, 4000.0));
+		service.resolution = 0.5;
+		service.bulk_download = false;
+		service.user = QStringLiteral("alice");
+		service.password = QStringLiteral("s3cret");
+		auto const path = dir.filePath(QStringLiteral("checker.tms.xml"));
+
+		// (1) Written without credentials, read back equal
+		QString error;
+		QVERIFY2(service.saveDescriptor(path, &error), qPrintable(error));
+		QFile file(path);
+		QVERIFY(file.open(QIODevice::ReadOnly));
+		auto const text = QString::fromUtf8(file.readAll());
+		file.close();
+		QVERIFY(text.contains(QLatin1String("<map_service ")));
+		QVERIFY(text.contains(QLatin1String("<service ")));
+		QVERIFY(!text.contains(QLatin1String("alice")));
+		QVERIFY(!text.contains(QLatin1String("s3cret")));
+		MapService loaded;
+		QVERIFY2(MapService::loadDescriptor(path, loaded, &error), qPrintable(error));
+		QVERIFY(loaded == service);
+		QCOMPARE(loaded.name, service.name);
+		QVERIFY(loaded.user.isEmpty());
+
+		// (2) The suffix
+		QVERIFY(MapService::isDescriptorPath(path));
+		QVERIFY(MapService::isDescriptorPath(QStringLiteral("C:/x/A.TMS.XML")));
+		QVERIFY(!MapService::isDescriptorPath(QStringLiteral("a.xml")));
+		QVERIFY(!MapService::isDescriptorPath(QStringLiteral("tms.xml")));
+		auto const& extensions = Template::supportedExtensions();
+		QVERIFY(std::find(extensions.begin(), extensions.end(), QByteArray("tms.xml")) != extensions.end());
+
+		// (3) Opened as a template: a tile service template of that service, which loads
+		Map map;
+		setupMap(map);
+		auto temp = Template::templateForPath(path, &map);
+		auto* tile = qobject_cast<TileServiceTemplate*>(temp.get());
+		QVERIFY(tile);
+		QVERIFY(tile->service() == service);
+		QCOMPARE(tile->getTemplateFilename(), service.name);
+		QCOMPARE(tile->getTemplatePath(), service.url);
+		QVERIFY(tile->isTemplateGeoreferenced());
+		map.addTemplate(0, std::move(temp));
+		QVERIFY2(tile->setupAndLoad(nullptr, nullptr), qPrintable(tile->errorString()));
+		QCOMPARE(tile->getTemplateState(), Template::Loaded);
+
+		// (4) A file which is not a descriptor is refused with a message, and is no template
+		auto const broken = dir.filePath(QStringLiteral("broken.tms.xml"));
+		QFile broken_file(broken);
+		QVERIFY(broken_file.open(QIODevice::WriteOnly));
+		broken_file.write("<?xml version=\"1.0\"?><something_else/>");
+		broken_file.close();
+		error.clear();
+		QVERIFY(!MapService::loadDescriptor(broken, loaded, &error));
+		QVERIFY(!error.isEmpty());
+		QVERIFY(!Template::templateForPath(broken, &map));
+		error.clear();
+		QVERIFY(!MapService::loadDescriptor(dir.filePath(QStringLiteral("missing.tms.xml")), loaded, &error));
+		QVERIFY(!error.isEmpty());
+	}
+
 	void localMapTest()
 	{
 		// Accept (9)
