@@ -118,7 +118,7 @@ std::vector<CourseMapSheet> sheetsOfParts(const Course& course)
 class ShownSymbols
 {
 public:
-	explicit ShownSymbols(std::vector<std::unique_ptr<Symbol>>& store) : store(store) {}
+	ShownSymbols(std::vector<std::unique_ptr<Symbol>>& store, std::vector<const Symbol*>& sources) : store(store), sources(sources) {}
 	
 	const Symbol* get(const Symbol* symbol)
 	{
@@ -126,6 +126,7 @@ public:
 		if (!copy)
 		{
 			store.push_back(duplicate(*symbol));
+			sources.push_back(symbol);
 			copy = store.back().get();
 			copy->setHidden(false);
 		}
@@ -134,6 +135,7 @@ public:
 	
 private:
 	std::vector<std::unique_ptr<Symbol>>& store;
+	std::vector<const Symbol*>& sources;
 	std::map<const Symbol*, Symbol*> copies;
 };
 
@@ -260,7 +262,7 @@ CourseMapDrawing drawCourseMap(const Map& map, const CourseData& original, const
 	if (!course_drawing.drawn)
 		return result;
 	result.drawn = true;
-	ShownSymbols shown(result.symbols);
+	ShownSymbols shown(result.symbols, result.symbol_sources);
 	
 	// The objects of the items.
 	for (auto const& stop : courseStops(map, data, *course))
@@ -357,6 +359,12 @@ void paintCourseMap(QPainter* painter, Map* map, const CourseMapDrawing& drawing
 
 
 
+bool isDrawnByCourseMap(const Symbol& symbol)
+{
+	return isHiddenRole(symbol.courseRole());
+}
+
+
 CourseSymbolsHider::CourseSymbolsHider(Map& map, const QStringList& numbers)
 {
 	for (int i = 0; i < map.getNumSymbols(); ++i)
@@ -382,7 +390,12 @@ CourseSymbolsHider::~CourseSymbolsHider()
 
 QString courseMapFileName(const QString& base_name, const QString& sheet)
 {
-	auto name = QString(base_name + QLatin1Char('.') + sheet + QLatin1String(".pdf"));
+	return courseMapFileName(base_name, sheet, QStringLiteral("pdf"));
+}
+
+QString courseMapFileName(const QString& base_name, const QString& sheet, const QString& extension)
+{
+	auto name = QString(base_name + QLatin1Char('.') + sheet + QLatin1Char('.') + extension);
 	for (auto& character : name)
 	{
 		if (character < QLatin1Char(' ') || QStringLiteral("\\/:*?\"<>|").contains(character))
@@ -427,6 +440,8 @@ void paintCourseRoutes(QPainter* painter, const CourseRoutes& routes)
 
 CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& options)
 {
+	if (!options.map_format.isEmpty())
+		return exportCourseMapFiles(map, options);
 	CourseMapExportReport report;
 #ifndef QT_PRINTSUPPORT_LIB
 	Q_UNUSED(map)

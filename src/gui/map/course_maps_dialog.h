@@ -56,14 +56,18 @@ public:
 private:
 	void browse();
 	void updateButtons();
+	void updateEnabled();
 	
 	QListWidget* course_list;
+	QComboBox* format_box;
 	QComboBox* relay_box;
 	QComboBox* extent_box;
 	QCheckBox* canvases_check;
 	QCheckBox* routes_check;
 	QLineEdit* folder_edit;
 	QWidget* ok_button;
+	bool has_routes = false;
+	bool has_canvases = false;
 };
 
 

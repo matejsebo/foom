@@ -106,6 +106,8 @@ struct CourseMapDrawing
 	CourseDescriptionDrawing description;
 	/** Copies of symbols of the map, which are never hidden; the objects refer to them. */
 	std::vector<std::unique_ptr<Symbol>> symbols;
+	/** For every copy in symbols the symbol of the map of which it is a copy. */
+	std::vector<const Symbol*> symbol_sources;
 	std::vector<std::unique_ptr<Object>> objects;
 };
 
@@ -132,6 +134,10 @@ void paintCourseMap(QPainter* painter, Map* map, const CourseMapDrawing& drawing
  * maps of the courses".
  */
 void paintCourseRoutes(QPainter* painter, const CourseRoutes& routes);
+
+
+/** The symbol has a course role whose objects a course map draws itself: start, control, finish, marked route, description, title, start number, variant code. */
+bool isDrawnByCourseMap(const Symbol& symbol);
 
 
 /**
@@ -178,6 +184,12 @@ struct CourseMapExportOptions
 	bool with_routes = false;
 	/** The view whose templates are printed as it shows them; without one every template which is loaded. */
 	const MapView* view = nullptr;
+	/**
+	 * Map files in place of PDF files: the id of a file format which can be saved ("XML", "OCD2018").
+	 * Every side is a file of its own; extent, scale, canvases and routes are not used.
+	 * See the design notes, "Course maps as map files".
+	 */
+	QString map_format;
 };
 
 struct CourseMapExportReport
@@ -193,8 +205,28 @@ struct CourseMapExportReport
 /** A name of a sheet as a part of a file name. */
 QString courseMapFileName(const QString& base_name, const QString& sheet);
 
-/** Writes the maps of the courses as PDF files. */
+/** The same with another extension than "pdf". */
+QString courseMapFileName(const QString& base_name, const QString& sheet, const QString& extension);
+
+/**
+ * The name of the map file of a side:
+ * the course, the course and the number of its part ("Map Exchange.1"),
+ * or for a relay the name of its sheet ("Relay Women.1AA").
+ */
+QString courseMapFileSide(const CourseMapSheet& sheet, const CourseMapSide& side);
+
+/**
+ * Makes a map into the map file of a side: draws the side, removes the
+ * objects of the symbols which a course map draws itself, puts in what the
+ * side draws, and removes the course data. False for a side which is not there.
+ */
+bool makeCourseMapFile(Map& map, const CourseMapSide& side);
+
+/** Writes the maps of the courses as PDF files, or as map files when the options have a map format. */
 CourseMapExportReport exportCourseMaps(Map& map, const CourseMapExportOptions& options);
+
+/** Writes the maps of the courses as map files; exportCourseMaps() calls it for options with a map format. */
+CourseMapExportReport exportCourseMapFiles(Map& map, const CourseMapExportOptions& options);
 
 
 }  // namespace OpenOrienteering

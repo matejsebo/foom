@@ -60,6 +60,7 @@
 #include "core/map.h"
 #include "core/map_color.h"
 #include "core/map_coord.h"
+#include "core/map_part.h"
 #include "core/map_printer.h"
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
@@ -269,6 +270,35 @@ std::vector<QSize> pagesOf(const QString& path)
 	return pages;
 }
 
+/// The objects of a map whose symbol has the number, in all map parts.
+std::vector<const Object*> objectsOf(const Map& map, int number, int second = -1)
+{
+	std::vector<const Object*> found;
+	for (int p = 0; p < map.getNumParts(); ++p)
+	{
+		auto const* part = map.getPart(std::size_t(p));
+		for (int i = 0; i < part->getNumObjects(); ++i)
+		{
+			auto const* object = part->getObject(i);
+			auto const* symbol = object->getSymbol();
+			if (symbol && symbol->getNumberComponent(0) == number && (second < 0 || symbol->getNumberComponent(1) == second))
+				found.push_back(object);
+		}
+	}
+	return found;
+}
+
+QStringList textsOf(const Map& map, int number)
+{
+	QStringList texts;
+	for (auto const* object : objectsOf(map, number))
+	{
+		if (object->getType() == Object::Text)
+			texts.push_back(object->asText()->getText());
+	}
+	return texts;
+}
+
 QStringList hiddenSymbols(const Map& map)
 {
 	QStringList numbers;
@@ -303,6 +333,7 @@ private slots:
 	void runnerTest();
 	void canvasExportTest();
 	void dialogTest();
+	void mapFilesTest();
 };
 
 
@@ -621,6 +652,11 @@ void CourseMapTest::runnerTest()
 		                             { QStringLiteral("courses"), QJsonArray{ QStringLiteral("X"), QStringLiteral("R") } },
 		                             { QStringLiteral("relay"), QStringLiteral("variants") },
 		                             { QStringLiteral("extent"), QStringLiteral("Sheet") } });
+		// Course maps as map files, Accept (8)
+		steps.push_back(QJsonObject{ { QStringLiteral("step"), QStringLiteral("export-course-maps") },
+		                             { QStringLiteral("folder"), QStringLiteral("files") },
+		                             { QStringLiteral("courses"), QJsonArray{ QStringLiteral("X") } },
+		                             { QStringLiteral("format"), QStringLiteral("ocd") } });
 		QFile job_file(job_path);
 		QVERIFY(job_file.open(QIODevice::WriteOnly | QIODevice::Truncate));
 		job_file.write(QJsonDocument(QJsonObject{ { QStringLiteral("steps"), steps } }).toJson());
@@ -640,6 +676,10 @@ void CourseMapTest::runnerTest()
 	for (auto const* name : { "event.X_1.pdf", "event.X_2.pdf", "event.R.1A.pdf", "event.R.1B.pdf", "event.R.2A.pdf", "event.R.2B.pdf" })
 		QVERIFY2(maps.exists(QString::fromLatin1(name)), name);
 	QCOMPARE(pagesOf(maps.absoluteFilePath(QStringLiteral("event.X_1.pdf"))), std::vector<QSize>{ QSize(283, 227) });
+	auto const files = QDir(QDir(dir.path()).absoluteFilePath(QStringLiteral("files")));
+	QVERIFY2(output.contains("\"files\":2"), output.constData());
+	for (auto const* name : { "event.X.1.ocd", "event.X.2.ocd" })
+		QVERIFY2(files.exists(QString::fromLatin1(name)), name);
 }
 
 
@@ -798,9 +838,109 @@ void CourseMapTest::dialogTest()
 	QVERIFY(!buttons->button(QDialogButtonBox::Ok)->isEnabled());
 	folder->setText(QStringLiteral("C:/out"));
 	QVERIFY(buttons->button(QDialogButtonBox::Ok)->isEnabled());
+	// Course maps as map files, Accept (8)
+	auto* format = dialog.findChild<QComboBox*>(QStringLiteral("course-maps-format"));
+	QVERIFY(format);
+	QCOMPARE(format->count(), 3);
+	QVERIFY(options.map_format.isEmpty());
+	QVERIFY(extent->isEnabled());
+	format->setCurrentIndex(2);
+	QCOMPARE(dialog.options().map_format, QStringLiteral("OCD2018"));
+	QVERIFY(!extent->isEnabled());
+	format->setCurrentIndex(1);
+	QCOMPARE(dialog.options().map_format, QStringLiteral("XML"));
+	format->setCurrentIndex(0);
+	QVERIFY(extent->isEnabled());
+	
 	for (int i = 0; i < courses->count(); ++i)
 		courses->item(i)->setCheckState(Qt::Unchecked);
 	QVERIFY(!buttons->button(QDialogButtonBox::Ok)->isEnabled());
+}
+
+
+/// Course maps as map files, Accept (8)
+void CourseMapTest::mapFilesTest()
+{
+	QTemporaryDir dir;
+	QVERIFY(dir.isValid());
+	Map map;
+	fillMap(map);
+	auto data = map.courseData();
+	data.options.setValue(QLatin1Char('t'), QStringLiteral("2"));
+	changeCourseData(map, data);
+	map.setHasUnsavedChanges(false);
+	auto const objects_before = map.getNumObjects();
+	
+	CourseMapExportOptions options;
+	options.folder = QDir(dir.path()).absoluteFilePath(QStringLiteral("files"));
+	options.base_name = QStringLiteral("m");
+	options.courses = QStringList{ QStringLiteral("X"), QStringLiteral("Flip"), QStringLiteral("Plain"), QStringLiteral("R"), QStringLiteral("Nobody") };
+	options.map_format = QStringLiteral("XML");
+	auto report = exportCourseMaps(map, options);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.skipped, QStringList{ QStringLiteral("Nobody") });
+	QStringList names;
+	for (auto const& file : report.files)
+		names.push_back(QFileInfo(file).fileName());
+	QCOMPARE(names, (QStringList{ QStringLiteral("m.X.1.foom"), QStringLiteral("m.X.2.foom"),
+	                              QStringLiteral("m.Flip.1.foom"), QStringLiteral("m.Flip.2.foom"),
+	                              QStringLiteral("m.Plain.foom"),
+	                              QStringLiteral("m.R.1A.foom"), QStringLiteral("m.R.1B.foom"), QStringLiteral("m.R.2A.foom"), QStringLiteral("m.R.2B.foom") }));
+	
+	// The second part of X: its own items, legs and numbers, and the title of the part.
+	{
+		Map part;
+		QVERIFY(part.loadFrom(report.files[1]));
+		QCOMPARE(int(objectsOf(part, 701).size()), 1);
+		QCOMPARE(objectsOf(part, 701).front()->asPoint()->getCoordF(), MapCoordF(20.0, 10.0));
+		QCOMPARE(int(objectsOf(part, 703).size()), 2);
+		QCOMPARE(int(objectsOf(part, 706).size()), 1);
+		QCOMPARE(int(objectsOf(part, 705).size()), 3);
+		QCOMPARE(textsOf(part, 704), (QStringList{ QStringLiteral("3"), QStringLiteral("4") }));
+		QCOMPARE(textsOf(part, 721), QStringList{ QStringLiteral("X (2)") });
+		QVERIFY(objectsOf(part, 722, 1).empty());
+		QVERIFY(objectsOf(part, 720).empty());
+		// What is no item stays.
+		QCOMPARE(int(objectsOf(part, 101).size()), 1);
+		QVERIFY(part.courseData().courses.empty());
+		QVERIFY(hiddenSymbols(part).isEmpty());
+		QCOMPARE(part.getNumSymbols(), map.getNumSymbols());
+	}
+	// A variant of the relay has its code.
+	{
+		Map variant;
+		QVERIFY(variant.loadFrom(report.files[6]));
+		QCOMPARE(int(objectsOf(variant, 703).size()), 2);
+		QCOMPARE(textsOf(variant, 722), QStringList{ QStringLiteral("1B") });
+		QCOMPARE(textsOf(variant, 721), QStringList{ QStringLiteral("R") });
+	}
+	
+	// The map itself is as it was.
+	QVERIFY(hiddenSymbols(map).isEmpty());
+	QVERIFY(!map.hasUnsavedChanges());
+	QCOMPARE(map.getNumObjects(), objects_before);
+	QCOMPARE(int(map.courseData().courses.size()), 4);
+	
+	// OCD files.
+	options.courses = QStringList{ QStringLiteral("Plain") };
+	options.map_format = QStringLiteral("OCD2018");
+	report = exportCourseMaps(map, options);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.files.size(), 1);
+	QCOMPARE(QFileInfo(report.files[0]).fileName(), QStringLiteral("m.Plain.ocd"));
+	{
+		Map plain;
+		QVERIFY(plain.loadFrom(report.files[0]));
+		QCOMPARE(int(objectsOf(plain, 703).size()), 3);
+		QCOMPARE(int(objectsOf(plain, 701).size()), 1);
+	}
+	
+	// A format which cannot be written.
+	options.map_format = QStringLiteral("NoSuchFormat");
+	report = exportCourseMaps(map, options);
+	QVERIFY(!report.ok);
+	QVERIFY(!report.error.isEmpty());
+	QCOMPARE(courseMapFileName(QStringLiteral("m"), QStringLiteral("A/B"), QStringLiteral("ocd")), QStringLiteral("m.A_B.ocd"));
 }
 
 
