@@ -23,6 +23,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <memory>  // foom
 
 #include <Qt>
 #include <QtMath>
@@ -63,6 +64,7 @@
 #include "core/renderables/renderable.h"
 #include "templates/template.h"
 #include "core/print_output.h"  // foom
+#include "sketch/sketch.h"  // foom
 #include "util/xml_stream_util.h"
 
 
@@ -79,6 +81,7 @@ namespace literal {
 	static const QLatin1String templates_visible("templates_visible");
 	static const QLatin1String grid_visible("grid_visible");
 	static const QLatin1String simulate_overprinting("simulate_overprinting");
+	static const QLatin1String sketch_visible("sketch_visible");  // foom
 	static const QLatin1String mode("mode");
 	static const QLatin1String vector("vector");
 	static const QLatin1String raster("raster");
@@ -198,7 +201,8 @@ bool operator==(const MapPrinterOptions& lhs, const MapPrinterOptions& rhs)
 	        && lhs.scale                 == rhs.scale
 	        && lhs.show_templates        == rhs.show_templates
 	        && lhs.show_grid             == rhs.show_grid
-	        && lhs.simulate_overprinting == rhs.simulate_overprinting;
+	        && lhs.simulate_overprinting == rhs.simulate_overprinting
+	        && lhs.show_sketch           == rhs.show_sketch;  // foom
 }
 
 
@@ -232,6 +236,7 @@ MapPrinterConfig::MapPrinterConfig(const Map& map, QXmlStreamReader& xml)
 	options.show_templates = printer_config_element.attribute<bool>(literal::templates_visible);
 	options.show_grid = printer_config_element.attribute<bool>(literal::grid_visible);
 	options.simulate_overprinting = printer_config_element.attribute<bool>(literal::simulate_overprinting);
+	options.show_sketch = printer_config_element.attribute<bool>(literal::sketch_visible);  // foom
 	QStringRef mode = printer_config_element.attribute<QStringRef>(literal::mode);
 	if (!mode.isEmpty())
 	{
@@ -328,6 +333,7 @@ void MapPrinterConfig::save(QXmlStreamWriter& xml, const QLatin1String& element_
 	printer_config_element.writeAttribute(literal::templates_visible, options.show_templates);
 	printer_config_element.writeAttribute(literal::grid_visible, options.show_grid);
 	printer_config_element.writeAttribute(literal::simulate_overprinting, options.simulate_overprinting);
+	printer_config_element.writeAttribute(literal::sketch_visible, options.show_sketch);  // foom: written only when true
 	switch (options.mode)
 	{
 	case MapPrinterOptions::Vector:
@@ -777,6 +783,16 @@ void MapPrinter::setSimulateOverprinting(bool enabled)
 	}
 }
 
+// slot
+void MapPrinter::setPrintSketch(bool visible)  // foom
+{
+	if (options.show_sketch != visible)
+	{
+		options.show_sketch = visible;
+		emit optionsChanged(options);
+	}
+}
+
 void MapPrinter::setColorMode(MapPrinterOptions::ColorMode color_mode)
 {
 	if (options.color_mode != color_mode)
@@ -1143,6 +1159,16 @@ void MapPrinter::drawPage(
 		
 		RenderConfig config = { map, page_region_used, units_per_mm * scale_adjustment, render_options, 1.0 };
 		
+		// foom: the sketch on request, behind or above the map as on screen
+		auto const sketch = options.show_sketch ? printableSketch(map) : std::unique_ptr<Map>{};
+		auto const sketch_behind = sketch && sketchDrawnBehind(map);
+		auto const drawSketch = [&sketch, &config, map_painter]() {
+			RenderConfig sketch_config = { *sketch, config.bounding_box, config.scaling, config.options | RenderConfig::HelperSymbols, config.opacity };
+			sketch->draw(map_painter, sketch_config);
+		};
+		if (sketch_behind)
+			drawSketch();
+		
 		if (rasterModeSelected() && options.simulate_overprinting)
 		{
 			map.drawOverprintingSimulation(map_painter, config);
@@ -1154,6 +1180,8 @@ void MapPrinter::drawPage(
 		
 			map.draw(map_painter, config);
 		}
+		if (sketch && !sketch_behind)  // foom
+			drawSketch();
 		if (overlay)  // foom
 			overlay(map_painter, config, overlay_side);
 			

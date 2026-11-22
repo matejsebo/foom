@@ -1280,11 +1280,12 @@ void MapEditorController::createActions()
 	edit_line_tool_act = newToolAction("editlines", tr("Edit lines"), this, SLOT(editLineToolClicked()), "tool-edit-line.png", QString{}, "toolbars.html#tool_edit_line");
 	lasso_act = newToolAction("select-lasso", tr("Lasso selection"), this, SLOT(lassoClicked()));  // foom
 	// foom: the design notes, "Sketch layer"
-	sketch_pen_act = newToolAction("sketch-pen", tr("Sketch pen"), this, SLOT(sketchPenClicked()));
-	sketch_eraser_act = newToolAction("sketch-eraser", tr("Sketch eraser"), this, SLOT(sketchEraserClicked()));
-	sketch_note_act = newToolAction("sketch-note", tr("Sketch note"), this, SLOT(sketchNoteClicked()));
-	sketch_manage_act = newAction("sketch-manage", tr("Manage sketch..."), this, SLOT(sketchManageClicked()));
-	sketch_flatten_act = newAction("sketch-flatten", tr("Flatten sketch to template..."), this, SLOT(sketchFlattenClicked()));
+	sketch_pen_act = newToolAction("sketch-pen", tr("Sketch pen"), this, SLOT(sketchPenClicked()), "sketch-pen.png");
+	sketch_eraser_act = newToolAction("sketch-eraser", tr("Sketch eraser"), this, SLOT(sketchEraserClicked()), "sketch-eraser.png");
+	sketch_note_act = newToolAction("sketch-note", tr("Sketch note"), this, SLOT(sketchNoteClicked()), "sketch-note.png");
+	sketch_manage_act = newAction("sketch-manage", tr("Manage sketch..."), this, SLOT(sketchManageClicked()), "sketch-manage.png");
+	sketch_flatten_act = newAction("sketch-flatten", tr("Flatten sketch to template..."), this, SLOT(sketchFlattenClicked()), "sketch-flatten.png");
+	sketch_behind_act = newCheckAction("sketch-behind", tr("Draw sketch behind map"), this, SLOT(sketchBehindClicked(bool)), "sketch-behind.png", tr("Moves the sketch colours to the bottom of the colour table, or back to the top."));
 	draw_point_act = newToolAction("drawpoint", tr("Set point objects"), this, SLOT(drawPointClicked()), "draw-point.png", QString{}, "toolbars.html#tool_draw_point");
 	draw_path_act = newToolAction("drawpath", tr("Draw paths"), this, SLOT(drawPathClicked()), "draw-path.png", QString{}, "toolbars.html#tool_draw_path");
 	draw_circle_act = newToolAction("drawcircle", tr("Draw circles and ellipses"), this, SLOT(drawCircleClicked()), "draw-circle.png", QString{}, "toolbars.html#tool_draw_circle");
@@ -1702,7 +1703,7 @@ void MapEditorController::createMenuAndToolbars()
 		sketch_menu->addAction(sketch_pen_act);
 		sketch_menu->addAction(sketch_eraser_act);
 		sketch_menu->addAction(sketch_note_act);
-		auto* color_menu = sketch_menu->addMenu(tr("Pen colour"));
+		auto* color_menu = sketch_color_menu = sketch_menu->addMenu(tr("Pen colour"));
 		auto* color_group = new QActionGroup(color_menu);
 		for (int i = 0; i < sketch_color_count; ++i)
 		{
@@ -1712,10 +1713,11 @@ void MapEditorController::createMenuAndToolbars()
 			action->setData(i);
 			color_group->addAction(action);
 		}
-		connect(color_group, &QActionGroup::triggered, this, [](QAction* action) {
+		connect(color_group, &QActionGroup::triggered, this, [this](QAction* action) {
 			SketchPenTool::setPen(action->data().toInt(), SketchPenTool::penWidth());
+			updateSketchPenButtons();
 		});
-		auto* width_menu = sketch_menu->addMenu(tr("Pen width"));
+		auto* width_menu = sketch_width_menu = sketch_menu->addMenu(tr("Pen width"));
 		auto* width_group = new QActionGroup(width_menu);
 		for (int i = 0; i < sketch_width_count; ++i)
 		{
@@ -1725,9 +1727,11 @@ void MapEditorController::createMenuAndToolbars()
 			action->setData(i);
 			width_group->addAction(action);
 		}
-		connect(width_group, &QActionGroup::triggered, this, [](QAction* action) {
+		connect(width_group, &QActionGroup::triggered, this, [this](QAction* action) {
 			SketchPenTool::setPen(SketchPenTool::penColor(), action->data().toInt());
+			updateSketchPenButtons();
 		});
+		sketch_menu->addAction(sketch_behind_act);
 		sketch_menu->addSeparator();
 		sketch_menu->addAction(sketch_manage_act);
 		sketch_menu->addAction(sketch_flatten_act);
@@ -2082,6 +2086,33 @@ void MapEditorController::createMenuAndToolbars()
 	toolbars_menu->addAction(toolbar_drawing->toggleViewAction());
 	toolbars_menu->addAction(toolbar_editing->toggleViewAction());
 	toolbars_menu->addAction(toolbar_advanced_editing->toggleViewAction());
+	
+	// foom: the design notes, "Sketch layer", third change
+	toolbar_sketch = window->addToolBar(tr("Sketch"));
+	toolbar_sketch->setObjectName(QString::fromLatin1("Sketch toolbar"));
+	toolbar_sketch->addAction(sketch_pen_act);
+	toolbar_sketch->addAction(sketch_eraser_act);
+	toolbar_sketch->addAction(sketch_note_act);
+	sketch_color_button = new QToolButton();
+	sketch_color_button->setObjectName(QString::fromLatin1("sketch-color"));
+	sketch_color_button->setToolTip(tr("Pen colour"));
+	sketch_color_button->setMenu(sketch_color_menu);
+	sketch_color_button->setPopupMode(QToolButton::InstantPopup);
+	toolbar_sketch->addWidget(sketch_color_button);
+	sketch_width_button = new QToolButton();
+	sketch_width_button->setObjectName(QString::fromLatin1("sketch-width"));
+	sketch_width_button->setToolTip(tr("Pen width"));
+	sketch_width_button->setMenu(sketch_width_menu);
+	sketch_width_button->setPopupMode(QToolButton::InstantPopup);
+	toolbar_sketch->addWidget(sketch_width_button);
+	toolbar_sketch->addSeparator();
+	toolbar_sketch->addAction(sketch_behind_act);
+	toolbar_sketch->addAction(sketch_manage_act);
+	toolbar_sketch->addAction(sketch_flatten_act);
+	toolbar_sketch->hide();
+	toolbars_menu->addAction(toolbar_sketch->toggleViewAction());
+	updateSketchPenButtons();
+	
 	window->addToolBarBreak();  // foom: the numeric entry bar has its own row and starts hidden
 	window->addToolBar(numeric_entry_bar);
 	numeric_entry_bar->hide();
@@ -4526,6 +4557,46 @@ void MapEditorController::sketchFlattenClicked()
 	hideAllTemplates(false);
 	showTemplateWindow(true);
 	window->showStatusBarMessage(tr("The sketch is flattened to %1 and opened as a template.").arg(path), 4000);
+}
+
+void MapEditorController::sketchBehindClicked(bool checked)
+{
+	setSketchDrawnBehind(*map, checked);
+	updateSketchActions();
+}
+
+void MapEditorController::updateSketchActions()
+{
+	if (!sketch_behind_act || !map)
+		return;
+	sketch_behind_act->setEnabled(sketchPartIndex(*map) >= 0);
+	sketch_behind_act->setChecked(sketchDrawnBehind(*map));
+}
+
+void MapEditorController::updateSketchPenButtons()
+{
+	// The colour as a square, the width as a bar across.
+	if (sketch_color_button)
+	{
+		QPixmap pixmap(32, 32);
+		pixmap.fill(Qt::transparent);
+		QPainter painter(&pixmap);
+		painter.setPen(QPen(QColor(64, 64, 64), 2));
+		painter.setBrush(sketchColorRgb(SketchPenTool::penColor()));
+		painter.drawRect(QRect(4, 4, 23, 23));
+		painter.end();
+		sketch_color_button->setIcon(QIcon(pixmap));
+	}
+	if (sketch_width_button)
+	{
+		QPixmap pixmap(32, 32);
+		pixmap.fill(Qt::transparent);
+		QPainter painter(&pixmap);
+		auto const thickness = qMax(1, qRound(sketchWidth(SketchPenTool::penWidth()) * 8));
+		painter.fillRect(QRect(3, 16 - thickness / 2, 26, thickness), QColor(32, 32, 32));
+		painter.end();
+		sketch_width_button->setIcon(QIcon(pixmap));
+	}
 }
 
 // foom
@@ -7737,6 +7808,11 @@ void MapEditorController::setMapAndView(Map* map, MapView* map_view)
 	connect(map, &Map::mapPartAdded, this, &MapEditorController::updateMapPartsUI);
 	connect(map, &Map::mapPartChanged, this, &MapEditorController::updateMapPartsUI);
 	connect(map, &Map::mapPartDeleted, this, &MapEditorController::updateMapPartsUI);
+	// foom: the design notes, "Sketch layer", third change
+	connect(map, &Map::mapPartAdded, this, &MapEditorController::updateSketchActions);
+	connect(map, &Map::mapPartDeleted, this, &MapEditorController::updateSketchActions);
+	connect(map, &Map::colorAdded, this, &MapEditorController::updateSketchActions);
+	connect(map, &Map::colorDeleted, this, &MapEditorController::updateSketchActions);
 	
 	if (symbol_widget)
 	{
@@ -7771,6 +7847,7 @@ void MapEditorController::updateWidgets()
 			closedTemplateAvailabilityChanged();
 			spotColorPresenceChanged(map->hasSpotColors());
 			updateMapPartsUI();
+			updateSketchActions();  // foom
 		}
 	}
 }

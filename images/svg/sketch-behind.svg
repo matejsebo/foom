@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FOOM icon sketch-behind. Copyright 2026 Matej Šebo. Licensed under the GNU GPL, version 3 or later. -->
+<!-- Written by make_foom_icons.py; change the script, not this file. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" stroke-linejoin="round" stroke-linecap="round">
+<polyline fill="none" stroke="#e01010" stroke-width="3.00" points="2.00,21.00 3.42,21.30 4.81,21.50 6.12,21.49 7.34,21.22 8.45,20.66 9.48,19.83 10.42,18.80 11.33,17.67 12.24,16.53 13.19,15.50 14.21,14.68 15.33,14.12 16.55,13.84 17.86,13.83 19.24,14.03 20.67,14.33 22.09,14.64 23.48,14.83 24.79,14.82 26.01,14.55 27.12,13.99 28.14,13.17 29.09,12.14 30.00,11.00"/>
+<polygon fill="#7cc47c" stroke="#2e7d32" stroke-width="1.60" points="9.00,6.00 23.00,6.00 23.00,26.00 9.00,26.00"/>
+</svg>

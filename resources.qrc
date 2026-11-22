@@ -121,6 +121,13 @@
         <file>images/view-zoom-in.png</file>
         <file>images/view-zoom-out.png</file>
         <file>images/window-new.png</file>
+        <!-- foom: the design notes, make_foom_icons.py -->
+        <file>images/sketch-pen.png</file>
+        <file>images/sketch-eraser.png</file>
+        <file>images/sketch-note.png</file>
+        <file>images/sketch-manage.png</file>
+        <file>images/sketch-flatten.png</file>
+        <file>images/sketch-behind.png</file>
         <file>images/mapper-icon/Mapper-128.png</file>
         <file alias="doc/tip-of-the-day/tips.txt">doc/tip-of-the-day/tips_en.txt</file>
     </qresource>

@@ -305,6 +305,11 @@ PrintWidget::PrintWidget(Map* map, MainWindow* main_window, MapView* main_view, 
 	show_grid_check = new QCheckBox(tr("Show grid"));
 	layout->addRow(show_grid_check);
 	
+	// foom: the design notes, "Sketch layer", third change
+	show_sketch_check = new QCheckBox(tr("Show sketch"));
+	show_sketch_check->setObjectName(QStringLiteral("show-sketch"));
+	layout->addRow(show_sketch_check);
+	
 	overprinting_check = new QCheckBox(tr("Simulate overprinting"));
 	layout->addRow(overprinting_check);
 
@@ -373,6 +378,7 @@ PrintWidget::PrintWidget(Map* map, MainWindow* main_window, MapView* main_view, 
 	connect(different_scale_edit, QOverload<int>::of(&QSpinBox::valueChanged), this, &PrintWidget::differentScaleEdited);
 	connect(show_templates_check, &QAbstractButton::clicked, this, &PrintWidget::showTemplatesClicked);
 	connect(show_grid_check, &QAbstractButton::clicked, this, &PrintWidget::showGridClicked);
+	connect(show_sketch_check, &QAbstractButton::clicked, this, [this](bool checked) { map_printer->setPrintSketch(checked); });  // foom
 	connect(overprinting_check, &QAbstractButton::clicked, this, &PrintWidget::overprintingClicked);
 	connect(color_mode_combo, &QComboBox::currentTextChanged, this, &PrintWidget::colorModeChanged);
 	
@@ -980,6 +986,7 @@ void PrintWidget::setOptions(const MapPrinterOptions& options)
 	            dpi_combo->lineEdit(),
 	            show_templates_check,
 	            show_grid_check,
+	            show_sketch_check,  // foom
 	            overprinting_check,
 	            color_mode_combo,
 	            vector_mode_button,
@@ -995,6 +1002,7 @@ void PrintWidget::setOptions(const MapPrinterOptions& options)
 		vector_mode_button->setChecked(true);
 		setEnabledAndChecked(show_templates_check, options.show_templates);
 		setEnabledAndChecked(show_grid_check,      options.show_grid);
+		setEnabledAndChecked(show_sketch_check,    options.show_sketch);  // foom
 		setDisabledAndChecked(overprinting_check,  options.simulate_overprinting);
 		main_view->setAllTemplatesHidden(!options.show_templates);
 		main_view->setGridVisible(options.show_grid);
@@ -1004,6 +1012,7 @@ void PrintWidget::setOptions(const MapPrinterOptions& options)
 		raster_mode_button->setChecked(true);
 		setEnabledAndChecked(show_templates_check, options.show_templates);
 		setEnabledAndChecked(show_grid_check,      options.show_grid);
+		setEnabledAndChecked(show_sketch_check,    options.show_sketch);  // foom
 		setEnabledAndChecked(overprinting_check,   options.simulate_overprinting);
 		main_view->setAllTemplatesHidden(!options.show_templates);
 		main_view->setGridVisible(options.show_grid);
@@ -1013,6 +1022,7 @@ void PrintWidget::setOptions(const MapPrinterOptions& options)
 		separations_mode_button->setChecked(true);
 		setDisabledAndChecked(show_templates_check, options.show_templates);
 		setDisabledAndChecked(show_grid_check,      options.show_grid);
+		setDisabledAndChecked(show_sketch_check,    options.show_sketch);  // foom
 		setDisabledAndChecked(overprinting_check,   options.simulate_overprinting);
 		main_view->setAllTemplatesHidden(true);
 		main_view->setGridVisible(false);

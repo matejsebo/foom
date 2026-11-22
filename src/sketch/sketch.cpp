@@ -110,10 +110,22 @@ const MapColor* sketchColor(Map& map, int color)
 	auto* new_color = new MapColor(name, 0);
 	new_color->setCmyk(color_presets[colorIndex(color)].cmyk);
 	new_color->setRgbFromCmyk();
-	map.addColor(new_color, 0);
+	// foom: at the bottom while the sketch is drawn behind the map
+	map.addColor(new_color, sketchDrawnBehind(map) ? map.getNumColors() : 0);
 	// What is drawn already refers to the colours by their place in the table.
 	map.updateAllObjects();
 	return new_color;
+}
+
+/** True for a colour which is one of the sketch colours. */
+bool isSketchColor(const MapColor* color)
+{
+	for (int i = 0; i < sketch_color_count; ++i)
+	{
+		if (color->getName() == sketchColorName(i))
+			return true;
+	}
+	return false;
 }
 
 /** A private helper symbol of the type and name, or null. */
@@ -593,6 +605,29 @@ Object* convertSketchItem(Map& map, const SketchItem& item, const Symbol* target
 	return converted;
 }
 
+bool deleteSketchItem(Map& map, const SketchItem& item)
+{
+	auto const part_index = sketchPartIndex(map);
+	if (part_index < 0)
+		return false;
+	auto const* part = map.getPart(std::size_t(part_index));
+	std::vector<Object*> objects;
+	for (auto* object : item.objects)
+	{
+		if (part->findObjectIndex(object) >= 0)
+			objects.push_back(object);
+	}
+	if (objects.empty())
+		return false;
+	map.clearObjectSelection(false);
+	auto undo = std::make_unique<CombinedUndoStep>(&map);
+	removeFromPart(map, part_index, objects, *undo);
+	map.push(undo.release());
+	map.setObjectsDirty();
+	map.emitSelectionChanged();
+	return true;
+}
+
 bool flattenSketch(const Map& map, const QString& path, double dpi, QString* error)
 {
 	auto const index = sketchPartIndex(map);
@@ -649,6 +684,63 @@ bool flattenSketch(const Map& map, const QString& path, double dpi, QString* err
 		return false;
 	}
 	return true;
+}
+
+bool sketchDrawnBehind(const Map& map)
+{
+	auto sketch_seen = false;
+	auto other_seen = false;
+	for (int i = 0; i < map.getNumColors(); ++i)
+	{
+		if (isSketchColor(map.getColor(i)))
+			sketch_seen = true;
+		else if (sketch_seen)
+			return false;  // another colour below a sketch colour
+		else
+			other_seen = true;
+	}
+	return sketch_seen && other_seen;
+}
+
+void setSketchDrawnBehind(Map& map, bool behind)
+{
+	std::vector<MapColor*> sketch;
+	std::vector<MapColor*> others;
+	for (int i = 0; i < map.getNumColors(); ++i)
+	{
+		auto* color = map.getMapColor(i);
+		(isSketchColor(color) ? sketch : others).push_back(color);
+	}
+	if (sketch.empty())
+		return;
+	auto order = behind ? others : sketch;
+	auto const& rest = behind ? sketch : others;
+	order.insert(end(order), begin(rest), end(rest));
+	auto changed = false;
+	for (int i = 0; i < int(order.size()); ++i)
+	{
+		if (map.getMapColor(i) != order[std::size_t(i)])
+		{
+			map.setColor(order[std::size_t(i)], i);
+			changed = true;
+		}
+	}
+	if (!changed)
+		return;
+	// As ColorListWidget::moveColorUp(): what is drawn refers to the colours by their place.
+	map.setColorsDirty();
+	map.updateAllObjects();
+}
+
+std::unique_ptr<Map> printableSketch(const Map& map)
+{
+	auto const index = sketchPartIndex(map);
+	if (index < 0)
+		return {};
+	auto const* part = map.getPart(std::size_t(index));
+	if (!part->isVisible() || part->getNumObjects() == 0)
+		return {};
+	return extractPart(map, index);
 }
 
 

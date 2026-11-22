@@ -33,16 +33,20 @@
 #include <QPainter>
 #include <QPointF>
 #include <QRectF>
+#include <QSignalSpy>
 #include <QString>
 #include <QStringList>
 #include <QTemporaryDir>
 #include <QUuid>
+#include <QXmlStreamReader>
+#include <QXmlStreamWriter>
 
 #include "global.h"
 #include "core/map.h"
 #include "core/map_color.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
+#include "core/map_printer.h"
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
 #include "core/renderables/renderable.h"
@@ -101,6 +105,21 @@ S* addSymbol(Map& map, const QString& name, int number)
 	symbol->setNumberComponent(0, number);
 	map.addSymbol(symbol, map.getNumSymbols());
 	return symbol;
+}
+
+/// A green area from x = 15 to 25 mm over the whole height, in the first part.
+MapColor* addGreenField(Map& map)
+{
+	auto* green = new MapColor(QStringLiteral("Green"), 0);
+	green->setCmyk(MapColorCmyk(1.0f, 0.0f, 1.0f, 0.0f));
+	green->setRgbFromCmyk();
+	map.addColor(green, 0);
+	auto* field = addSymbol<AreaSymbol>(map, QStringLiteral("field"), 1);
+	field->setColor(green);
+	auto* area = new PathObject(field, { MapCoord(15, 0), MapCoord(25, 0), MapCoord(25, 20), MapCoord(15, 20) });
+	area->parts().front().setClosed(true);
+	map.addObject(area, 0);
+	return green;
 }
 
 }  // namespace
@@ -457,6 +476,138 @@ private slots:
 		QCOMPARE(lines[3].trimmed().toDouble(), -1.0);
 		QVERIFY2(qAbs(lines[4].trimmed().toDouble() - 35.0) < 6.5, qPrintable(lines[4]));
 		QVERIFY2(qAbs(lines[5].trimmed().toDouble() - -85.0) < 6.5, qPrintable(lines[5]));
+	}
+	
+	/// Accept (12), third change: draw behind map
+	void behindTest()
+	{
+		Map map;
+		map.setScaleDenominator(10000);
+		QVERIFY(!sketchDrawnBehind(map));
+		setSketchDrawnBehind(map, true);
+		QVERIFY(!sketchDrawnBehind(map));
+		QCOMPARE(map.getNumColors(), 0);
+		
+		auto* green = addGreenField(map);
+		strokeAlong(map, 5, 35, 0, 2);
+		QCOMPARE(map.getColor(0)->getName(), sketchColorName(0));
+		QVERIFY(!sketchDrawnBehind(map));
+		QCOMPARE(render(map, RenderConfig::HelperSymbols).pixelColor(100, 50), QColor(255, 0, 0));
+		auto const steps = map.undoManager().undoStepCount();
+		
+		setSketchDrawnBehind(map, true);
+		QVERIFY(sketchDrawnBehind(map));
+		QCOMPARE(map.getColor(0), green);
+		QCOMPARE(map.getColor(map.getNumColors() - 1)->getName(), sketchColorName(0));
+		auto const behind = render(map, RenderConfig::HelperSymbols);
+		QCOMPARE(behind.pixelColor(100, 50).rgb(), static_cast<const QColor&>(*green).rgb());
+		QCOMPARE(behind.pixelColor(40, 50), QColor(255, 0, 0));
+		QCOMPARE(map.undoManager().undoStepCount(), steps);
+		
+		// A colour used for the first time goes to the bottom as well.
+		strokeAlong(map, 5, 35, 5, 1);
+		QCOMPARE(map.getColor(map.getNumColors() - 1)->getName(), sketchColorName(5));
+		QVERIFY(sketchDrawnBehind(map));
+		
+		// And back on top, in the order they had.
+		setSketchDrawnBehind(map, false);
+		QVERIFY(!sketchDrawnBehind(map));
+		QCOMPARE(map.getColor(0)->getName(), sketchColorName(0));
+		QCOMPARE(map.getColor(1)->getName(), sketchColorName(5));
+		QCOMPARE(map.getColor(2), green);
+		QCOMPARE(render(map, RenderConfig::HelperSymbols).pixelColor(100, 50), QColor(255, 0, 0));
+	}
+	
+	/// Accept (13), third change: printing the sketch on request
+	void printTest()
+	{
+		Map map;
+		map.setScaleDenominator(10000);
+		QVERIFY(!printableSketch(map));
+		auto* green = addGreenField(map);
+		strokeAlong(map, 5, 35, 0, 2);
+		auto const sketch = printableSketch(map);
+		QVERIFY(sketch);
+		QCOMPARE(sketch->getNumParts(), 1);
+		QCOMPARE(sketch->getPart(0)->getNumObjects(), 1);
+		
+		MapPrinter printer(map, nullptr);
+		printer.setTarget(MapPrinter::imageTarget());
+		printer.setResolution(127);  // 5 pixels per mm
+		printer.setPrintArea(QRectF(0, 0, 40, 20));
+		auto const page = [&printer]() {
+			QImage image(200, 100, QImage::Format_ARGB32_Premultiplied);
+			image.fill(QColor(Qt::white));
+			QPainter painter(&image);
+			printer.drawPage(&painter, printer.getPrintArea(), &image, RenderConfig::NoOptions);
+			painter.end();
+			return image;
+		};
+		QVERIFY(!printer.getOptions().show_sketch);
+		QCOMPARE(page().pixelColor(40, 50), QColor(Qt::white));
+		
+		QSignalSpy changed(&printer, &MapPrinter::optionsChanged);
+		printer.setPrintSketch(true);
+		QCOMPARE(changed.count(), 1);
+		QVERIFY(printer.getOptions().show_sketch);
+		auto const on_top = page();
+		QCOMPARE(on_top.pixelColor(40, 50), QColor(255, 0, 0));
+		QCOMPARE(on_top.pixelColor(100, 50), QColor(255, 0, 0));
+		
+		setSketchDrawnBehind(map, true);
+		auto const behind = page();
+		QCOMPARE(behind.pixelColor(40, 50), QColor(255, 0, 0));
+		QCOMPARE(behind.pixelColor(100, 50).rgb(), static_cast<const QColor&>(*green).rgb());
+		
+		// A hidden sketch part is not printed.
+		map.getPart(std::size_t(sketchPartIndex(map)))->setVisible(false);
+		QVERIFY(!printableSketch(map));
+		QCOMPARE(page().pixelColor(40, 50), QColor(Qt::white));
+		
+		// The choice is kept with the print settings of the map; absent means off.
+		MapPrinterConfig config(map);
+		QVERIFY(!config.options.show_sketch);
+		for (auto value : { true, false })
+		{
+			config.options.show_sketch = value;
+			QString text;
+			{
+				QXmlStreamWriter writer(&text);
+				config.save(writer, QLatin1String("print"));
+			}
+			QCOMPARE(text.contains(QLatin1String("sketch_visible")), value);
+			QXmlStreamReader reader(text);
+			QVERIFY(reader.readNextStartElement());
+			MapPrinterConfig loaded(map, reader);
+			QCOMPARE(loaded.options.show_sketch, value);
+		}
+	}
+	
+	/// Accept (14), third change: deleting an item of the list
+	void deleteTest()
+	{
+		Map map;
+		map.setScaleDenominator(10000);
+		QVERIFY(!deleteSketchItem(map, SketchItem{}));
+		strokeAlong(map, 0, 40);
+		addSketchNote(map, MapCoordF(10, 30), QStringLiteral("Gate"), 1);
+		auto const* part = map.getPart(std::size_t(sketchPartIndex(map)));
+		QCOMPARE(part->getNumObjects(), 3);
+		auto const steps = map.undoManager().undoStepCount();
+		
+		QVERIFY(deleteSketchItem(map, sketchItems(map).front()));
+		QCOMPARE(part->getNumObjects(), 2);
+		QCOMPARE(sketchItems(map).size(), std::size_t(1));
+		QCOMPARE(map.undoManager().undoStepCount(), steps + 1);
+		
+		// A note goes with its marker.
+		QVERIFY(deleteSketchItem(map, sketchItems(map).front()));
+		QCOMPARE(part->getNumObjects(), 0);
+		QVERIFY(map.undoManager().undo());
+		QCOMPARE(part->getNumObjects(), 2);
+		QCOMPARE(sketchItems(map).front().label, QStringLiteral("Gate"));
+		QVERIFY(map.undoManager().undo());
+		QCOMPARE(part->getNumObjects(), 3);
 	}
 };
 

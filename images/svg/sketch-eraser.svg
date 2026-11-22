@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FOOM icon sketch-eraser. Copyright 2026 Matej Šebo. Licensed under the GNU GPL, version 3 or later. -->
+<!-- Written by make_foom_icons.py; change the script, not this file. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" stroke-linejoin="round" stroke-linecap="round">
+<polyline fill="none" stroke="#e01010" stroke-width="2.40" points="2.00,26.00 10.00,26.00"/>
+<polyline fill="none" stroke="#e01010" stroke-width="2.40" points="22.00,26.00 30.00,26.00"/>
+<polygon fill="#f4a6b8" stroke="#8a4458" stroke-width="1.20" points="18.34,4.21 25.23,10.00 13.66,23.79 6.77,18.00"/>
+<polygon fill="#5b7fd0" stroke="#2c4580" stroke-width="1.20" points="18.70,3.83 25.60,9.61 21.10,14.97 14.20,9.19"/>
+</svg>

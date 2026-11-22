@@ -309,6 +309,7 @@ private:
 	QLabel* templates_warning_icon;
 	QLabel* templates_warning_text;
 	QCheckBox* show_grid_check;
+	QCheckBox* show_sketch_check = nullptr;  // foom
 	QCheckBox* overprinting_check;
 	QCheckBox* world_file_check;
 	QCheckBox* transparent_background_check;

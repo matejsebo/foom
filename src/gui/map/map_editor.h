@@ -794,6 +794,10 @@ public slots:
 	void sketchNoteClicked();
 	void sketchManageClicked();
 	void sketchFlattenClicked();
+	/** foom: Draws the sketch behind the map, or above it. */
+	void sketchBehindClicked(bool checked);
+	/** foom: Updates the state of the sketch actions from the map. */
+	void updateSketchActions();
 	/** foom: Activates the move-parallel tool. */
 	void moveParallelClicked();
 	/** foom: Shows the move-parallel-by dialog, which stays open. */
@@ -1490,6 +1494,13 @@ private:
 	QAction* sketch_note_act = {};  // foom
 	QAction* sketch_manage_act = {};  // foom
 	QAction* sketch_flatten_act = {};  // foom
+	QAction* sketch_behind_act = {};  // foom
+	QMenu* sketch_color_menu = {};  // foom
+	QMenu* sketch_width_menu = {};  // foom
+	QToolBar* toolbar_sketch = {};  // foom
+	QToolButton* sketch_color_button = {};  // foom
+	QToolButton* sketch_width_button = {};  // foom
+	void updateSketchPenButtons();  // foom
 	QAction* move_parallel_act = {};  // foom
 	QAction* move_parallel_by_act = {};  // foom
 	QPointer<MoveParallelDialog> move_parallel_dialog;  // foom

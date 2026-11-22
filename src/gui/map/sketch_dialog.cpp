@@ -56,6 +56,9 @@ SketchManageDialog::SketchManageDialog(Map& map, QWidget* parent)
 	convert_layout->addWidget(new QLabel(tr("Symbol:")));
 	convert_layout->addWidget(symbol_box, 1);
 	convert_layout->addWidget(convert_button);
+	delete_button = new QPushButton(tr("Delete"));
+	delete_button->setObjectName(QStringLiteral("delete"));
+	convert_layout->addWidget(delete_button);
 	
 	message_label = new QLabel();
 	message_label->setObjectName(QStringLiteral("message"));
@@ -74,6 +77,7 @@ SketchManageDialog::SketchManageDialog(Map& map, QWidget* parent)
 	
 	connect(list, &QListWidget::currentRowChanged, this, &SketchManageDialog::rowChanged);
 	connect(convert_button, &QPushButton::clicked, this, &SketchManageDialog::convert);
+	connect(delete_button, &QPushButton::clicked, this, &SketchManageDialog::deleteItem);
 	connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 	
 	refresh();
@@ -96,6 +100,7 @@ void SketchManageDialog::refresh()
 	if (!items.empty())
 		list->setCurrentRow(qBound(0, row, int(items.size()) - 1));
 	convert_button->setEnabled(!items.empty());
+	delete_button->setEnabled(!items.empty());
 }
 
 void SketchManageDialog::rowChanged(int row)
@@ -124,6 +129,16 @@ void SketchManageDialog::convert()
 		message_label->setText(error);
 		return;
 	}
+	message_label->clear();
+	refresh();
+}
+
+void SketchManageDialog::deleteItem()
+{
+	auto const row = list->currentRow();
+	if (row < 0 || row >= int(items.size()))
+		return;
+	deleteSketchItem(map, items[std::size_t(row)]);
 	message_label->clear();
 	refresh();
 }
