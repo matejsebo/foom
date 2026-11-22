@@ -212,6 +212,7 @@ target_link_libraries(map_printer_t PRIVATE MapperTestUtils)
 add_system_test(object_t)
 add_system_test(object_query_t)
 add_system_test(check_t)
+add_system_test(colour_tools_t)  # foom: the design notes, Colours
 add_system_test(ops_t)
 add_system_test(path_object_t)
 add_system_test(spatial_index_t)

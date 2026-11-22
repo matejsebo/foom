@@ -57,6 +57,7 @@
 #include "gui/color_dialog.h"
 #include "gui/main_window.h"
 #include "gui/util_gui.h"
+#include "gui/widgets/colour_tools_menu.h"  // foom
 #include "gui/widgets/segmented_button_layout.h"
 #include "util/item_delegates.h"
 
@@ -131,6 +132,12 @@ ColorListWidget::ColorListWidget(Map* map, MainWindow* window, QWidget* parent)
 	buttons_group_layout->addLayout(add_remove_layout);
 	buttons_group_layout->addLayout(up_down_layout);
 	buttons_group_layout->addWidget(edit_button);
+	// foom: the design notes, "Colours"
+	auto more_button = createToolButton(QIcon(), tr("More"));
+	more_button->setToolButtonStyle(Qt::ToolButtonTextOnly);
+	more_button->setPopupMode(QToolButton::InstantPopup);
+	more_button->setMenu(createColourToolsMenu(map, window, this));
+	buttons_group_layout->addWidget(more_button);
 	buttons_group_layout->addWidget(new QLabel(QString::fromLatin1("   ")), 1);
 	buttons_group_layout->addWidget(help_button);
 	
