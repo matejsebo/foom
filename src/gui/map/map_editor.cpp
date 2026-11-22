@@ -5581,7 +5581,8 @@ int MapEditorController::runCourseCheck()
 // the design notes, "Interchange: IOF XML, GPX and KML".
 
 /// foom: Asks for a file and writes the courses into it, or into one file for every course.
-static void exportCourses(MainWindow* window, Map* map, CourseFileKind kind)
+/// A KMZ has the templates which the view shows, as the maps of the courses.
+static void exportCourses(MainWindow* window, Map* map, CourseFileKind kind, const MapView* view = nullptr)
 {
 	QString title;
 	QString filter;
@@ -5633,7 +5634,9 @@ static void exportCourses(MainWindow* window, Map* map, CourseFileKind kind)
 	
 	if (kind == CourseFileKind::Kmz)
 		QApplication::setOverrideCursor(Qt::WaitCursor);
-	auto const report = writeCourseFiles(*map, path, kind, per_course);
+	CourseKmzOptions kmz;
+	kmz.view = view;
+	auto const report = writeCourseFiles(*map, path, kind, per_course, kmz);
 	if (kind == CourseFileKind::Kmz)
 		QApplication::restoreOverrideCursor();
 	if (!report.ok)
@@ -5668,7 +5671,7 @@ void MapEditorController::exportCoursesKmlClicked()
 
 void MapEditorController::exportCoursesKmzClicked()
 {
-	exportCourses(window, map, CourseFileKind::Kmz);
+	exportCourses(window, map, CourseFileKind::Kmz, main_view);
 }
 
 // the design notes, "Interchange: GPX and KML in, and a KMZ with the map"
@@ -5682,10 +5685,12 @@ void MapEditorController::importGeodataCoursesClicked()
 
 	QDialog dialog(window, Qt::WindowSystemMenuHint | Qt::WindowTitleHint);
 	dialog.setWindowTitle(title);
+	auto* file_label = new QLabel(tr("From %1:").arg(QFileInfo(path).fileName()));
 	auto* objects_check = new QCheckBox(tr("Course objects (start, controls, finish)"));
 	auto* courses_check = new QCheckBox(tr("Courses"));
 	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
 	auto* layout = new QVBoxLayout(&dialog);
+	layout->addWidget(file_label);
 	for (auto* check : { objects_check, courses_check })
 	{
 		check->setChecked(true);
@@ -5694,6 +5699,8 @@ void MapEditorController::importGeodataCoursesClicked()
 	layout->addWidget(buttons);
 	connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
 	connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	// Wide enough for the whole title and the name of the program which the window manager adds to it.
+	dialog.setMinimumWidth(dialog.fontMetrics().horizontalAdvance(title) * 2 + 150);
 	if (dialog.exec() != QDialog::Accepted)
 		return;
 

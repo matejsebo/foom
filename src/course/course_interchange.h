@@ -85,8 +85,11 @@ struct CourseKmzOptions
 	double dpi = 300.0;
 	/** Tiles of 512 pixels; else one picture. */
 	bool tiles = true;
-	/** The templates are in the picture, as the view shows them or, without one, all which are loaded. */
-	bool templates = false;
+	/**
+	 * The templates are in the picture, as the view shows them or, without one, all which are loaded,
+	 * and the picture has their extent too: as on the maps of the courses.
+	 */
+	bool templates = true;
 	const MapView* view = nullptr;
 };
 

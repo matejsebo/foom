@@ -22,6 +22,8 @@
 #include <cstddef>
 #include <initializer_list>
 #include <map>
+#include <memory>
+#include <utility>
 #include <vector>
 
 #include <Qt>
@@ -52,6 +54,7 @@
 #include "core/map.h"
 #include "core/map_color.h"
 #include "core/map_coord.h"
+#include "core/map_view.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
 #include "core/symbols/area_symbol.h"
@@ -68,6 +71,8 @@
 #include "fileformats/file_import_export.h"
 #include "gui/main_window.h"
 #include "gui/map/map_editor.h"
+#include "templates/template.h"
+#include "templates/template_image.h"
 #include "undo/object_undo.h"
 #include "undo/undo.h"
 #include "undo/undo_manager.h"
@@ -454,6 +459,8 @@ private slots:
 	void kmzTest();
 	void kmzFilesTest();
 	void kmzImportTest();
+	void kmzTemplatesTest();
+	void ocdKmlImportTest();
 };
 
 
@@ -1252,6 +1259,44 @@ bool isMagenta(const QColor& color)
 	return color.isValid() && color.red() > 200 && color.green() < 80 && color.blue() > 200;
 }
 
+bool isGreen(const QColor& color)
+{
+	return color.isValid() && color.red() < 80 && color.green() > 150 && color.blue() < 80;
+}
+
+/**
+ * KML in the form of a KMZ of courses with control codes,
+ * written for the test: every course a folder in the folder of its map,
+ * with a folder Coordinates of placemarks named by number and code, whose
+ * code is also in ExtendedData; no lines.
+ */
+QByteArray ocdCourseKml(const Map& map, const std::vector<std::pair<QString, QStringList>>& courses)
+{
+	QByteArray kml = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\" ?>\n"
+	                 "<kml xmlns=\"http://www.opengis.net/kml/2.2\" xmlns:cs=\"http://www.orienteering.org/schemas/course-setting\">\n"
+	                 "<Folder><name>Test event</name>\n";
+	for (auto const& course : courses)
+	{
+		kml += "<Folder><name>Map (" + course.first.toUtf8() + ")</name>\n"
+		       "<Folder><name>" + course.first.toUtf8() + "</name>\n<Folder><name>Coordinates</name>\n";
+		auto number = 0;
+		for (auto const& code : course.second)
+		{
+			auto const place = map.getGeoreferencing().toGeographicCoords(placeOf(map, code));
+			auto const numbered = !code.startsWith(QLatin1Char('S')) && !code.startsWith(QLatin1Char('F'));
+			QString const label = (numbered ? QString::number(++number) : QString()) + QLatin1Char('(') + code + QLatin1Char(')');
+			kml += "<Placemark id=\"" + code.toUtf8() + "\"><name>" + label.toUtf8() + "</name>"
+			       "<ExtendedData><Data name=\"cs:object-type\"><value>Control</value></Data>"
+			       "<Data name=\"cs:control-code\"><value>" + code.toUtf8() + "</value></Data></ExtendedData>"
+			       "<Point><coordinates>" + QByteArray::number(place.longitude(), 'f', 10) + ',' + QByteArray::number(place.latitude(), 'f', 10) + "</coordinates></Point>"
+			       "</Placemark>\n";
+		}
+		kml += "</Folder>\n</Folder>\n</Folder>\n";
+	}
+	kml += "</Folder>\n</kml>\n";
+	return kml;
+}
+
 }  // namespace
 
 
@@ -1635,6 +1680,136 @@ void CourseInterchangeTest::kmzImportTest()
 	report = importCourseFile(second, QDir(folder.path()).filePath(QStringLiteral("nothing.kmz")));
 	QVERIFY(!report.ok);
 	QVERIFY(!report.error.isEmpty());
+}
+
+
+/// Accept (11): the templates, as the maps of the courses have them.
+void CourseInterchangeTest::kmzTemplatesTest()
+{
+	Map map;
+	fillInterchangeMap(map);
+	addPictureSymbols(map);
+	QTemporaryDir folder;
+	QVERIFY(folder.isValid());
+	auto const dir = QDir(folder.path());
+
+	// A green picture of 10 by 10 mm whose middle is at (60, 30) mm, beyond the map and its course objects.
+	auto const picture_path = dir.filePath(QStringLiteral("green.png"));
+	QImage green(10, 10, QImage::Format_RGB32);
+	green.fill(QColor(0, 200, 0));
+	QVERIFY(green.save(picture_path));
+	auto image = std::make_unique<TemplateImage>(picture_path, &map);
+	QVERIFY(image->loadTemplateFile());
+	image->setTemplateState(Template::Loaded);  // As Template::setupAndLoad() leaves it.
+	image->setTemplateScaleX(1.0);
+	image->setTemplateScaleY(1.0);
+	image->setTemplateX(60000);
+	image->setTemplateY(30000);
+	auto* temp = image.get();
+	map.addTemplate(0, std::move(image));
+
+	// By default the picture has the templates, and their extent.
+	map.setHasUnsavedChanges(false);
+	CourseKmzOptions options;
+	QVERIFY(options.templates);
+	options.tiles = false;
+	options.dpi = 100;
+	auto const with_path = dir.filePath(QStringLiteral("with.kmz"));
+	auto report = writeCoursesKmz(map, with_path, options);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	auto const with = readKmz(with_path);
+	QVERIFY(!with.picture.isNull());
+	QVERIFY(isGreen(with.at(map, 60.0, 30.0)));
+	QVERIFY(isRed(with.at(map, 5.0, 10.0)));
+	// The map is not given print settings, which the next file would take, and is not changed.
+	QVERIFY(!map.hasPrinterConfig());
+	QVERIFY(!map.hasUnsavedChanges());
+
+	// And so has the map of a course.
+	options.course = QStringLiteral("B");
+	auto const b_path = dir.filePath(QStringLiteral("b.kmz"));
+	report = writeCoursesKmz(map, b_path, options);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	auto const of_b = readKmz(b_path);
+	QVERIFY(isGreen(of_b.at(map, 60.0, 30.0)));
+	QVERIFY(isMagenta(of_b.at(map, 20.0, 0.0)));
+	options.course.clear();
+
+	// Without the templates.
+	options.templates = false;
+	auto const without_path = dir.filePath(QStringLiteral("without.kmz"));
+	report = writeCoursesKmz(map, without_path, options);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	auto const without = readKmz(without_path);
+	QVERIFY(!without.picture.isNull());
+	QVERIFY(!isGreen(without.at(map, 60.0, 30.0)));
+	QVERIFY(isRed(without.at(map, 5.0, 10.0)));
+
+	// With a view, the templates which it shows.
+	options.templates = true;
+	MapView view(&map);
+	auto visibility = view.getTemplateVisibility(temp);
+	visibility.visible = false;
+	view.setTemplateVisibility(temp, visibility);
+	options.view = &view;
+	auto const hidden_path = dir.filePath(QStringLiteral("hidden.kmz"));
+	report = writeCoursesKmz(map, hidden_path, options);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	auto const hidden = readKmz(hidden_path);
+	QVERIFY(!hidden.picture.isNull());
+	QVERIFY(!isGreen(hidden.at(map, 60.0, 30.0)));
+	QVERIFY(isRed(hidden.at(map, 5.0, 10.0)));
+}
+
+
+/// Accept (12): the KML of a KMZ of courses with control codes.
+void CourseInterchangeTest::ocdKmlImportTest()
+{
+	Map source;
+	fillInterchangeMap(source);
+	auto const kml = ocdCourseKml(source, {
+	    { QStringLiteral("A2"), { QStringLiteral("S1"), QStringLiteral("31"), QStringLiteral("33"), QStringLiteral("F1") } },
+	    { QStringLiteral("B2"), { QStringLiteral("S1"), QStringLiteral("32"), QStringLiteral("F1") } },
+	});
+
+	// Into a map with the symbols alone: the codes are those of ExtendedData, the courses the folders of the placemarks.
+	Map map;
+	fillGeoreferencedSymbols(map);
+	auto report = importGeodata(map, kml, CourseFileKind::Kml);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.objects_added, 5);
+	QCOMPARE(report.objects_found, 0);
+	QCOMPARE(report.objects_not_made, QStringList{});
+	QCOMPARE(report.courses_added, 2);
+	QCOMPARE(report.tracks_not_courses, QStringList{});
+	auto const& data = map.courseData();
+	QCOMPARE(objectsOf(data), QStringLiteral("S1 31 33 F1 32"));
+	QCOMPARE(data.findObject(QStringLiteral("S1"))->kind, CourseObject::Start);
+	QCOMPARE(data.findObject(QStringLiteral("33"))->kind, CourseObject::Control);
+	QCOMPARE(data.findObject(QStringLiteral("F1"))->kind, CourseObject::Finish);
+	QVERIFY(near(placeOf(map, QStringLiteral("33")), 20.0, 10.0));
+	QCOMPARE(itemsOf(data, QStringLiteral("A2")), QStringLiteral("S1 31 33 F1"));
+	QCOMPARE(itemsOf(data, QStringLiteral("B2")), QStringLiteral("S1 32 F1"));
+
+	// Into the map of the cases: every object found once, the two courses added.
+	Map cases;
+	fillInterchangeMap(cases);
+	report = importGeodata(cases, kml, CourseFileKind::Kml);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.objects_added, 0);
+	QCOMPARE(report.objects_found, 5);
+	QCOMPARE(report.courses_added, 2);
+	QCOMPARE(itemsOf(cases.courseData(), QStringLiteral("B2")), QStringLiteral("S1 32 F1"));
+
+	// A placemark without the code of ExtendedData keeps its name; a folder Coordinates without codes is no course.
+	auto plain = kml;
+	plain.replace("<Data name=\"cs:control-code\">", "<Data name=\"other\">");
+	Map third;
+	fillGeoreferencedSymbols(third);
+	report = importGeodata(third, plain, CourseFileKind::Kml);
+	QVERIFY2(report.ok, qPrintable(report.error));
+	QCOMPARE(report.courses_added, 0);
+	QVERIFY(third.courseData().findObject(QStringLiteral("1(31)")));
 }
 
 

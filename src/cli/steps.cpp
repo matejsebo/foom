@@ -559,7 +559,7 @@ CourseKmzOptions parseCourseKmzOptions(const Params& p, CourseFileKind kind)
 	if (p.has("dpi"))
 		options.dpi = p.requirePositiveInt("dpi");
 	options.tiles = p.optionalBool("tiles", true);
-	options.templates = p.optionalBool("templates", false);
+	options.templates = p.optionalBool("templates", true);
 	return options;
 }
 

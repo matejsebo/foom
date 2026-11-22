@@ -1012,28 +1012,71 @@ void readKmlGeometry(QXmlStreamReader& xml, std::vector<LatLon>& point, std::vec
 		target = places;
 }
 
-void readKmlContainer(QXmlStreamReader& xml, InGeodata& file)
+/// The code of an ExtendedData as a KMZ of courses has it: `cs:control-code`.
+QString readKmlControlCode(QXmlStreamReader& xml)
 {
+	QString code;
+	while (xml.readNextStartElement())
+	{
+		if (xml.name() == QLatin1String("Data") && xml.attributes().value(QLatin1String("name")) == QLatin1String("cs:control-code"))
+		{
+			while (xml.readNextStartElement())
+			{
+				if (xml.name() == QLatin1String("value"))
+					code = xml.readElementText().trimmed();
+				else
+					xml.skipCurrentElement();
+			}
+		}
+		else
+		{
+			xml.skipCurrentElement();
+		}
+	}
+	return code;
+}
+
+/**
+ * Reads the placemarks of a Document or a Folder and of those in it. A
+ * folder Coordinates whose points have the code of the ExtendedData is,
+ * as in a KMZ of courses, the course of the folder around it: a track
+ * through its points.
+ */
+void readKmlContainer(QXmlStreamReader& xml, InGeodata& file, const QString& outer_name = {})
+{
+	QString container_name;
+	InTrack coded;
 	while (xml.readNextStartElement())
 	{
 		if (xml.name() == QLatin1String("Document") || xml.name() == QLatin1String("Folder"))
 		{
-			readKmlContainer(xml, file);
+			readKmlContainer(xml, file, container_name);
+		}
+		else if (xml.name() == QLatin1String("name"))
+		{
+			container_name = xml.readElementText().trimmed();
 		}
 		else if (xml.name() == QLatin1String("Placemark"))
 		{
 			QString name;
+			QString code;
 			std::vector<LatLon> point;
 			std::vector<LatLon> line;
 			while (xml.readNextStartElement())
 			{
 				if (xml.name() == QLatin1String("name"))
 					name = xml.readElementText().trimmed();
+				else if (xml.name() == QLatin1String("ExtendedData"))
+					code = readKmlControlCode(xml);
 				else
 					readKmlGeometry(xml, point, line);
 			}
 			if (!point.empty())
-				file.waypoints.push_back({ name, {}, point.front() });
+			{
+				file.waypoints.push_back({ code.isEmpty() ? name : code, {}, point.front() });
+				if (!code.isEmpty())
+					coded.points.push_back(point.front());
+			}
 			if (!line.empty())
 				file.tracks.push_back({ name, line });
 		}
@@ -1041,6 +1084,11 @@ void readKmlContainer(QXmlStreamReader& xml, InGeodata& file)
 		{
 			xml.skipCurrentElement();
 		}
+	}
+	if (container_name == QLatin1String("Coordinates") && !outer_name.isEmpty() && !coded.points.empty())
+	{
+		coded.name = outer_name;
+		file.tracks.push_back(std::move(coded));
 	}
 }
 
@@ -1099,10 +1147,12 @@ CourseGeodataImportReport importGeodata(Map& map, const InGeodata& file, const C
 	std::vector<int> object_indices;
 	if (options.objects)
 	{
+		QStringList read;  // A code of more than one waypoint, as in such files, counts once.
 		for (auto const& waypoint : file.waypoints)
 		{
-			if (waypoint.name.isEmpty())
+			if (waypoint.name.isEmpty() || read.contains(waypoint.name))
 				continue;
+			read.push_back(waypoint.name);
 			if (data.findObject(waypoint.name))
 			{
 				++report.objects_found;
@@ -1792,6 +1842,15 @@ CourseExportReport writeCoursesKmz(Map& map, const QString& path, const CourseKm
 		area.adjust(-5.0, -5.0, 5.0, 5.0);
 	}
 	MapPrinter printer(map, options.view);
+	// The printer made the map print settings where it had none; they are not kept, so that the next file
+	// is as this one, and the map is not changed by it.
+	if (!has_config)
+	{
+		auto const unsaved = map.hasUnsavedChanges();
+		map.resetPrinterConfig();
+		if (!unsaved)
+			map.setHasUnsavedChanges(false);
+	}
 	printer.setTarget(MapPrinter::kmzTarget());
 	printer.setMode(MapPrinterOptions::Raster);
 	printer.setScale(map.getScaleDenominator());
