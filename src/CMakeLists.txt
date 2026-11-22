@@ -122,6 +122,7 @@ set(Mapper_Common_SRCS
   course/course_relay_edit.cpp  # foom
   course/course_render.cpp  # foom
   course/course_report.cpp  # foom
+  course/course_report_print.cpp  # foom
   course/course_storage.cpp  # foom
   course/course_symbols.cpp  # foom
   course/course_sync.cpp  # foom
@@ -264,6 +265,7 @@ set(Mapper_Common_SRCS
   gui/map/course_canvases_dialog.cpp  # foom
   gui/map/course_maps_dialog.cpp  # foom
   gui/map/course_punch_dialog.cpp  # foom
+  gui/map/course_report_dialog.cpp  # foom
   gui/map/course_statistics_dialog.cpp  # foom
   gui/map/route_settings_dialog.cpp  # foom
   gui/map/extent_dialog.cpp

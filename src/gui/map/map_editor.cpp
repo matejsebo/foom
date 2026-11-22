@@ -190,6 +190,7 @@
 #include "gui/map/course_maps_dialog.h"  // foom
 #include "gui/map/course_punch_dialog.h"  // foom
 #include "gui/map/route_settings_dialog.h"  // foom
+#include "gui/map/course_report_dialog.h"  // foom
 #include "gui/map/course_statistics_dialog.h"  // foom
 #include "check/issue.h"
 #include "check/legibility.h"
@@ -1441,6 +1442,7 @@ void MapEditorController::createActions()
 	course_punch_ids_act = newAction("course-punch-ids", tr("Punching unit IDs..."), this, SLOT(punchIdsClicked()), nullptr, tr("Give the controls the IDs of their punching units."));
 	// foom: the design notes, "Statistics and the consistency check"
 	course_statistics_act = newAction("course-statistics", tr("Statistics..."), this, SLOT(courseStatisticsClicked()), nullptr, tr("Show the statistics of the courses, their legs and the event."));
+	course_report_act = newAction("course-report", tr("Print report..."), this, SLOT(courseReportClicked()), "print.png", tr("Show the consistency check and the statistics of the courses as a report which can be printed and saved."));  // foom
 	course_check_act = newAction("course-check", tr("Consistency check"), this, SLOT(runCourseCheck()), nullptr, tr("Check the courses, the controls and their descriptions, and list what is found in the issues window."));
 	// foom: the design notes, "Interchange: IOF XML, GPX and KML"
 	course_export_iof_act = newAction("course-export-iof", tr("Export courses (IOF XML 3.0)..."), this, SLOT(exportCoursesIofClicked()), nullptr, tr("Write the course objects, the courses and the classes as course data of the IOF Data Standard 3.0."));
@@ -1951,6 +1953,7 @@ void MapEditorController::createMenuAndToolbars()
 	courses_menu->addSeparator();
 	courses_menu->addAction(course_statistics_act);
 	courses_menu->addAction(course_check_act);
+	courses_menu->addAction(course_report_act);  // foom
 	courses_menu->addSeparator();
 	courses_menu->addAction(course_export_iof_act);
 	courses_menu->addAction(course_export_gpx_act);
@@ -5627,6 +5630,21 @@ void MapEditorController::courseStatisticsClicked()
 		return;
 	}
 	CourseStatisticsDialog dialog(map, window);
+	dialog.exec();
+}
+
+// foom: the design notes, "The printed report".
+void MapEditorController::courseReportClicked()
+{
+	if (map->courseData().isEmpty())
+	{
+		QMessageBox::information(window, tr("Course report"), tr("The map has no course objects and no courses."));
+		return;
+	}
+	auto title = map->courseData().options.eventTitle();
+	if (title.isEmpty())
+		title = QFileInfo(window->currentPath()).completeBaseName();
+	CourseReportDialog dialog(map, title, window);
 	dialog.exec();
 }
 
