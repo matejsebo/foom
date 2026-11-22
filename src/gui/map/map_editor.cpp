@@ -147,6 +147,7 @@
 #include "core/ops/mirror.h"
 #include "core/ops/transform.h"
 #include "core/symbols/line_symbol.h"  // foom
+#include "core/symbols/object_style.h"  // foom
 #include "core/symbols/private_symbol.h"  // foom
 #include "core/symbols/symbol.h"
 #include "core/symbols/symbol_icon_decorator.h"
@@ -172,6 +173,7 @@
 #include "gui/map/merge_dialog.h"  // foom
 #include "gui/map/sketch_dialog.h"  // foom
 #include "gui/map/image_properties_dialog.h"  // foom
+#include "gui/map/object_style_dialog.h"  // foom
 #include "gui/map/import_points_dialog.h"  // foom
 #include "gui/symbols/symbol_setting_dialog.h"  // foom
 #include "layout/generator.h"  // foom
@@ -7968,6 +7970,18 @@ void MapEditorController::objectStyleClicked()
 	auto const index = map->findSymbolIndex(sharedPrivateSymbol(*map));
 	if (index < 0)
 		return;
+	{
+		// The reduced panel first, the full symbol editor on request.
+		ObjectStyleDialog panel(*map, objectStyleOf(*map->getSymbol(index)), window);
+		panel.setWindowModality(Qt::WindowModal);
+		if (panel.exec() == QDialog::Accepted)
+		{
+			setObjectStyle(*map, panel.style());
+			return;
+		}
+		if (!panel.symbolEditorRequested())
+			return;
+	}
 	SymbolSettingDialog dialog(map->getSymbol(index), map, window);
 	dialog.setWindowModality(Qt::WindowModal);
 	if (dialog.exec() == QDialog::Accepted)

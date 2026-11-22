@@ -178,6 +178,7 @@ set(Mapper_Common_SRCS
   core/symbols/line_symbol_taper.cpp
   core/symbols/area_symbol_irregular.cpp
   core/symbols/private_symbol.cpp
+  core/symbols/object_style.cpp
   core/symbols/image_symbol.cpp
   core/objects/image_object.cpp
   check/issue.cpp
@@ -276,6 +277,7 @@ set(Mapper_Common_SRCS
   gui/map/generator_dialog.cpp
   gui/map/selection_dialogs.cpp
   gui/map/image_properties_dialog.cpp
+  gui/map/object_style_dialog.cpp
   gui/map/merge_dialog.cpp
   gui/map/sketch_dialog.cpp
   gui/map/import_points_dialog.cpp
