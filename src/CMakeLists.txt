@@ -332,6 +332,7 @@ set(Mapper_Common_SRCS
   gui/widgets/shortcut_settings.cpp
   gui/widgets/shortcuts_settings_page.cpp
   gui/widgets/backup_settings_page.cpp  # foom
+  gui/settings_transfer.cpp  # foom
   gui/widgets/symbol_dropdown.cpp
   gui/widgets/symbol_render_widget.cpp
   gui/widgets/symbol_tooltip.cpp

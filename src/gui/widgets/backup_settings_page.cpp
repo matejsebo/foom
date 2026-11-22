@@ -21,6 +21,10 @@
 #include "backup_settings_page.h"
 
 #include <QCheckBox>
+#include <QHBoxLayout>
+#include <QLatin1String>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QLabel>
@@ -28,7 +32,10 @@
 #include <QSpinBox>
 #include <QVBoxLayout>
 
+#include "settings.h"
 #include "core/open_backup.h"
+#include "gui/file_dialog.h"
+#include "gui/settings_transfer.h"
 
 
 namespace OpenOrienteering {
@@ -48,6 +55,22 @@ BackupSettingsPage::BackupSettingsPage(QWidget* parent)
 	compress_check = new QCheckBox(tr("Compress the backups (gzip)"));
 	backup_layout->addRow(compress_check);
 	layout->addWidget(backup_group);
+
+	auto* transfer_group = new QGroupBox(tr("Settings transfer"));
+	auto* transfer_layout = new QVBoxLayout(transfer_group);
+	auto* transfer_label = new QLabel(tr("All settings, the shortcuts among them, as one file, for another computer or for safekeeping."));
+	transfer_label->setWordWrap(true);
+	transfer_layout->addWidget(transfer_label);
+	auto* buttons = new QHBoxLayout();
+	auto* export_button = new QPushButton(tr("Export settings..."));
+	auto* import_button = new QPushButton(tr("Import settings..."));
+	buttons->addWidget(export_button);
+	buttons->addWidget(import_button);
+	buttons->addStretch(1);
+	transfer_layout->addLayout(buttons);
+	layout->addWidget(transfer_group);
+	connect(export_button, &QPushButton::clicked, this, &BackupSettingsPage::exportClicked);
+	connect(import_button, &QPushButton::clicked, this, &BackupSettingsPage::importClicked);
 
 	layout->addStretch(1);
 
@@ -79,6 +102,64 @@ void BackupSettingsPage::reset()
 	keep_box->setValue(options.keep);
 	compress_check->setChecked(options.compress);
 	updateWidgets();
+}
+
+QList<SettingsPage*> BackupSettingsPage::dialogPages()
+{
+	auto pages = window()->findChildren<SettingsPage*>();
+	if (!pages.contains(this))
+		pages.push_back(this);
+	return pages;
+}
+
+int BackupSettingsPage::exportSettings(const QString& path, QString* error)
+{
+	// What the pages show is what is exported.
+	for (auto* page : dialogPages())
+		page->apply();
+	QSettings settings;
+	settings.sync();
+	return SettingsTransfer::exportTo(settings, path, error);
+}
+
+int BackupSettingsPage::importSettings(const QString& path, QString* error)
+{
+	QSettings settings;
+	auto const count = SettingsTransfer::importFrom(path, settings, error);
+	if (count < 0)
+		return count;
+	Settings::getInstance().applySettings();
+	for (auto* page : dialogPages())
+		page->reset();
+	return count;
+}
+
+void BackupSettingsPage::exportClicked()
+{
+	auto path = FileDialog::getSaveFileName(this, tr("Export settings"), QString(), tr("Settings (*.ini)"));
+	if (path.isEmpty())
+		return;
+	if (!path.endsWith(QLatin1String(".ini"), Qt::CaseInsensitive))
+		path += QLatin1String(".ini");
+	QString error;
+	if (exportSettings(path, &error) < 0)
+		QMessageBox::warning(this, tr("Export settings"), error);
+}
+
+void BackupSettingsPage::importClicked()
+{
+	auto const path = FileDialog::getOpenFileName(this, tr("Import settings"), QString(), tr("Settings (*.ini)"));
+	if (path.isEmpty())
+		return;
+	if (QMessageBox::question(this, tr("Import settings"),
+	                          tr("The settings in the file replace the current ones. Continue?"))
+	    != QMessageBox::Yes)
+		return;
+	QString error;
+	if (importSettings(path, &error) < 0)
+		QMessageBox::warning(this, tr("Import settings"), error);
+	else
+		QMessageBox::information(this, tr("Import settings"), tr("The settings were imported. Some take effect when the program is started again."));
 }
 
 void BackupSettingsPage::updateWidgets()

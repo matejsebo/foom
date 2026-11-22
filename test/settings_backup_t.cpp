@@ -42,6 +42,7 @@
 #include "fileformats/file_import_export.h"
 #include "fileformats/xml_file_format.h"
 #include "gui/main_window.h"
+#include "gui/settings_transfer.h"
 #include "gui/widgets/backup_settings_page.h"
 
 using namespace OpenOrienteering;
@@ -234,6 +235,86 @@ private slots:
 		window->close();
 		window->deleteLater();
 		QSettings().remove(QStringLiteral("Backup/OnOpen"));
+	}
+
+	
+	// ### Settings transfer ###
+	
+	void settingsTransfer()
+	{
+		QTemporaryDir dir;
+		QSettings from(dir.filePath(QStringLiteral("from.ini")), QSettings::IniFormat);
+		from.setValue(QStringLiteral("MapDisplay/antialiasing"), false);
+		from.setValue(QStringLiteral("MapEditor/click_tolerance"), 7);
+		from.setValue(QStringLiteral("General/language"), QStringLiteral("de"));
+		from.setValue(QStringLiteral("Shortcuts/drawpath"), QStringLiteral("Ctrl+Shift+P"));
+		from.setValue(QStringLiteral("recentFileList"), QStringList{ QStringLiteral("a.foom"), QStringLiteral("b.foom") });
+		from.setValue(QStringLiteral("MainWindow/state"), QByteArray("\x00\x01\xff", 3));
+		from.setValue(QStringLiteral("open_in_progress"), QStringLiteral("crashing.foom"));
+		from.sync();
+		
+		auto const path = dir.filePath(QStringLiteral("exported.ini"));
+		QString error;
+		QCOMPARE(SettingsTransfer::exportTo(from, path, &error), 6);  // all but the crash blocker
+		
+		// Into empty settings: the same values and types, no marker, no crash blocker.
+		QSettings to(dir.filePath(QStringLiteral("to.ini")), QSettings::IniFormat);
+		QCOMPARE(SettingsTransfer::importFrom(path, to, &error), 6);
+		QCOMPARE(to.value(QStringLiteral("MapDisplay/antialiasing")).toBool(), false);
+		QCOMPARE(to.value(QStringLiteral("MapEditor/click_tolerance")).toInt(), 7);
+		QCOMPARE(to.value(QStringLiteral("General/language")).toString(), QStringLiteral("de"));
+		QCOMPARE(to.value(QStringLiteral("Shortcuts/drawpath")).toString(), QStringLiteral("Ctrl+Shift+P"));
+		QCOMPARE(to.value(QStringLiteral("recentFileList")).toStringList(), (QStringList{ QStringLiteral("a.foom"), QStringLiteral("b.foom") }));
+		QCOMPARE(to.value(QStringLiteral("MainWindow/state")).toByteArray(), QByteArray("\x00\x01\xff", 3));
+		QVERIFY(!to.contains(QStringLiteral("open_in_progress")));
+		QVERIFY(to.childGroups().indexOf(SettingsTransfer::markerGroup()) < 0);
+		
+		// Into settings with values: those in the file replace, the others stay.
+		QSettings other(dir.filePath(QStringLiteral("other.ini")), QSettings::IniFormat);
+		other.setValue(QStringLiteral("MapEditor/click_tolerance"), 3);
+		other.setValue(QStringLiteral("Only/here"), 1);
+		QCOMPARE(SettingsTransfer::importFrom(path, other, &error), 6);
+		QCOMPARE(other.value(QStringLiteral("MapEditor/click_tolerance")).toInt(), 7);
+		QCOMPARE(other.value(QStringLiteral("Only/here")).toInt(), 1);
+		
+		// Exporting again replaces the file.
+		from.remove(QStringLiteral("Shortcuts"));
+		QCOMPARE(SettingsTransfer::exportTo(from, path, &error), 5);
+		
+		// Not a settings file: refused, nothing changed.
+		auto const plain = dir.filePath(QStringLiteral("plain.ini"));
+		QVERIFY(writeFile(plain, "[MapEditor]\nclick_tolerance=99\n"));
+		QCOMPARE(SettingsTransfer::importFrom(plain, other, &error), -1);
+		QVERIFY(!error.isEmpty());
+		QCOMPARE(other.value(QStringLiteral("MapEditor/click_tolerance")).toInt(), 7);
+		QCOMPARE(SettingsTransfer::importFrom(dir.filePath(QStringLiteral("missing.ini")), other, &error), -1);
+	}
+	
+	void settingsTransferPage()
+	{
+		// The page exports what it shows, and shows what it imported.
+		QTemporaryDir dir;
+		QSettings().remove(QStringLiteral("Backup"));
+		BackupSettingsPage page;
+		auto checks = page.findChildren<QCheckBox*>();
+		checks[0]->setChecked(true);
+		auto const path = dir.filePath(QStringLiteral("all.ini"));
+		QString error;
+		QVERIFY(page.exportSettings(path, &error) > 0);
+		QSettings exported(path, QSettings::IniFormat);
+		QCOMPARE(exported.value(QStringLiteral("Backup/OnOpen")).toBool(), true);
+		
+		QSettings().setValue(QStringLiteral("Backup/OnOpen"), false);
+		page.reset();
+		QVERIFY(!checks[0]->isChecked());
+		QVERIFY(page.importSettings(path, &error) > 0);
+		QVERIFY(checks[0]->isChecked());
+		QCOMPARE(QSettings().value(QStringLiteral("Backup/OnOpen")).toBool(), true);
+		QVERIFY(page.importSettings(dir.filePath(QStringLiteral("missing.ini")), &error) < 0);
+		QSettings().remove(QStringLiteral("Backup"));
+		
+		// The test settings are a file in the test folder, not FOOM's settings.
+		QVERIFY(QSettings().fileName().startsWith(settings_dir.path()));
 	}
 
 private:
