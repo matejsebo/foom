@@ -208,6 +208,18 @@ private slots:
 	/** foom: Tests the rotation to magnetic north and the centring commands. */
 	void mapRotateMagneticAndCenter();
 	
+	/** foom: Tests the window of the affine tool. */
+	void mapAffineWindow();
+	
+	/** foom: Tests the window of the rubbersheeting tool. */
+	void mapRubbersheetWindow();
+	
+	/** foom: Tests the local transformation dialog beside the map. */
+	void mapLocalWarpDialog();
+	
+	/** foom: Tests the target offsets of the change of coordinate system. */
+	void mapReprojectDialog();
+	
 	/** foom: Tests the map check command and the Issues window. */
 	void mapCheck();
 	

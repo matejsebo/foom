@@ -22,6 +22,8 @@
 
 #include <vector>
 
+#include <QByteArray>
+#include <QPointF>
 #include <QString>
 #include <QTransform>
 
@@ -65,11 +67,13 @@ struct PointPair
 {
 	MapCoordF map;
 	MapCoordF reference;
+	bool used = true;  ///< Pairs which are not used are left out of the fit and the field.
 };
 
 
 /**
- * The transformation fitted to point pairs, and the residual of each pair in mm.
+ * The transformation fitted to the used point pairs, and the residual of each pair
+ * (used or not) in mm.
  */
 struct PairFit
 {
@@ -128,6 +132,7 @@ bool centerMap(Map& map, const QPointF& offset);
 /**
  * Fits a transformation to the point pairs: one pair a translation, two a similarity,
  * three the affine transformation through them, more the least-squares affine one.
+ * Only the used pairs count; every pair gets a residual against the fit.
  *
  * See the design notes, "Affine by point pairs".
  */
@@ -140,8 +145,8 @@ PairFit fitPointPairs(const std::vector<PointPair>& pairs);
 struct RubbersheetParams
 {
 	std::vector<PointPair> pairs;
-	std::vector<MapCoordF> perimeter;      ///< A closed polygon in map coordinates.
-	bool decrease_near_perimeter = false;  ///< Adds a zero displacement weighted 4 / e^2, e the distance to the perimeter.
+	std::vector<std::vector<MapCoordF>> perimeter;  ///< Closed polygons in map coordinates; inside is inside any.
+	bool decrease_near_perimeter = false;  ///< Adds a zero displacement weighted 4 / e^2, e the distance to the nearest polygon.
 	bool include_protected = false;        ///< Transform objects of protected symbols.
 	bool include_layout = false;           ///< Transform the objects of layout parts.
 };
@@ -155,20 +160,31 @@ struct RubbersheetParams
 MapCoordF rubbersheetDisplacement(const RubbersheetParams& params, const MapCoordF& point);
 
 /**
- * Moves every coordinate inside the perimeter by the displacement at it, texts as a whole
- * by the displacement at their anchors, as one undo step. Returns false without pairs or perimeter.
+ * What a warp moved: the largest and the mean displacement of the moved object
+ * coordinates in map millimetres, and their number.
  */
-bool rubbersheetMap(Map& map, const RubbersheetParams& params);
+struct WarpReport
+{
+	double largest = 0.0;
+	double mean = 0.0;
+	int count = 0;
+};
+
+/**
+ * Moves every coordinate inside the perimeter by the displacement at it, texts as a whole
+ * by the displacement at their anchors, as one undo step. Returns false without used pairs or perimeter.
+ */
+bool rubbersheetMap(Map& map, const RubbersheetParams& params, WarpReport* report = nullptr);
 
 /// A points file: system name, "m", count, then x-old;y-old;x-new;y-new;used;distance in projected metres.
 bool writeRubbersheetPoints(const QString& path, const Map& map, const std::vector<PointPair>& pairs, QString* error);
-/// The pairs of a points file which are used, in map coordinates.
+/// The pairs of a points file in map coordinates; those with used 0 are not used.
 std::vector<PointPair> readRubbersheetPoints(const QString& path, const Map& map, QString* error);
 
-/// A perimeter file: system name, "m", the number of polygons (1), then x;y per vertex.
-bool writeRubbersheetPerimeter(const QString& path, const Map& map, const std::vector<MapCoordF>& perimeter, QString* error);
-/// The first polygon of a perimeter file, in map coordinates.
-std::vector<MapCoordF> readRubbersheetPerimeter(const QString& path, const Map& map, QString* error);
+/// A perimeter file: system name, "m", the number of polygons, then x;y per vertex, each polygon closed by its first vertex.
+bool writeRubbersheetPerimeter(const QString& path, const Map& map, const std::vector<std::vector<MapCoordF>>& perimeter, QString* error);
+/// The polygons of a perimeter file, in map coordinates.
+std::vector<std::vector<MapCoordF>> readRubbersheetPerimeter(const QString& path, const Map& map, QString* error);
 
 
 /**
@@ -199,10 +215,38 @@ bool localWarpMap(Map& map, const LocalWarpParams& params);
  *
  * The id, spec and params are those of Georeferencing::setProjectedCRS(). One undo step;
  * false for a map without a projected system or an invalid target.
+ * With an offset, the map's origin comes to that projected point of the target system
+ * in the same step, the map reference point moving with the objects.
  *
  * See the design notes, "Change of coordinate system".
  */
-bool reprojectMap(Map& map, const QString& id, const QString& spec, const std::vector<QString>& params = {});
+bool reprojectMap(Map& map, const QString& id, const QString& spec, const std::vector<QString>& params = {}, const QPointF* offset = nullptr);
+
+/**
+ * The offset proposed for the target system: the old origin's position in it,
+ * rounded to whole kilometres. The arguments as for reprojectMap().
+ */
+QPointF proposedReprojectOffset(const Georeferencing& georef, const QString& id, const QString& spec, const std::vector<QString>& params, bool* ok = nullptr);
+
+
+/**
+ * The magnetic field of a lookup at the BGS service of OOM's georeferencing dialog.
+ */
+struct GeomagneticField
+{
+	double declination = 0.0;           ///< Degrees east.
+	double horizontal_intensity = 0.0;  ///< nT.
+	double yearly_change = 0.0;         ///< Degrees per year.
+	bool has_declination = false;
+	bool has_horizontal_intensity = false;
+	bool has_yearly_change = false;
+};
+
+/// Reads the service's XML reply.
+GeomagneticField parseGeomagneticReply(const QByteArray& xml);
+
+/// The uncertainty of the declination in degrees, by the World Magnetic Model 2025's error model.
+double declinationUncertainty(double horizontal_intensity);
 
 
 }  // namespace OpenOrienteering

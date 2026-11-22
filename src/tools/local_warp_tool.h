@@ -22,6 +22,7 @@
 
 #include <QDialog>
 #include <QObject>
+#include <QPointer>
 
 #include "core/map_coord.h"
 #include "core/map_transform.h"
@@ -37,6 +38,7 @@ class QWidget;
 
 namespace OpenOrienteering {
 
+class LocalWarpDialog;
 class MapEditorController;
 class MapWidget;
 
@@ -54,6 +56,9 @@ public:
 	LocalWarpTool(MapEditorController* editor, QAction* tool_action, const LocalWarpParams& settings);
 	~LocalWarpTool() override;
 	
+	/// The dialog beside the map whose radius and options each press takes, or nullptr.
+	void setSettingsSource(LocalWarpDialog* dialog);
+	
 protected:
 	void updateStatusText() override;
 	void objectSelectionChangedImpl() override;
@@ -68,7 +73,10 @@ protected:
 	int updateDirtyRectImpl(QRectF& rect) override;
 	
 private:
+	void takeSettings();
+	
 	LocalWarpParams settings;
+	QPointer<LocalWarpDialog> source;
 	MapCoordF center;
 	MapCoordF current;
 	bool dragging = false;
@@ -76,7 +84,8 @@ private:
 
 
 /**
- * The radius and the options of the local transformation, asked when the tool starts.
+ * The radius and the options of the local transformation, a dialog which stays
+ * open beside the map: Start interactive transformation, Close.
  */
 class LocalWarpDialog : public QDialog
 {
@@ -86,6 +95,14 @@ public:
 	~LocalWarpDialog() override;
 	
 	LocalWarpParams settings() const;
+	
+signals:
+	void startRequested();
+	void closeRequested();
+	void settingsChanged();
+	
+protected:
+	void reject() override;
 	
 private:
 	QSpinBox* radius_edit;

@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <vector>
@@ -34,6 +35,7 @@
 #include <QPolygonF>
 #include <QRectF>
 #include <QStringList>
+#include <QXmlStreamReader>
 
 #include "core/bookmarks.h"
 #include "core/extents.h"
@@ -214,33 +216,35 @@ PairFit fitPointPairs(const std::vector<PointPair>& pairs)
 {
 	// the design notes, "Affine by point pairs".
 	PairFit fit;
-	auto const n = pairs.size();
+	std::vector<PointPair> used;
+	std::copy_if(pairs.begin(), pairs.end(), std::back_inserter(used), [](const PointPair& pair) { return pair.used; });
+	auto const n = used.size();
 	if (n == 0)
 		return fit;
 	if (n == 1)
 	{
-		auto const d = pairs.front().reference - pairs.front().map;
+		auto const d = used.front().reference - used.front().map;
 		fit.transform = QTransform::fromTranslate(d.x(), d.y());
 	}
 	else if (n == 2)
 	{
 		// The similarity as a complex multiplication: z' = s z + t.
-		auto const p = pairs[1].map - pairs[0].map;
-		auto const q = pairs[1].reference - pairs[0].reference;
+		auto const p = used[1].map - used[0].map;
+		auto const q = used[1].reference - used[0].reference;
 		auto const norm = p.x() * p.x() + p.y() * p.y();
 		if (!(norm > 1e-12))
 			return fit;
 		auto const a = (q.x() * p.x() + q.y() * p.y()) / norm;
 		auto const b = (q.y() * p.x() - q.x() * p.y()) / norm;
-		auto const& m = pairs[0].map;
-		auto const& r = pairs[0].reference;
+		auto const& m = used[0].map;
+		auto const& r = used[0].reference;
 		fit.transform = QTransform(a, b, -b, a, r.x() - (a * m.x() - b * m.y()), r.y() - (b * m.x() + a * m.y()));
 	}
 	else
 	{
 		// Least squares, exact for three pairs; centred for precision.
 		double mx = 0, my = 0, rx = 0, ry = 0;
-		for (auto const& pair : pairs)
+		for (auto const& pair : used)
 		{
 			mx += pair.map.x();
 			my += pair.map.y();
@@ -252,7 +256,7 @@ PairFit fitPointPairs(const std::vector<PointPair>& pairs)
 		rx /= n;
 		ry /= n;
 		double sxx = 0, sxy = 0, syy = 0, sxu = 0, syu = 0, sxv = 0, syv = 0;
-		for (auto const& pair : pairs)
+		for (auto const& pair : used)
 		{
 			auto const x = pair.map.x() - mx;
 			auto const y = pair.map.y() - my;
@@ -297,20 +301,36 @@ double distanceToSegment(const MapCoordF& p, const MapCoordF& a, const MapCoordF
 	return std::hypot(p.x() - a.x() - t * ab.x(), p.y() - a.y() - t * ab.y());
 }
 
-double distanceToPerimeter(const std::vector<MapCoordF>& perimeter, const MapCoordF& p)
+double distanceToPerimeter(const std::vector<std::vector<MapCoordF>>& perimeter, const MapCoordF& p)
 {
 	auto distance = std::numeric_limits<double>::infinity();
-	for (std::size_t i = 0; i < perimeter.size(); ++i)
-		distance = std::min(distance, distanceToSegment(p, perimeter[i], perimeter[(i + 1) % perimeter.size()]));
+	for (auto const& polygon : perimeter)
+	{
+		for (std::size_t i = 0; i < polygon.size(); ++i)
+			distance = std::min(distance, distanceToSegment(p, polygon[i], polygon[(i + 1) % polygon.size()]));
+	}
 	return distance;
 }
 
-QPolygonF toPolygon(const std::vector<MapCoordF>& perimeter)
+/// The polygons with three or more vertices.
+std::vector<QPolygonF> toPolygons(const std::vector<std::vector<MapCoordF>>& perimeter)
 {
-	QPolygonF polygon;
-	for (auto const& c : perimeter)
-		polygon << QPointF(c);
-	return polygon;
+	std::vector<QPolygonF> polygons;
+	for (auto const& vertices : perimeter)
+	{
+		if (vertices.size() < 3)
+			continue;
+		QPolygonF polygon;
+		for (auto const& c : vertices)
+			polygon << QPointF(c);
+		polygons.push_back(polygon);
+	}
+	return polygons;
+}
+
+bool samePoint(const MapCoordF& a, const MapCoordF& b)
+{
+	return std::hypot(a.x() - b.x(), a.y() - b.y()) < 1e-9;
 }
 
 /// The first line of the file names the system, by a name of its own.
@@ -362,9 +382,18 @@ bool warpMap(Map& map, const std::function<bool (const MapCoordF&)>& inside,
              bool include_protected, bool include_layout,
              bool handles_follow_vertices = true,
              const std::function<double (const MapCoordF&)>& rotation = {},
-             const std::vector<UndoStep*>& data_steps = {})
+             const std::vector<UndoStep*>& data_steps = {},
+             WarpReport* report = nullptr)
 {
 	auto const moved = [&displacement](const MapCoordF& c) { return c + displacement(c); };
+	double sum = 0;
+	WarpReport counted;
+	auto const record = [&counted, &sum](const MapCoordF& d) {
+		auto const length = std::hypot(d.x(), d.y());
+		counted.largest = std::max(counted.largest, length);
+		sum += length;
+		++counted.count;
+	};
 	
 	// The selection's drawing shares the objects' output, which the change replaces:
 	// the selection is cleared.
@@ -407,6 +436,7 @@ bool warpMap(Map& map, const std::function<bool (const MapCoordF&)>& inside,
 				if (inside(anchor))
 				{
 					auto const d = displacement(anchor);
+					record(d);
 					object->transform(QTransform::fromTranslate(d.x(), d.y()));
 				}
 			}
@@ -428,10 +458,15 @@ bool warpMap(Map& map, const std::function<bool (const MapCoordF&)>& inside,
 				auto* path = object->asPath();
 				for (std::size_t k = 0; k < original.size(); ++k)
 				{
+					// A closed part's closing coordinate follows its first one: setCoordinate()
+					// would copy the closing flags onto the first coordinate and break the parts.
+					if (original[k].isClosePoint())
+						continue;
 					auto const at = MapCoordF(original[vertex[k]]);
 					if (!inside(at))
 						continue;
 					auto const d = displacement(at);
+					record(d);
 					auto coord = original[k];
 					coord.setX(coord.x() + d.x());
 					coord.setY(coord.y() + d.y());
@@ -442,7 +477,11 @@ bool warpMap(Map& map, const std::function<bool (const MapCoordF&)>& inside,
 			{
 				auto const position = MapCoordF(original.front());
 				if (inside(position))
-					object->asPoint()->setPosition(MapCoord(moved(position)));
+				{
+					auto const d = displacement(position);
+					record(d);
+					object->asPoint()->setPosition(MapCoord(position + d));
+				}
 			}
 			// Orientations turn by the local rotation, as Object::rotate() does.
 			if (rotation && symbol && (symbol->hasRotatableFillPattern() || symbol->isRotatable()) && !original.empty() && inside(MapCoordF(original.front())))
@@ -467,6 +506,11 @@ bool warpMap(Map& map, const std::function<bool (const MapCoordF&)>& inside,
 		map.setCourseData(data);
 	}
 	
+	if (report)
+	{
+		counted.mean = counted.count > 0 ? sum / counted.count : 0.0;
+		*report = counted;
+	}
 	if (undo_step->getNumSubSteps() > 0)
 		map.push(undo_step.release());
 	map.updateAllObjects();
@@ -487,6 +531,8 @@ MapCoordF rubbersheetDisplacement(const RubbersheetParams& params, const MapCoor
 	double sum_x = 0, sum_y = 0, sum_w = 0;
 	for (auto const& pair : params.pairs)
 	{
+		if (!pair.used)
+			continue;
 		auto const d = pair.reference - pair.map;
 		auto const product = std::hypot(point.x() - pair.map.x(), point.y() - pair.map.y())
 		                     * std::hypot(point.x() - pair.reference.x(), point.y() - pair.reference.y());
@@ -497,7 +543,7 @@ MapCoordF rubbersheetDisplacement(const RubbersheetParams& params, const MapCoor
 		sum_y += w * d.y();
 		sum_w += w;
 	}
-	if (params.decrease_near_perimeter && params.perimeter.size() >= 3)
+	if (params.decrease_near_perimeter && !toPolygons(params.perimeter).empty())
 	{
 		auto const e = distanceToPerimeter(params.perimeter, point);
 		if (!(e > 1e-12))
@@ -510,15 +556,17 @@ MapCoordF rubbersheetDisplacement(const RubbersheetParams& params, const MapCoor
 }
 
 
-bool rubbersheetMap(Map& map, const RubbersheetParams& params)
+bool rubbersheetMap(Map& map, const RubbersheetParams& params, WarpReport* report)
 {
-	if (params.pairs.empty() || params.perimeter.size() < 3)
+	auto const polygons = toPolygons(params.perimeter);
+	if (polygons.empty() || std::none_of(params.pairs.begin(), params.pairs.end(), [](const PointPair& pair) { return pair.used; }))
 		return false;
-	auto const polygon = toPolygon(params.perimeter);
-	return warpMap(map,
-	               [&polygon](const MapCoordF& c) { return polygon.containsPoint(QPointF(c), Qt::OddEvenFill); },
+	auto const inside = [&polygons](const MapCoordF& c) {
+		return std::any_of(polygons.begin(), polygons.end(), [&c](const QPolygonF& polygon) { return polygon.containsPoint(QPointF(c), Qt::OddEvenFill); });
+	};
+	return warpMap(map, inside,
 	               [&params](const MapCoordF& c) { return rubbersheetDisplacement(params, c); },
-	               params.include_protected, params.include_layout);
+	               params.include_protected, params.include_layout, true, {}, {}, report);
 }
 
 
@@ -546,13 +594,15 @@ bool localWarpMap(Map& map, const LocalWarpParams& params)
 }
 
 
-bool reprojectMap(Map& map, const QString& id, const QString& spec, const std::vector<QString>& params)
+namespace {
+
+/// The georeferencing in the target system with the same reference point, scale and grivation.
+bool reprojectedGeoreferencing(const Georeferencing& old_georef, Georeferencing& next,
+                               const QString& id, const QString& spec, const std::vector<QString>& params)
 {
-	// the design notes, "Change of coordinate system".
-	Georeferencing const old_georef(map.getGeoreferencing());
 	if (old_georef.getState() != Georeferencing::Geospatial)
 		return false;
-	Georeferencing next(old_georef);
+	next = old_georef;
 	if (!next.setProjectedCRS(id, spec, params) || next.getState() != Georeferencing::Geospatial)
 		return false;
 	bool ok = false;
@@ -561,6 +611,43 @@ bool reprojectMap(Map& map, const QString& id, const QString& spec, const std::v
 		return false;
 	next.setProjectedRefPoint(reference, false, false);
 	next.setGrivation(old_georef.getGrivation());
+	return true;
+}
+
+}  // namespace
+
+
+QPointF proposedReprojectOffset(const Georeferencing& georef, const QString& id, const QString& spec, const std::vector<QString>& params, bool* ok)
+{
+	// the design notes, "Pair tables, perimeters and the dialogs beside the map".
+	Georeferencing next(georef);
+	bool ok_old = false, ok_new = false;
+	QPointF origin;
+	if (reprojectedGeoreferencing(georef, next, id, spec, params))
+	{
+		auto const lat_lon = georef.toGeographicCoords(MapCoordF(0.0, 0.0), &ok_old);
+		if (ok_old)
+			origin = next.toProjectedCoords(lat_lon, &ok_new);
+	}
+	if (ok)
+		*ok = ok_old && ok_new;
+	return { std::round(origin.x() / 1000.0) * 1000.0, std::round(origin.y() / 1000.0) * 1000.0 };
+}
+
+
+bool reprojectMap(Map& map, const QString& id, const QString& spec, const std::vector<QString>& params, const QPointF* offset)
+{
+	// the design notes, "Change of coordinate system".
+	Georeferencing const old_georef(map.getGeoreferencing());
+	Georeferencing next(old_georef);
+	if (!reprojectedGeoreferencing(old_georef, next, id, spec, params))
+		return false;
+	if (offset)
+	{
+		// The origin to the offset, in whole map units as in centerMap().
+		auto const shift = -MapCoord(next.toMapCoordF(*offset));
+		next.setMapRefPoint(next.getMapRefPoint() + shift);
+	}
 	
 	// Where the new georeferencing puts the old geographic position.
 	auto const mapping = [&old_georef, &next](const MapCoordF& p) {
@@ -697,7 +784,8 @@ bool writeRubbersheetPoints(const QString& path, const Map& map, const std::vect
 		auto const from = georef.toProjectedCoords(pair.map);
 		auto const to = georef.toProjectedCoords(pair.reference);
 		lines << QStringList{ formatMetres(from.x()), formatMetres(from.y()), formatMetres(to.x()), formatMetres(to.y()),
-		                      QStringLiteral("1"), formatMetres(std::hypot(to.x() - from.x(), to.y() - from.y())) }.join(QLatin1Char(';'));
+		                      pair.used ? QStringLiteral("1") : QStringLiteral("0"),
+		                      formatMetres(std::hypot(to.x() - from.x(), to.y() - from.y())) }.join(QLatin1Char(';'));
 	}
 	return writeLines(path, lines, error);
 }
@@ -713,31 +801,38 @@ std::vector<PointPair> readRubbersheetPoints(const QString& path, const Map& map
 		auto const fields = lines[i].split(QLatin1Char(';'));
 		if (fields.size() < 4)
 			continue;
-		if (fields.size() >= 5 && fields[4].trimmed() == QLatin1String("0"))
-			continue;
 		pairs.push_back({ georef.toMapCoordF(QPointF(fields[0].toDouble(), fields[1].toDouble())),
-		                  georef.toMapCoordF(QPointF(fields[2].toDouble(), fields[3].toDouble())) });
+		                  georef.toMapCoordF(QPointF(fields[2].toDouble(), fields[3].toDouble())),
+		                  !(fields.size() >= 5 && fields[4].trimmed() == QLatin1String("0")) });
 	}
 	return pairs;
 }
 
 
-bool writeRubbersheetPerimeter(const QString& path, const Map& map, const std::vector<MapCoordF>& perimeter, QString* error)
+bool writeRubbersheetPerimeter(const QString& path, const Map& map, const std::vector<std::vector<MapCoordF>>& perimeter, QString* error)
 {
 	auto const& georef = map.getGeoreferencing();
-	QStringList lines = { systemLine(georef), QStringLiteral("m"), QStringLiteral("1") };
-	for (auto const& c : perimeter)
+	QStringList lines = { systemLine(georef), QStringLiteral("m"), QString::number(perimeter.size()) };
+	for (auto const& polygon : perimeter)
 	{
-		auto const p = georef.toProjectedCoords(c);
-		lines << formatMetres(p.x()) + QLatin1Char(';') + formatMetres(p.y());
+		// Each polygon closed by its first vertex (a file may repeat a vertex where the drawing ended).
+		auto vertices = polygon;
+		if (!vertices.empty() && !samePoint(vertices.front(), vertices.back()))
+			vertices.push_back(vertices.front());
+		for (auto const& c : vertices)
+		{
+			auto const p = georef.toProjectedCoords(c);
+			lines << formatMetres(p.x()) + QLatin1Char(';') + formatMetres(p.y());
+		}
 	}
 	return writeLines(path, lines, error);
 }
 
 
-std::vector<MapCoordF> readRubbersheetPerimeter(const QString& path, const Map& map, QString* error)
+std::vector<std::vector<MapCoordF>> readRubbersheetPerimeter(const QString& path, const Map& map, QString* error)
 {
-	std::vector<MapCoordF> perimeter;
+	std::vector<std::vector<MapCoordF>> perimeter;
+	std::vector<MapCoordF> polygon;
 	auto const lines = readLines(path, error);
 	auto const& georef = map.getGeoreferencing();
 	for (int i = 3; i < lines.size(); ++i)
@@ -747,12 +842,71 @@ std::vector<MapCoordF> readRubbersheetPerimeter(const QString& path, const Map& 
 			continue;
 		auto const c = georef.toMapCoordF(QPointF(fields[0].toDouble(), fields[1].toDouble()));
 		// A file may repeat the last vertex, where the drawing was finished.
-		if (perimeter.empty() || std::hypot(c.x() - perimeter.back().x(), c.y() - perimeter.back().y()) > 1e-9)
-			perimeter.push_back(c);
+		if (!polygon.empty() && samePoint(c, polygon.back()))
+			continue;
+		if (polygon.size() >= 3 && samePoint(c, polygon.front()))
+		{
+			// The polygon is closed; the next vertex starts another (Proposed).
+			perimeter.push_back(polygon);
+			polygon.clear();
+			continue;
+		}
+		polygon.push_back(c);
 	}
-	if (perimeter.size() > 1 && std::hypot(perimeter.front().x() - perimeter.back().x(), perimeter.front().y() - perimeter.back().y()) < 1e-9)
-		perimeter.pop_back();
+	if (polygon.size() >= 3)
+		perimeter.push_back(polygon);
 	return perimeter;
+}
+
+
+GeomagneticField parseGeomagneticReply(const QByteArray& xml)
+{
+	// the design notes, "Measured declination data".
+	GeomagneticField field;
+	QXmlStreamReader reader(xml);
+	QString section;
+	while (!reader.atEnd())
+	{
+		auto const token = reader.readNext();
+		if (token != QXmlStreamReader::StartElement)
+			continue;
+		auto const name = reader.name();
+		if (name == QLatin1String("field-value") || name == QLatin1String("secular-variation"))
+		{
+			section = name.toString();
+			continue;
+		}
+		bool ok = false;
+		if (section == QLatin1String("field-value") && name == QLatin1String("declination"))
+		{
+			field.declination = reader.readElementText().toDouble(&ok);
+			field.has_declination = ok;
+		}
+		else if (section == QLatin1String("field-value") && name == QLatin1String("horizontal-intensity"))
+		{
+			field.horizontal_intensity = reader.readElementText().toDouble(&ok);
+			field.has_horizontal_intensity = ok;
+		}
+		else if (section == QLatin1String("secular-variation") && name == QLatin1String("declination"))
+		{
+			auto const units = reader.attributes().value(QLatin1String("units")).toString();
+			auto const value = reader.readElementText().toDouble(&ok);
+			// The service gives arcmin per year.
+			field.yearly_change = units.startsWith(QLatin1String("deg")) ? value : value / 60.0;
+			field.has_yearly_change = ok;
+		}
+	}
+	return field;
+}
+
+
+double declinationUncertainty(double horizontal_intensity)
+{
+	// The World Magnetic Model 2025 error model.
+	if (!(horizontal_intensity > 0))
+		return std::numeric_limits<double>::infinity();
+	auto const h = 5417.0 / horizontal_intensity;
+	return std::sqrt(0.26 * 0.26 + h * h);
 }
 
 

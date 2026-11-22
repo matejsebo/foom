@@ -20,9 +20,12 @@
 #ifndef FOOM_AFFINE_TRANSFORM_TOOL_H
 #define FOOM_AFFINE_TRANSFORM_TOOL_H
 
+#include <cstddef>
 #include <vector>
 
 #include <QObject>
+#include <QPointer>
+#include <QString>
 
 #include "core/map_coord.h"
 #include "core/map_transform.h"
@@ -37,13 +40,15 @@ namespace OpenOrienteering {
 
 class MapEditorController;
 class MapWidget;
+class PointPairsWindow;
 
 
 /**
  * The map-affine tool: pairs of a map point and the same point on the reference,
- * then Enter transforms the map.
+ * listed in a window beside the map, then Enter or Transform transforms the map.
  *
- * See the design notes, "Affine by point pairs".
+ * See the design notes, "Affine by point pairs" and
+ * "Pair tables, perimeters and the dialogs beside the map".
  */
 class AffineTransformTool : public MapEditorToolBase
 {
@@ -52,10 +57,26 @@ public:
 	AffineTransformTool(MapEditorController* editor, QAction* tool_action);
 	~AffineTransformTool() override;
 	
-	/// The complete pairs so far.
+	/// The complete pairs so far, used or not.
 	const std::vector<PointPair>& pairs() const { return point_pairs; }
 	
+	/// The window beside the map, while the tool is active.
+	PointPairsWindow* pairsWindow() const;
+	
+	void setPairUsed(std::size_t index, bool used);
+	void removePair(std::size_t index);
+	void removeAllPairs();
+	
+	/// Replaces the pairs by those of a points file.
+	bool loadPairs(const QString& path, QString* error);
+	/// Writes the pairs as a points file.
+	bool savePairs(const QString& path, QString* error) const;
+	
+	/// What Enter and Transform do.
+	virtual void transformMap();
+	
 protected:
+	void initImpl() override;
 	void updateStatusText() override;
 	void objectSelectionChangedImpl() override;
 	
@@ -65,10 +86,24 @@ protected:
 	void drawImpl(QPainter* painter, MapWidget* widget) override;
 	int updateDirtyRectImpl(QRectF& rect) override;
 	
+	/// Creates the window; the rubbersheet tool adds its sections.
+	virtual PointPairsWindow* createWindow();
+	
+	/// Updates the table, the drawing and the status bar.
+	void pairsChanged();
+	
+	/// The number of used pairs.
+	int usedPairs() const;
+	
+	/// Ends the tool, once.
+	void finish();
+	
 private:
 	std::vector<PointPair> point_pairs;
 	MapCoordF pending;
 	bool has_pending = false;
+	bool finishing = false;
+	QPointer<PointPairsWindow> window;
 };
 
 

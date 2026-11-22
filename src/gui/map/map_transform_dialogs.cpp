@@ -132,10 +132,15 @@ bool MapStretchDialog::carry() const { return carry_check->isChecked(); }
 
 ReprojectDialog::ReprojectDialog(const Georeferencing& georef, QWidget* parent)
 : QDialog(parent)
+, georef(std::make_unique<Georeferencing>(georef))
 {
 	setWindowTitle(tr("Change coordinate system"));
 	auto* form = new QFormLayout();
 	form->addRow(tr("Change map from:"), new QLabel(georef.getProjectedCRSName() + QStringLiteral(" (") + georef.getProjectedCRSSpec() + QLatin1Char(')')));
+	// The offsets: the projected coordinates of the map's origin.
+	auto const origin = georef.toProjectedCoords(MapCoordF(0.0, 0.0));
+	form->addRow(tr("Easting offset:"), new QLabel(QString::number(origin.x(), 'f', 2) + QStringLiteral(" m")));
+	form->addRow(tr("Northing offset:"), new QLabel(QString::number(origin.y(), 'f', 2) + QStringLiteral(" m")));
 	selector = new CRSSelector(georef, nullptr);
 	form->addRow(tr("To:"), selector);
 	selector->setDialogLayout(form);
@@ -145,10 +150,48 @@ ReprojectDialog::ReprojectDialog(const Georeferencing& georef, QWidget* parent)
 		selector->setCurrentCRS(current, parameters);
 	else
 		selector->setCurrentCRS(CRSTemplateRegistry().find(QStringLiteral("PROJ.4")), { georef.getProjectedCRSSpec() });
-	finish(this, form);
+	// The target's offsets, proposed when a system is chosen.
+	east_edit = makeEdit(origin.x(), -1e9, 1e9, QStringLiteral(" m"));
+	east_edit->setObjectName(QStringLiteral("east_offset"));
+	north_edit = makeEdit(origin.y(), -1e9, 1e9, QStringLiteral(" m"));
+	north_edit->setObjectName(QStringLiteral("north_offset"));
+	auto* target_form = new QFormLayout();
+	target_form->addRow(tr("Easting offset:"), east_edit);
+	target_form->addRow(tr("Northing offset:"), north_edit);
+	connect(selector, &CRSSelector::crsChanged, this, &ReprojectDialog::proposeOffset);
+	proposeOffset();
+	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+	connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+	connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+	auto* layout = new QVBoxLayout(this);
+	layout->addLayout(form);
+	layout->addLayout(target_form);
+	layout->addWidget(buttons);
 }
 
 ReprojectDialog::~ReprojectDialog() = default;
+
+void ReprojectDialog::setTargetCRS(const QString& id, const std::vector<QString>& parameters)
+{
+	if (auto const* crs = CRSTemplateRegistry().find(id))
+		selector->setCurrentCRS(crs, parameters);
+	proposeOffset();
+}
+
+QPointF ReprojectDialog::targetOffset() const
+{
+	return { east_edit->value(), north_edit->value() };
+}
+
+void ReprojectDialog::proposeOffset()
+{
+	bool ok = false;
+	auto const offset = proposedReprojectOffset(*georef, crsId(), crsSpec(), crsParameters(), &ok);
+	if (!ok)
+		return;
+	east_edit->setValue(offset.x());
+	north_edit->setValue(offset.y());
+}
 
 QString ReprojectDialog::crsId() const
 {
@@ -205,6 +248,17 @@ double MagneticNorthDialog::declination() const { return declination_edit->value
 bool MagneticNorthDialog::keepSelectedSymbols() const { return symbols_check->isChecked(); }
 bool MagneticNorthDialog::keepLayout() const { return layout_check->isChecked(); }
 
+QString MagneticNorthDialog::declinationText(const GeomagneticField& field)
+{
+	// The usual form, with the numbers of the lookup.
+	QString text = tr("Magnetic declination: %1°").arg(field.declination, 0, 'f', 3);
+	if (field.has_horizontal_intensity)
+		text += QStringLiteral(" ±") + QString::number(declinationUncertainty(field.horizontal_intensity), 'f', 2) + QStringLiteral("°");
+	if (field.has_yearly_change)
+		text += QLatin1Char(' ') + tr("changing by %1° per year").arg(field.yearly_change, 0, 'f', 3);
+	return text;
+}
+
 void MagneticNorthDialog::updateAngles()
 {
 	auto const rotation = magneticNorthRotation(*georef, declination());
@@ -239,25 +293,12 @@ void MagneticNorthDialog::lookUpDeclination()
 	connect(reply, &QNetworkReply::finished, this, [this, reply]() {
 		reply->deleteLater();
 		lookup_button->setEnabled(true);
-		auto found = false;
+		GeomagneticField field;
 		if (reply->error() == QNetworkReply::NoError)
-		{
-			QXmlStreamReader xml(reply);
-			while (!xml.atEnd() && !found)
-			{
-				if (xml.readNext() == QXmlStreamReader::StartElement && xml.name() == QLatin1String("declination"))
-				{
-					bool ok = false;
-					auto const value = xml.readElementText(QXmlStreamReader::IncludeChildElements).toDouble(&ok);
-					if (ok)
-					{
-						declination_edit->setValue(Georeferencing::roundDeclination(value));
-						found = true;
-					}
-				}
-			}
-		}
-		lookup_label->setText(found ? QString{} : tr("The online lookup failed."));
+			field = parseGeomagneticReply(reply->readAll());
+		if (field.has_declination)
+			declination_edit->setValue(Georeferencing::roundDeclination(field.declination));
+		lookup_label->setText(field.has_declination ? declinationText(field) : tr("The online lookup failed."));
 	});
 #else
 	query.addQueryItem(QStringLiteral("format"), QStringLiteral("html"));

@@ -456,7 +456,7 @@ private slots:
 	{
 		// the design notes, "Rubbersheeting", Accept (1).
 		RubbersheetParams params;
-		params.perimeter = { MapCoordF(-1000, -1000), MapCoordF(1000, -1000), MapCoordF(1000, 1000), MapCoordF(-1000, 1000) };
+		params.perimeter = { { MapCoordF(-1000, -1000), MapCoordF(1000, -1000), MapCoordF(1000, 1000), MapCoordF(-1000, 1000) } };
 		params.pairs = { { MapCoordF(3.0, 4.0), MapCoordF(5.0, 1.0) } };
 		for (auto const& p : { MapCoordF(0, 0), MapCoordF(3, 4), MapCoordF(-200, 500) })
 			QVERIFY(near(rubbersheetDisplacement(params, p), MapCoordF(2.0, -3.0), 1e-9));
@@ -472,7 +472,7 @@ private slots:
 	{
 		// Accept (2).
 		RubbersheetParams params;
-		params.perimeter = { MapCoordF(-10, -10), MapCoordF(10, -10), MapCoordF(10, 10), MapCoordF(-10, 10) };
+		params.perimeter = { { MapCoordF(-10, -10), MapCoordF(10, -10), MapCoordF(10, 10), MapCoordF(-10, 10) } };
 		params.pairs = { { MapCoordF(0, 0), MapCoordF(2, 0) } };
 		
 		TestMap t;
@@ -502,7 +502,7 @@ private slots:
 		t.map.addObject(guarded);
 		
 		RubbersheetParams params;
-		params.perimeter = { MapCoordF(-500, -500), MapCoordF(500, -500), MapCoordF(500, 500), MapCoordF(-500, 500) };
+		params.perimeter = { { MapCoordF(-500, -500), MapCoordF(500, -500), MapCoordF(500, 500), MapCoordF(-500, 500) } };
 		params.pairs = { { MapCoordF(0, 0), MapCoordF(4, 0) }, { MapCoordF(60, 60), MapCoordF(60, 60) }, { MapCoordF(-60, 30), MapCoordF(-60, 33) } };
 		auto const path_before = t.path->getRawCoordinateVector();
 		auto const point_before = MapCoordF(t.rotated->getCoordF());
@@ -545,7 +545,7 @@ private slots:
 		TestMap t;
 		QTemporaryDir dir;
 		std::vector<PointPair> pairs = { { MapCoordF(12.5, -3.25), MapCoordF(14.0, -2.0) }, { MapCoordF(-40.0, 22.0), MapCoordF(-40.0, 22.0) } };
-		std::vector<MapCoordF> perimeter = { MapCoordF(-50, -50), MapCoordF(50, -50), MapCoordF(50, 50), MapCoordF(-50, 50) };
+		std::vector<std::vector<MapCoordF>> perimeter = { { MapCoordF(-50, -50), MapCoordF(50, -50), MapCoordF(50, 50), MapCoordF(-50, 50) } };
 		auto const points_path = dir.filePath(QStringLiteral("points.txt"));
 		auto const perimeter_path = dir.filePath(QStringLiteral("perimeter.txt"));
 		QString error;
@@ -561,8 +561,9 @@ private slots:
 		}
 		auto const read_perimeter = readRubbersheetPerimeter(perimeter_path, t.map, &error);
 		QCOMPARE(read_perimeter.size(), perimeter.size());
-		for (std::size_t i = 0; i < perimeter.size(); ++i)
-			QVERIFY(near(read_perimeter[i], perimeter[i], 0.00125));
+		QCOMPARE(read_perimeter.front().size(), perimeter.front().size());
+		for (std::size_t i = 0; i < perimeter.front().size(); ++i)
+			QVERIFY(near(read_perimeter.front()[i], perimeter.front()[i], 0.00125));
 		
 		QFile file(points_path);
 		QVERIFY(file.open(QIODevice::ReadOnly));
@@ -581,7 +582,10 @@ private slots:
 		QVERIFY(file.open(QIODevice::WriteOnly));
 		file.write(text.join(QStringLiteral("\r\n")).toUtf8());
 		file.close();
-		QCOMPARE(readRubbersheetPoints(points_path, t.map, &error).size(), std::size_t(1));
+		auto const left_out = readRubbersheetPoints(points_path, t.map, &error);
+		QCOMPARE(left_out.size(), std::size_t(2));
+		QVERIFY(left_out[0].used);
+		QVERIFY(!left_out[1].used);
 	}
 	
 	
@@ -591,7 +595,7 @@ private slots:
 		TestMap t;
 		auto const before = t.snapshot();
 		RubbersheetParams params;
-		params.perimeter = { MapCoordF(-500, -500), MapCoordF(500, -500), MapCoordF(500, 500), MapCoordF(-500, 500) };
+		params.perimeter = { { MapCoordF(-500, -500), MapCoordF(500, -500), MapCoordF(500, 500), MapCoordF(-500, 500) } };
 		params.pairs = { { MapCoordF(0, 0), MapCoordF(4, 0) }, { MapCoordF(60, 60), MapCoordF(60, 60) } };
 		QVERIFY(rubbersheetMap(t.map, params));
 		QCOMPARE(t.map.undoManager().undoStepCount(), 1);
@@ -836,6 +840,276 @@ private slots:
 		QVERIFY(std::abs(restored.x() - 950000.0) < 0.001 && std::abs(restored.y() - 500000.0) < 0.001);
 		QVERIFY(t.map.getPart(0)->getObject(0)->getRawCoordinateVector() == path_before);
 		QCOMPARE(t.map.extents().front().rect_mm, before.extents.front().rect_mm);
+	}
+	
+	
+	// the design notes, "Pair tables, perimeters and the dialogs beside the map".
+	
+	void pairSwitchesTest()
+	{
+		// Accept (1).
+		std::vector<PointPair> pairs = {
+		    { MapCoordF(0, 0), MapCoordF(3, -4) },
+		    { MapCoordF(20, 0), MapCoordF(23, -4) },
+		    { MapCoordF(0, 30), MapCoordF(3, 26) },
+		    { MapCoordF(25, 25), MapCoordF(38, 21) },  // 10 mm off the translation
+		};
+		pairs[3].used = false;
+		auto const fit = fitPointPairs(pairs);
+		QVERIFY(fit.ok);
+		for (auto const& p : { QPointF(0, 0), QPointF(100, -50), QPointF(-7, 13) })
+			QVERIFY(near(MapCoordF(fit.transform.map(p)), MapCoordF(p) + MapCoordF(3, -4), 1e-9));
+		QCOMPARE(int(fit.residuals.size()), 4);
+		for (int i = 0; i < 3; ++i)
+			QVERIFY(std::abs(fit.residuals[std::size_t(i)]) < 1e-9);
+		QVERIFY(std::abs(fit.residuals[3] - 10.0) < 1e-9);
+	
+		pairs[0].used = false;
+		pairs[2].used = false;
+		auto const one = fitPointPairs(pairs);
+		QVERIFY(one.ok);
+		QVERIFY(near(MapCoordF(one.transform.map(QPointF(5, 5))), MapCoordF(8, 1), 1e-9));
+		pairs[1].used = false;
+		QVERIFY(!fitPointPairs(pairs).ok);
+	
+		// Accept (2).
+		RubbersheetParams params;
+		params.perimeter = { { MapCoordF(-1000, -1000), MapCoordF(1000, -1000), MapCoordF(1000, 1000), MapCoordF(-1000, 1000) } };
+		params.pairs = { { MapCoordF(0, 0), MapCoordF(0, 0) }, { MapCoordF(100, 0), MapCoordF(110, 0) } };
+		auto with_unused = params;
+		with_unused.pairs.push_back({ MapCoordF(40, 40), MapCoordF(-40, 80), false });
+		for (auto const& p : { MapCoordF(50, 0), MapCoordF(40, 40), MapCoordF(-300, 20) })
+			QVERIFY(near(rubbersheetDisplacement(with_unused, p), rubbersheetDisplacement(params, p), 1e-12));
+		with_unused.pairs = { { MapCoordF(40, 40), MapCoordF(-40, 80), false } };
+		TestMap t;
+		QVERIFY(!rubbersheetMap(t.map, with_unused));
+	}
+	
+	
+	void pointsFileUsedTest()
+	{
+		// Accept (3).
+		TestMap t;
+		QTemporaryDir dir;
+		std::vector<PointPair> pairs = { { MapCoordF(12.5, -3.25), MapCoordF(14.0, -2.0) },
+		                                 { MapCoordF(-40.0, 22.0), MapCoordF(-41.0, 22.0), false },
+		                                 { MapCoordF(5.0, 5.0), MapCoordF(5.0, 6.0) } };
+		auto const path = dir.filePath(QStringLiteral("points.txt"));
+		QString error;
+		QVERIFY2(writeRubbersheetPoints(path, t.map, pairs, &error), qPrintable(error));
+		auto const read = readRubbersheetPoints(path, t.map, &error);
+		QCOMPARE(read.size(), pairs.size());
+		for (std::size_t i = 0; i < pairs.size(); ++i)
+		{
+			QCOMPARE(read[i].used, pairs[i].used);
+			QVERIFY(near(read[i].map, pairs[i].map, 0.00125));
+			QVERIFY(near(read[i].reference, pairs[i].reference, 0.00125));
+		}
+		QFile file(path);
+		QVERIFY(file.open(QIODevice::ReadOnly));
+		auto const lines = QString::fromUtf8(file.readAll()).split(QStringLiteral("\r\n"));
+		QVERIFY(lines.size() >= 6);
+		QCOMPARE(lines[2], QStringLiteral("3"));
+		QVERIFY2(lines[4].endsWith(QStringLiteral(";0;4.00")), qPrintable(lines[4]));  // 1 mm at 1:4000
+		QVERIFY(lines[3].split(QLatin1Char(';'))[4] == QStringLiteral("1"));
+	}
+	
+	
+	void perimetersTest()
+	{
+		// Accept (4).
+		RubbersheetParams params;
+		params.perimeter = { { MapCoordF(-10, -10), MapCoordF(10, -10), MapCoordF(10, 10), MapCoordF(-10, 10) },
+		                     { MapCoordF(40, -10), MapCoordF(60, -10), MapCoordF(60, 10), MapCoordF(40, 10) } };
+		params.pairs = { { MapCoordF(0, 0), MapCoordF(2, 0) } };
+		TestMap t;
+		auto* probe = new PathObject(t.line, MapCoordVector{ MapCoord(0.0, 0.0), MapCoord(30.0, 0.0), MapCoord(50.0, 0.0) });
+		t.map.addObject(probe);
+		QVERIFY(rubbersheetMap(t.map, params));
+		auto const& moved = probe->getRawCoordinateVector();
+		QVERIFY(near(MapCoordF(moved[0]), MapCoordF(2, 0)));
+		QVERIFY(near(MapCoordF(moved[1]), MapCoordF(30, 0)));
+		QVERIFY(near(MapCoordF(moved[2]), MapCoordF(52, 0)));
+	
+		params.decrease_near_perimeter = true;
+		auto const p = MapCoordF(50, 5);
+		auto const w = 1 / (std::hypot(50.0, 5.0) * std::hypot(48.0, 5.0));
+		QVERIFY(near(rubbersheetDisplacement(params, p), MapCoordF(2 * w / (w + 4.0 / 25), 0), 1e-9));
+	
+		QTemporaryDir dir;
+		auto const path = dir.filePath(QStringLiteral("perimeter.txt"));
+		QString error;
+		QVERIFY2(writeRubbersheetPerimeter(path, t.map, params.perimeter, &error), qPrintable(error));
+		auto const read = readRubbersheetPerimeter(path, t.map, &error);
+		QCOMPARE(read.size(), std::size_t(2));
+		for (std::size_t k = 0; k < 2; ++k)
+		{
+			QCOMPARE(read[k].size(), params.perimeter[k].size());
+			for (std::size_t i = 0; i < read[k].size(); ++i)
+				QVERIFY(near(read[k][i], params.perimeter[k][i], 0.00125));
+		}
+		QFile file(path);
+		QVERIFY(file.open(QIODevice::ReadOnly));
+		auto const lines = QString::fromUtf8(file.readAll()).split(QStringLiteral("\r\n"));
+		file.close();
+		QCOMPARE(lines[2], QStringLiteral("2"));
+	
+		// One polygon with its last vertex repeated, as written before.
+		auto const& georef = t.map.getGeoreferencing();
+		QStringList old_file = { QStringLiteral("EPSG:26954"), QStringLiteral("m"), QStringLiteral("1") };
+		for (auto const& c : { MapCoordF(-10, -10), MapCoordF(10, -10), MapCoordF(10, 10), MapCoordF(10, 10) })
+		{
+			auto const q = georef.toProjectedCoords(c);
+			old_file << QString::number(q.x(), 'f', 2) + QLatin1Char(';') + QString::number(q.y(), 'f', 2);
+		}
+		QVERIFY(file.open(QIODevice::WriteOnly));
+		file.write(old_file.join(QStringLiteral("\r\n")).toUtf8());
+		file.close();
+		auto const single = readRubbersheetPerimeter(path, t.map, &error);
+		QCOMPARE(single.size(), std::size_t(1));
+		QCOMPARE(single.front().size(), std::size_t(3));
+	}
+	
+	
+	void rubbersheetReportTest()
+	{
+		// Accept (5).
+		RubbersheetParams params;
+		params.perimeter = { { MapCoordF(-100, -100), MapCoordF(100, -100), MapCoordF(100, 100), MapCoordF(-100, 100) } };
+		params.pairs = { { MapCoordF(0, 0), MapCoordF(2, 0) } };
+		Map map;
+		auto* line = new LineSymbol();
+		map.addSymbol(line, 0);
+		map.addObject(new PathObject(line, MapCoordVector{ MapCoord(0.0, 0.0), MapCoord(30.0, 0.0), MapCoord(50.0, 20.0) }));
+		WarpReport report;
+		QVERIFY(rubbersheetMap(map, params, &report));
+		QCOMPARE(report.count, 3);
+		QVERIFY(std::abs(report.largest - 2.0) < 1e-9);
+		QVERIFY(std::abs(report.mean - 2.0) < 1e-9);
+	}
+	
+	
+	void rubbersheetClosedPartsTest()
+	{
+		// Accept (12): the crash seen on 2026-11-21, a second perimeter polygon over a map of closed areas.
+		RubbersheetParams params;
+		params.perimeter = { { MapCoordF(-100, -100), MapCoordF(100, -100), MapCoordF(100, 100), MapCoordF(-100, 100) },
+		                     { MapCoordF(-90, -90), MapCoordF(-60, -90), MapCoordF(-60, -60), MapCoordF(-90, -60) } };
+		params.pairs = { { MapCoordF(-80, -80), MapCoordF(-75, -78) }, { MapCoordF(50, 50), MapCoordF(50, 50) } };
+		Map map;
+		auto* line = new LineSymbol();
+		map.addSymbol(line, 0);
+		auto* area = new PathObject(line, MapCoordVector{ MapCoord(-85.0, -85.0), MapCoord(-20.0, -85.0), MapCoord(-20.0, -20.0), MapCoord(-85.0, -20.0) });
+		area->closeAllParts();
+		PathObject hole(line, MapCoordVector{ MapCoord(-70.0, -70.0), MapCoord(-30.0, -70.0), MapCoord(-30.0, -30.0) });
+		hole.closeAllParts();
+		area->appendPath(&hole);
+		map.addObject(area);
+		auto const before = area->getRawCoordinateVector();
+		QCOMPARE(area->parts().size(), std::size_t(2));
+	
+		WarpReport report;
+		QVERIFY(rubbersheetMap(map, params, &report));
+		auto const& after = area->getRawCoordinateVector();
+		QCOMPARE(after.size(), before.size());
+		for (std::size_t i = 0; i < after.size(); ++i)
+		{
+			QCOMPARE(after[i].isClosePoint(), before[i].isClosePoint());
+			QCOMPARE(after[i].isHolePoint(), before[i].isHolePoint());
+			QCOMPARE(after[i].isCurveStart(), before[i].isCurveStart());
+		}
+		QCOMPARE(area->parts().size(), std::size_t(2));
+		for (auto const& part : area->parts())
+		{
+			QVERIFY(part.isClosed());
+			QCOMPARE(after[part.last_index].x(), after[part.first_index].x());
+			QCOMPARE(after[part.last_index].y(), after[part.first_index].y());
+		}
+		QVERIFY(!near(MapCoordF(after[0]), MapCoordF(before[0])));
+		// Each closing coordinate follows its part's first one and is not counted.
+		QCOMPARE(report.count, 7);
+	
+		QVERIFY(map.undoManager().undo());
+		auto const* restored = map.getCurrentPart()->getObject(0)->asPath();
+		QCOMPARE(restored->getRawCoordinateVector().size(), before.size());
+		QCOMPARE(restored->parts().size(), std::size_t(2));
+	}
+	
+	
+	void reprojectOffsetTest()
+	{
+		// Accept (6).
+		TestMap t;
+		Georeferencing planar;
+		planar.setScaleDenominator(4000);
+		QVERIFY(planar.setProjectedCRS(QStringLiteral("EPSG"), QStringLiteral("EPSG:26954"), { QStringLiteral("26954") }));
+		planar.setMapRefPoint(MapCoord(0.0, 0.0));
+		planar.setProjectedRefPoint(QPointF(955000.0, 525000.0));
+		t.map.setGeoreferencing(planar);
+		auto const grivation = t.map.getGeoreferencing().getGrivation();
+		auto* a = new PathObject(t.line, MapCoordVector{ MapCoord(planar.toMapCoordF(QPointF(955400.0, 525200.0))), MapCoord(10.0, 10.0) });
+		t.map.addObject(a);
+		auto const index = t.map.getCurrentPart()->findObjectIndex(a);
+		auto const coords_before = a->getRawCoordinateVector();
+		t.map.undoManager().clear();
+	
+		bool ok = false;
+		auto const offset = proposedReprojectOffset(t.map.getGeoreferencing(), QStringLiteral("EPSG"), QStringLiteral("EPSG:26913"), { QStringLiteral("26913") }, &ok);
+		QVERIFY(ok);
+		QCOMPARE(offset, QPointF(498000.0, 4407000.0));
+		QVERIFY(reprojectMap(t.map, QStringLiteral("EPSG"), QStringLiteral("EPSG:26913"), { QStringLiteral("26913") }, &offset));
+		auto const origin = mapOffset(t.map);
+		QVERIFY2(std::abs(origin.x() - 498000.0) < 0.004 && std::abs(origin.y() - 4407000.0) < 0.004,
+		         qPrintable(QStringLiteral("%1 %2").arg(origin.x(), 0, 'f', 4).arg(origin.y(), 0, 'f', 4)));
+		auto const& after = t.map.getGeoreferencing();
+		auto const projected = after.toProjectedCoords(MapCoordF(a->getRawCoordinateVector()[0]));
+		QVERIFY2(std::abs(projected.x() - 498188.27) < 0.01 && std::abs(projected.y() - 4407527.37) < 0.01,
+		         qPrintable(QStringLiteral("%1 %2").arg(projected.x(), 0, 'f', 3).arg(projected.y(), 0, 'f', 3)));
+		QCOMPARE(after.getGrivation(), grivation);
+	
+		QCOMPARE(t.map.undoManager().undoStepCount(), 1);
+		QVERIFY(t.map.undoManager().undo());
+		QCOMPARE(t.map.getGeoreferencing().getProjectedCRSSpec(), QStringLiteral("EPSG:26954"));
+		QCOMPARE(t.map.getGeoreferencing().getProjectedRefPoint(), QPointF(955000.0, 525000.0));
+		QCOMPARE(t.map.getGeoreferencing().getMapRefPoint(), MapCoord(0.0, 0.0));
+		QVERIFY(t.map.getCurrentPart()->getObject(index)->getRawCoordinateVector() == coords_before);
+	}
+	
+	
+	void geomagneticTest()
+	{
+		// Accept (7), the reply measured on 2026-11-21, shortened.
+		QByteArray const reply =
+		    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+		    "<geomagnetic-field-model-result>\n"
+		    "  <model revision=\"2025\">wmm</model>\n"
+		    "  <field-value>\n"
+		    "    <total-intensity units=\"nT\">48291</total-intensity>\n"
+		    "    <declination units=\"deg (east)\">3.421</declination>\n"
+		    "    <inclination units=\"deg (down)\">63.288</inclination>\n"
+		    "    <horizontal-intensity units=\"nT\">21707</horizontal-intensity>\n"
+		    "  </field-value>\n"
+		    "  <secular-variation>\n"
+		    "    <total-intensity units=\"nT/y\">44.6</total-intensity>\n"
+		    "    <declination units=\"arcmin/y (east)\">7.6</declination>\n"
+		    "    <horizontal-intensity units=\"nT/y\">6.7</horizontal-intensity>\n"
+		    "  </secular-variation>\n"
+		    "</geomagnetic-field-model-result>\n";
+		auto const field = parseGeomagneticReply(reply);
+		QVERIFY(field.has_declination && field.has_horizontal_intensity && field.has_yearly_change);
+		QCOMPARE(field.declination, 3.421);
+		QCOMPARE(field.horizontal_intensity, 21707.0);
+		QVERIFY(std::abs(field.yearly_change - 7.6 / 60) < 1e-12);
+		QVERIFY(std::abs(declinationUncertainty(21707) - 0.36038) < 5e-5);
+	
+		auto shorter = reply;
+		auto const start = shorter.indexOf("  <secular-variation>");
+		auto const end = shorter.indexOf("</secular-variation>") + int(qstrlen("</secular-variation>\n"));
+		shorter.remove(start, end - start);
+		auto const without = parseGeomagneticReply(shorter);
+		QVERIFY(without.has_declination);
+		QCOMPARE(without.declination, 3.421);
+		QVERIFY(!without.has_yearly_change);
 	}
 };
 

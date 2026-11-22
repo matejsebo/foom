@@ -25,12 +25,13 @@
 #include <QCheckBox>
 #include <QColor>
 #include <QCursor>
-#include <QDialogButtonBox>
+#include <QHBoxLayout>
 #include <QFormLayout>
 #include <QKeyEvent>
 #include <QPainter>
 #include <QPen>
 #include <QPointF>
+#include <QPushButton>
 #include <QRectF>
 #include <QSpinBox>
 #include <QString>
@@ -53,6 +54,26 @@ LocalWarpTool::LocalWarpTool(MapEditorController* editor, QAction* tool_action, 
 LocalWarpTool::~LocalWarpTool() = default;
 
 
+void LocalWarpTool::setSettingsSource(LocalWarpDialog* dialog)
+{
+	source = dialog;
+	if (source)
+	{
+		connect(source, &LocalWarpDialog::settingsChanged, this, &LocalWarpTool::takeSettings);
+		takeSettings();
+	}
+}
+
+void LocalWarpTool::takeSettings()
+{
+	if (!source)
+		return;
+	settings = source->settings();
+	if (!dragging)
+		updateStatusText();
+}
+
+
 void LocalWarpTool::updateStatusText()
 {
 	if (dragging)
@@ -68,6 +89,8 @@ void LocalWarpTool::objectSelectionChangedImpl()
 
 void LocalWarpTool::dragStart()
 {
+	// The dialog's radius and options at each press.
+	takeSettings();
 	center = click_pos_map;
 	current = cur_pos_map;
 	dragging = true;
@@ -149,18 +172,37 @@ LocalWarpDialog::LocalWarpDialog(QWidget* parent)
 	radius_edit->setSingleStep(5);
 	radius_edit->setSuffix(QStringLiteral(" mm"));
 	radius_edit->setValue(int(defaults.radius));
+	radius_edit->setObjectName(QStringLiteral("radius"));
 	protected_check = new QCheckBox(tr("Transform objects with protected symbols"));
 	layout_check = new QCheckBox(tr("Transform layout objects"));
 	auto* form = new QFormLayout();
 	form->addRow(tr("Radius of transformation:"), radius_edit);
 	form->addRow(protected_check);
 	form->addRow(layout_check);
-	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
-	connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
-	connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+	// The dialog stays open beside the map.
+	auto* start_button = new QPushButton(tr("Start interactive transformation"));
+	start_button->setObjectName(QStringLiteral("start"));
+	auto* close_button = new QPushButton(tr("Close"));
+	close_button->setObjectName(QStringLiteral("close"));
+	auto* buttons = new QHBoxLayout();
+	buttons->addWidget(start_button);
+	buttons->addStretch(1);
+	buttons->addWidget(close_button);
+	connect(start_button, &QPushButton::clicked, this, &LocalWarpDialog::startRequested);
+	connect(close_button, &QPushButton::clicked, this, &LocalWarpDialog::reject);
+	connect(radius_edit, QOverload<int>::of(&QSpinBox::valueChanged), this, &LocalWarpDialog::settingsChanged);
+	connect(protected_check, &QCheckBox::toggled, this, &LocalWarpDialog::settingsChanged);
+	connect(layout_check, &QCheckBox::toggled, this, &LocalWarpDialog::settingsChanged);
 	auto* layout = new QVBoxLayout(this);
 	layout->addLayout(form);
-	layout->addWidget(buttons);
+	layout->addLayout(buttons);
+	setModal(false);
+}
+
+void LocalWarpDialog::reject()
+{
+	QDialog::reject();
+	emit closeRequested();
 }
 
 LocalWarpDialog::~LocalWarpDialog() = default;

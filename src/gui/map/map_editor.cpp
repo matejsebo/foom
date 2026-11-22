@@ -450,6 +450,7 @@ MapEditorController::~MapEditorController()
 	delete toolbar_mapparts;
 	delete print_dock_widget;
 	delete measure_dock_widget;
+	delete local_warp_dialog;  // foom
 	delete rangefinder_container.data();  // foom
 	delete course_dock_widget.data();  // foom
 	delete symbol_groups_dock_widget.data();  // foom
@@ -1258,8 +1259,8 @@ void MapEditorController::createActions()
 	map_rotate_magnetic_act = newAction("map-rotate-magnetic", tr("Rotate map to magnetic north..."), this, SLOT(mapRotateMagneticClicked()));  // foom
 	map_center_act = newAction("map-center", tr("Center map in drawing area..."), this, SLOT(mapCenterClicked()));  // foom
 	map_reproject_act = newAction("map-reproject", tr("Change coordinate system..."), this, SLOT(mapReprojectClicked()));  // foom
-	map_local_warp_act = newToolAction("map-local-warp", tr("Local transformation..."), this, SLOT(mapLocalWarpClicked()), nullptr, tr("Drag from a centre to a target to warp the map within a radius."));  // foom
-	map_rubbersheet_act = newToolAction("map-rubbersheet", tr("Rubbersheeting..."), this, SLOT(mapRubbersheetClicked()), nullptr, tr("Click a point of the map, then the same point on the reference; Enter shows the options. The selected closed path is the perimeter."));  // foom
+	map_local_warp_act = newToolAction("map-local-warp", tr("Local transformation..."), this, SLOT(mapLocalWarpClicked()), nullptr, tr("Opens the dialog of the local transformation; then drag from a centre to a target to warp the map within a radius."));  // foom
+	map_rubbersheet_act = newToolAction("map-rubbersheet", tr("Rubbersheeting..."), this, SLOT(mapRubbersheetClicked()), nullptr, tr("Click a point of the map, then the same point on the reference; the window beside the map holds the points, the perimeter and the options. The selected closed paths are the perimeter."));  // foom
 	map_affine_act = newToolAction("map-affine", tr("Affine..."), this, SLOT(mapAffineClicked()), nullptr, tr("Click a point of the map, then the same point on the reference; Enter transforms the map."));  // foom
 	map_notes_act = newAction("mapnotes", tr("Map notes..."), this, SLOT(mapNotesClicked()), nullptr, QString{}, "map_menu.html");
 	map_info_act = newAction("mapinfo", tr("Map information..."), this, SLOT(mapInfoClicked()), "map-information.png", QString{}, "map_menu.html");
@@ -8762,14 +8763,15 @@ void MapEditorController::mapReprojectClicked()
 	ReprojectDialog dialog(map->getGeoreferencing(), window);
 	if (dialog.exec() != QDialog::Accepted)
 		return;
-	if (!reprojectMap(dialog.crsId(), dialog.crsSpec(), dialog.crsParameters()))
+	auto const offset = dialog.targetOffset();
+	if (!reprojectMap(dialog.crsId(), dialog.crsSpec(), dialog.crsParameters(), &offset))
 		QMessageBox::warning(window, tr("Change coordinate system"), tr("The map cannot be changed to this coordinate reference system."));
 }
 
 // foom: the design notes, "Change of coordinate system".
-bool MapEditorController::reprojectMap(const QString& id, const QString& spec, const std::vector<QString>& params)
+bool MapEditorController::reprojectMap(const QString& id, const QString& spec, const std::vector<QString>& params, const QPointF* offset)
 {
-	if (!OpenOrienteering::reprojectMap(*map, id, spec, params))
+	if (!OpenOrienteering::reprojectMap(*map, id, spec, params, offset))
 		return false;
 	map->setHasUnsavedChanges(true);
 	return true;
@@ -8777,16 +8779,36 @@ bool MapEditorController::reprojectMap(const QString& id, const QString& spec, c
 
 void MapEditorController::mapLocalWarpClicked()
 {
-	LocalWarpDialog dialog(window);
-	if (dialog.exec() == QDialog::Accepted)
-		startLocalWarp(dialog.settings());
-	else if (map_local_warp_act)
-		map_local_warp_act->setChecked(false);
+	// the design notes, "Pair tables, perimeters and the dialogs beside the map":
+	// the dialog stays beside the map, and its Start starts the tool.
+	if (!local_warp_dialog)
+	{
+		local_warp_dialog = new LocalWarpDialog(window);
+		connect(local_warp_dialog, &LocalWarpDialog::startRequested, this, [this]() {
+			if (local_warp_dialog)
+				startLocalWarp(local_warp_dialog->settings());
+		});
+		connect(local_warp_dialog, &LocalWarpDialog::closeRequested, this, [this]() {
+			if (auto* tool = qobject_cast<LocalWarpTool*>(getTool()))
+				tool->deactivate();
+		});
+	}
+	if (map_local_warp_act)
+		map_local_warp_act->setChecked(qobject_cast<LocalWarpTool*>(getTool()) != nullptr);
+	local_warp_dialog->show();
+	local_warp_dialog->raise();
 }
 
 void MapEditorController::startLocalWarp(const LocalWarpParams& settings)
 {
-	setTool(new LocalWarpTool(this, map_local_warp_act, settings));
+	auto* tool = new LocalWarpTool(this, map_local_warp_act, settings);
+	tool->setSettingsSource(local_warp_dialog);
+	setTool(tool);
+}
+
+LocalWarpDialog* MapEditorController::localWarpDialog() const
+{
+	return local_warp_dialog;
 }
 
 // foom: the design notes, "Local transformation".
@@ -8804,9 +8826,9 @@ void MapEditorController::mapRubbersheetClicked()
 }
 
 // foom: the design notes, "Rubbersheeting".
-bool MapEditorController::rubbersheetMapWith(const RubbersheetParams& params)
+bool MapEditorController::rubbersheetMapWith(const RubbersheetParams& params, WarpReport* report)
 {
-	if (!rubbersheetMap(*map, params))
+	if (!rubbersheetMap(*map, params, report))
 		return false;
 	map->setHasUnsavedChanges(true);
 	return true;
