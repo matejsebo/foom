@@ -27,6 +27,7 @@
 #include <QtTest>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QFile>
@@ -631,6 +632,34 @@ private slots:
 			QCOMPARE(dialog.options().crs_mode, GeodataImportOptions::CrsUnreferenced);
 		}
 		QSettings().remove(QStringLiteral("GeodataImport"));
+	}
+
+	/// The help page (the design notes, "Help page")
+	void helpPageTest()
+	{
+		Map map;
+		setupMap(map);
+		GeodataImportDialog dialog({ gpkg() }, map, QRectF(-10.0, -10.0, 20.0, 20.0));
+		auto* buttons = dialog.findChild<QDialogButtonBox*>();
+		QVERIFY(buttons);
+		QVERIFY(buttons->button(QDialogButtonBox::Help));
+
+		auto const pages = QDir(QString::fromUtf8(MAPPER_TEST_SOURCE_DIR)).absoluteFilePath(QStringLiteral("../doc/manual/pages"));
+		QFile page(pages + QStringLiteral("/import_geodata.md"));
+		QVERIFY(page.open(QIODevice::ReadOnly));
+		auto const text = QString::fromUtf8(page.readAll());
+		QVERIFY(text.startsWith(QLatin1String("---")));
+		QVERIFY(text.contains(QLatin1String("title: Importing Data")));
+		for (auto const* heading : { "### Layers", "### Coordinate system", "### Options", "### The options of the last import" })
+			QVERIFY2(text.contains(QLatin1String(heading)), heading);
+		for (auto const* option : { "**As detected**", "**Override**", "**Unreferenced**", "**Clip**", "**Layer name tag**",
+		                            "**Text from attribute**", "**Import block references as point objects**",
+		                            "**Simplify**", "**Symbols**" })
+			QVERIFY2(text.contains(QLatin1String(option)), option);
+
+		QFile file_menu(pages + QStringLiteral("/file_menu.md"));
+		QVERIFY(file_menu.open(QIODevice::ReadOnly));
+		QVERIFY(file_menu.readAll().contains("(import_geodata.md)"));
 	}
 
 	void runnerTest()

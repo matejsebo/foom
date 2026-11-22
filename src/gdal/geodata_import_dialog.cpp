@@ -201,7 +201,7 @@ GeodataImportDialog::GeodataImportDialog(const QStringList& paths, const Map& ma
 	crt_layout->addWidget(crt_button);
 	layout->addRow(tr("CRT file:"), crt_layout);
 	
-	buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+	buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::Help);  // foom: Help
 	layout->addRow(buttons);
 	
 	fillLayers();
@@ -223,6 +223,7 @@ GeodataImportDialog::GeodataImportDialog(const QStringList& paths, const Map& ma
 	
 	connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
 	connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+	connect(buttons, &QDialogButtonBox::helpRequested, this, [this]() { Util::showHelp(this, "import_geodata.html"); });  // foom
 	connect(crt_button, &QPushButton::clicked, this, &GeodataImportDialog::browseCrtFile);
 	connect(layer_list, &QListWidget::itemChanged, this, &GeodataImportDialog::updateWidgets);
 	for (auto* radio : { detected_radio, override_radio, unreferenced_radio })

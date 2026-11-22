@@ -17,3 +17,5 @@ Adjusting the program to your preferences.
 [CRT files](crt_files.md){: .subpage}
 Providing rules for assigning symbols.
 
+[Importing data](import_geodata.md){: .subpage}
+The options for importing geospatial data.
