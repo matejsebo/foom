@@ -191,6 +191,9 @@ set(Mapper_Common_SRCS
   layout/qr_code.cpp
   layout/layout_part.cpp
   core/color_group.cpp
+  core/colour_load.cpp
+  core/colour_swatch.cpp
+  core/colour_usage.cpp
   core/crt_rules.cpp
   core/extent_printing.cpp
   core/extents.cpp
@@ -313,6 +316,7 @@ set(Mapper_Common_SRCS
   gui/widgets/action_grid_bar.cpp
   gui/widgets/color_dropdown.cpp
   gui/widgets/color_list_widget.cpp
+  gui/widgets/colour_tools_menu.cpp
   gui/widgets/color_wheel_widget.cpp
   gui/widgets/compass_display.cpp
   gui/widgets/crs_param_widgets.cpp

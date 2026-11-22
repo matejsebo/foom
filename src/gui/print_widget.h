@@ -268,7 +268,7 @@ protected:
 	void exportToImage();
 	
 	/** foom: Exports plates: the CMYK TIFF for a negative form, else spot colour plates in the PlateForm. */
-	void exportPlates(QString path, int form);
+	void exportPlates(QString path, int form, bool fax = false);
 
 	/** Export a world file */
 	bool exportWorldFile(const QString& path) const;

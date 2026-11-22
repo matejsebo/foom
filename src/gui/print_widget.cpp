@@ -1346,7 +1346,8 @@ void PrintWidget::exportToImage()
 	                        filter_template.arg(tr("JPEG"), QString::fromLatin1("*.jpg *.jpeg")),
 	                        tr("All files (*.*)") };
 	// foom: plates. the design notes, "Print and raster output"
-	const QString plate_labels[4] = { tr("TIFF, CMYK"), tr("Spot colour plates, 8 bit"), tr("Spot colour plates, 1 bit"), tr("Spot colour plates, 1 bit halftone") };
+	const QString plate_labels[6] = { tr("TIFF, CMYK"), tr("Spot colour plates, 8 bit"), tr("Spot colour plates, 1 bit"), tr("Spot colour plates, 1 bit halftone"),
+	                                  tr("Spot colour plates, 1 bit, fax compression"), tr("Spot colour plates, 1 bit halftone, fax compression") };
 	auto filter_index = filters.size() - 1;
 #ifdef MAPPER_USE_GDAL
 	filters.insert(filter_index++, filter_template.arg(plate_labels[0], QString::fromLatin1("*.tif *.tiff")));
@@ -1355,19 +1356,27 @@ void PrintWidget::exportToImage()
 	{
 		for (int i = 1; i < 4; ++i)
 			filters.insert(filter_index++, filter_template.arg(plate_labels[i], QString::fromLatin1("*.tif *.tiff *.png")));
+#ifdef MAPPER_USE_GDAL
+		// the design notes, "Raster plates and CMYK raster"
+		for (int i = 4; i < 6; ++i)
+			filters.insert(filter_index++, filter_template.arg(plate_labels[i], QString::fromLatin1("*.tif *.tiff")));
+#endif
 	}
 	QString selected_filter;
 	QString path = FileDialog::getSaveFileName(this, tr("Export map ..."), {}, filters.join(QString::fromLatin1(";;")), &selected_filter);
 	if (path.isEmpty())
 		return;
 	
-	for (int i = 0; i < 4; ++i)
+	for (int i = 0; i < 6; ++i)
 	{
 		QString start = plate_labels[i];
 		start += QLatin1String(" (");
 		if (selected_filter.startsWith(start))
 		{
-			exportPlates(path, i - 1);
+			if (i < 4)
+				exportPlates(path, i - 1);
+			else
+				exportPlates(path, i - 3, true);
 			return;
 		}
 	}
@@ -1431,11 +1440,11 @@ void PrintWidget::exportToImage()
 }
 
 // foom
-void PrintWidget::exportPlates(QString path, int form)
+void PrintWidget::exportPlates(QString path, int form, bool fax)
 {
 	auto const cmyk = form < 0;
 	auto const is_tiff = path.endsWith(QLatin1String(".tif"), Qt::CaseInsensitive) || path.endsWith(QLatin1String(".tiff"), Qt::CaseInsensitive);
-	if (!is_tiff && (cmyk || !path.endsWith(QLatin1String(".png"), Qt::CaseInsensitive)))
+	if (!is_tiff && (cmyk || fax || !path.endsWith(QLatin1String(".png"), Qt::CaseInsensitive)))
 		path.append(QLatin1String(".tif"));
 	
 	auto const area = map_printer->getPrintArea();
@@ -1444,17 +1453,31 @@ void PrintWidget::exportPlates(QString path, int form)
 	QStringList files;
 	QString error;
 	auto ok = false;
+	PlateWriter writer;
+#ifdef MAPPER_USE_GDAL
+	// foom: TIFF through GDAL, with the georeference. the design notes, "Raster plates and CMYK raster"
+	auto const georeference = plateGeoreference(*map, area, resolution, scale_adjustment);
+	if (!path.endsWith(QLatin1String(".png"), Qt::CaseInsensitive))
+	{
+		auto const compression = fax ? PlateCompression::Fax : PlateCompression::Lzw;
+		writer = [resolution, compression, &georeference](const QString& file, const QImage& image, QString* error) {
+			return writePlateTiff(file, image, resolution, compression, &georeference, error);
+		};
+	}
+#else
+	Q_UNUSED(fax)
+#endif
 	if (cmyk)
 	{
 #ifdef MAPPER_USE_GDAL
-		ok = writeCmykTiff(path, renderProcessPlates(*map, area, resolution, scale_adjustment), resolution, &error);
+		ok = writeCmykTiff(path, renderProcessPlates(*map, area, resolution, scale_adjustment), resolution, &error, &georeference);
 		files.append(path);
 #endif
 	}
 	else
 	{
 		ok = saveSpotPlates(*map, area, resolution, scale_adjustment, path, PlateForm(form), &files, &error,
-		                    map_printer->getOptions().show_templates, main_view);  // foom: templates on their plates
+		                    map_printer->getOptions().show_templates, main_view, writer);  // foom: templates on their plates
 	}
 	if (!ok)
 	{

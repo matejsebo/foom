@@ -205,6 +205,18 @@ public:
 		Knockout        = 16
 	};
 	
+	/**
+	 * foom: How the color is combined with what lies below it in output.
+	 * 
+	 * See the design notes, "Blend mode".
+	 */
+	enum BlendMode
+	{
+		BlendNormal   = 0,
+		BlendMultiply = 1,
+		BlendDarken   = 2
+	};
+	
 	/** Constructs a black CMYK map color of undefined priority.*/
 	MapColor();
 	
@@ -256,6 +268,12 @@ public:
 	
 	/** foom: Stores the colour group. */
 	void setColourGroup(ColourGroup group);
+	
+	/** foom: Returns the blend mode (normal by default). */
+	BlendMode getBlendMode() const { return blend_mode; }
+	
+	/** foom: Sets the blend mode. */
+	void setBlendMode(BlendMode mode) { blend_mode = mode; }
 	
 	
 	/** 
@@ -495,6 +513,7 @@ protected:
 	double screen_angle     =  0;  ///< Halftone screen angle in degrees.
 	SpotColorComponents components;
 	ColourGroup colour_group;  ///< foom: the stored colour group, Undefined when none is stored
+	BlendMode blend_mode = BlendNormal;  ///< foom
 };
 
 /** Returns true if both MapColor are equal in all components. */

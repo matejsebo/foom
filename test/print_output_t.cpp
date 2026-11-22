@@ -37,6 +37,7 @@
 #include <QLatin1String>
 #include <QObject>
 #include <QPageSize>
+#include <QPointF>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QRectF>
@@ -49,6 +50,7 @@
 #include <gdal.h>
 
 #include "global.h"
+#include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_color.h"
 #include "core/map_coord.h"
@@ -61,6 +63,7 @@
 #include "core/symbols/symbol.h"
 #include "fileformats/file_import_export.h"
 #include "fileformats/xml_file_format.h"
+#include "gdal/cmyk_tiff.h"
 
 using namespace OpenOrienteering;
 
@@ -176,6 +179,48 @@ std::vector<QSize> pdfPages(const QString& path)
 		pages.emplace_back(qRound(match.captured(1).toDouble()), qRound(match.captured(2).toDouble()));
 	}
 	return pages;
+}
+
+/**
+ * foom: blend modes. Yellow under the whole area; above it a cyan square
+ * at x 2..6 and a light cyan square at x 8..12, y 2..6.
+ * the design notes, "Raster plates and CMYK raster"
+ */
+void setupBlendMap(Map& map, MapColor::BlendMode cyan_mode, MapColor::BlendMode light_mode)
+{
+	map.setScaleDenominator(10000);
+	auto* cyan = addColor(map, QStringLiteral("Cyan"), { 1.0f, 0.0f, 0.0f, 0.0f });
+	cyan->setBlendMode(cyan_mode);
+	auto* light = addColor(map, QStringLiteral("Light cyan"), { 0.5f, 0.0f, 0.0f, 0.0f });
+	light->setBlendMode(light_mode);
+	auto* yellow = addColor(map, QStringLiteral("Yellow"), { 0.0f, 0.0f, 1.0f, 0.0f });
+	addSquare(map, addArea(map, QStringLiteral("Yellow area"), 1, yellow), { 1, 1, 18, 8 });
+	addSquare(map, addArea(map, QStringLiteral("Cyan area"), 2, cyan), { 2, 2, 4, 4 });
+	addSquare(map, addArea(map, QStringLiteral("Light area"), 3, light), { 8, 2, 4, 4 });
+}
+
+/// The pixel as "r,g,b", each within 2 of the given values.
+bool rgbNear(QRgb pixel, int r, int g, int b)
+{
+	return qAbs(qRed(pixel) - r) <= 2 && qAbs(qGreen(pixel) - g) <= 2 && qAbs(qBlue(pixel) - b) <= 2;
+}
+
+QString rgbText(QRgb pixel)
+{
+	return QStringLiteral("%1,%2,%3").arg(qRed(pixel)).arg(qGreen(pixel)).arg(qBlue(pixel));
+}
+
+/// A UTM 13 georeferencing: map (0, 0) is at 500000 E, 5200000 N, no grivation.
+void setUtm32(Map& map)
+{
+	Georeferencing georef;
+	georef.setScaleDenominator(10000);
+	georef.setProjectedCRS(QStringLiteral("UTM 13"), QStringLiteral("+proj=utm +zone=13 +datum=WGS84"));
+	georef.setProjectedRefPoint(QPointF(500000, 5200000), false, false);
+	georef.setMapRefPoint(MapCoord(0, 0));
+	georef.setGrivation(0.0);
+	georef.setCombinedScaleFactor(1.0);
+	map.setGeoreferencing(georef);
 }
 
 QJsonObject step(const char* name, const QString& path)
@@ -627,6 +672,164 @@ private slots:
 		export_step.insert(QStringLiteral("path"), file("bad.pdf"));
 		export_step.insert(QStringLiteral("paper"), QStringLiteral("No such paper"));
 		QVERIFY(runJob(jobOf(map_path, export_step), file("bad4.json"), &output) != 0);
+	}
+
+	/// Accept (11)
+	void blendRasterTest()
+	{
+		for (auto blend : { true, false })
+		{
+			Map map;
+			setupBlendMap(map, blend ? MapColor::BlendMultiply : MapColor::BlendNormal, blend ? MapColor::BlendDarken : MapColor::BlendNormal);
+			auto const map_path = file(blend ? "blend.foom" : "normal.foom");
+			QVERIFY(saveMap(map, map_path));
+			auto const png_path = file(blend ? "blend.png" : "normal.png");
+			QJsonObject export_step {
+				{ QStringLiteral("path"), png_path },
+				{ QStringLiteral("extent"), QJsonArray{ 0, 0, 20, 10 } },
+				{ QStringLiteral("dpi"), 254 },
+			};
+			QByteArray output;
+			QVERIFY2(runJob(jobOf(map_path, export_step), file("blend.json"), &output) == 0, output.constData());
+			const QImage image(png_path);
+			QCOMPARE(image.size(), QSize(200, 100));
+			auto const cyan_pixel = image.pixel(40, 40);
+			auto const light_pixel = image.pixel(100, 40);
+			if (blend)
+			{
+				QVERIFY2(rgbNear(cyan_pixel, 0, 255, 0), qPrintable(rgbText(cyan_pixel)));
+				QVERIFY2(rgbNear(light_pixel, 128, 255, 0), qPrintable(rgbText(light_pixel)));
+			}
+			else
+			{
+				QVERIFY2(rgbNear(cyan_pixel, 0, 255, 255), qPrintable(rgbText(cyan_pixel)));
+				QVERIFY2(rgbNear(light_pixel, 128, 255, 255), qPrintable(rgbText(light_pixel)));
+			}
+			QVERIFY2(rgbNear(image.pixel(150, 40), 255, 255, 0), qPrintable(rgbText(image.pixel(150, 40))));
+
+			auto const plates = renderProcessPlates(map, area, dpi);
+			QCOMPARE(plates.size(), std::size_t(4));
+			QCOMPARE(ink(plates[0], 40, 40), 255);
+			QCOMPARE(ink(plates[2], 40, 40), blend ? 255 : 0);
+			QVERIFY(qAbs(ink(plates[0], 100, 40) - 128) <= 1);
+			QCOMPARE(ink(plates[2], 100, 40), blend ? 255 : 0);
+			QCOMPARE(ink(plates[3], 40, 40), 0);
+		}
+	}
+
+	/// Accept (12)
+	void georeferencedTiffTest()
+	{
+		Map map;
+		setupMap(map);
+		setUtm32(map);
+		auto const georeference = plateGeoreference(map, area, dpi);
+		QVERIFY(georeference.valid);
+		QVERIFY(qAbs(georeference.transform[0] - 500000) < 1e-6);
+		QVERIFY(qAbs(georeference.transform[1] - 1) < 1e-9);
+		QVERIFY(qAbs(georeference.transform[2]) < 1e-9);
+		QVERIFY(qAbs(georeference.transform[3] - 5200000) < 1e-6);
+		QVERIFY(qAbs(georeference.transform[4]) < 1e-9);
+		QVERIFY(qAbs(georeference.transform[5] + 1) < 1e-9);
+		QVERIFY(georeference.wkt.contains("Transverse_Mercator"));
+
+		Map local;
+		setupMap(local);
+		QVERIFY(!plateGeoreference(local, area, dpi).valid);
+
+		auto const map_path = file("georef.foom");
+		QVERIFY(saveMap(map, map_path));
+		auto const tiff_path = file("georef.tif");
+		QJsonObject export_step {
+			{ QStringLiteral("path"), tiff_path },
+			{ QStringLiteral("extent"), QJsonArray{ 0, 0, 20, 10 } },
+			{ QStringLiteral("dpi"), 254 },
+			{ QStringLiteral("plates"), QStringLiteral("cmyk") },
+		};
+		QByteArray output;
+		QVERIFY2(runJob(jobOf(map_path, export_step), file("georef.json"), &output) == 0, output.constData());
+		export_step.insert(QStringLiteral("path"), file("georef-plates.tif"));
+		export_step.insert(QStringLiteral("plates"), QStringLiteral("spot"));
+		QVERIFY2(runJob(jobOf(map_path, export_step), file("georef-spot.json"), &output) == 0, output.constData());
+
+		GDALAllRegister();
+		for (auto const& path : { tiff_path, file("georef-plates-BROWN.tif") })
+		{
+			QByteArray name = "GTIFF_RAW:";
+			name += path.toUtf8();
+			auto const dataset = GDALOpen(name.constData(), GA_ReadOnly);
+			QVERIFY2(dataset, name.constData());
+			double transform[6];
+			QCOMPARE(GDALGetGeoTransform(dataset, transform), CE_None);
+			QVERIFY(qAbs(transform[0] - 500000) < 1e-3);
+			QVERIFY(qAbs(transform[1] - 1) < 1e-6);
+			QVERIFY(qAbs(transform[3] - 5200000) < 1e-3);
+			QVERIFY(qAbs(transform[5] + 1) < 1e-6);
+			QVERIFY(QByteArray(GDALGetProjectionRef(dataset)).contains("Transverse_Mercator"));
+			GDALClose(dataset);
+		}
+		// The grey plate still reads as before.
+		const QImage brown(file("georef-plates-BROWN.tif"));
+		QCOMPARE(brown.size(), QSize(200, 100));
+		QVERIFY(brown.isGrayscale());
+		QCOMPARE(qGray(brown.pixel(30, 30)), 0);
+		QCOMPARE(qGray(brown.pixel(30, 80)), 255);
+	}
+
+	/// Accept (13)
+	void faxCompressionTest()
+	{
+		Map map;
+		setupMap(map);
+		auto const map_path = file("fax.foom");
+		QVERIFY(saveMap(map, map_path));
+		QJsonObject export_step {
+			{ QStringLiteral("path"), file("fax.tif") },
+			{ QStringLiteral("extent"), QJsonArray{ 0, 0, 20, 10 } },
+			{ QStringLiteral("dpi"), 254 },
+			{ QStringLiteral("plates"), QStringLiteral("spot") },
+			{ QStringLiteral("depth"), 1 },
+			{ QStringLiteral("compression"), QStringLiteral("fax") },
+		};
+		QByteArray output;
+		QVERIFY2(runJob(jobOf(map_path, export_step), file("fax.json"), &output) == 0, output.constData());
+
+		GDALAllRegister();
+		auto const brown_path = file("fax-BROWN.tif").toUtf8();
+		auto const dataset = GDALOpen(brown_path.constData(), GA_ReadOnly);
+		QVERIFY(dataset);
+		QCOMPARE(QByteArray(GDALGetMetadataItem(dataset, "COMPRESSION", "IMAGE_STRUCTURE")), QByteArray("CCITTFAX4"));
+		auto const band = GDALGetRasterBand(dataset, 1);
+		QCOMPARE(QByteArray(GDALGetMetadataItem(band, "NBITS", "IMAGE_STRUCTURE")), QByteArray("1"));
+		unsigned char value = 77;
+		QCOMPARE(GDALRasterIO(band, GF_Read, 30, 30, 1, 1, &value, 1, 1, GDT_Byte, 0, 0), CE_None);
+		QCOMPARE(int(value), 1);
+		QCOMPARE(GDALRasterIO(band, GF_Read, 30, 80, 1, 1, &value, 1, 1, GDT_Byte, 0, 0), CE_None);
+		QCOMPARE(int(value), 0);
+		GDALClose(dataset);
+		const QImage brown(file("fax-BROWN.tif"));
+		QCOMPARE(brown.size(), QSize(200, 100));
+		QCOMPARE(qGray(brown.pixel(30, 30)), 0);
+		QCOMPARE(qGray(brown.pixel(30, 80)), 255);
+
+		// Fax compression is for 1-bit TIFF plates only.
+		QString error;
+		QVERIFY(!writePlateTiff(file("grey-fax.tif"), uniformPlate(128), 254, PlateCompression::Fax, nullptr, &error));
+		QVERIFY(!error.isEmpty());
+		export_step.insert(QStringLiteral("depth"), 8);
+		QVERIFY(runJob(jobOf(map_path, export_step), file("bad5.json"), &output) != 0);
+		export_step.insert(QStringLiteral("depth"), 1);
+		export_step.insert(QStringLiteral("path"), file("bad.png"));
+		QVERIFY(runJob(jobOf(map_path, export_step), file("bad6.json"), &output) != 0);
+		export_step.insert(QStringLiteral("path"), file("bad.tif"));
+		export_step.insert(QStringLiteral("compression"), QStringLiteral("zip"));
+		QVERIFY(runJob(jobOf(map_path, export_step), file("bad7.json"), &output) != 0);
+		export_step.insert(QStringLiteral("compression"), QStringLiteral("fax"));
+		export_step.insert(QStringLiteral("plates"), QStringLiteral("cmyk"));
+		export_step.remove(QStringLiteral("depth"));
+		QVERIFY(runJob(jobOf(map_path, export_step), file("bad8.json"), &output) != 0);
+		QVERIFY(!QFileInfo::exists(file("bad.tif")));
+		QVERIFY(!QFileInfo::exists(file("bad-BROWN.tif")));
 	}
 };
 
