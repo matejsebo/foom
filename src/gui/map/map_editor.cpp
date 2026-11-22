@@ -5369,6 +5369,17 @@ bool MapEditorController::fixIssueRow(int row)
 	return fixed;
 }
 
+// foom: the design notes, "Map check", the assign-symbol fix.
+bool MapEditorController::assignSymbolToIssueRow(int row)
+{
+	if (row < 0 || row >= issue_model->rowCount())
+		return false;
+	auto const assigned = assignSymbol(*map, issue_model->issueAt(row), activeSymbol());
+	if (assigned)
+		checkAgain();
+	return assigned;
+}
+
 // foom
 int MapEditorController::fixShownIssues()
 {

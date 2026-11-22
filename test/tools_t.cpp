@@ -2812,6 +2812,25 @@ void ToolsTest::mapCheck()
 	// The check ran again: the rule is gone, and the dock has dropped the filter for it.
 	for (auto const& issue : editor.editor->issueModel()->issues())
 		QVERIFY(issue.rule != rule::text_empty);
+
+	// The assign-symbol fix takes the symbol selected in the symbol pane.
+	auto* point_symbol = new PointSymbol();
+	map.map->addSymbol(point_symbol, map.map->getNumSymbols());
+	auto* wrong = new PathObject(point_symbol, { MapCoord(0.0, 50.0), MapCoord(10.0, 50.0) });
+	map.map->addObject(wrong);
+	auto const wrong_uuid = wrong->uuid();
+	editor.editor->runMapCheck();
+	editor.editor->issueModel()->setRuleFilter(rule::symbol_wrong_type);
+	QCOMPARE(editor.editor->issueModel()->rowCount(), 1);
+	editor.editor->getSymbolWidget()->selectSingleSymbol(point_symbol);
+	QVERIFY(!editor.editor->assignSymbolToIssueRow(0));  // does not fit
+	editor.editor->getSymbolWidget()->selectSingleSymbol(map.line_symbol);
+	QVERIFY(editor.editor->assignSymbolToIssueRow(0));
+	QCOMPARE(map.map->findObject(wrong_uuid)->getSymbol(), static_cast<const Symbol*>(map.line_symbol));
+	for (auto const& issue : editor.editor->issueModel()->issues())
+		QVERIFY(issue.rule != rule::symbol_wrong_type);
+	auto* dock_widget = editor.window->findChild<QPushButton*>(QStringLiteral("assign_symbol_button"));
+	QVERIFY(dock_widget);
 }
 
 void ToolsTest::legibility()

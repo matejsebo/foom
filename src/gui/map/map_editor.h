@@ -964,6 +964,8 @@ public slots:
 	void showIssuesWindow(bool show);
 	/** foom: Applies the fix of the issue shown in the row and checks again; returns false when nothing changed. */
 	bool fixIssueRow(int row);
+	/** foom: Gives the objects of the symbol issue in the row the active symbol and checks again; returns false when it does not fit. */
+	bool assignSymbolToIssueRow(int row);
 	/** foom: Applies the fixes of every shown issue and checks again; returns how many changed something. */
 	int fixShownIssues();
 	/** foom: Selects the objects of an activated issue and shows them. */

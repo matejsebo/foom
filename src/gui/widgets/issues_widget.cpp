@@ -63,10 +63,14 @@ IssuesWidget::IssuesWidget(MapEditorController* editor, IssueModel* model, QWidg
 	
 	fix_button = new QPushButton(tr("Fix"));
 	fix_all_button = new QPushButton(tr("Fix all shown"));
+	assign_button = new QPushButton(tr("Assign symbol"));
+	assign_button->setObjectName(QStringLiteral("assign_symbol_button"));
+	assign_button->setToolTip(tr("Gives the objects of a symbol issue the symbol selected in the symbol pane."));
 	auto* export_button = new QPushButton(tr("Export CSV..."));
 	auto* button_row = new QHBoxLayout();
 	button_row->addWidget(fix_button);
 	button_row->addWidget(fix_all_button);
+	button_row->addWidget(assign_button);
 	button_row->addStretch();
 	button_row->addWidget(export_button);
 	
@@ -80,6 +84,7 @@ IssuesWidget::IssuesWidget(MapEditorController* editor, IssueModel* model, QWidg
 	connect(table, &QTableView::activated, this, &IssuesWidget::rowActivated);
 	connect(fix_button, &QPushButton::clicked, this, &IssuesWidget::fixSelected);
 	connect(fix_all_button, &QPushButton::clicked, this, &IssuesWidget::fixAllShown);
+	connect(assign_button, &QPushButton::clicked, this, &IssuesWidget::assignSymbolSelected);
 	connect(export_button, &QPushButton::clicked, this, &IssuesWidget::exportCsv);
 	connect(model, &IssueModel::modelReset, this, &IssuesWidget::updateFilterBox);
 	updateFilterBox();
@@ -120,6 +125,16 @@ void IssuesWidget::fixSelected()
 		return;
 	if (!editor->fixIssueRow(index.row()))
 		QMessageBox::information(this, tr("Issues"), tr("This issue has no automatic fix, or nothing was left to fix."));
+}
+
+void IssuesWidget::assignSymbolSelected()
+{
+	// the design notes, "Map check", the assign-symbol fix.
+	auto const index = table->selectionModel() ? table->selectionModel()->currentIndex() : QModelIndex();
+	if (!index.isValid())
+		return;
+	if (!editor->assignSymbolToIssueRow(index.row()))
+		QMessageBox::information(this, tr("Issues"), tr("Select an issue of a missing or wrong symbol, and in the symbol pane a symbol which fits its objects."));
 }
 
 void IssuesWidget::fixAllShown()

@@ -56,6 +56,7 @@ private slots:
 	void filterChanged(int index);
 	void rowActivated(const QModelIndex& index);
 	void fixSelected();
+	void assignSymbolSelected();
 	void fixAllShown();
 	void exportCsv();
 
@@ -66,6 +67,7 @@ private:
 	QTableView* table;
 	QPushButton* fix_button;
 	QPushButton* fix_all_button;
+	QPushButton* assign_button;
 };
 
 

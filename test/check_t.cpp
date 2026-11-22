@@ -18,6 +18,7 @@
  */
 
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <vector>
@@ -74,6 +75,7 @@ private slots:
 	void initTestCase();
 	void issueModelTest();
 	void mapCheckTest();
+	void mapCheckAssignTest();
 	void legibilityTest();
 	void colourGroupTest();
 };
@@ -277,6 +279,86 @@ const Issue* findObjectIssue(const std::vector<Issue>& issues, const char* rule,
 }
 
 }  // namespace
+
+void CheckTest::mapCheckAssignTest()
+{
+	// the design notes, "Map check", Accept (assign symbol).
+	Map map;
+	auto* black = new MapColor(QStringLiteral("black"), 0);
+	map.addColor(black, 0);
+	auto* line_symbol = new LineSymbol();
+	line_symbol->setColor(black);
+	line_symbol->setLineWidth(1);
+	map.addSymbol(line_symbol, 0);
+	auto* area_symbol = new AreaSymbol();
+	area_symbol->setColor(black);
+	map.addSymbol(area_symbol, 1);
+	auto* point_symbol = new PointSymbol();
+	map.addSymbol(point_symbol, 2);
+	auto* text_symbol = new TextSymbol();
+	map.addSymbol(text_symbol, 3);
+
+	auto* wrong = new PathObject(point_symbol, { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0) });
+	map.addObject(wrong);
+	auto* lost = new PathObject(Map::getUndefinedLine(), { MapCoord(0.0, 10.0), MapCoord(10.0, 10.0) });
+	map.addObject(lost);
+	auto* blank = new TextObject(text_symbol);
+	blank->setText(QString{});
+	blank->setAnchorPosition(MapCoord(50.0, 0.0));
+	map.addObject(blank);
+	auto* part = map.getCurrentPart();
+	auto const num_objects = part->getNumObjects();
+
+	auto const issues = checkMap(map);
+	auto const* wrong_issue = findObjectIssue(issues, rule::symbol_wrong_type, wrong);
+	auto const* lost_issue = findObjectIssue(issues, rule::symbol_undefined, lost);
+	auto const* blank_issue = findObjectIssue(issues, rule::text_empty, blank);
+	QVERIFY(wrong_issue && lost_issue && blank_issue);
+
+	// The symbols offered fit the object's type: lines and areas for a path.
+	auto const offered = assignableSymbols(map, *wrong_issue);
+	QCOMPARE(offered.size(), std::size_t(2));
+	QVERIFY(std::find(offered.begin(), offered.end(), line_symbol) != offered.end());
+	QVERIFY(std::find(offered.begin(), offered.end(), area_symbol) != offered.end());
+	QCOMPARE(assignableSymbols(map, *lost_issue).size(), std::size_t(2));
+	QVERIFY(assignableSymbols(map, *blank_issue).empty());  // not a symbol rule
+
+	// A symbol that does not fit, or another rule, changes nothing.
+	auto const undo_steps = map.undoManager().undoStepCount();
+	QVERIFY(!assignSymbol(map, *wrong_issue, point_symbol));
+	QVERIFY(!assignSymbol(map, *wrong_issue, text_symbol));
+	QVERIFY(!assignSymbol(map, *wrong_issue, nullptr));
+	QVERIFY(!assignSymbol(map, *blank_issue, text_symbol));
+	QCOMPARE(map.undoManager().undoStepCount(), undo_steps);
+
+	// Assigning keeps the object, its identity and its coordinates; one undo step each.
+	auto const wrong_uuid = wrong->uuid();
+	auto const lost_uuid = lost->uuid();
+	QVERIFY(assignSymbol(map, *wrong_issue, line_symbol));
+	QCOMPARE(map.undoManager().undoStepCount(), undo_steps + 1);
+	auto const* assigned = map.findObject(wrong_uuid);
+	QVERIFY(assigned);
+	QCOMPARE(assigned->getSymbol(), static_cast<const Symbol*>(line_symbol));
+	QCOMPARE(assigned->getRawCoordinateVector().size(), std::size_t(2));
+	QCOMPARE(part->getNumObjects(), num_objects);
+	QVERIFY(assignSymbol(map, *lost_issue, area_symbol));
+	QCOMPARE(map.undoManager().undoStepCount(), undo_steps + 2);
+	QCOMPARE(map.findObject(lost_uuid)->getSymbol(), static_cast<const Symbol*>(area_symbol));
+
+	auto const again = checkMap(map);
+	QCOMPARE(countRule(again, rule::symbol_wrong_type), 0);
+	QCOMPARE(countRule(again, rule::symbol_undefined), 0);
+
+	// Undo brings the wrong symbol back.
+	map.undoManager().undo(nullptr);
+	map.undoManager().undo(nullptr);
+	QCOMPARE(map.findObject(wrong_uuid)->getSymbol(), static_cast<const Symbol*>(point_symbol));
+	QCOMPARE(countRule(checkMap(map), rule::symbol_wrong_type), 1);
+
+	// Objects that are gone: nothing to do.
+	map.deleteObject(const_cast<Object*>(map.findObject(wrong_uuid)));
+	QVERIFY(!assignSymbol(map, *wrong_issue, line_symbol));
+}
 
 void CheckTest::legibilityTest()
 {
