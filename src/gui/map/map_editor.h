@@ -85,6 +85,7 @@ class CompassDisplay;
 class EditorDockWidget;
 class FileFormat;
 class GPSDisplay;
+enum class GnssImportKind;  // foom
 class GpsPathRecorder;  // foom
 class GpsPositionAverage;  // foom
 class GPSTemporaryMarkers;
@@ -379,6 +380,13 @@ public slots:
 	
 	/** foom: Adds a vertex at the position to the path which is drawn, whatever its distance. */
 	void gpsAddVertexAt(const OpenOrienteering::MapCoordF& position);
+
+	/**
+	 * foom: Reads a GNSS file and adds its objects to the current part in one
+	 * undo step, selected. Returns the number of objects; on a fault 0 and the
+	 * error. See "NMEA and FRWD files" in the design notes.
+	 */
+	int importGnssFile(const QString& path, OpenOrienteering::GnssImportKind kind, const OpenOrienteering::Symbol* symbol, QString* error);
 	
 	/**
 	 * foom: Sets the offset of the GPS position so that the latest position
@@ -1142,6 +1150,8 @@ public slots:
 	void gpsRecordPauseClicked(bool checked);
 	/** foom: Adds a vertex at the current GPS position. */
 	void gpsAddVertexClicked();
+	/** foom: Imports an NMEA file as a track, waypoints or positions. */
+	void gpsImportFileClicked();
 	/** foom: Starts averaging GPS positions for a vertex, or ends it and adds the vertex. */
 	void gpsAverageVertexClicked(bool checked);
 	/** foom: Switches to the tool which sets the offset of the GPS position. */
@@ -1725,6 +1735,7 @@ private:
 	QAction* gps_record_act = {};  // foom
 	QAction* gps_record_pause_act = {};  // foom
 	QAction* gps_add_vertex_act = {};  // foom
+	QAction* gps_import_file_act = {};  // foom
 	QAction* gps_average_vertex_act = {};  // foom
 	QAction* gps_set_offset_act = {};  // foom
 	QAction* gps_clear_offset_act = {};  // foom

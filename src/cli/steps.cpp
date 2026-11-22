@@ -54,6 +54,7 @@
 #include <QUuid>  // foom
 
 #include "job.h"
+#include "background_steps.h"  // foom
 #include "generator_steps.h"  // foom
 #include "mapper_config.h"
 #include "check/issue.h"  // foom
@@ -1131,6 +1132,14 @@ const FileFormat* resolveSaveFormat(const Params& p, const QString& path, const 
 
 
 
+// foom: for the steps of background_steps.cpp
+QString crsSpecOf(const Step& step, const QString& text)
+{
+	Params p(step);
+	return parseCrs(p, text).spec.trimmed();
+}
+
+
 StepRunner::StepRunner(const Job& job)
 : job(job)
 {
@@ -1409,6 +1418,10 @@ void StepRunner::validate(const Step& step, bool& map_open)
 	{
 		validateGeneratorStep(step, map_open);
 	}
+	else if (isBackgroundStep(name))  // foom: the design notes, "Background maps and point clouds in the runner"
+	{
+		validateBackgroundStep(step, map_open);
+	}
 	else
 	{
 		p.fail(QString::fromLatin1("unknown step \"%1\"").arg(name));
@@ -1457,6 +1470,8 @@ StepResult StepRunner::run(const Step& step)
 		return elevationWizardStep(step);
 	if (isGeneratorStep(name))  // foom
 		return runGeneratorStep(*map, step);
+	if (isBackgroundStep(name))  // foom
+		return runBackgroundStep(*map, map_path, job, step);
 	if (name == QLatin1String("field-copy-create"))
 		return fieldCopyCreate(step);
 	if (name == QLatin1String("merge-from-file"))

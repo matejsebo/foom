@@ -320,6 +320,9 @@ add_dependencies(route_print_t foom-cli)
 add_system_test(runner_template_t)  # foom: the design notes, Headless runner: the files of the templates
 target_compile_definitions(runner_template_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
 add_dependencies(runner_template_t foom-cli)
+add_system_test(runner_background_t)  # foom: the design notes, Background maps and point clouds in the runner; XML scripts
+target_compile_definitions(runner_background_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
+add_dependencies(runner_background_t foom-cli)
 add_system_test(runner_check_t)  # foom: the design notes, Headless runner: check and course-statistics
 target_compile_definitions(runner_check_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
 add_dependencies(runner_check_t foom-cli)
@@ -386,6 +389,8 @@ if(TARGET mapper-sensors)
 			target_link_libraries(gnss_extras_t  PRIVATE ${lib})
 		endif()
 	endforeach()
+	add_system_test(gnss_file_t)  # foom: the design notes, NMEA and FRWD files
+	target_link_libraries(gnss_file_t  PRIVATE mapper-sensors)
 	add_system_test(gnss_offset_log_t)  # foom: the design notes, Position offset and sentence log
 	target_link_libraries(gnss_offset_log_t  PRIVATE mapper-sensors)
 	foreach(lib Qt5::Positioning Qt5::Network)

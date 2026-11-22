@@ -140,7 +140,9 @@ int main(int argc, char** argv)
 	  "foom-cli runs the steps of a job file without the editor window.\n"
 	  "The job file is JSON: {\"steps\": [{\"step\": \"open\", \"path\": \"map.foom\"}, ...]}.\n"
 	  "Steps: open, new-map, import, apply-crt, replace-symbols, change-scale,\n"
-	  "set-georeferencing, check, export, save-as. Paths are relative to the job file.\n"
+	  "set-georeferencing, check, export, save-as and more.\n"
+	  "An XML script (<OcadScript>) is read as a job too.\n"
+	  "Paths are relative to the job file.\n"
 	  "One JSON line per executed step goes to standard output.\n"
 	  "Exit code 0 on success, 1 on a failed step, 2 on a malformed job."));
 	parser.addHelpOption();
@@ -149,6 +151,10 @@ int main(int argc, char** argv)
 	                              QLatin1String("Run the steps of this job file."),
 	                              QLatin1String("job.json"));
 	parser.addOption(run_option);
+	// foom: the design notes
+	QCommandLineOption strict_option(QStringList{ QLatin1String("strict") },
+	                                 QLatin1String("For an XML script: refuse it when a command is not supported."));
+	parser.addOption(strict_option);
 	QCommandLineOption platform_option(QStringList{ QLatin1String("platform") },
 	                                   QLatin1String("Qt platform plugin; default windows on Windows, offscreen elsewhere."),
 	                                   QLatin1String("name"));
@@ -164,7 +170,7 @@ int main(int argc, char** argv)
 	auto const job_path = parser.value(run_option);
 	try
 	{
-		auto const job = Cli::Job::load(job_path);
+		auto const job = Cli::Job::load(job_path, parser.isSet(strict_option));
 		QTextStream log(stdout);
 		return job.run(log);
 	}

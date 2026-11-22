@@ -610,6 +610,24 @@ bool TemplateImage::trySetTemplateGeoreferenced(bool value, QWidget* dialog_pare
 	return isTemplateGeoreferenced() == value;
 }
 
+// foom: the design notes, "Background maps and point clouds in the runner"
+bool TemplateImage::setGeoreferencedByFile(const QString& crs_spec)
+{
+	if (!canChangeTemplateGeoreferenced()
+	    || map->getGeoreferencing().getState() != Georeferencing::Geospatial)
+		return false;
+	setTemplateAreaDirty();
+	if (!crs_spec.isEmpty())
+		available_georef.effective.crs_spec = crs_spec;
+	else if (available_georef.effective.crs_spec.isEmpty())
+		available_georef.effective.crs_spec = map->getGeoreferencing().getProjectedCRSSpec();
+	calculateGeoreferencing();
+	is_georeferenced = georef->getState() == Georeferencing::Geospatial;
+	setTemplateAreaDirty();
+	map->emitTemplateChanged(this);
+	return is_georeferenced;
+}
+
 void TemplateImage::updateGeoreferencing()
 {
 	if (is_georeferenced)

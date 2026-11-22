@@ -236,6 +236,7 @@ private slots:
 	void checkTest();
 	void dialogTest();
 	void editorTest();
+	void startsAndRelaysTest();  // foom
 	void printTest();
 	void printDialogTest();
 };
@@ -503,15 +504,20 @@ void CourseReportTest::checkTest()
 	QCOMPARE(found[0].objects, QVector<QUuid>{ uuidOf(map, QStringLiteral("32")) });
 	
 	found = issuesOf(issues, rule::punch_consecutive);
-	QCOMPARE(int(found.size()), 4);
+	QCOMPARE(int(found.size()), 5);
 	QStringList courses;
 	for (auto const& issue : found)
 	{
 		QCOMPARE(issue.severity, Issue::Error);
-		QVERIFY(issue.message.contains(QStringLiteral("131")));
 		courses.push_back(issue.subject);
 	}
-	QCOMPARE(courses, names({ "A", "B", "C", "D" }));
+	for (int i = 0; i < 4; ++i)
+		QVERIFY(found[std::size_t(i)].message.contains(QStringLiteral("131")));
+	// foom: the design notes, "The consistency check: starts and relays":
+	// the relay's variant through 31 has 200 at 31 and 33.
+	QVERIFY(found[4].message.contains(QStringLiteral("200")));
+	QVERIFY(found[4].message.contains(QStringLiteral("31-33")));
+	QCOMPARE(courses, names({ "A", "B", "C", "D", "R" }));
 	found = issuesOf(issues, rule::punch_repeated);
 	QCOMPARE(int(found.size()), 2);
 	QCOMPARE(found[0].severity, Issue::Warning);
@@ -519,7 +525,7 @@ void CourseReportTest::checkTest()
 	QCOMPARE(found[0].subject, QStringLiteral("A"));
 	QCOMPARE(found[1].subject, QStringLiteral("C"));
 	
-	QCOMPARE(int(issues.size()), 17);
+	QCOMPARE(int(issues.size()), 18);
 	
 	// Another limit.
 	QCOMPARE(int(issuesOf(checkCourses(map, map.courseData(), 50.0), rule::control_too_close).size()), 2);
@@ -591,9 +597,9 @@ void CourseReportTest::editorTest()
 	QVERIFY(editor->getAction("course-check"));
 	
 	auto const count = editor->runCourseCheck();
-	QCOMPARE(count, 17);
+	QCOMPARE(count, 18);
 	auto* model = editor->issueModel();
-	QCOMPARE(model->rowCount(), 17);
+	QCOMPARE(model->rowCount(), 18);
 	model->setRuleFilter(rule::control_too_close);
 	QCOMPARE(model->rowCount(), 1);
 	model->activate(0);
@@ -607,12 +613,74 @@ void CourseReportTest::editorTest()
 	QVERIFY(removeCourse(data, QStringLiteral("D")));
 	changeCourseData(*map, data);
 	editor->checkAgain();
-	QVERIFY(model->rowCount() < 17);
+	QVERIFY(model->rowCount() < 18);
 	QCOMPARE(int(issuesOf(model->issues(), rule::course_start_missing).size()), 0);
 	
 	window->deleteLater();
 }
 
+
+
+/// Accept (12), the design notes, "The consistency check: starts and relays"
+void CourseReportTest::startsAndRelaysTest()
+{
+	Map map;
+	map.setScaleDenominator(10000);
+	auto const* start = addSymbol(map, 701, Symbol::CourseStart);
+	auto const* control = addSymbol(map, 703, Symbol::CourseControl);
+	auto const* finish = addSymbol(map, 706, Symbol::CourseFinish);
+	draw(map, start, -100.0, 0.0);  // S1, far from the others
+	draw(map, start, 0.0, 1.0);     // S2
+	draw(map, start, 0.0, 1.5);     // S3, 5 m from S2
+	draw(map, control, 0.0, 0.0);   // 31, 10 m from S2 and 15 m from S3
+	draw(map, control, 50.0, 0.0);  // 32
+	draw(map, control, 100.0, 0.0); // 33
+	draw(map, finish, 150.0, 0.0);
+	
+	auto data = map.courseData();
+	Course relay;
+	relay.name = QStringLiteral("R");
+	relay.type = Course::Relay;
+	relay.legs = 2;
+	relay.climb_m = 10;
+	relay.items = {
+	    item(CourseItem::Start, QStringLiteral("S1")),
+	    item(CourseItem::TeamForkBegin, {}, 2),
+	    item(CourseItem::ForkBranch),
+	    item(CourseItem::Control, QStringLiteral("31")),
+	    item(CourseItem::ForkBranch),
+	    item(CourseItem::Control, QStringLiteral("32")),
+	    item(CourseItem::TeamForkEnd),
+	    item(CourseItem::Control, QStringLiteral("33")),
+	    item(CourseItem::Finish, QStringLiteral("F1")),
+	};
+	data.courses.push_back(relay);
+	objectOf(data, QStringLiteral("32")).punch_ids = names({ "300" });
+	objectOf(data, QStringLiteral("33")).punch_ids = names({ "300" });
+	changeCourseData(map, data);
+	
+	auto issues = checkCourses(map, map.courseData(), 12.0);
+	auto found = issuesOf(issues, rule::control_too_close);
+	QCOMPARE(int(found.size()), 1);
+	QVERIFY(found[0].message.startsWith(QStringLiteral("The start S2 and the control 31")));
+	QVERIFY(std::abs(found[0].measured - 10.0) < 0.05);
+	found = issuesOf(issues, rule::punch_consecutive);
+	QCOMPARE(int(found.size()), 1);
+	QCOMPARE(found[0].subject, QStringLiteral("R"));
+	QVERIFY(found[0].message.contains(QStringLiteral("32-33")));
+	QVERIFY(found[0].message.contains(QStringLiteral("B")));  // the variant of 32
+	found = issuesOf(issues, rule::course_not_checked);
+	QCOMPARE(int(found.size()), 1);
+	QVERIFY(!found[0].message.contains(QStringLiteral("punching")));
+	
+	data = map.courseData();
+	objectOf(data, QStringLiteral("31")).punch_ids = names({ "300" });
+	objectOf(data, QStringLiteral("33")).punch_ids.clear();
+	changeCourseData(map, data);
+	issues = checkCourses(map, map.courseData());
+	QVERIFY(issuesOf(issues, rule::punch_consecutive).empty());
+	QVERIFY(issuesOf(issues, rule::punch_repeated).empty());
+}
 
 
 /// Accept (11)
@@ -640,7 +708,7 @@ void CourseReportTest::printTest()
 	auto const html = courseReportHtml(map, map.courseData(), options);
 	QVERIFY(html.contains(QStringLiteral("<h1>Spring &lt;Cup&gt;</h1>")));
 	QVERIFY(html.contains(QStringLiteral("2026-11-21")));
-	QVERIFY(html.contains(QStringLiteral("Errors: 6, warnings: 10, notes: 1.")));
+	QVERIFY(html.contains(QStringLiteral("Errors: 7, warnings: 10, notes: 1.")));
 	for (auto const& section : sections)
 		QVERIFY2(html.contains(QLatin1String("<h3>") + section.toHtmlEscaped() + QLatin1String("</h3>")), qPrintable(section));
 	for (auto const& issue : issues)

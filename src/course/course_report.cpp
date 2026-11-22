@@ -371,7 +371,18 @@ CourseStatistics courseStatistics(const Map& map, const CourseData& data, double
 	statistics.class_count = int(data.classes.size());
 	
 	statistics.close_limit_m = close_limit_m > 0.0 ? close_limit_m : statisticsControlDistance(map);
+	// foom: the design notes, "The consistency check: starts and relays":
+	// the starts with the controls, but not two starts.
 	std::vector<std::pair<QString, Place>> places;
+	for (auto const& object : data.objects)
+	{
+		if (object.kind != CourseObject::Start)
+			continue;
+		auto const place = placeOf(map, data, object.code);
+		if (place.known)
+			places.emplace_back(object.code, place);
+	}
+	auto const starts = places.size();
 	for (auto const& control : qAsConst(statistics.matrix_controls))
 	{
 		auto const place = placeOf(map, data, control);
@@ -380,7 +391,7 @@ CourseStatistics courseStatistics(const Map& map, const CourseData& data, double
 	}
 	for (std::size_t i = 0; i < places.size(); ++i)
 	{
-		for (std::size_t j = i + 1; j < places.size(); ++j)
+		for (std::size_t j = std::max(i + 1, starts); j < places.size(); ++j)
 		{
 			auto const apart = distance(places[i].second.entry, places[j].second.entry) * metres_per_mm;
 			if (apart >= statistics.close_limit_m)
@@ -530,7 +541,7 @@ std::vector<Issue> checkCourses(const Map& map, const CourseData& data, double c
 	for (auto const& group : statistics.identical)
 		issues.push_back(courseIssue(rule::course_identical, Issue::Warning, group.join(listSeparator()), tr("These courses are identical: %1.").arg(group.join(listSeparator()))));
 	for (auto const& course : statistics.not_verified)
-		issues.push_back(courseIssue(rule::course_not_checked, Issue::Info, course, tr("The course %1 has variations; its legs, their directions and its punching units are not checked.").arg(course)));
+		issues.push_back(courseIssue(rule::course_not_checked, Issue::Info, course, tr("The course %1 has variations; its legs and their directions are not checked.").arg(course)));
 	
 	// The controls.
 	for (auto const& object : statistics.objects)
@@ -540,8 +551,12 @@ std::vector<Issue> checkCourses(const Map& map, const CourseData& data, double c
 	}
 	for (auto const& pair : statistics.close_pairs)
 	{
+		auto const* first = data.findObject(pair.first);
+		auto const message = (first && first->kind == CourseObject::Start)
+		                     ? tr("The start %1 and the control %2 are %3 apart, closer than %4.")
+		                     : tr("The controls %1 and %2 are %3 apart, closer than %4.");
 		auto issue = pairIssue(rule::control_too_close, map, data, pair.first, pair.second,
-		                       tr("The controls %1 and %2 are %3 apart, closer than %4.").arg(pair.first, pair.second, metres(pair.distance_m), metres(limit)));
+		                       message.arg(pair.first, pair.second, metres(pair.distance_m), metres(limit)));
 		issue.measured = pair.distance_m;
 		issue.limit = limit;
 		issues.push_back(issue);
@@ -576,22 +591,37 @@ std::vector<Issue> checkCourses(const Map& map, const CourseData& data, double c
 	issues.insert(end(issues), begin(de_missing), end(de_missing));
 	issues.insert(end(issues), begin(fg_missing), end(fg_missing));
 	
-	// The punching units, in the courses without variations.
+	// The punching units; a course with variations variant by variant
+	// (foom: the design notes, "The consistency check: starts and relays").
 	std::vector<Issue> repeated;
 	for (auto const& course : data.courses)
 	{
+		// The controls of every variant with its code; one run without a code for a plain course.
+		std::vector<std::pair<QString, QStringList>> runs;
 		if (hasVariation(course))
-			continue;
-		auto const controls = controlsOf(course);
-		QStringList ids;
-		for (auto const& code : controls)
 		{
-			if (auto const* object = data.findObject(code))
+			auto const structure = relayStructure(course);
+			if (!structure.isValid())
+				continue;
+			for (auto const& variant : relayVariants(structure))
+				runs.emplace_back(relayVariantCode(variant), controlsOf(relayVariantCourse(course, structure, variant)));
+		}
+		else
+		{
+			runs.emplace_back(QString{}, controlsOf(course));
+		}
+		QStringList ids;
+		for (auto const& run : runs)
+		{
+			for (auto const& code : run.second)
 			{
-				for (auto const& id : object->punch_ids)
+				if (auto const* object = data.findObject(code))
 				{
-					if (!ids.contains(id))
-						ids.push_back(id);
+					for (auto const& id : object->punch_ids)
+					{
+						if (!ids.contains(id))
+							ids.push_back(id);
+					}
 				}
 			}
 		}
@@ -603,19 +633,54 @@ std::vector<Issue> checkCourses(const Map& map, const CourseData& data, double c
 		{
 			QStringList pairs;
 			QStringList with_id;
-			for (int i = 0; i < controls.size(); ++i)
+			QStringList consecutive_variants;
+			QStringList repeated_variants;
+			for (auto const& run : runs)
 			{
-				if (!has_id(controls[i], id))
-					continue;
-				if (!with_id.contains(controls[i]))
-					with_id.push_back(controls[i]);
-				if (i + 1 < controls.size() && controls[i + 1] != controls[i] && has_id(controls[i + 1], id))
-					pairs.push_back(controls[i] + QLatin1Char('-') + controls[i + 1]);
+				auto const& controls = run.second;
+				QStringList in_run;
+				auto consecutive = false;
+				for (int i = 0; i < controls.size(); ++i)
+				{
+					if (!has_id(controls[i], id))
+						continue;
+					if (!in_run.contains(controls[i]))
+						in_run.push_back(controls[i]);
+					if (i + 1 < controls.size() && controls[i + 1] != controls[i] && has_id(controls[i + 1], id))
+					{
+						QString const pair = controls[i] + QLatin1Char('-') + controls[i + 1];
+						if (!pairs.contains(pair))
+							pairs.push_back(pair);
+						consecutive = true;
+					}
+				}
+				if (consecutive && !run.first.isEmpty())
+					consecutive_variants.push_back(run.first);
+				if (in_run.size() > 1)
+				{
+					for (auto const& code : qAsConst(in_run))
+					{
+						if (!with_id.contains(code))
+							with_id.push_back(code);
+					}
+					if (!run.first.isEmpty())
+						repeated_variants.push_back(run.first);
+				}
 			}
 			if (!pairs.isEmpty())
-				issues.push_back(courseIssue(rule::punch_consecutive, Issue::Error, course.name, tr("Course %1: the punching unit %2 is at controls which follow each other (%3).").arg(course.name, id, pairs.join(listSeparator()))));
+			{
+				auto message = tr("Course %1: the punching unit %2 is at controls which follow each other (%3).").arg(course.name, id, pairs.join(listSeparator()));
+				if (!consecutive_variants.isEmpty())
+					message = tr("Course %1: the punching unit %2 is at controls which follow each other (%3) in the variants %4.").arg(course.name, id, pairs.join(listSeparator()), consecutive_variants.join(listSeparator()));
+				issues.push_back(courseIssue(rule::punch_consecutive, Issue::Error, course.name, message));
+			}
 			else if (with_id.size() > 1)
-				repeated.push_back(courseIssue(rule::punch_repeated, Issue::Warning, course.name, tr("Course %1: the punching unit %2 is at more than one control (%3).").arg(course.name, id, with_id.join(listSeparator()))));
+			{
+				auto message = tr("Course %1: the punching unit %2 is at more than one control (%3).").arg(course.name, id, with_id.join(listSeparator()));
+				if (!repeated_variants.isEmpty())
+					message = tr("Course %1: the punching unit %2 is at more than one control (%3) in the variants %4.").arg(course.name, id, with_id.join(listSeparator()), repeated_variants.join(listSeparator()));
+				repeated.push_back(courseIssue(rule::punch_repeated, Issue::Warning, course.name, message));
+			}
 		}
 	}
 	issues.insert(end(issues), begin(repeated), end(repeated));

@@ -54,6 +54,15 @@ struct StepResult
  * the design notes. Parameters whose features are not built yet
  * are rejected by validate(): the `course` parameter of `export`.
  */
+/**
+ * foom: The PROJ specification of a CRS written as the `crs` parameter of
+ * `set-georeferencing` takes it; empty for `local`.
+ *
+ * @throws JobError on a CRS which is not known.
+ */
+QString crsSpecOf(const Step& step, const QString& text);
+
+
 class StepRunner
 {
 public:
