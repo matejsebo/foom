@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 
 #include <Qt>
 #include <QColor>
@@ -32,6 +33,10 @@
 #include <QFileInfo>
 #include <QFont>
 #include <QFontMetrics>
+#include <QEventLoop>
+#include <QInputDialog>
+#include <QProgressDialog>
+#include <QCoreApplication>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMessageBox>
@@ -52,6 +57,7 @@
 #include "core/map_transform.h"
 #include "elevation/raster_products.h"
 #include "gdal/tile_map_widget.h"
+#include "gdal/tile_service_template.h"
 
 
 namespace OpenOrienteering {
@@ -112,6 +118,61 @@ QString proposedOnlineMapPath(const QString& map_path)
 		if (!QFileInfo::exists(path))
 			return path;
 	}
+}
+
+double proposedOnlineMapResolution(const QRectF& extent)
+{
+	auto const side = std::max(extent.width(), extent.height());
+	auto const limit = double(TileServiceTemplate::max_download_pixels) - 1.0;
+	auto resolution = 1.0;
+	if (side / resolution > limit)
+		resolution = std::ceil(side / limit * 10.0) / 10.0;
+	return resolution;
+}
+
+bool downloadOnlineMap(Map& map, const MapService& service, const QRectF& extent, double resolution,
+                       const QString& path, QWidget* parent, QString* error)
+{
+	auto const fail = [error](const QString& message) {
+		if (error)
+			*error = message;
+		return false;
+	};
+	TileServiceTemplate temp(service, &map);
+	if (!temp.setupAndLoad(parent, nullptr))
+		return fail(temp.errorString());
+	// Whole pixels, so that the cells are square (seen 2026-11-23: an extent of
+	// 11921.3 by 8940.9 m at 1 m gave cells of 0.99996 by 0.99994 m).
+	auto const columns = std::ceil(extent.width() / resolution - 1e-9);
+	auto const rows = std::ceil(extent.height() / resolution - 1e-9);
+	auto const window = QRectF(extent.left(), extent.top(), columns * resolution, rows * resolution);
+	QString message;
+	if (!temp.downloadExtent(window, resolution, path, &message))
+		return fail(message);
+
+	bool success = false;
+	QEventLoop loop;
+	QObject::connect(&temp, &TileServiceTemplate::downloadFinished, &loop, [&](bool ok, const QString& text) {
+		success = ok;
+		message = text;
+		loop.quit();
+	});
+	std::unique_ptr<QProgressDialog> progress;
+	if (parent)
+	{
+		progress.reset(new QProgressDialog(OnlineMapDialog::tr("Downloading %1...").arg(QFileInfo(path).fileName()),
+		                                   OnlineMapDialog::tr("Cancel"), 0, 100, parent));
+		progress->setWindowModality(Qt::WindowModal);
+		progress->setMinimumDuration(0);
+		QObject::connect(&temp, &TileServiceTemplate::downloadProgress, progress.get(), &QProgressDialog::setValue);
+		QObject::connect(progress.get(), &QProgressDialog::canceled, &temp, &TileServiceTemplate::cancelDownload);
+	}
+	if (temp.isDownloading())
+		loop.exec();
+	progress.reset();
+	if (!success)
+		return fail(message);
+	return attachProductTemplate(map, path, error) != nullptr;
 }
 
 
@@ -221,12 +282,39 @@ void OnlineMapDialog::loadClicked()
 		QMessageBox::information(this, tr("Online map"), tr("Nothing is shown yet."));
 		return;
 	}
+	// the design notes, "Online map and geoviewer", the download (2026-11-23).
+	auto const extent = map_widget->renderedExtent();
+	auto const download = service().bulk_download;
+	double resolution = 0;
+	if (download)
+	{
+		auto const proposed = proposedOnlineMapResolution(extent);
+		auto ok = false;
+		resolution = QInputDialog::getDouble(this, tr("Load as background map"),
+		                                     tr("The area shown is %1 by %2 m. Resolution in metres per pixel\n"
+		                                        "(at most %3 pixels on a side):")
+		                                     .arg(qRound(extent.width())).arg(qRound(extent.height())).arg(TileServiceTemplate::max_download_pixels),
+		                                     proposed, std::max(0.05, proposed * 0.999), 1000.0, 2, &ok);
+		if (!ok)
+			return;
+	}
+	else
+	{
+		auto const shown = map_widget->imageExtent().width() / std::max(1, map_widget->image().width());
+		auto const answer = QMessageBox::question(this, tr("Load as background map"),
+		                                          tr("%1 does not allow downloads, so the picture shown is kept, at %2 m per pixel. "
+		                                             "Zoom in for more detail. Keep it?").arg(service().name).arg(shown, 0, 'f', 1));
+		if (answer != QMessageBox::Yes)
+			return;
+	}
 	auto const path = QFileDialog::getSaveFileName(this, tr("Load as background map"), proposedOnlineMapPath(map_path),
 	                                               tr("GeoTIFF (*.tif *.tiff)"));
 	if (path.isEmpty())
 		return;
 	QString error;
-	if (!loadAsBackgroundMap(path, &error))
+	auto const ok = download ? downloadOnlineMap(map, service(), extent, resolution, path, this, &error)
+	                         : loadAsBackgroundMap(path, &error);
+	if (!ok && error != QLatin1String("Cancelled"))
 		QMessageBox::warning(this, tr("Online map"), tr("Cannot load the online map as a background map:\n%1").arg(error));
 }
 

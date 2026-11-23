@@ -59,6 +59,18 @@ bool saveOnlineMapImage(const QImage& image, const QRectF& extent, const QString
 /** The first free <map>_online_<n>.tif beside the map; in the documents for an unsaved map. */
 QString proposedOnlineMapPath(const QString& map_path);
 
+/** The resolution proposed for a download of the extent: 1 m per pixel, coarser when a side would pass the limit. */
+double proposedOnlineMapResolution(const QRectF& extent);
+
+/**
+ * Downloads the service's map of the projected extent at the resolution, in metres
+ * per pixel, to a GeoTIFF in the map's system, and attaches it as a template.
+ * With a parent a progress dialog shows and can cancel. Returns false with a
+ * message on a failure or a cancel.
+ */
+bool downloadOnlineMap(Map& map, const MapService& service, const QRectF& extent, double resolution,
+                       const QString& path, QWidget* parent = nullptr, QString* error = nullptr);
+
 
 class OnlineMapDialog : public QDialog
 {

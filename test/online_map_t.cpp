@@ -25,6 +25,7 @@
 #include <QtTest>
 #include <QColor>
 #include <QCoreApplication>
+#include <QDir>
 #include <QFile>
 #include <QIODevice>
 #include <QImage>
@@ -50,6 +51,7 @@
 #include "gdal/map_service.h"
 #include "gdal/online_map.h"
 #include "templates/template.h"
+#include "gdal/tile_service_template.h"
 
 using namespace OpenOrienteering;
 
@@ -67,6 +69,29 @@ Georeferencing utmGeoreferencing(const QPointF& reference)
 	georef.setCombinedScaleFactor(1.0);
 	georef.setGrivation(0.0);
 	return georef;
+}
+
+
+/// Writes the tiles of zoom levels 0 to 2, 256 px each, in one colour.
+bool writeTiles(const QString& root)
+{
+	for (int z = 0; z <= 2; ++z)
+	{
+		QImage tile(256, 256, QImage::Format_RGB32);
+		tile.fill(QColor(40, 120, 200));
+		for (int x = 0; x < (1 << z); ++x)
+		{
+			auto const dir = QStringLiteral("%1/%2/%3").arg(root).arg(z).arg(x);
+			if (!QDir().mkpath(dir))
+				return false;
+			for (int y = 0; y < (1 << z); ++y)
+			{
+				if (!tile.save(QStringLiteral("%1/%2.png").arg(dir).arg(y)))
+					return false;
+			}
+		}
+	}
+	return true;
 }
 
 /// The colour of a pixel of the GeoTIFF's three bands.
@@ -241,6 +266,70 @@ private slots:
 		auto const box = temp->boundingRect();
 		QVERIFY2(std::abs(box.left() + 20.0) < 0.2 && std::abs(box.right() - 20.0) < 0.2, qPrintable(QString::number(box.left())));
 		QVERIFY2(std::abs(box.top() + 10.0) < 0.2 && std::abs(box.bottom() - 10.0) < 0.2, qPrintable(QString::number(box.top())));
+	}
+
+
+	/// The download of 2026-11-23: the area shown at a chosen resolution.
+	void proposedResolutionTest()
+	{
+		QCOMPARE(proposedOnlineMapResolution(QRectF(0, 0, 12000, 9000)), 1.0);
+		QCOMPARE(proposedOnlineMapResolution(QRectF(0, 0, 40000, 30000)), 2.1);
+		QVERIFY(40000 / proposedOnlineMapResolution(QRectF(0, 0, 40000, 30000)) < TileServiceTemplate::max_download_pixels);
+	}
+
+	void downloadTest()
+	{
+		QString reason;
+		if (!TileServiceTemplate::driversAvailable(&reason))
+			QSKIP(qPrintable(reason));
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		auto const tiles = dir.filePath(QStringLiteral("tiles"));
+		QVERIFY(writeTiles(tiles));
+		MapService service;
+		service.kind = MapService::Xyz;
+		service.name = QStringLiteral("Offline tiles");
+		service.url = QUrl::fromLocalFile(tiles).toString() + QStringLiteral("/${z}/${x}/${y}.png");
+		service.max_zoom = 2;
+		service.attribution = QStringLiteral("Test tiles");
+
+		Map map;
+		map.setGeoreferencing(utmGeoreferencing(QPointF(500000.0, 5200000.0)));
+		QRectF const extent(499000.0, 5199200.0, 2000.0, 1600.0);
+		auto const path = dir.filePath(QStringLiteral("download.tif"));
+		QString error;
+		QVERIFY2(downloadOnlineMap(map, service, extent, 2.0, path, nullptr, &error), qPrintable(error));
+		auto dataset = GDALOpen(path.toUtf8().constData(), GA_ReadOnly);
+		QVERIFY(dataset);
+		QCOMPARE(GDALGetRasterXSize(dataset), 1000);
+		QCOMPARE(GDALGetRasterYSize(dataset), 800);
+		double gt[6] = {};
+		QCOMPARE(GDALGetGeoTransform(dataset, gt), CE_None);
+		QVERIFY(std::abs(gt[0] - 499000.0) < 1e-6 && std::abs(gt[3] - 5200800.0) < 1e-6 && std::abs(gt[1] - 2.0) < 1e-9);
+		GDALClose(dataset);
+		QCOMPARE(map.getNumTemplates(), 1);
+		// 2 by 1.6 km at 1:10000 is 200 by 160 mm about the map's origin.
+		auto const box = map.getTemplate(0)->boundingRect();
+		QVERIFY2(std::abs(box.left() + 100.0) < 0.5 && std::abs(box.right() - 100.0) < 0.5, qPrintable(QString::number(box.left())));
+		QVERIFY2(std::abs(box.top() + 80.0) < 0.5 && std::abs(box.bottom() - 80.0) < 0.5, qPrintable(QString::number(box.top())));
+
+		// An extent of no whole number of pixels gets whole pixels, square ones.
+		auto const uneven = dir.filePath(QStringLiteral("uneven.tif"));
+		QVERIFY2(downloadOnlineMap(map, service, QRectF(499000.0, 5199200.0, 2001.3, 1600.7), 2.0, uneven, nullptr, &error), qPrintable(error));
+		dataset = GDALOpen(uneven.toUtf8().constData(), GA_ReadOnly);
+		QVERIFY(dataset);
+		QCOMPARE(GDALGetRasterXSize(dataset), 1001);
+		QCOMPARE(GDALGetRasterYSize(dataset), 801);
+		QCOMPARE(GDALGetGeoTransform(dataset, gt), CE_None);
+		QVERIFY(std::abs(gt[1] - 2.0) < 1e-9 && std::abs(gt[5] + 2.0) < 1e-9);
+		GDALClose(dataset);
+		QCOMPARE(map.getNumTemplates(), 2);
+
+		// More than the limit on a side is refused, and nothing is attached.
+		QVERIFY(!downloadOnlineMap(map, service, QRectF(450000.0, 5150000.0, 100000.0, 1000.0), 2.0,
+		                           dir.filePath(QStringLiteral("refused.tif")), nullptr, &error));
+		QVERIFY(!error.isEmpty());
+		QCOMPARE(map.getNumTemplates(), 2);
 	}
 
 	/// Accept (5)
