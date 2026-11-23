@@ -45,6 +45,8 @@
 #include <QDate>
 #include <QCheckBox>
 #include <QClipboard>
+#include <QDesktopServices>  // foom
+#include <QUrl>  // foom
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFile>  // foom
@@ -310,6 +312,7 @@
 #include "tools/edit_line_tool.h"
 #include "tools/fill_tool.h"
 #include "tools/gps_offset_tool.h"  // foom
+#include "tools/geoviewer_tool.h"  // foom
 #include "tools/pan_tool.h"
 #include "tools/rangefinder_tool.h"  // foom
 #include "tools/rotate_pattern_tool.h"
@@ -332,6 +335,7 @@
 #include "gdal/geodata_import.h"  // foom
 #include "gdal/geodata_import_dialog.h"  // foom
 #include "gdal/map_service_dialog.h"  // foom
+#include "gdal/online_map.h"  // foom
 #include "gdal/tile_service_template.h"  // foom
 #endif
 
@@ -1358,6 +1362,9 @@ void MapEditorController::createActions()
 	open_template_act = newAction("opentemplate", tr("Open template..."), this, SLOT(openTemplateClicked()), nullptr, QString{}, "templates_menu.html");
 	reopen_template_act = newAction("reopentemplate", tr("Reopen template..."), this, SLOT(reopenTemplateClicked()), nullptr, QString{}, "templates_menu.html");
 	add_map_service_act = newAction("template-add-service", tr("Add map service..."), this, SLOT(addMapServiceClicked()));  // foom
+	online_map_act = newAction("template-online-map", tr("Online map..."), this, SLOT(onlineMapClicked()));  // foom
+	geoviewer_act = newToolAction("geoviewer", tr("Open geoviewer"), this, SLOT(geoviewerClicked()), "georeferencing.png",
+	                              tr("Click a place to open the geoviewer there, or drag to look in a direction."));  // foom
 	relink_templates_act = newAction("templates-relink", tr("Relink by folder..."), this, SLOT(relinkTemplatesClicked()));  // foom
 	updateMapServiceAction();  // foom
 	
@@ -1871,6 +1878,7 @@ void MapEditorController::createMenuAndToolbars()
 		gps_menu->addAction(gps_import_file_act);  // foom
 	}
 	tools_menu->addAction(rangefinder_act);  // foom
+	tools_menu->addAction(geoviewer_act);  // foom
 	tools_menu->addAction(draw_point_act);
 	tools_menu->addAction(draw_path_act);
 	tools_menu->addAction(draw_circle_act);
@@ -2044,6 +2052,7 @@ void MapEditorController::createMenuAndToolbars()
 	template_menu->addAction(open_template_act);
 	template_menu->addAction(reopen_template_act);
 	template_menu->addAction(add_map_service_act);  // foom
+	template_menu->addAction(online_map_act);  // foom
 	template_menu->addAction(relink_templates_act);  // foom
 	
 	QMenu* elevation_menu = window->menuBar()->addMenu(tr("&Elevation"));  // foom: the design notes, "Menu placement"
@@ -2150,6 +2159,7 @@ void MapEditorController::createMenuAndToolbars()
 	toolbar_view->addAction(box_zoom_act);
 	toolbar_view->addAction(show_all_act);
 	toolbar_view->addAction(template_window_act);
+	toolbar_view->addAction(geoviewer_act);  // foom
 	
 	// MapParts toolbar
 	toolbar_mapparts = window->addToolBar(tr("Map parts"));
@@ -3426,6 +3436,38 @@ void MapEditorController::updateMapServiceAction()
 	add_map_service_act->setEnabled(reason.isEmpty());
 	add_map_service_act->setToolTip(reason);
 	add_map_service_act->setStatusTip(reason);
+	if (online_map_act)
+	{
+		online_map_act->setEnabled(reason.isEmpty());
+		online_map_act->setToolTip(reason);
+		online_map_act->setStatusTip(reason);
+	}
+	if (geoviewer_act)
+		geoviewer_act->setEnabled(map->getGeoreferencing().getState() == Georeferencing::Geospatial);
+}
+
+// foom: the design notes, "Online map and geoviewer".
+void MapEditorController::onlineMapClicked()
+{
+#ifdef MAPPER_USE_GDAL
+	auto const templates_before = map->getNumTemplates();
+	OnlineMapDialog dialog(*map, window->currentPath(), window);
+	connect(&dialog, &OnlineMapDialog::webViewerRequested, &dialog, [](const QUrl& url) { QDesktopServices::openUrl(url); });
+	dialog.exec();
+	if (map->getNumTemplates() > templates_before)
+	{
+		hideAllTemplates(false);
+		showTemplateWindow(true);
+	}
+#endif
+}
+
+// foom: the design notes, "Online map and geoviewer".
+void MapEditorController::geoviewerClicked()
+{
+	auto* tool = new GeoviewerTool(this, geoviewer_act);
+	connect(tool, &GeoviewerTool::urlChosen, tool, [](const QUrl& url) { QDesktopServices::openUrl(url); });
+	setTool(tool);
 }
 
 // foom

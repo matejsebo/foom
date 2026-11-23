@@ -99,6 +99,15 @@ struct MapService
 	/** The shipped presets. */
 	static std::vector<MapService> presets();
 
+	/**
+	 * foom: The services of the online map, imagery first.
+	 * See the design notes, "Online map and geoviewer".
+	 */
+	static std::vector<MapService> onlinePresets();
+
+	/** foom: onlinePresets(), then the user's services whose names it has not. */
+	static std::vector<MapService> onlineMapServices();
+
 	/** The user's service list from the application settings, the presets when there is none. */
 	static std::vector<MapService> fromSettings();
 

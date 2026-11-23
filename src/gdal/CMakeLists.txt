@@ -47,6 +47,7 @@ set(MAPPER_GDAL_SOURCES
   map_service_dialog.cpp
   new_map.cpp
   new_map_wizard.cpp
+  online_map.cpp  # foom
   ogr_file_format.cpp
   ogr_template.cpp
   tile_map_widget.cpp

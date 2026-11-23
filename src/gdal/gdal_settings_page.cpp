@@ -26,8 +26,11 @@
 #include <QAbstractItemModel>
 #include <QCheckBox>
 #include <QFormLayout>
+#include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
+#include <QLineEdit>
+#include <QPushButton>
 #include <QSignalBlocker>
 #include <QSpacerItem>
 #include <QSpinBox>
@@ -37,6 +40,7 @@
 #include <QVBoxLayout>
 
 #include "settings.h"
+#include "core/geoviewer.h"
 #include "fileformats/file_format_registry.h"
 #include "gdal/gdal_manager.h"
 #include "gdal/ogr_file_format.h"
@@ -79,6 +83,17 @@ GdalSettingsPage::GdalSettingsPage(QWidget* parent)
 	tile_cache_mb->setSuffix(QLatin1Char(' ') + tr("MB"));
 	tile_cache_mb->setToolTip(tr("Memory for the tiles of each map service template"));
 	form_layout->addRow(tr("Map service cache:"), tile_cache_mb);
+	
+	// foom: the design notes, "Online map and geoviewer"
+	geoviewer_url = new QLineEdit();
+	geoviewer_url->setObjectName(QStringLiteral("geoviewer_url"));
+	geoviewer_url->setToolTip(tr("{latitude}, {longitude} and {direction} are replaced by the place and the direction chosen"));
+	auto* geoviewer_default = new QPushButton(tr("Default"));
+	connect(geoviewer_default, &QPushButton::clicked, this, [this]() { geoviewer_url->setText(geoviewerDefaultPattern()); });
+	auto* geoviewer_row = new QHBoxLayout();
+	geoviewer_row->addWidget(geoviewer_url, 1);
+	geoviewer_row->addWidget(geoviewer_default);
+	form_layout->addRow(tr("Geoviewer URL:"), geoviewer_row);
 	
 	
 	form_layout->addItem(Util::SpacerItem::create(this));
@@ -133,6 +148,7 @@ void GdalSettingsPage::apply()
 	manager.setExportOptionEnabled(GdalManager::OneLayerPerSymbol, export_one_layer_per_symbol->isChecked());
 	manager.setImportOptionEnabled(GdalManager::ClipLayers, clip_layers->isChecked());
 	Settings::getInstance().setSetting(Settings::Templates_TileCacheMB, tile_cache_mb->value());  // foom
+	setGeoviewerPattern(geoviewer_url->text().trimmed());  // foom
 	
 	const auto old_parameters = manager.parameterKeys();
 	
@@ -172,6 +188,7 @@ void GdalSettingsPage::updateWidgets()
 	view_hatch->setChecked(manager.isAreaHatchingEnabled());
 	view_baseline->setChecked(manager.isBaselineViewEnabled());
 	tile_cache_mb->setValue(Settings::getInstance().getSetting(Settings::Templates_TileCacheMB).toInt());  // foom
+	geoviewer_url->setText(geoviewerPattern());  // foom
 	
 	export_one_layer_per_symbol->setChecked(manager.isExportOptionEnabled(GdalManager::OneLayerPerSymbol));
 	

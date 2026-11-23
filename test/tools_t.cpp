@@ -46,6 +46,7 @@
 #include <QKeySequence>
 #include <QLabel>
 #include <QMenu>
+#include <QDesktopServices>  // foom
 #include <QSettings>
 #include <QStatusBar>
 #include <QVariant>
@@ -144,6 +145,7 @@
 #include "gui/symbols/symbol_setting_dialog.h"  // foom
 #include "gui/map/map_find_feature.h"
 #include "gui/map/map_widget.h"
+#include "core/georeferencing.h"  // foom
 #include "gui/widgets/template_list_widget.h"  // foom
 #include "templates/paint_on_template_feature.h"
 #include "tools/edit_point_tool.h"
@@ -3269,6 +3271,53 @@ void ToolsTest::mapReprojectDialog()
 	QCOMPARE(dialog.targetOffset(), QPointF(498000.0, 4407000.0));
 	QCOMPARE(dialog.findChild<QDoubleSpinBox*>(QStringLiteral("east_offset"))->value(), 498000.0);
 	QCOMPARE(dialog.findChild<QDoubleSpinBox*>(QStringLiteral("north_offset"))->value(), 4407000.0);
+}
+
+void ToolsTest::geoviewerTool()
+{
+	// the design notes, "Online map and geoviewer", Accept (7).
+	UrlCatcher catcher;
+	QDesktopServices::setUrlHandler(QStringLiteral("https"), &catcher, "open");
+	QDesktopServices::setUrlHandler(QStringLiteral("http"), &catcher, "open");
+	QSettings().remove(QStringLiteral("Geoviewer"));
+
+	TestMap map;
+	TestMapEditor editor(map.map);
+	auto* action = editor.editor->getAction("geoviewer");
+	QVERIFY(action);
+	auto* widget = editor.map_widget;
+	auto const centre = QPoint(widget->width() / 2, widget->height() / 2);
+
+	// A local map: the tool says so and opens nothing.
+	action->trigger();
+	QVERIFY(editor.editor->getTool());
+	editor.simulateClick(centre);
+	QVERIFY(catcher.urls.empty());
+
+	// A map in UTM 13: a click looks north, a drag to the east looks east.
+	Georeferencing georef;
+	georef.setScaleDenominator(10000);
+	georef.setProjectedCRS(QStringLiteral("UTM 13"), QStringLiteral("+proj=utm +zone=13 +datum=WGS84"));
+	georef.setMapRefPoint(MapCoord(0.0, 0.0));
+	georef.setProjectedRefPoint(QPointF(500000.0, 5200000.0), false, false);
+	georef.setCombinedScaleFactor(1.0);
+	georef.setGrivation(0.0);
+	map.map->setGeoreferencing(georef);
+	action->trigger();
+	editor.simulateClick(centre);
+	QCOMPARE(int(catcher.urls.size()), 1);
+	auto const click_url = catcher.urls.back().toString();
+	QVERIFY2(click_url.startsWith(QLatin1String("https://maps.google.com/maps?q=&layer=c&cbll=")), qPrintable(click_url));
+	QVERIFY2(click_url.endsWith(QLatin1String("&cbp=11,0,0,0,0")), qPrintable(click_url));
+
+	editor.simulateDrag(centre, centre + QPoint(80, 0));
+	QCOMPARE(int(catcher.urls.size()), 2);
+	auto const drag_url = catcher.urls.back().toString();
+	auto const cbp = drag_url.mid(drag_url.indexOf(QLatin1String("cbp=11,")) + 7).section(QLatin1Char(','), 0, 0).toInt();
+	QVERIFY2(std::abs(cbp - 90) <= 1, qPrintable(drag_url));
+
+	QDesktopServices::unsetUrlHandler(QStringLiteral("https"));
+	QDesktopServices::unsetUrlHandler(QStringLiteral("http"));
 }
 
 

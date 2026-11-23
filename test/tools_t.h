@@ -21,7 +21,21 @@
 #ifndef OPENORIENTEERING_TOOLS_T_H
 #define OPENORIENTEERING_TOOLS_T_H
 
+#include <vector>
+
 #include <QObject>
+#include <QUrl>
+
+
+/// foom: Takes the URLs which QDesktopServices would give to the browser.
+class UrlCatcher : public QObject
+{
+Q_OBJECT
+public:
+	std::vector<QUrl> urls;
+public slots:
+	void open(const QUrl& url) { urls.push_back(url); }
+};
 
 
 /**
@@ -240,6 +254,9 @@ private slots:
 	
 	/** foom: Tests the map check command and the Issues window. */
 	void mapCheck();
+	
+	/** foom: Tests the geoviewer tool, the design notes, "Online map and geoviewer". */
+	void geoviewerTool();
 	
 	/** foom: Tests the legibility check command. */
 	void legibility();

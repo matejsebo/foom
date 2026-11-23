@@ -348,6 +348,47 @@ std::vector<MapService> MapService::presets()
 }
 
 // static
+std::vector<MapService> MapService::onlinePresets()
+{
+	// foom: the design notes, "Online map and geoviewer";
+	// every one checked against its server on 2026-11-23.
+	std::vector<MapService> result;
+	auto xyz = [&result](const char* name, const char* url, int max_zoom, const char* attribution, bool bulk) {
+		MapService service;
+		service.kind = Xyz;
+		service.name = QString::fromUtf8(name);
+		service.url = QString::fromUtf8(url);
+		service.max_zoom = max_zoom;
+		service.attribution = QString::fromUtf8(attribution);
+		service.bulk_download = bulk;
+		result.push_back(service);
+	};
+	xyz("USGS Imagery", "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/${z}/${y}/${x}",
+	    16, "USGS The National Map", true);
+	xyz("USGS Topo", "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/${z}/${y}/${x}",
+	    16, "USGS The National Map", true);
+	for (auto const& preset : presets())
+	{
+		if (preset.kind == Xyz)
+			result.push_back(preset);  // OpenStreetMap, OpenTopoMap
+	}
+	return result;
+}
+
+// static
+std::vector<MapService> MapService::onlineMapServices()
+{
+	auto result = onlinePresets();
+	for (auto const& service : fromSettings())
+	{
+		auto const known = std::any_of(result.begin(), result.end(), [&service](const MapService& s) { return s.name == service.name; });
+		if (!known)
+			result.push_back(service);
+	}
+	return result;
+}
+
+// static
 std::vector<MapService> MapService::fromSettings()
 {
 	QSettings settings;

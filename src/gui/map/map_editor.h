@@ -520,6 +520,10 @@ public slots:
 	/** Shows a file selector to open a template. */
 	void openTemplateClicked();
 	void addMapServiceClicked();  // foom
+	/** foom: Templates > Online map... (the design notes, "Online map and geoviewer"). */
+	void onlineMapClicked();
+	/** foom: Tools > Open geoviewer. */
+	void geoviewerClicked();
 	/** foom: Asks for the old and the new folder, then relinks the templates (templates-relink). */
 	void relinkTemplatesClicked();
 	/** foom: Asks for geodata files, then imports them with the import options (import-geodata). */
@@ -1485,6 +1489,8 @@ private:
 	QAction* open_template_act = {};
 	QAction* reopen_template_act = {};
 	QAction* add_map_service_act = {};  // foom
+	QAction* online_map_act = {};  // foom
+	QAction* geoviewer_act = {};  // foom
 	QAction* relink_templates_act = {};  // foom
 	QAction* import_geodata_act = {};  // foom
 	QAction* import_points_act = {};  // foom

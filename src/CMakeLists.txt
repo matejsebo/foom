@@ -97,6 +97,7 @@ set(Mapper_Common_SRCS
   core/georeferencing.cpp
   core/background_extents.cpp
   core/prj_file.cpp
+  core/geoviewer.cpp  # foom
   core/latlon.cpp
   core/map.cpp
   core/map_color.cpp
@@ -438,6 +439,7 @@ set(Mapper_Common_SRCS
   tools/edit_line_tool.cpp
   tools/fill_tool.cpp
   tools/gps_offset_tool.cpp  # foom
+  tools/geoviewer_tool.cpp  # foom
   tools/affine_transform_tool.cpp  # foom
   tools/rubbersheet_tool.cpp  # foom
   tools/point_pairs_window.cpp  # foom
