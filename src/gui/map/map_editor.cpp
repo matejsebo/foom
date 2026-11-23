@@ -5709,8 +5709,10 @@ void MapEditorController::showIssuesWindow(bool show)
 }
 
 // foom
-bool MapEditorController::fixIssueRow(int row)
+bool MapEditorController::fixIssueRow(int row, bool* cancelled)
 {
+	if (cancelled)
+		*cancelled = false;
 	if (row < 0 || row >= issue_model->rowCount())
 		return false;
 	auto const& issue = issue_model->issueAt(row);
@@ -5720,7 +5722,12 @@ bool MapEditorController::fixIssueRow(int row)
 		auto const start = relinkStartFolder(QFileInfo(issue.subject).path(), window->currentPath());
 		auto const path = FileDialog::getOpenFileName(window, tr("Relink %1").arg(QFileInfo(issue.subject).fileName()), start);
 		if (path.isEmpty())
+		{
+			// Seen on 2026-11-23: a cancel was answered with "no automatic fix".
+			if (cancelled)
+				*cancelled = true;
 			return false;
+		}
 		return relinkIssueRow(row, path);
 	}
 	auto const fixed = fixIssue(*map, issue_model->issueAt(row));

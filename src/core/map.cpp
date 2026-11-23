@@ -423,21 +423,32 @@ void colorPlacesShifted(Map& map)
 }
 
 /**
- * Draws, over the overprinting simulation, the objects of helper symbols in
- * colours which are no spot colours and so in no separation: the sketch.
- * Seen on 2026-11-22: strokes were not drawn on the example map forest sample.omap.
+ * Draws, over the overprinting simulation, in colours which are no spot colours
+ * and so in no separation: the objects of helper symbols (the sketch), and
+ * those of a part with the role issues (the legibility markers), which are
+ * drawn as without the simulation.
+ * Seen on 2026-11-22: strokes were not drawn on the example map forest sample.omap; on
+ * 2026-11-23 the legibility markers.
  */
 void drawProcessHelpers(const Map& map, QPainter* painter, const RenderConfig& config)
 {
-	if (!config.testFlag(RenderConfig::HelperSymbols))
-		return;
+	auto const with_helpers = config.testFlag(RenderConfig::HelperSymbols);
 	std::vector<const Object*> helpers;
-	map.applyOnAllObjects([&map, &helpers, &config](const Object* object) {
-		auto const* symbol = object->getSymbol();
-		if (symbol && symbol->isHelperSymbol() && !symbol->isHidden() && !map.isObjectHidden(object)
-		    && object->getExtent().intersects(config.bounding_box))
-			helpers.push_back(object);
-	});
+	for (int p = 0; p < map.getNumParts(); ++p)
+	{
+		auto const* part = map.getPart(std::size_t(p));
+		auto const issues = part->role() == MapPart::Role::Issues;
+		if ((!issues && !with_helpers) || !part->isVisible())
+			continue;
+		for (int i = 0; i < part->getNumObjects(); ++i)
+		{
+			auto const* object = part->getObject(i);
+			auto const* symbol = object->getSymbol();
+			if (symbol && (issues || symbol->isHelperSymbol()) && !symbol->isHidden() && !map.isObjectHidden(object)
+			    && object->getExtent().intersects(config.bounding_box))
+				helpers.push_back(object);
+		}
+	}
 	if (helpers.empty())
 		return;
 	for (auto i = map.getNumColors() - 1; i >= 0; --i)

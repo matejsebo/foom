@@ -1092,8 +1092,11 @@ public slots:
 	void checkAgain();
 	/** foom: Shows or hides the Issues window. */
 	void showIssuesWindow(bool show);
-	/** foom: Applies the fix of the issue shown in the row and checks again; returns false when nothing changed. */
-	bool fixIssueRow(int row);
+	/**
+	 * foom: Applies the fix of the issue shown in the row and checks again; returns false when nothing changed.
+	 * When cancelled is given, it says whether the user cancelled the fix (the relink chooser).
+	 */
+	bool fixIssueRow(int row, bool* cancelled = nullptr);
 	/** foom: Relinks the missing template of the row's template-missing issue to the file, then checks again. */
 	bool relinkIssueRow(int row, const QString& path);
 	/** foom: Gives the objects of the symbol issue in the row the active symbol and checks again; returns false when it does not fit. */

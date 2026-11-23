@@ -32,6 +32,7 @@ class QXmlStreamWriter;
 
 namespace OpenOrienteering {
 
+class Map;
 struct Extent;
 
 
@@ -120,8 +121,24 @@ CourseCanvases loadCanvases(QXmlStreamReader& xml);
  */
 bool canvasesFromOcdXml(const QByteArray& bytes, CourseCanvases& canvases);
 
-/** Writes the text of the canvases, as it stands in the parameter string 1093. */
-QString canvasesToOcdXml(const CourseCanvases& canvases);
+/**
+ * What is written into a canvas file for the values 0 of a canvas,
+ * which FOOM keeps for the scale of the map and for the box and the rows of
+ * the course options: the file format has no such value. A value 0 here
+ * leaves the 0 of the canvas.
+ */
+struct CanvasDefaults
+{
+	unsigned int scale = 0;
+	double box_size = 0.0;
+	int max_rows = 0;
+};
+
+/** The scale of the map, and the box size and the rows of its course options. */
+CanvasDefaults canvasDefaults(const Map& map);
+
+/** Writes the text of the canvases, as it stands in the parameter string 1093; the defaults stand for the values 0. */
+QString canvasesToOcdXml(const CourseCanvases& canvases, const CanvasDefaults& defaults = {});
 
 /**
  * Reads a canvas XML file: the canvases, and for every canvas
@@ -138,7 +155,7 @@ bool canvasesFromXmlScript(const QByteArray& bytes, CourseCanvases& canvases, st
  * the extents, its rectangle in mm of the map with y upwards; in UTF-8 with
  * a byte order mark and the encoding in the declaration, as the format has it.
  */
-QByteArray canvasesToXmlScript(const CourseCanvases& canvases, const std::vector<Extent>& extents);
+QByteArray canvasesToXmlScript(const CourseCanvases& canvases, const std::vector<Extent>& extents, const CanvasDefaults& defaults = {});
 
 /** Reads a named extent, the parameter string 29 of an OCD file. */
 bool extentFromOcdRecord(const QString& record, Extent& extent);

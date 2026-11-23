@@ -176,6 +176,7 @@ private slots:
 	void dialogTest();
 	void xmlScriptTest();
 	void defineExtentTest();
+	void ocdDefaultsTest();
 };
 
 
@@ -635,6 +636,51 @@ namespace {
 
 
 /// the design notes, "Canvases: defining an extent in the dialog", Accept
+
+/**
+ * A canvas file with an export scale of 0 is of no use. The format has no value for the
+ * scale of the map or for the box and the rows of the course options, and
+ * FOOM writes theirs in place of 0.
+ * the design notes, "Canvases: the XML files".
+ */
+void CourseCanvasTest::ocdDefaultsTest()
+{
+	CourseCanvases canvases;
+	CourseCanvas as_map;
+	as_map.name = QStringLiteral("As the map");
+	CourseCanvas own;
+	own.name = QStringLiteral("Own");
+	own.scale = 7500;
+	own.box_size = 5.0;
+	own.max_rows = 20;
+	canvases.canvases = { as_map, own };
+
+	auto const defaults = CanvasDefaults { 10000, 6.0, 25 };
+	auto const xml = canvasesToOcdXml(canvases, defaults);
+	QVERIFY(xml.contains(QLatin1String("<Name>As the map</Name>\r\n<ExportRectangleName pageStatus=\"psSingle\"></ExportRectangleName>\r\n"
+	                                   "<ExportScale>10000</ExportScale>\r\n<CdSymbolsSize>6.0</CdSymbolsSize>\r\n<CdMaxLength>25</CdMaxLength>\r\n")));
+	QVERIFY(xml.contains(QLatin1String("<ExportScale>7500</ExportScale>\r\n<CdSymbolsSize>5.0</CdSymbolsSize>\r\n<CdMaxLength>20</CdMaxLength>\r\n")));
+	QVERIFY(!xml.contains(QLatin1String("<ExportScale>0</ExportScale>")));
+	auto const script = canvasesToXmlScript(canvases, {}, defaults);
+	QVERIFY(script.contains("<ExportScale>10000</ExportScale>"));
+
+	// Course options without rows ('i' absent) leave the rows at 0.
+	auto const no_rows = canvasesToOcdXml(canvases, CanvasDefaults { 10000, 6.0, 0 });
+	QVERIFY(no_rows.contains(QLatin1String("<CdSymbolsSize>6.0</CdSymbolsSize>\r\n<CdMaxLength>0</CdMaxLength>")));
+
+	// From a map: its scale and its course options.
+	Map map;
+	map.setScaleDenominator(15000);
+	auto data = map.courseData();
+	data.options.setValue(QLatin1Char('s'), QStringLiteral("5"));
+	data.options.setValue(QLatin1Char('i'), QStringLiteral("30"));
+	map.setCourseData(data);
+	auto const from_map = canvasDefaults(map);
+	QCOMPARE(from_map.scale, 15000u);
+	QCOMPARE(from_map.box_size, 5.0);
+	QCOMPARE(from_map.max_rows, 30);
+}
+
 void CourseCanvasTest::defineExtentTest()
 {
 	Map map;

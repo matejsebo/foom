@@ -574,7 +574,7 @@ bool CourseCanvasesDialog::saveXml(const QString& path) const
 	QSaveFile file(path);
 	if (!file.open(QIODevice::WriteOnly))
 		return false;
-	file.write(canvasesToXmlScript(data, extents));
+	file.write(canvasesToXmlScript(data, extents, canvasDefaults(*map)));
 	return file.commit();
 }
 

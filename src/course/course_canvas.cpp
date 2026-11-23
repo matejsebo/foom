@@ -37,6 +37,8 @@
 #include <QXmlStreamWriter>
 
 #include "core/extents.h"
+#include "core/map.h"
+#include "course/course_data.h"
 
 namespace OpenOrienteering {
 
@@ -187,7 +189,7 @@ void append(QString& text, const char* element, const QString& content, const QS
 }
 
 bool readOcdCanvases(const QByteArray& bytes, CourseCanvases& canvases, std::vector<Extent>* extents);
-QString writeOcdCanvases(const CourseCanvases& canvases, const std::vector<Extent>* extents);
+QString writeOcdCanvases(const CourseCanvases& canvases, const std::vector<Extent>* extents, const CanvasDefaults& defaults);
 
 }  // namespace
 
@@ -433,17 +435,23 @@ bool readOcdCanvases(const QByteArray& bytes, CourseCanvases& canvases, std::vec
 }  // namespace
 
 
-QString canvasesToOcdXml(const CourseCanvases& canvases)
+CanvasDefaults canvasDefaults(const Map& map)
 {
-	return writeOcdCanvases(canvases, nullptr);
+	auto const& options = map.courseData().options;
+	return { map.getScaleDenominator(), options.boxSize(), options.maximumRows() };
+}
+
+QString canvasesToOcdXml(const CourseCanvases& canvases, const CanvasDefaults& defaults)
+{
+	return writeOcdCanvases(canvases, nullptr, defaults);
 }
 
 
-QByteArray canvasesToXmlScript(const CourseCanvases& canvases, const std::vector<Extent>& extents)
+QByteArray canvasesToXmlScript(const CourseCanvases& canvases, const std::vector<Extent>& extents, const CanvasDefaults& defaults)
 {
 	// foom: UTF-8 with a BOM and the encoding declared, as the format has it;
 	// a byte of Windows-1252 in it makes the file unreadable.
-	auto text = writeOcdCanvases(canvases, &extents);
+	auto text = writeOcdCanvases(canvases, &extents, defaults);
 	text.replace(0, int(qstrlen("<?xml version=\"1.0\"?>")), QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
 	return QByteArray("\xef\xbb\xbf") + text.toUtf8();
 }
@@ -451,7 +459,7 @@ QByteArray canvasesToXmlScript(const CourseCanvases& canvases, const std::vector
 
 namespace {
 
-QString writeOcdCanvases(const CourseCanvases& canvases, const std::vector<Extent>* extents)
+QString writeOcdCanvases(const CourseCanvases& canvases, const std::vector<Extent>* extents, const CanvasDefaults& defaults)
 {
 	auto text = QStringLiteral("<?xml version=\"1.0\"?>\r\n<OcadScript>\r\n<CsCanvas>\r\n");
 	append(text, "ExportFolder", {});
@@ -483,9 +491,9 @@ QString writeOcdCanvases(const CourseCanvases& canvases, const std::vector<Exten
 				text += QLatin1String("</ExportRectangleFrontside>\r\n");
 			}
 		}
-		append(text, "ExportScale", QString::number(canvas.scale));
-		append(text, "CdSymbolsSize", QString::number(canvas.box_size, 'f', 1));
-		append(text, "CdMaxLength", QString::number(canvas.max_rows));
+		append(text, "ExportScale", QString::number(canvas.scale ? canvas.scale : defaults.scale));
+		append(text, "CdSymbolsSize", QString::number(canvas.box_size > 0 ? canvas.box_size : defaults.box_size, 'f', 1));
+		append(text, "CdMaxLength", QString::number(canvas.max_rows ? canvas.max_rows : defaults.max_rows));
 		text += QLatin1String("<BackgroundMaps>\r\n");
 		for (auto const& name : canvases.used_templates)
 			append(text, "BackgroundMap", name, QLatin1String(" visible=\"") + boolText(!canvas.hidden_templates.contains(name)) + QLatin1Char('"'));

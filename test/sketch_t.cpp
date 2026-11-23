@@ -643,6 +643,46 @@ private slots:
 		QCOMPARE(QColor(image.pixel(50, 50)).rgb(), QColor(Qt::white).rgb());
 	}
 
+	/// Seen on 2026-11-23: the legibility markers, in a part with the role
+	/// issues and in a colour which is no spot colour, were not drawn with the
+	/// overprinting simulation on. the design notes,
+	/// "Legibility", the results as markers.
+	void overprintingSimulationIssuesTest()
+	{
+		Map map;
+		map.setScaleDenominator(10000);
+		auto* green = addGreenField(map);
+		green->setSpotColorName(QStringLiteral("GREEN"));
+		auto* red = new MapColor(QStringLiteral("Legibility conflict"), 0);
+		red->setCmyk(MapColorCmyk(0.0f, 1.0f, 1.0f, 0.0f));
+		red->setRgb(MapColorRgb(1.0f, 0.0f, 0.0f));
+		map.addColor(red, 0);
+		auto* line = addSymbol<LineSymbol>(map, QStringLiteral("Legibility conflict (line)"), 900);
+		line->setLineWidth(2);
+		line->setColor(red);
+		auto* part = new MapPart(QStringLiteral("Legibility markers"), &map);
+		part->setRole(MapPart::Role::Issues);
+		map.addPart(part, std::size_t(map.getNumParts()));
+		map.addObject(new PathObject(line, { MapCoord(5, 10), MapCoord(35, 10) }), map.getNumParts() - 1);
+	
+		// Drawn on screen with and without helper symbols, as without the simulation.
+		for (auto options : { RenderConfig::Options(RenderConfig::Screen | RenderConfig::HelperSymbols),
+		                      RenderConfig::Options(RenderConfig::Screen) })
+		{
+			QImage image(200, 100, QImage::Format_ARGB32_Premultiplied);
+			image.fill(QColor(Qt::white));
+			QPainter painter(&image);
+			painter.scale(5, 5);
+			RenderConfig config = { map, QRectF(0, 0, 40, 20), 5, options, 1.0 };
+			map.drawOverprintingSimulation(&painter, config);
+			painter.end();
+			// The marker in red beside the field and over it, the field in its spot colour.
+			QCOMPARE(QColor(image.pixel(25, 50)).rgb(), QColor(255, 0, 0).rgb());
+			QCOMPARE(QColor(image.pixel(100, 50)).rgb(), QColor(255, 0, 0).rgb());
+			QVERIFY(QColor(image.pixel(100, 25)).green() > 200);
+		}
+	}
+	
 	/// Seen on 2026-11-22 after a legibility check: a colour inserted into the
 	/// table left what was drawn referring to the colours by their old places,
 	/// one place off. the design notes, "Sketch layer",

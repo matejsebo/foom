@@ -123,7 +123,8 @@ void IssuesWidget::fixSelected()
 	auto const index = table->selectionModel() ? table->selectionModel()->currentIndex() : QModelIndex();
 	if (!index.isValid())
 		return;
-	if (!editor->fixIssueRow(index.row()))
+	auto cancelled = false;
+	if (!editor->fixIssueRow(index.row(), &cancelled) && !cancelled)
 		QMessageBox::information(this, tr("Issues"), tr("This issue has no automatic fix, or nothing was left to fix."));
 }
 

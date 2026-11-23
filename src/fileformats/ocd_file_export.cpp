@@ -3578,7 +3578,7 @@ void OcdFileExport::exportCourseData()
 	if (!data.options.fields.empty())
 		addParameterString(1031, OcdCourse::formatOptions(data.options));
 	if (!data.canvases.isEmpty())
-		addParameterString(1093, canvasesToOcdXml(data.canvases));
+		addParameterString(1093, canvasesToOcdXml(data.canvases, canvasDefaults(*map)));
 	if (!data.route.isDefault())
 		addParameterString(1088, routeSettingsToOcdRecord(data.route));
 	for (auto const& course : data.courses)

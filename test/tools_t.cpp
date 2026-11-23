@@ -3288,7 +3288,9 @@ void ToolsTest::mapCheck()
 	QVERIFY(editor.editor->getAction("issueswindow")->isChecked());
 	editor.editor->issueModel()->setRuleFilter(rule::text_empty);
 	QCOMPARE(editor.editor->issueModel()->rowCount(), 1);
-	QVERIFY(editor.editor->fixIssueRow(0));
+	auto cancelled = true;
+	QVERIFY(editor.editor->fixIssueRow(0, &cancelled));
+	QVERIFY(!cancelled);
 	QVERIFY(!map.map->findObject(blank->uuid()));
 	// The check ran again: the rule is gone, and the dock has dropped the filter for it.
 	for (auto const& issue : editor.editor->issueModel()->issues())
