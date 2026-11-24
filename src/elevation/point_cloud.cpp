@@ -774,6 +774,9 @@ GriddingResult PointCloud::grid(const QStringList& paths, const GriddingParams& 
 
 	// Sums relative to the first height keep the precision of float.
 	auto reference = std::numeric_limits<double>::quiet_NaN();
+	auto points_seen = qint64(0);
+	auto stopped = false;
+	auto const beat = std::max<qint64>(1, params.progress_points);
 	for (int band = 0; band < num_bands; ++band)
 	{
 		auto const r0 = band * tile_rows;
@@ -797,6 +800,12 @@ GriddingResult PointCloud::grid(const QStringList& paths, const GriddingParams& 
 			dsm_count.assign(m, 0);
 		}
 		auto const add = [&](const CloudPoint& p) {
+			// A sign of life between the rows of tiles, and an ear for Cancel.
+			if (stopped || (params.progress && ++points_seen % beat == 0 && !params.progress(step, band, num_bands)))
+			{
+				stopped = true;
+				return;
+			}
 			if (p.x < left || p.x > right || p.y < bottom || p.y > top)
 				return;
 			// Cells include their south and west edges.
@@ -829,6 +838,8 @@ GriddingResult PointCloud::grid(const QStringList& paths, const GriddingParams& 
 				discard();
 				return result;
 			}
+			if (stopped)
+				return cancel();
 		}
 
 		// The band's grids, filled, and its own rows copied out or written.
@@ -993,6 +1004,8 @@ bool baseMapRows(const QStringList& paths, const Grid& dtm, const VegetationPara
 	};
 	auto const& u = params.undergrowth_thresholds;
 	auto const& t = params.vegetation_thresholds;
+	auto points_seen = qint64(0);
+	auto stopped = false;
 	for (int band = 0; band < bands; ++band)
 	{
 		auto const r0 = band * rows_per_band;
@@ -1007,6 +1020,12 @@ bool baseMapRows(const QStringList& paths, const Grid& dtm, const VegetationPara
 		auto const n = std::size_t(width) * std::size_t(band_height);
 		std::vector<quint32> returns(n, 0), raised(n, 0), ground(n, 0), vegetation(n, 0), undergrowth(n, 0);
 		auto const add = [&](const CloudPoint& p) {
+			// A sign of life between the rows of tiles, as in gridding.
+			if (stopped || (progress && ++points_seen % 262144 == 0 && !progress(step, band, bands)))
+			{
+				stopped = true;
+				return;
+			}
 			auto const col = int(std::floor((p.x - left) / cell));
 			auto const row = height - 1 - int(std::floor((p.y - (top - height * cell)) / cell));
 			if (col < 0 || row < b0 || col >= width || row >= b1)
@@ -1032,6 +1051,11 @@ bool baseMapRows(const QStringList& paths, const Grid& dtm, const VegetationPara
 				continue;
 			if (!PointCloud::read(paths[i], add, nullptr, error))
 				return false;
+			if (stopped)
+			{
+				*cancelled = true;
+				return false;
+			}
 		}
 
 		// Sums over windows through summed-area tables.

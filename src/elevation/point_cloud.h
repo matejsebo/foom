@@ -132,6 +132,9 @@ struct GriddingParams
 	QString dsm_path;
 	bool to_disk = false;       ///< Write the grids to the paths whatever their size.
 	TileProgress progress;      ///< Called per row of tiles; also by the products of an import.
+	/// While a row of tiles is read, progress is called again after every so many points, with the numbers
+	/// it had last, so that a window stays alive and Cancel is heard (seen 2026-11-23: "not responding").
+	qint64 progress_points = 262144;
 };
 
 

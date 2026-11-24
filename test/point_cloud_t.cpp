@@ -1050,6 +1050,26 @@ private slots:
 		QCOMPARE(steps.size(), 6);
 		QCOMPARE(steps.count(QStringLiteral("Gridding")), 6);
 	
+		// Accept (11): between the rows of tiles a sign of life after every so many points, with the last numbers;
+		// 10,000 points are read for each of the five rows.
+		QCOMPARE(GriddingParams().progress_points, qint64(262144));
+		done.clear();
+		totals.clear();
+		params.progress_points = 1000;
+		QVERIFY(PointCloud::grid({ path }, params).dtm);
+		QCOMPARE(int(done.size()), 6 + 50);
+		QVERIFY(std::is_sorted(done.begin(), done.end()));
+		QCOMPARE(done.front(), 0);
+		QCOMPARE(done.back(), 5);
+		QCOMPARE(totals, std::vector<int>(done.size(), 5));
+		// Cancel is heard there too: at the third call, while the first row is read.
+		auto calls = 0;
+		params.progress = [&calls](const QString&, int k, int) { return ++calls < 3 || k > 0; };
+		auto const heard = PointCloud::grid({ path }, params);
+		QVERIFY(heard.cancelled && !heard.dtm);
+		QCOMPARE(calls, 3);
+		params.progress_points = 262144;
+
 		params.progress = [](const QString&, int k, int) { return k < 2; };
 		params.to_disk = true;
 		params.dtm_path = dir.filePath(QStringLiteral("cancel_DTM.tif"));
