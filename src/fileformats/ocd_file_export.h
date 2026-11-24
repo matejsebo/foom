@@ -305,6 +305,10 @@ protected:
 	template< class Format >
 	void exportForeignStrings(OcdFile<Format>& file);
 	
+	/// foom: The embedded DEM for course setting, from the map's embedded grid.
+	template< class Format >
+	void exportEmbeddedDem(OcdFile<Format>& file);
+	
 	/** foom: Writes the foreign object records back. */
 	template< class Format >
 	void exportForeignObjects(OcdFile<Format>& file);

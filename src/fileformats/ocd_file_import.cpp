@@ -75,6 +75,9 @@
 #include "fileformats/ocd_bookmark.h"
 #include "fileformats/ocd_guide.h"  // foom
 #include "core/symbols/text_symbol.h"
+#include "elevation/elevation_model.h"
+#include "elevation/elevation_set.h"
+#include "elevation/ocd_course_dem.h"
 #include "fileformats/file_format.h"
 #include "fileformats/ocd_datetime.h"
 #include "fileformats/ocd_file_format.h"
@@ -2645,6 +2648,31 @@ void OcdFileImport::importForeignData(const OcdFile<F>& file)
 		string.type = ocd_string.entry->type;
 		string.object_index = ocd_string.entry->obj_index;
 		string.data = QByteArray(data, size);
+		if (string.type == ocd_dem_string_type)
+		{
+			// the design notes, "The embedded DEM in OCD files": the block becomes
+			// the map's embedded grid, and the string is kept without the block's place.
+			auto const dem = parseOcdDemString(string.data);
+			if (dem.embedded || dem.offset >= 0 || dem.size >= 0)
+			{
+				if (dem.hasBlock() && dem.offset + dem.size <= buffer.size())
+				{
+					QString problem;
+					auto grid = decodeOcdCourseDem(buffer.mid(int(dem.offset), int(dem.size)), map->getGeoreferencing().getProjectedCRSSpec(), &problem);
+					if (grid)
+						map->elevationSet().setEmbeddedGrid(std::move(grid));
+					else
+						addWarning(tr("The embedded DEM was not loaded: %1").arg(problem));
+				}
+				else if (dem.embedded)
+				{
+					addWarning(tr("The embedded DEM was not loaded: %1").arg(tr("its place lies outside the file.")));
+				}
+				if (dem.restIsEmpty())
+					continue;
+				string.data = dem.rest + '\0';
+			}
+		}
 		foreign.strings.push_back(std::move(string));
 	}
 	foreign.objects = std::move(foreign_objects);

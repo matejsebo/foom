@@ -9441,7 +9441,7 @@ const ElevationModel* terrainModel(Map& map, QWidget* parent)
 
 void MapEditorController::elevationOpenClicked()
 {
-	QString const filter = tr("Elevation grids") + QLatin1String(" (*.tif *.tiff *.asc *.xyz *.hgt *.ocdDem *.img *.vrt *.dem);;") + tr("All files") + QLatin1String(" (*.*)");
+	QString const filter = tr("Elevation grids") + QLatin1String(" (*.tif *.tiff *.asc *.xyz *.hgt *.ocdDem *.ocdCsDem *.img *.vrt *.dem);;") + tr("All files") + QLatin1String(" (*.*)");
 	auto const start_dir = window->currentPath().isEmpty() ? QString{} : QFileInfo(window->currentPath()).absolutePath();
 	auto const path = FileDialog::getOpenFileName(window, tr("Import elevation data"), start_dir, filter);
 	if (path.isEmpty())
@@ -9965,7 +9965,7 @@ void MapEditorController::elevationRemoveEmbeddedClicked()
 
 void MapEditorController::elevationMergeClicked()
 {
-	QString const filter = tr("Elevation grids") + QLatin1String(" (*.tif *.tiff *.asc *.xyz *.hgt *.ocdDem *.img *.vrt *.dem);;") + tr("All files") + QLatin1String(" (*.*)");
+	QString const filter = tr("Elevation grids") + QLatin1String(" (*.tif *.tiff *.asc *.xyz *.hgt *.ocdDem *.ocdCsDem *.img *.vrt *.dem);;") + tr("All files") + QLatin1String(" (*.*)");
 	auto const start_dir = window->currentPath().isEmpty() ? QString{} : QFileInfo(window->currentPath()).absolutePath();
 	auto const paths = QFileDialog::getOpenFileNames(window, tr("Merge elevation grids"), start_dir, filter);
 	if (paths.isEmpty())
@@ -10390,7 +10390,8 @@ void MapEditorController::elevationExportClicked()
 	if (!model)
 		return;
 	QString const filter = tr("GeoTIFF") + QLatin1String(" (*.tif);;") + tr("ESRI ASCII grid") + QLatin1String(" (*.asc);;")
-	                    + tr("XYZ grid") + QLatin1String(" (*.xyz);;") + tr("OCD grid") + QLatin1String(" (*.ocdDem)");
+	                    + tr("XYZ grid") + QLatin1String(" (*.xyz);;") + tr("OCD grid") + QLatin1String(" (*.ocdDem);;")
+	                    + tr("OCD DEM for course setting") + QLatin1String(" (*.ocdCsDem)");
 	// the design notes, "Tiled export".
 	QString const tiles_filter = tr("ESRI ASCII grid, tiles of 1001 by 1001 points") + QLatin1String(" (*.asc)");
 	auto const start = productPath(window->currentPath(), map->elevationSet().href(ElevationSet::Terrain), QStringLiteral("dtm"));

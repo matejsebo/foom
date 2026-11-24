@@ -51,6 +51,7 @@
 #include <ogr_srs_api.h>
 
 #include "global.h"
+#include "core/foreign_data.h"
 #include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_color.h"
@@ -66,6 +67,7 @@
 #include "elevation/contours.h"
 #include "elevation/elevation_model.h"
 #include "elevation/embedded_grid.h"
+#include "elevation/ocd_course_dem.h"
 #include "elevation/grid_frame.h"
 #include "elevation/elevation_set.h"
 #include "elevation/landforms.h"
@@ -862,6 +864,126 @@ private slots:
 			QVERIFY(std::abs(embedded->at(QPointF(500005.5, 5000005.5)) - grid->at(QPointF(500005.5, 5000005.5))) <= 0.0501);
 			map.clear();
 			QVERIFY(!map.elevationSet().embeddedGrid());
+		}
+	}
+
+	/// "The embedded DEM in OCD files", Accept (5) to (7).
+	void ocdCourseDemInOcdFile()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		auto const* format = FileFormats.findFormat("OCD2018");
+		QVERIFY(format);
+		auto const map_path = QDir(dir.path()).absoluteFilePath(QStringLiteral("map.ocd"));
+		auto grid = makeGrid(40, 30, 500000.0, 5000060.0, 2.0, [](double x, double y) { return 300.0 + 0.2 * (x - 500000.0) + 0.05 * (y - 5000000.0); });
+		grid->setValue(4, 9, std::numeric_limits<float>::quiet_NaN());
+		auto const same = [&grid](const ElevationModel* embedded) {
+			if (!embedded || embedded->extent() != grid->extent() || embedded->width() != 40 || !std::isnan(embedded->value(4, 9)))
+				return false;
+			for (int row = 0; row < 30; ++row)
+				for (int col = 0; col < 40; ++col)
+					if (!(row == 9 && col == 4) && !(std::abs(embedded->value(col, row) - grid->value(col, row)) <= 0.0051f))
+						return false;
+			return true;
+		};
+
+		// (5) Written and read back.
+		{
+			Map map;
+			map.setGeoreferencing(utm32Georeferencing());
+			map.elevationSet().setEmbeddedGrid(std::make_unique<ElevationModel>(*grid));
+			auto exporter = format->makeExporter(map_path, &map, nullptr);
+			QVERIFY(exporter->doExport());
+			QFile file(map_path);
+			QVERIFY(file.open(QIODevice::ReadOnly));
+			auto const bytes = file.readAll();
+			// The block is the end of the file, and the string says where it is.
+			auto const block = encodeOcdCourseDem(*grid);
+			QVERIFY(bytes.endsWith(block));
+			QByteArray const place = QByteArray("\tP") + QByteArray::number(bytes.size() - block.size()) + "\tS" + QByteArray::number(block.size()) + "\te1";
+			QVERIFY2(bytes.contains(place) || bytes.contains(QByteArray("\tP0") + place.mid(2)) || bytes.contains(QByteArray("\tP00") + place.mid(2)), place.constData());
+		}
+		{
+			Map map;
+			auto importer = format->makeImporter(map_path, &map, nullptr);
+			QVERIFY(importer->doImport());
+			QVERIFY(same(map.elevationSet().embeddedGrid()));
+			QVERIFY(map.elevationSet().isEmpty());
+			// The string which only carried the block is not kept a second time.
+			for (auto const& string : map.foreignData().strings)
+				QVERIFY(string.type != ocd_dem_string_type);
+
+			// (6) With the string of a loaded DEM kept from an import: the name stays, the place is renewed.
+			auto foreign = map.foreignData();
+			foreign.format = QStringLiteral("OCD");
+			foreign.version = 2018;
+			ForeignString string;
+			string.type = ocd_dem_string_type;
+			string.data = QByteArray("C:\\maps\\hillside.ocdDem\tl1\tP12\tS34\te1\0", 37);
+			foreign.strings.push_back(string);
+			map.setForeignData(foreign);
+			auto exporter = format->makeExporter(map_path, &map, nullptr);
+			QVERIFY(exporter->doExport());
+		}
+		{
+			Map map;
+			auto importer = format->makeImporter(map_path, &map, nullptr);
+			QVERIFY(importer->doImport());
+			QVERIFY(same(map.elevationSet().embeddedGrid()));
+			auto count = 0;
+			for (auto const& string : map.foreignData().strings)
+			{
+				if (string.type != ocd_dem_string_type)
+					continue;
+				++count;
+				QCOMPARE(string.data, QByteArray("C:\\maps\\hillside.ocdDem\tl1\0", 27));
+			}
+			QCOMPARE(count, 1);
+
+			// (7) Without the grid the string goes back as it is; version 12 cannot hold the grid.
+			map.elevationSet().setEmbeddedGrid(nullptr);
+			auto exporter = format->makeExporter(map_path, &map, nullptr);
+			QVERIFY(exporter->doExport());
+			QFile file(map_path);
+			QVERIFY(file.open(QIODevice::ReadOnly));
+			auto const bytes = file.readAll();
+			QVERIFY(bytes.contains(QByteArray("C:\\maps\\hillside.ocdDem\tl1\0", 27)));
+			QVERIFY(!bytes.contains("\te1"));
+		}
+		{
+			Map map;
+			map.setGeoreferencing(utm32Georeferencing());
+			map.elevationSet().setEmbeddedGrid(std::make_unique<ElevationModel>(*grid));
+			auto const* v12 = FileFormats.findFormat("OCD12");
+			QVERIFY(v12);
+			auto const path = QDir(dir.path()).absoluteFilePath(QStringLiteral("v12.ocd"));
+			auto exporter = v12->makeExporter(path, &map, nullptr);
+			QVERIFY(exporter->doExport());
+			QVERIFY(!exporter->warnings().empty());
+			Map read;
+			auto importer = v12->makeImporter(path, &read, nullptr);
+			QVERIFY(importer->doImport());
+			QVERIFY(!read.elevationSet().embeddedGrid());
+		}
+		// A place outside the file is a warning and no grid.
+		{
+			Map map;
+			map.setGeoreferencing(utm32Georeferencing());
+			ForeignData foreign;
+			foreign.format = QStringLiteral("OCD");
+			foreign.version = 2018;
+			ForeignString string;
+			string.type = ocd_dem_string_type;
+			string.data = QByteArray("\tP99999999\tS540\te1\tl1\0", 23);
+			foreign.strings.push_back(string);
+			map.setForeignData(foreign);
+			auto exporter = format->makeExporter(map_path, &map, nullptr);
+			QVERIFY(exporter->doExport());
+			Map read;
+			auto importer = format->makeImporter(map_path, &read, nullptr);
+			QVERIFY(importer->doImport());
+			QVERIFY(!read.elevationSet().embeddedGrid());
+			QVERIFY(!importer->warnings().empty());
 		}
 	}
 

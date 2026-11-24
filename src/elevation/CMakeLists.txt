@@ -36,6 +36,7 @@ set(MAPPER_ELEVATION_SOURCES
   grid_frame.cpp
   grid_tiles.cpp
   landforms.cpp
+  ocd_course_dem.cpp
   point_cloud.cpp
   point_cloud_products.cpp
   profile.cpp

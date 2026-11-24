@@ -83,6 +83,9 @@
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
 #include "core/symbols/text_symbol.h"
+#include "elevation/elevation_model.h"
+#include "elevation/elevation_set.h"
+#include "elevation/ocd_course_dem.h"
 #include "fileformats/file_format.h"
 #include "fileformats/file_import_export.h"
 #include "fileformats/ocd_datetime.h"
@@ -3166,6 +3169,46 @@ void OcdFileExport::exportExtras(OcdFile<Format>& file)
 {
 	exportExtras();
 	exportForeignStrings(file);  // foom
+	exportEmbeddedDem(file);  // foom
+}
+
+
+// foom
+template< class Format >
+void OcdFileExport::exportEmbeddedDem(OcdFile<Format>& file)
+{
+	// the design notes, "The embedded DEM in OCD files".
+	auto const* grid = map->elevationSet().embeddedGrid();
+	if (!grid)
+		return;
+	if (ocd_version != 2018)
+	{
+		addWarning(tr("The grid embedded for course setting is not written: only OCD version 2018 can hold it."));
+		return;
+	}
+	auto const block = encodeOcdCourseDem(*grid);
+	// The DEM's string kept from an imported file gains the place of the block; without one a string naming no file is written.
+	QByteArray rest;
+	if (foreignDataApplies())
+	{
+		for (auto const& string : map->foreignData().strings)
+		{
+			if (string.type == ocd_dem_string_type)
+			{
+				rest = parseOcdDemString(string.data).rest;
+				break;
+			}
+		}
+	}
+	// The block is the last thing in the file. Its offset is known once the string is in the file,
+	// so the string is written with room for the digits and the offset is written again in place.
+	auto const digits = QByteArray::number(qint64(file.byteArray().size()) + block.size() + 65536).size();
+	auto digits_at = 0;
+	auto const string = formatOcdDemString(rest, 0, digits, block.size(), &digits_at);
+	auto const string_pos = file.strings().insert(ocd_dem_string_type, string).pos;
+	auto const offset = QByteArray::number(qint64(file.byteArray().size())).rightJustified(digits, '0');
+	file.byteArray().replace(int(string_pos) + digits_at, digits, offset);
+	file.byteArray().append(block);
 }
 
 
@@ -3220,6 +3263,9 @@ void OcdFileExport::exportForeignStrings(OcdFile<Format>& file)
 			continue;
 		// Nor the settings of the route analysis.
 		if (string.type == 1088 && !map->courseData().route.isDefault())
+			continue;
+		// Nor the DEM's string, when the map has an embedded grid: exportEmbeddedDem() writes it with the block's place.
+		if (string.type == ocd_dem_string_type && ocd_version == 2018 && map->elevationSet().embeddedGrid())
 			continue;
 		// Nor guides kept by an older FOOM, when the map has guides: exportExtras() writes those.
 		if (string.type == ocd_guide_string_type && !map->guides().list.empty())

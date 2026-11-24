@@ -542,7 +542,7 @@ void ElevationWizardDialog::addFiles()
 	if (source() == ElevationWizardJob::PointCloud)
 		filter = tr("Point clouds") + QLatin1String(" (*.las *.laz);;");
 	else
-		filter = tr("Elevation grids") + QLatin1String(" (*.tif *.tiff *.asc *.xyz *.hgt *.ocdDem *.img *.vrt *.dem);;");
+		filter = tr("Elevation grids") + QLatin1String(" (*.tif *.tiff *.asc *.xyz *.hgt *.ocdDem *.ocdCsDem *.img *.vrt *.dem);;");
 	filter += tr("All files") + QLatin1String(" (*.*)");
 	auto const paths = QFileDialog::getOpenFileNames(this, tr("Elevation wizard"), start_dir, filter);
 	auto current = files();

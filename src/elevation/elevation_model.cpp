@@ -19,6 +19,7 @@
 
 
 #include "elevation_model.h"
+#include "elevation/ocd_course_dem.h"
 
 #include <algorithm>
 #include <cmath>
@@ -91,6 +92,12 @@ bool isOcdDem(const QString& path)
 	return head.size() == 12 && std::memcmp(head.constData(), ocd_dem_signature, 12) == 0;
 }
 
+/// The DEM for course setting (.ocdCsDem): a file which is one zlib stream and is named so.
+bool isOcdCsDem(const QString& path)
+{
+	return QFileInfo(path).suffix().compare(QLatin1String("ocdCsDem"), Qt::CaseInsensitive) == 0;
+}
+
 QString formatNumber(double value)
 {
 	auto text = QString::number(value, 'f', 3);
@@ -135,7 +142,19 @@ std::unique_ptr<ElevationModel> ElevationModel::open(const QString& path, const 
 		return nullptr;
 	}
 
-	auto grid = isOcdDem(path) ? openOcdDem(path) : openGdal(path, options.target_crs);
+	std::unique_ptr<ElevationModel> grid;
+	if (isOcdCsDem(path))
+	{
+		QFile file(path);
+		if (file.open(QIODevice::ReadOnly))
+			grid = decodeOcdCourseDem(file.readAll(), {}, &last_error);
+		else
+			last_error = tr("Cannot open %1: %2").arg(path, file.errorString());
+	}
+	else
+	{
+		grid = isOcdDem(path) ? openOcdDem(path) : openGdal(path, options.target_crs);
+	}
 	if (!grid)
 		return nullptr;
 
@@ -547,6 +566,15 @@ bool ElevationModel::save(const QString& path) const
 		return saveXyz(path);
 	if (suffix == QLatin1String("ocddem"))
 		return saveOcdDem(path);
+	if (suffix == QLatin1String("ocdcsdem"))
+	{
+		QFile file(path);
+		auto const block = encodeOcdCourseDem(*this);
+		if (file.open(QIODevice::WriteOnly) && file.write(block) == block.size())
+			return true;
+		last_error = tr("Cannot write %1: %2").arg(path, file.errorString());
+		return false;
+	}
 	return saveGeoTiff(path);
 }
 
