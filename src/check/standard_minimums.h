@@ -39,7 +39,10 @@ struct StandardMinimum
 	double area = 0.0;    ///< mm²; 0 when the standard gives none.
 };
 
-/** The minimum of the standard for a symbol, by its number; zeros when it has none. */
+/**
+ * The minimum of the standard for a symbol, by its number; zeros when it has
+ * none, and for a line symbol which its name calls a tag.
+ */
 StandardMinimum isom2017Minimum(const Symbol& symbol);
 
 /**

@@ -708,6 +708,18 @@ void CheckTest::legibilityStandardTest()
 	QCOMPARE(isom2017Minimum(*line_symbol(black, 416)).length, 2.5);
 	QCOMPARE(isom2017Minimum(*line_symbol(black, 513, 1)).length, 1.4);
 	QCOMPARE(isom2017Minimum(*line_symbol(black, 513, 2)).length, 2.4);
+	// The tags of an earth bank are objects of a symbol of their own under its number: no minimum for them.
+	auto* bank = line_symbol(black, 104, 1);
+	bank->setName(QStringLiteral("Earth bank, main line"));
+	QCOMPARE(isom2017Minimum(*bank).length, 0.6);
+	auto* tag = line_symbol(black, 104, 4);
+	tag->setName(QStringLiteral("Earth bank (Tag)"));
+	QCOMPARE(isom2017Minimum(*tag).length, 0.0);
+	tag->setName(QStringLiteral("Earth bank, tag line"));
+	QCOMPARE(isom2017Minimum(*tag).length, 0.0);
+	auto* bare_cliff = line_symbol(black, 202, 1);
+	bare_cliff->setName(QStringLiteral("Cliff without tags"));
+	QCOMPARE(isom2017Minimum(*bare_cliff).length, 0.6);
 
 	// (2) Where the standard holds.
 	QCOMPARE(standardEnlargement(map), 1.5);

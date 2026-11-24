@@ -20,6 +20,7 @@
 #include "standard_minimums.h"
 
 #include <QLatin1String>
+#include <QRegularExpression>
 #include <QString>
 
 #include "core/color_group.h"
@@ -112,6 +113,11 @@ StandardMinimum isom2017Minimum(const Symbol& symbol)
 	auto const line = (types & Symbol::Line) != 0 && (types & Symbol::Area) == 0;
 	auto const area = (types & Symbol::Area) != 0;
 	StandardMinimum minimum;
+	// Symbol sets keep the tags of an earth bank or a cliff as line symbols under the feature's number
+	// ("Earth bank (Tag)", "Impassable cliff, tag line"). A tag is not the feature: no minimum.
+	// The word is looked for in the singular: "Cliff without tags" is a cliff.
+	if (line && symbol.getName().contains(QRegularExpression(QStringLiteral("\\btag\\b"), QRegularExpression::CaseInsensitiveOption)))
+		return minimum;
 	if (number == 416 && line)
 	{
 		// Distinct vegetation boundary: 4 dashes of the green line, 5 dots of the black one.
