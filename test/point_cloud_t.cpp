@@ -27,6 +27,7 @@
 #include <QtGlobal>
 #include <QtTest>
 #include <QFile>
+#include <QDir>
 #include <QFileInfo>
 #include <QImage>
 #include <QObject>
@@ -44,6 +45,7 @@
 
 #include "elevation/elevation_model.h"
 #include "elevation/grid_tiles.h"
+#include "elevation/landforms.h"
 #include "elevation/point_cloud.h"
 #include "elevation/point_cloud_products.h"
 
@@ -693,6 +695,55 @@ private slots:
 	
 	
 	// the design notes, "Grids on disk, a tile cache, and a progress bar", Accept (1).
+	/// the design notes, "Grids on disk, a tile cache, and a progress bar", Accept (10).
+	void writeCacheTest()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		auto const path = QDir(dir.path()).absoluteFilePath(QStringLiteral("rows.tif"));
+		QCOMPARE(GridFileWriter::writeCacheLimit(), qint64(256) * 1024 * 1024);
+		auto const before = GridFileWriter::cacheCeiling();
+		QVERIFY(before > 8 * 1024 * 1024);
+		GridFileWriter::setWriteCacheLimit(4 * 1024 * 1024);
+		{
+			// 4000 by 3000 cells are 48 MB of heights; written in rows of 500.
+			auto const width = 4000;
+			auto const height = 3000;
+			GridFileWriter writer;
+			QString error;
+			QVERIFY2(writer.open(path, width, height, QPointF(500000.0, 5003000.0), 1.0, {}, &error), qPrintable(error));
+			QCOMPARE(GridFileWriter::cacheCeiling(), qint64(4 * 1024 * 1024));
+			std::vector<float> rows(std::size_t(width) * 500);
+			auto most = qint64(0);
+			for (int first = 0; first < height; first += 500)
+			{
+				for (int r = 0; r < 500; ++r)
+					for (int c = 0; c < width; ++c)
+						rows[std::size_t(r) * std::size_t(width) + std::size_t(c)] = float(100.0 + 0.01 * c + 0.02 * (first + r));
+				QVERIFY2(writer.writeRows(first, 500, rows.data(), &error), qPrintable(error));
+				most = std::max(most, GridFileWriter::cacheInUse());
+			}
+			// GDAL holds what the ceiling allows and the block it is writing, not the grid.
+			QVERIFY2(most <= 6 * 1024 * 1024, qPrintable(QString::number(most)));
+			// A second writer shares the ceiling, and it stays until the last is closed.
+			GridFileWriter second;
+			QVERIFY(second.open(QDir(dir.path()).absoluteFilePath(QStringLiteral("second.tif")), 10, 10, QPointF(0.0, 10.0), 1.0, {}, &error));
+			QVERIFY2(writer.close(&error), qPrintable(error));
+			QCOMPARE(GridFileWriter::cacheCeiling(), qint64(4 * 1024 * 1024));
+			second.discard();
+			QCOMPARE(GridFileWriter::cacheCeiling(), before);
+		}
+		GridFileWriter::setWriteCacheLimit(qint64(256) * 1024 * 1024);
+		QCOMPARE(GridFileWriter::cacheCeiling(), before);
+		// The file holds what was written.
+		QString message;
+		auto cache = GridTileCache::open(path, 0, &message);
+		QVERIFY2(cache, qPrintable(message));
+		QCOMPARE(cache->width(), 4000);
+		QVERIFY(std::abs(cache->value(1234, 2345) - float(100.0 + 12.34 + 46.9)) < 0.001f);
+		QVERIFY(std::abs(cache->value(3999, 0) - float(100.0 + 39.99)) < 0.001f);
+	}
+
 	void diskGridTest()
 	{
 		CloudOptions options;

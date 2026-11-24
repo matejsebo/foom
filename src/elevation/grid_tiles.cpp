@@ -84,6 +84,30 @@ char** tiffOptions(bool predictor)
 	return options;
 }
 
+// the design notes, "Grids on disk, a tile cache, and a progress bar": the ceiling of GDAL's
+// block cache while a writer is open.
+qint64 write_cache_limit = qint64(256) * 1024 * 1024;
+int open_writers = 0;
+GIntBig cache_max_before = 0;
+
+/// Called when a writer has opened its file: lowers GDAL's ceiling for the first one.
+void holdWriteCache()
+{
+	if (open_writers++ == 0)
+	{
+		cache_max_before = GDALGetCacheMax64();
+		if (cache_max_before > write_cache_limit)
+			GDALSetCacheMax64(GIntBig(write_cache_limit));
+	}
+}
+
+/// Called when a writer has closed its file: gives GDAL its ceiling back after the last one.
+void releaseWriteCache()
+{
+	if (open_writers > 0 && --open_writers == 0 && cache_max_before > 0)
+		GDALSetCacheMax64(cache_max_before);
+}
+
 }  // namespace
 
 
@@ -95,7 +119,32 @@ GridFileWriter::GridFileWriter() = default;
 GridFileWriter::~GridFileWriter()
 {
 	if (dataset)
+	{
 		GDALClose(GDALDatasetH(dataset));
+		releaseWriteCache();
+	}
+}
+
+qint64 GridFileWriter::writeCacheLimit()
+{
+	return write_cache_limit;
+}
+
+void GridFileWriter::setWriteCacheLimit(qint64 bytes)
+{
+	write_cache_limit = std::max<qint64>(bytes, 1024 * 1024);
+	if (open_writers > 0)
+		GDALSetCacheMax64(GIntBig(std::min<qint64>(write_cache_limit, cache_max_before)));
+}
+
+qint64 GridFileWriter::cacheCeiling()
+{
+	return qint64(GDALGetCacheMax64());
+}
+
+qint64 GridFileWriter::cacheInUse()
+{
+	return qint64(GDALGetCacheUsed64());
 }
 
 bool GridFileWriter::open(const QString& path, int width, int height, const QPointF& top_left, double cell, const QString& crs_spec, QString* error)
@@ -124,6 +173,7 @@ bool GridFileWriter::open(const QString& path, int width, int height, const QPoi
 	dataset = handle;
 	file = path;
 	grid_width = width;
+	holdWriteCache();
 	return true;
 }
 
@@ -168,6 +218,7 @@ bool GridFileWriter::close(QString* error)
 	CPLErrorReset();
 	GDALClose(GDALDatasetH(dataset));
 	dataset = nullptr;
+	releaseWriteCache();
 	if (CPLGetLastErrorType() >= CE_Failure)
 	{
 		setError(error, tr("Cannot write %1: %2").arg(file, gdalMessage()));
@@ -182,6 +233,7 @@ void GridFileWriter::discard()
 	{
 		GDALClose(GDALDatasetH(dataset));
 		dataset = nullptr;
+		releaseWriteCache();
 	}
 	if (!file.isEmpty())
 		QFile::remove(file);
@@ -196,7 +248,10 @@ RasterFileWriter::RasterFileWriter() = default;
 RasterFileWriter::~RasterFileWriter()
 {
 	if (dataset)
+	{
 		GDALClose(GDALDatasetH(dataset));
+		releaseWriteCache();
+	}
 }
 
 bool RasterFileWriter::open(const QString& path, int width, int height, const QRectF& extent, const QString& crs_spec,
@@ -253,6 +308,7 @@ bool RasterFileWriter::open(const QString& path, int width, int height, const QR
 	dataset = handle;
 	file = path;
 	raster_width = width;
+	holdWriteCache();
 	return true;
 }
 
@@ -299,6 +355,7 @@ bool RasterFileWriter::close(QString* error)
 	CPLErrorReset();
 	GDALClose(GDALDatasetH(dataset));
 	dataset = nullptr;
+	releaseWriteCache();
 	if (CPLGetLastErrorType() >= CE_Failure)
 	{
 		setError(error, tr("Cannot write %1: %2").arg(file, gdalMessage()));
@@ -313,6 +370,7 @@ void RasterFileWriter::discard()
 	{
 		GDALClose(GDALDatasetH(dataset));
 		dataset = nullptr;
+		releaseWriteCache();
 	}
 	if (!file.isEmpty())
 		QFile::remove(file);

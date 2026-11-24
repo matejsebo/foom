@@ -79,6 +79,19 @@ public:
 	/// Closes the file, if open, and removes it.
 	void discard();
 
+	/**
+	 * The most bytes of written blocks which GDAL may keep while a GridFileWriter
+	 * or a RasterFileWriter is open: 256 MiB. GDAL's own ceiling is 5 % of the
+	 * machine's memory, which is more than a grid that had to go to disk when the
+	 * machine is large (seen 2026-11-23: 3.7 GB held for grids of 3.2 GB).
+	 * While no writer is open GDAL's ceiling is what it was.
+	 */
+	static qint64 writeCacheLimit();
+	static void setWriteCacheLimit(qint64 bytes);
+	/// What GDAL's block cache may hold now, and what it holds (for tests and reports).
+	static qint64 cacheCeiling();
+	static qint64 cacheInUse();
+
 private:
 	void* dataset = nullptr;
 	QString file;
