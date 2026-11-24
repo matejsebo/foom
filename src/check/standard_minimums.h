@@ -27,11 +27,22 @@ class Symbol;
 
 
 /**
- * The graphical minimum dimensions which the IOF's forest map standard,
- * ISOM 2017-2 (the version of 2022-01-24), states for its symbols, at the
- * base scale of 1:15,000.
+ * The IOF standard whose graphical minimum dimensions a map is checked by.
+ */
+enum class MapStandard
+{
+	None,
+	Isom2017,     ///< ISOM 2017-2, the forest maps: dimensions at 1:15,000.
+	Issprom2019,  ///< ISSprOM 2019-2, the sprint maps: dimensions at 1:4,000.
+};
+
+/**
+ * A graphical minimum dimension which a standard of the IOF states for a
+ * symbol, at the standard's base scale. Both standards are read in their
+ * Revision 6 of January 2024.
  *
- * See the design notes, "The standard's minimum sizes".
+ * See the design notes, "The standard's minimum sizes"
+ * and "The sprint standard's minimum sizes".
  */
 struct StandardMinimum
 {
@@ -40,17 +51,29 @@ struct StandardMinimum
 };
 
 /**
- * The minimum of the standard for a symbol, by its number; zeros when it has
- * none, and for a line symbol which its name calls a tag.
+ * The minimum of the forest standard for a symbol, by its number; zeros when
+ * it has none, and for a line symbol which its name calls a tag.
  */
 StandardMinimum isom2017Minimum(const Symbol& symbol);
 
+/** The same of the sprint standard, by the symbol's number and, where the standard asks it, its second part. */
+StandardMinimum issprom2019Minimum(const Symbol& symbol);
+
+/** The minimum of the given standard; zeros for none. */
+StandardMinimum standardMinimum(MapStandard standard, const Symbol& symbol);
+
 /**
- * The smallest opening the standard allows in an area of the symbol, in mm²
- * at 1:15,000 (ISOM 2017-2, 405 Forest: openings in screens of other
- * colours); 0 for a symbol which is no such screen.
+ * The smallest opening the forest standard allows in an area of the symbol,
+ * in mm² at 1:15,000 (405 Forest: openings in screens of other colours);
+ * 0 for a symbol which is no such screen.
  */
 double isom2017OpeningMinimum(const Symbol& symbol);
+
+/** The same of the sprint standard, at 1:4,000. */
+double issprom2019OpeningMinimum(const Symbol& symbol);
+
+/** The smallest opening of the given standard; 0 for none. */
+double standardOpeningMinimum(MapStandard standard, const Symbol& symbol);
 
 /**
  * Whether the standard asks no gap around an area of the symbol: it asks one
@@ -61,10 +84,18 @@ double isom2017OpeningMinimum(const Symbol& symbol);
 bool isom2017AreaWithoutGap(const Symbol& symbol);
 
 /**
- * How much larger than at 1:15,000 the minimums are in this map (1.5 at
- * 1:10,000), or 0 when the standard is not the map's: when its symbol set
- * is named and is not ISOM 2017 (a map read from an OCD file names none),
- * or when its scale is larger than 1:7,500.
+ * The standard a map is checked by. A map whose symbol set is named for a
+ * standard follows that one, at the scales the standard is for (ISOM 2017 at
+ * 1:7,500 and smaller, ISSprOM below that). A map without a name, or read
+ * from an OCD file, follows the forest standard at 1:7,500 and smaller and
+ * the sprint standard at 1:5,000 and larger. Any other map follows none.
+ */
+MapStandard mapStandard(const Map& map);
+
+/**
+ * How much larger than at its standard's base scale the minimums are in this
+ * map (1.5 at 1:10,000 for a forest map, 1.33 at 1:3,000 for a sprint map),
+ * or 0 when mapStandard() is none.
  */
 double standardEnlargement(const Map& map);
 

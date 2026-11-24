@@ -3468,7 +3468,11 @@ void ToolsTest::legibility()
 		auto const text = legibilityReadout(standard_map, fence, *drawn);
 		QVERIFY2(text.contains(QLatin1String("2.00 / 2.25")), qPrintable(text));
 		QVERIFY(text.contains(QLatin1String("red")));
+		// In a sprint map the sprint standard's fence: 2.2 mm. At a scale between the two, none.
 		standard_map.setScaleDenominator(4000);
+		auto const sprint_text = legibilityReadout(standard_map, fence, *drawn);
+		QVERIFY2(sprint_text.contains(QLatin1String("2.00 / 2.20")), qPrintable(sprint_text));
+		standard_map.setScaleDenominator(6000);
 		QVERIFY(legibilityReadout(standard_map, fence, *drawn).isEmpty());
 	}
 	

@@ -59,6 +59,7 @@
 #include "core/objects/object.h"
 #include "core/objects/text_object.h"
 #include "core/symbols/area_symbol.h"
+#include "core/symbols/combined_symbol.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/text_symbol.h"
@@ -721,9 +722,27 @@ void CheckTest::legibilityStandardTest()
 	QCOMPARE(isom2017Minimum(*line_symbol(black, 521)).length, 0.0);   // a line numbered as the building
 	QCOMPARE(isom2017Minimum(*area_symbol(black, 505)).area, 0.0);
 	QCOMPARE(isom2017Minimum(*line_symbol(green, 416)).length, 1.8);
-	QCOMPARE(isom2017Minimum(*line_symbol(black, 416)).length, 2.5);
+	QCOMPARE(isom2017Minimum(*line_symbol(black, 416)).length, 2.0);    // Revision 6; 2.5 before
 	QCOMPARE(isom2017Minimum(*line_symbol(black, 513, 1)).length, 1.4);
-	QCOMPARE(isom2017Minimum(*line_symbol(black, 513, 2)).length, 2.4);
+	QCOMPARE(isom2017Minimum(*line_symbol(black, 513, 2)).length, 1.4);  // Revision 6; 2.4 before
+	QCOMPARE(isom2017Minimum(*area_symbol(black, 307)).area, 0.0);      // "2 lines or 0.8 mm" since Revision 6
+	// The sprint standard's table ("The sprint standard's minimum sizes", Accept), at 1:4,000.
+	QCOMPARE(issprom2019Minimum(*fence).length, 2.2);
+	QCOMPARE(issprom2019Minimum(*building).area, 0.25);
+	QCOMPARE(issprom2019Minimum(*footpath).length, 0.0);                 // 505 states none
+	QCOMPARE(issprom2019Minimum(*line_symbol(black, 506)).length, 3.4);
+	QCOMPARE(issprom2019Minimum(*line_symbol(black, 416)).length, 2.65);
+	QCOMPARE(issprom2019Minimum(*line_symbol(black, 512, 2)).length, 0.7);
+	QCOMPARE(issprom2019Minimum(*line_symbol(black, 512, 1)).length, 0.0);
+	QCOMPARE(issprom2019Minimum(*area_symbol(green, 401)).area, 0.5);
+	QCOMPARE(issprom2019Minimum(*area_symbol(black, 501)).area, 0.0);
+	auto* paved_with_trees = area_symbol(black, 501);
+	paved_with_trees->setNumberComponent(1, 3);
+	QCOMPARE(issprom2019Minimum(*paved_with_trees).area, 6.25);
+	QCOMPARE(issprom2019Minimum(*area_symbol(black, 533)).area, 4.0625);  // 65 m2 on the ground
+	QCOMPARE(standardMinimum(MapStandard::Issprom2019, *fence).length, 2.2);
+	QCOMPARE(standardMinimum(MapStandard::Isom2017, *fence).length, 1.5);
+	QCOMPARE(standardMinimum(MapStandard::None, *fence).length, 0.0);
 	// The tags of an earth bank are objects of a symbol of their own under its number: no minimum for them.
 	auto* bank = line_symbol(black, 104, 1);
 	bank->setName(QStringLiteral("Earth bank, main line"));
@@ -737,21 +756,40 @@ void CheckTest::legibilityStandardTest()
 	bare_cliff->setName(QStringLiteral("Cliff without tags"));
 	QCOMPARE(isom2017Minimum(*bare_cliff).length, 0.6);
 
-	// (2) Where the standard holds.
+	// (2) Where which standard holds.
+	QCOMPARE(mapStandard(map), MapStandard::Isom2017);
 	QCOMPARE(standardEnlargement(map), 1.5);
 	map.setScaleDenominator(15000);
 	QCOMPARE(standardEnlargement(map), 1.0);
-	map.setScaleDenominator(4000);
+	map.setScaleDenominator(4000);          // without a name the scale says it
+	QCOMPARE(mapStandard(map), MapStandard::Issprom2019);
+	QCOMPARE(standardEnlargement(map), 1.0);
+	QCOMPARE(defaultGap(map), 0.15);
+	map.setScaleDenominator(3000);
+	QVERIFY(std::abs(standardEnlargement(map) - 4.0 / 3.0) < 1e-12);
+	QCOMPARE(defaultGap(map), 0.2);
+	map.setScaleDenominator(6000);          // neither
+	QCOMPARE(mapStandard(map), MapStandard::None);
 	QCOMPARE(standardEnlargement(map), 0.0);
 	map.setScaleDenominator(10000);
 	map.setSymbolSetId(QStringLiteral("ISSprOM 2019"));
+	QCOMPARE(mapStandard(map), MapStandard::None);
 	QCOMPARE(standardEnlargement(map), 0.0);
+	map.setScaleDenominator(4000);
+	QCOMPARE(mapStandard(map), MapStandard::Issprom2019);
 	map.setSymbolSetId(QStringLiteral("ISOM 2017-2"));
+	QCOMPARE(mapStandard(map), MapStandard::None);
+	map.setScaleDenominator(10000);
 	QCOMPARE(standardEnlargement(map), 1.5);
 	map.setSymbolSetId(QStringLiteral("ISOM2017"));
 	QCOMPARE(standardEnlargement(map), 1.5);
 	map.setSymbolSetId(QStringLiteral("OCD"));  // as the OCD import names it
 	QCOMPARE(standardEnlargement(map), 1.5);
+	map.setScaleDenominator(4000);
+	QCOMPARE(mapStandard(map), MapStandard::Issprom2019);
+	map.setSymbolSetId(QStringLiteral("ISSOM"));
+	QCOMPARE(mapStandard(map), MapStandard::None);
+	map.setScaleDenominator(10000);
 	map.setSymbolSetId({});
 
 	// (3) The limits of the scan at 1:10,000.
@@ -785,12 +823,22 @@ void CheckTest::legibilityStandardTest()
 	QVERIFY(issue);
 	QCOMPARE(issue->limit, 0.5625);
 	QVERIFY(std::abs(issue->measured - 0.49) < 1e-6);
-	// Without the standard, and in a sprint map, nothing of this is asked.
+	// Without the standard, and at a scale which is neither standard's, nothing of this is asked.
 	params.standard_minimums = false;
 	QVERIFY(checkLegibility(map, params).empty());
 	params.standard_minimums = true;
-	map.setScaleDenominator(4000);
+	map.setScaleDenominator(6000);
 	QVERIFY(checkLegibility(map, params).empty());
+	// At 1:4,000 the sprint standard's sizes are: the fence of 2 mm is short of 2.2 mm, the building of
+	// 0.49 mm2 is large enough, and the footpath, for which that standard states nothing, has its two dashes.
+	map.setScaleDenominator(4000);
+	issues = checkLegibility(map, params);
+	QCOMPARE(int(issues.size()), 1);
+	issue = findObjectIssue(issues, rule::line_short, short_fence);
+	QVERIFY(issue);
+	QCOMPARE(issue->limit, 2.2);
+	QCOMPARE(minimumLineLength(fence, 4.0 / 3.0, MapStandard::Issprom2019), 2.2 * 4.0 / 3.0);
+	QCOMPARE(minimumAreaSize(building, 1.0, MapStandard::Issprom2019), 0.25);
 	map.setScaleDenominator(10000);
 
 	// (5) Openings ("Openings", Accept): a hole with nothing in it, smaller than the standard allows in that screen.
@@ -801,6 +849,10 @@ void CheckTest::legibilityStandardTest()
 	QCOMPARE(isom2017OpeningMinimum(*area_symbol(green, 410)), 0.3025);
 	QCOMPARE(isom2017OpeningMinimum(*building), 0.0);
 	QCOMPARE(isom2017OpeningMinimum(*fence), 0.0);
+	QCOMPARE(issprom2019OpeningMinimum(*slow), 1.0);
+	QCOMPARE(issprom2019OpeningMinimum(*open_land), 0.5);
+	QCOMPARE(issprom2019OpeningMinimum(*area_symbol(green, 410)), 0.3);
+	QCOMPARE(issprom2019OpeningMinimum(*building), 0.0);
 	auto const before = checkLegibility(map, params).size();
 	auto* with_small = addSquare(map, slow, 100.0, 0.0, 5.0, 1.2);      // an opening of 1.44 mm2: below 2.25
 	addSquare(map, slow, 100.0, 10.0, 5.0, 1.6);                         // 2.56 mm2: enough
@@ -844,11 +896,36 @@ void CheckTest::legibilityStandardTest()
 	addSquare(map, building, 200.0, 20.0, 3.0);
 	addSquare(map, building, 203.1, 20.0, 3.0);
 	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), gaps_before + 1);
+	QVERIFY(!isom2017AreaWithoutGap(*area_symbol(green, 411)));
 	// Without the standard every one of the three is a conflict.
 	params.standard_minimums = false;
 	auto const all_gaps = countRule(checkLegibility(map, params), rule::gap);
 	params.standard_minimums = true;
 	QCOMPARE(all_gaps, countRule(checkLegibility(map, params), rule::gap) + 2);
+	// In a sprint map, whose standard names gaps of lines only, two screens need no gap; bare rock
+	// beside a building does.
+	map.setScaleDenominator(4000);
+	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), all_gaps - 1);
+	map.setScaleDenominator(10000);
+
+	// (7) A building with an outline, a combined symbol of an area and a line as an OCD file gives it, is
+	// an area: its size is checked, not its length.
+	auto* outlined = new CombinedSymbol();
+	outlined->setNumParts(2);
+	outlined->setPart(0, building, false);
+	outlined->setPart(1, fence, false);
+	outlined->setNumberComponent(0, 521);
+	map.addSymbol(outlined, map.getNumSymbols());
+	params = {};
+	params.gap = false;
+	auto const sizes_before = checkLegibility(map, params).size();
+	auto* outlined_hut = addSquare(map, outlined, 300.0, 0.0, 0.7);   // 0.49 mm2
+	addSquare(map, outlined, 300.0, 10.0, 0.8);                       // 0.64 mm2
+	issues = checkLegibility(map, params);
+	QCOMPARE(issues.size(), sizes_before + 1);
+	issue = findObjectIssue(issues, rule::area_small, outlined_hut);
+	QVERIFY(issue);
+	QCOMPARE(issue->limit, 0.5625);
 }
 
 /// the design notes, "The distance on what is drawn", Accept.

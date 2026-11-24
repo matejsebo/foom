@@ -26,6 +26,7 @@
 #include <QRectF>
 
 #include "check/issue.h"
+#include "check/standard_minimums.h"
 
 namespace OpenOrienteering {
 
@@ -95,10 +96,10 @@ double minimumAreaSize(const Symbol* symbol);
  * dashes), else the standard's times the enlargement, else the two dashes.
  * An enlargement of 0 leaves the standard out.
  */
-double minimumLineLength(const Symbol* symbol, double enlargement);
+double minimumLineLength(const Symbol* symbol, double enlargement, MapStandard standard = MapStandard::Isom2017);
 
 /** The minimum area as the scan takes it: the symbol's own, else the standard's times the enlargement squared. */
-double minimumAreaSize(const Symbol* symbol, double enlargement);
+double minimumAreaSize(const Symbol* symbol, double enlargement, MapStandard standard = MapStandard::Isom2017);
 
 /**
  * Returns half the width of the symbol's widest visible stroke in mm.

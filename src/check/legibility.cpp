@@ -679,7 +679,7 @@ bool isOpening(const MapPart& part, const Object& object, const PathPart& hole)
 	return true;
 }
 
-void checkSizes(const MapPart& part, const Object& object, const LegibilityParams& params, double enlargement, std::vector<Issue>& issues)
+void checkSizes(const MapPart& part, const Object& object, const LegibilityParams& params, MapStandard standard, double enlargement, std::vector<Issue>& issues)
 {
 	if (object.getType() != Object::Path)
 		return;
@@ -687,9 +687,12 @@ void checkSizes(const MapPart& part, const Object& object, const LegibilityParam
 	auto const* symbol = object.getSymbol();
 	auto const types = symbol->getContainedTypes();
 	path->update();
-	if (params.minimum_length && (types & Symbol::Line))
+	// A symbol with an area is an area, also when it has an outline (a combined symbol of an area and
+	// a line, as an OCD file gives a building): its size is checked, not its length.
+	auto const is_area = (types & Symbol::Area) != 0;
+	if (params.minimum_length && !is_area && (types & Symbol::Line))
 	{
-		auto const minimum = minimumLineLength(symbol, enlargement);
+		auto const minimum = minimumLineLength(symbol, enlargement, standard);
 		if (minimum > 0.0)
 		{
 			auto length = 0.0;
@@ -699,9 +702,9 @@ void checkSizes(const MapPart& part, const Object& object, const LegibilityParam
 				issues.push_back(objectIssue(rule::line_short, object, length, minimum, tr("The line is %1 mm long; the minimum of symbol %2 is %3 mm.").arg(mm(length), symbol->getNumberAsString(), mm(minimum))));
 		}
 	}
-	else if (params.minimum_area && (types & Symbol::Area))
+	else if (params.minimum_area && is_area)
 	{
-		auto const minimum = minimumAreaSize(symbol, enlargement);
+		auto const minimum = minimumAreaSize(symbol, enlargement, standard);
 		if (minimum > 0.0 && !path->parts().empty())
 		{
 			auto area = std::abs(path->parts().front().calculateArea());
@@ -716,7 +719,7 @@ void checkSizes(const MapPart& part, const Object& object, const LegibilityParam
 		}
 		// the design notes, "Openings": a hole with nothing in it which is smaller
 		// than the standard allows an opening in this screen to be. The smallest one is reported.
-		auto const opening_minimum = enlargement > 0.0 ? isom2017OpeningMinimum(*symbol) * enlargement * enlargement : 0.0;
+		auto const opening_minimum = enlargement > 0.0 ? standardOpeningMinimum(standard, *symbol) * enlargement * enlargement : 0.0;
 		if (opening_minimum > 0.0 && path->parts().size() > 1)
 		{
 			auto smallest = opening_minimum;
@@ -758,7 +761,7 @@ double symbolGap(const Symbol* symbol, const LegibilityParams& params)
 	return (symbol && symbol->minimumGap() > 0) ? 0.001 * symbol->minimumGap() : params.gap_mm;
 }
 
-void checkPart(const MapPart& part, const LegibilityParams& params, double enlargement, std::vector<Issue>& issues)
+void checkPart(const MapPart& part, const LegibilityParams& params, MapStandard standard, double enlargement, std::vector<Issue>& issues)
 {
 	std::vector<Outline> outlines;
 	std::vector<Outline> cliffs;
@@ -778,7 +781,7 @@ void checkPart(const MapPart& part, const LegibilityParams& params, double enlar
 			}
 			continue;
 		}
-		checkSizes(part, *object, params, enlargement, issues);
+		checkSizes(part, *object, params, standard, enlargement, issues);
 		if (!params.gap)
 			continue;
 		Outline outline;
@@ -816,8 +819,11 @@ void checkPart(const MapPart& part, const LegibilityParams& params, double enlar
 			// The standard's own exception: a contour and an earth bank may lie side by side.
 			if ((a.contour && b.earth_bank) || (b.contour && a.earth_bank))
 				continue;
-			// And areas without an outline, the screens of open land and vegetation, need no gap.
-			if (enlargement > 0.0 && (a.without_gap || b.without_gap))
+			// And areas without an outline, the screens of open land and vegetation, need no gap: in a
+			// forest map towards anything, in a sprint map, whose standard names gaps of lines only,
+			// towards one another.
+			if ((standard == MapStandard::Isom2017 && (a.without_gap || b.without_gap))
+			    || (standard == MapStandard::Issprom2019 && a.without_gap && b.without_gap))
 				continue;
 			// Point objects of one symbol set side by side are a pattern the mapper made, as the dots
 			// of an orchard.
@@ -902,7 +908,9 @@ double defaultGap(const Map& map)
 	auto const scale = map.getScaleDenominator();
 	if (scale == 0)
 		return 0.15;
-	return qRound(100.0 * 0.15 * 15000.0 / scale) / 100.0;
+	// 0.15 mm at the base scale of the map's standard: 1:4,000 for a sprint map, 1:15,000 otherwise.
+	auto const base = mapStandard(map) == MapStandard::Issprom2019 ? 4000.0 : 15000.0;
+	return qRound(100.0 * 0.15 * base / scale) / 100.0;
 }
 
 double strokeHalfWidth(const Symbol* symbol)
@@ -959,33 +967,34 @@ double minimumAreaSize(const Symbol* symbol)
 	return 0.001 * symbol->getMinimumArea();
 }
 
-double minimumLineLength(const Symbol* symbol, double enlargement)
+double minimumLineLength(const Symbol* symbol, double enlargement, MapStandard standard)
 {
 	// the design notes, "The standard's minimum sizes".
 	if (symbol->getMinimumLength() > 0 || !(enlargement > 0.0))
 		return minimumLineLength(symbol);
-	auto const standard = isom2017Minimum(*symbol).length * enlargement;
-	return standard > 0.0 ? standard : minimumLineLength(symbol);
+	auto const stated = standardMinimum(standard, *symbol).length * enlargement;
+	return stated > 0.0 ? stated : minimumLineLength(symbol);
 }
 
-double minimumAreaSize(const Symbol* symbol, double enlargement)
+double minimumAreaSize(const Symbol* symbol, double enlargement, MapStandard standard)
 {
 	if (symbol->getMinimumArea() > 0 || !(enlargement > 0.0))
 		return minimumAreaSize(symbol);
-	return isom2017Minimum(*symbol).area * enlargement * enlargement;
+	return standardMinimum(standard, *symbol).area * enlargement * enlargement;
 }
 
 std::vector<Issue> checkLegibility(const Map& map, const LegibilityParams& params)
 {
 	// the design notes, "Legibility".
 	std::vector<Issue> issues;
-	auto const enlargement = params.standard_minimums ? standardEnlargement(map) : 0.0;
+	auto const standard = params.standard_minimums ? mapStandard(map) : MapStandard::None;
+	auto const enlargement = standard != MapStandard::None ? standardEnlargement(map) : 0.0;
 	for (int p = 0; p < map.getNumParts(); ++p)
 	{
 		auto const role = map.getPart(p)->role();
 		// the design notes; the markers: the design notes, "Legibility"
 		if (role != MapPart::Role::Layout && role != MapPart::Role::Issues)
-			checkPart(*map.getPart(p), params, enlargement, issues);
+			checkPart(*map.getPart(p), params, standard, enlargement, issues);
 	}
 	return issues;
 }

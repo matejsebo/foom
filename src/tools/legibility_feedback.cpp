@@ -85,11 +85,12 @@ QString legibilityReadout(const Map& map, const Symbol* symbol, const PathObject
 	}
 	
 	// The limits of the scan: the standard's where the symbol has none of its own.
+	auto const standard = mapStandard(map);
 	auto const enlargement = standardEnlargement(map);
 	auto const types = symbol->getContainedTypes();
-	if (types & Symbol::Line)
+	if ((types & Symbol::Line) && !(types & Symbol::Area))
 	{
-		auto const minimum = minimumLineLength(symbol, enlargement);
+		auto const minimum = minimumLineLength(symbol, enlargement, standard);
 		if (minimum <= 0.0)
 			return {};
 		auto length = 0.0;
@@ -99,7 +100,7 @@ QString legibilityReadout(const Map& map, const Symbol* symbol, const PathObject
 	}
 	if (types & Symbol::Area)
 	{
-		auto const minimum = minimumAreaSize(symbol, enlargement);
+		auto const minimum = minimumAreaSize(symbol, enlargement, standard);
 		if (minimum <= 0.0)
 			return {};
 		auto const area = preview.parts().front().calculateArea();
