@@ -181,6 +181,22 @@ void CheckTest::mapCheckTest()
 	map.addObject(stub);
 	auto* sliver = new PathObject(area_symbol, { MapCoord(30.0, 0.0), MapCoord(35.0, 0.0) });
 	map.addObject(sliver);
+	// The same closed, as it comes from an OCD file: two vertices and the closing point.
+	auto* closed_sliver = new PathObject(area_symbol, { MapCoord(30.0, 5.0), MapCoord(35.0, 5.0) });
+	closed_sliver->parts().front().setClosed(true);
+	QCOMPARE(closed_sliver->getCoordinateCount(), MapCoordVector::size_type(3));
+	map.addObject(closed_sliver);
+	// Two vertices joined by two curves enclose an area: no issue.
+	auto* lens = new PathObject(area_symbol);
+	lens->addCoordinate(MapCoord(30.0, 60.0, MapCoord::CurveStart));
+	lens->addCoordinate(MapCoord(31.0, 58.0));
+	lens->addCoordinate(MapCoord(34.0, 58.0));
+	lens->addCoordinate(MapCoord(35.0, 60.0, MapCoord::CurveStart));
+	lens->addCoordinate(MapCoord(34.0, 62.0));
+	lens->addCoordinate(MapCoord(31.0, 62.0));
+	lens->addCoordinate(MapCoord(30.0, 60.0));
+	lens->parts().front().setClosed(true, true);
+	map.addObject(lens);
 	auto* wrong = new PathObject(point_symbol, { MapCoord(40.0, 0.0), MapCoord(45.0, 0.0) });
 	map.addObject(wrong);
 	auto* twin_a = new PathObject(line_symbol, { MapCoord(0.0, 10.0), MapCoord(10.0, 10.0) });
@@ -206,7 +222,7 @@ void CheckTest::mapCheckTest()
 	auto const count = [&issues](const char* rule) { int n = 0; for (auto const& issue : issues) n += issue.rule == rule; return n; };
 	for (auto const* rule : { rule::text_empty, rule::path_degenerate, rule::symbol_wrong_type, rule::object_duplicate, rule::vertex_duplicate, rule::area_open, rule::symbol_unused, rule::color_unused })
 		QVERIFY2(find(rule), rule);
-	QCOMPARE(count(rule::path_degenerate), 2);  // the stub and the sliver
+	QCOMPARE(count(rule::path_degenerate), 3);  // the stub and the two slivers
 	QCOMPARE(count(rule::object_duplicate), 1);
 	QCOMPARE(count(rule::symbol_unused), 1);
 	QCOMPARE(count(rule::color_unused), 1);

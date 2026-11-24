@@ -200,7 +200,18 @@ void checkObjects(const Map& map, const MapPart& part, std::vector<Issue>& issue
 				auto const* path = object->asPath();
 				auto const& coords = path->getRawCoordinateVector();
 				auto const area_only = isAreaOnly(symbol);
-				auto const first_part_vertices = path->parts().empty() ? std::size_t(0) : countVertices(coords, path->parts().front().first_index, path->parts().front().last_index);
+				auto first_part_vertices = path->parts().empty() ? std::size_t(0) : countVertices(coords, path->parts().front().first_index, path->parts().front().last_index);
+				// The closing point of a closed part repeats its first vertex and is none of its own. A part
+				// with a curve is left as it is: two curves, or a curve and a straight side, enclose an area.
+				if (first_part_vertices > 1 && path->parts().front().isClosed())
+				{
+					auto const& first_part = path->parts().front();
+					auto curved = false;
+					for (auto i = first_part.first_index; i <= first_part.last_index && i < coords.size(); ++i)
+						curved = curved || coords[i].isCurveStart();
+					if (!curved)
+						--first_part_vertices;
+				}
 				if (area_only ? first_part_vertices < 3 : countVertices(coords, 0, coords.size()) < 2)
 				{
 					issues.push_back(objectIssue(rule::path_degenerate, Issue::Error, *object, area_only ? tr("The area has fewer than three vertices.") : tr("The line has fewer than two vertices.")));
