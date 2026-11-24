@@ -121,7 +121,8 @@ struct GriddingParams
 	bool dsm = true;
 	PointChoice dtm_points = PointChoice::terrain();
 	PointChoice dsm_points = PointChoice::surface();
-	int fill_cells = 50;    ///< reach of the void filling, in cells each way
+	int fill_cells = 50;    ///< reach of the void filling inside the data, in cells each way
+	int edge_cells = 10;    ///< reach past the outer edge of the data
 	double tile_size = 1000.0;  ///< rows of tiles of this many metres are gridded one at a time
 	double tile_buffer = 20.0;  ///< metres read beyond a row of tiles; at least the reach of the void filling
 	/// Bytes the gridding may hold; 0 for PointCloud::defaultMemoryLimit().
@@ -186,6 +187,7 @@ struct PointCloudProducts
 	bool feature_map = false;            ///< See point_cloud_products.h.
 	double feature_from = 0.0;           ///< The feature map's band, m above the terrain model.
 	double feature_to = 2.0;
+	bool feature_legacy = false;         ///< Legacy mode: the objects on the terrain.
 	bool intensity_map = false;
 	bool classification_map = false;
 };

@@ -21,7 +21,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <queue>
+#include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include <QtGlobal>
 #include <QString>
@@ -41,9 +44,6 @@ namespace OpenOrienteering {
 
 namespace {
 
-/// Places on the ring around a cell.
-constexpr int ring_samples = 64;
-
 const PointSymbol* findPointSymbol(const Map& map, int number)
 {
 	for (int i = 0; i < map.getNumSymbols(); ++i)
@@ -61,9 +61,64 @@ const PointSymbol* findPointSymbol(const Map& map, int number)
 
 
 
+namespace {
+
+/**
+ * The prominence of the summit at (col, row) of the grid g times sign (1 for a
+ * knoll, -1 for a depression, of which it is the depth to the spill point):
+ * the region about it is grown downwards, highest cell first, until a cell
+ * higher than the summit is met; the summit less the lowest level reached is
+ * the prominence. Growing stops at the edge of the grid, at a void cell, and
+ * when the region passes max_cells; what was reached by then is a lower bound.
+ *
+ * Returns the prominence reached while the region was no larger than max_cells.
+ */
+double prominenceAt(const ElevationModel& g, int col, int row, double sign, int max_cells)
+{
+	struct Cell { double level; int col; int row; };
+	auto const lower = [](const Cell& a, const Cell& b) { return a.level < b.level; };
+	std::priority_queue<Cell, std::vector<Cell>, decltype(lower)> open(lower);
+	std::unordered_set<qint64> seen;
+	auto const width = g.width();
+	auto const height = g.height();
+	auto const key = [width](int c, int r) { return qint64(r) * width + c; };
+	auto const top = sign * double(g.value(col, row));
+	auto low = top;
+	auto cells = 0;
+	open.push({ top, col, row });
+	seen.insert(key(col, row));
+	while (!open.empty())
+	{
+		auto const cell = open.top();
+		open.pop();
+		if (cell.level > top)
+			break;              // higher ground: the lowest level so far is the saddle (the spill point)
+		if (++cells > max_cells)
+			break;              // too wide for a point feature
+		low = std::min(low, cell.level);
+		for (int dr = -1; dr <= 1; ++dr)
+		{
+			for (int dc = -1; dc <= 1; ++dc)
+			{
+				auto const c = cell.col + dc, r = cell.row + dr;
+				if ((dc == 0 && dr == 0) || seen.count(key(c, r)))
+					continue;
+				if (c < 0 || r < 0 || c >= width || r >= height || std::isnan(g.value(c, r)))
+					return top - low;   // the edge of what is known
+				seen.insert(key(c, r));
+				open.push({ sign * double(g.value(c, r)), c, r });
+			}
+		}
+	}
+	return top - low;
+}
+
+}  // namespace
+
+
 std::vector<Landform> findLandforms(const ElevationModel& grid, const LandformParams& params)
 {
-	// the design notes, "Knolls and small depressions".
+	// the design notes, "Knolls and small depressions by prominence".
 	std::vector<Landform> found;
 	if (!params.knolls && !params.depressions)
 		return found;
@@ -71,22 +126,11 @@ std::vector<Landform> findLandforms(const ElevationModel& grid, const LandformPa
 	auto const& g = *smoothed;
 	auto const width = g.width();
 	auto const height = g.height();
-	// At least the next cell.
-	auto const radius = std::max(1.0, params.ring_m / g.cellSize());
-	auto const reach = int(std::ceil(radius));
+	auto const max_cells = std::max(9, int(std::lround(params.max_area / (g.cellSize() * g.cellSize()))));
 	
-	// The ring as offsets of cells.
-	std::vector<std::pair<int, int>> ring;
-	auto const turn = 8 * std::atan(1.0);
-	for (int k = 0; k < ring_samples; ++k)
+	for (int row = 1; row < height - 1; ++row)
 	{
-		auto const angle = turn * k / ring_samples;
-		ring.emplace_back(int(std::lround(radius * std::cos(angle))), int(std::lround(radius * std::sin(angle))));
-	}
-	
-	for (int row = reach; row < height - reach; ++row)
-	{
-		for (int col = reach; col < width - reach; ++col)
+		for (int col = 1; col < width - 1; ++col)
 		{
 			auto const centre = g.value(col, row);
 			if (std::isnan(centre))
@@ -108,38 +152,12 @@ std::vector<Landform> findLandforms(const ElevationModel& grid, const LandformPa
 			}
 			if (!(higher && params.knolls) && !(lower && params.depressions))
 				continue;
-			auto lowest = double(centre);
-			auto highest = double(centre);
-			auto known = true;
-			for (auto const& offset : ring)
-			{
-				auto const value = g.value(col + offset.first, row + offset.second);
-				if (std::isnan(value))
-				{
-					known = false;
-					break;
-				}
-				lowest = std::min(lowest, double(value));
-				highest = std::max(highest, double(value));
-			}
-			if (!known)
-				continue;
 			Landform landform;
 			landform.projected = g.cellCenter(col, row);
-			if (higher)
-			{
-				landform.kind = Landform::Knoll;
-				landform.size = centre - lowest;
-				if (landform.size + 1e-6 < params.min_height)
-					continue;
-			}
-			else
-			{
-				landform.kind = Landform::Depression;
-				landform.size = highest - centre;
-				if (landform.size + 1e-6 < params.min_depth)
-					continue;
-			}
+			landform.kind = higher ? Landform::Knoll : Landform::Depression;
+			landform.size = prominenceAt(g, col, row, higher ? 1.0 : -1.0, max_cells);
+			if (landform.size + 1e-6 < (higher ? params.min_height : params.min_depth))
+				continue;
 			found.push_back(landform);
 		}
 	}

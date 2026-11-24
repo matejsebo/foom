@@ -492,6 +492,10 @@ PointCloudDialog::PointCloudDialog(const QStringList& paths, QWidget* parent)
 	feature_box->setChecked(false);
 	auto* feature_layout = new QFormLayout(feature_box);
 	feature_layout->addRow(tr("Highest return from:"), makeRow({ feature_edits[0], new QLabel(tr("to")), feature_edits[1], new QLabel(tr("m above ground")) }));
+	feature_legacy_check = new QCheckBox(tr("Legacy mode (the objects on the terrain)"));
+	feature_legacy_check->setObjectName(QStringLiteral("feature_legacy_check"));
+	feature_legacy_check->setChecked(product_defaults.feature_legacy);
+	feature_layout->addRow(feature_legacy_check);
 	intensity_check = new QCheckBox(tr("Intensity map (first returns)"));
 	intensity_check->setChecked(true);
 	classification_check = new QCheckBox(tr("Classification map (colour by class)"));
@@ -585,6 +589,7 @@ PointCloudProducts PointCloudDialog::products() const
 	products.feature_map = feature_box->isChecked();
 	products.feature_from = feature_edits[0]->value();
 	products.feature_to = feature_edits[1]->value();
+	products.feature_legacy = feature_legacy_check->isChecked();
 	products.intensity_map = intensity_check->isChecked();
 	products.classification_map = classification_check->isChecked();
 	return products;

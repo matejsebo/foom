@@ -616,8 +616,14 @@ private slots:
 		QCOMPARE(product.image.size(), QSize(101, 101));
 		for (int r = 1; r < 100; ++r)
 			for (int col = 1; col < 100; ++col)
-				QVERIFY2(qAbs(int(product.image.constScanLine(r)[col]) - 223) <= 1, qPrintable(QString::number(product.image.constScanLine(r)[col])));
+				QVERIFY2(qAbs(int(product.image.constScanLine(r)[col]) - 229) <= 1, qPrintable(QString::number(product.image.constScanLine(r)[col])));
+		// At and above the threshold the raster is dark grey, not black (2026-11-23).
+		QCOMPARE(SlopeParams().darkest, 0.2);
+		QCOMPARE(int(OpenOrienteering::slopeRaster(*steep, params).image.constScanLine(50)[50]), 51);
+		params.darkest = 0.0;
 		QCOMPARE(int(OpenOrienteering::slopeRaster(*steep, params).image.constScanLine(50)[50]), 0);
+		QVERIFY(qAbs(int(OpenOrienteering::slopeRaster(*inclined, params).image.constScanLine(50)[50]) - 223) <= 1);
+		params.darkest = 0.2;
 		QCOMPARE(int(OpenOrienteering::slopeRaster(*flat, params).image.constScanLine(50)[50]), 255);
 		params.binary = true;
 		QCOMPARE(int(OpenOrienteering::slopeRaster(*inclined, params).image.constScanLine(50)[50]), 255);
@@ -1011,20 +1017,35 @@ private slots:
 	{
 		auto const plane = makeGrid(41, 41, 0.0, 41.0, 1.0, [](double x, double y) { return 100.0 + 0.1 * x + 0.05 * y; });
 		QVERIFY(findLandforms(*plane, LandformParams{}).empty());
-		// A cone of 3 m at the edge: its ring leaves the grid.
+		// A cone of 3 m at the edge: the edge is met before the ground has dropped by the minimum.
 		auto const edge = makeGrid(41, 41, 0.0, 41.0, 1.0, [](double x, double y) {
 			auto const d = std::hypot(x - 1.5, y - 20.5);
 			return 100.0 + (d < 6.0 ? 3.0 * (1.0 - d / 6.0) : 0.0);
 		});
 		QVERIFY(findLandforms(*edge, LandformParams{}).empty());
-		// The same cone in the middle, once with a void cell on its ring.
+		// The same cone in the middle: its whole height. With a void cell on its side it counts with
+		// the drop down to that cell, and not at all when the void is beside the summit.
 		auto middle = makeGrid(41, 41, 0.0, 41.0, 1.0, [](double x, double y) {
 			auto const d = std::hypot(x - 20.5, y - 20.5);
 			return 100.0 + (d < 6.0 ? 3.0 * (1.0 - d / 6.0) : 0.0);
 		});
-		QCOMPARE(int(findLandforms(*middle, LandformParams{}).size()), 1);
+		auto found = findLandforms(*middle, LandformParams{});
+		QCOMPARE(int(found.size()), 1);
+		QVERIFY2(found.front().size > 2.4 && found.front().size <= 3.0, qPrintable(QString::number(found.front().size)));
 		middle->setValue(24, 20, std::numeric_limits<float>::quiet_NaN());
+		found = findLandforms(*middle, LandformParams{});
+		QCOMPARE(int(found.size()), 1);
+		QVERIFY2(found.front().size > 1.0 && found.front().size < 2.2, qPrintable(QString::number(found.front().size)));
+		middle->setValue(21, 20, std::numeric_limits<float>::quiet_NaN());
 		QVERIFY(findLandforms(*middle, LandformParams{}).empty());
+		// A hill wider than the area limit counts with the drop within the limit only.
+		auto const hill = makeGrid(201, 201, 0.0, 201.0, 1.0, [](double x, double y) {
+			return 100.0 + 5.0 * std::max(0.0, 1.0 - std::hypot(x - 100.5, y - 100.5) / 250.0);
+		});
+		QVERIFY(findLandforms(*hill, LandformParams{}).empty());
+		LandformParams wide;
+		wide.max_area = 30000.0;
+		QCOMPARE(int(findLandforms(*hill, wide).size()), 1);
 	}
 
 	/// "Knolls and small depressions", Accept (3)
@@ -1476,6 +1497,7 @@ private slots:
 
 		auto const inclined = makeGrid(101, 101, 0.0, 101.0, 1.0, [](double, double y) { return 100.0 + 0.1 * y; });
 		HillShadeParams fine;
+		fine.multi_directional = false;
 		fine.cell_size = 0.5;
 		auto const fine_product = OpenOrienteering::hillShade(*inclined, fine);
 		QCOMPARE(fine_product.image.size(), QSize(201, 201));
@@ -1520,8 +1542,8 @@ private slots:
 		QVERIFY2(product.error.isEmpty(), qPrintable(product.error));
 		QCOMPARE(product.image.size(), QSize(2, 2));
 		QCOMPARE(product.extent, QRectF(1.0, 1.0, 4.0, 4.0));
-		QVERIFY(qAbs(int(product.image.constScanLine(1)[0]) - 90) <= 1);
-		QVERIFY(qAbs(int(product.image.constScanLine(1)[1]) - 51) <= 1);
+		QVERIFY(qAbs(int(product.image.constScanLine(1)[0]) - 123) <= 1);
+		QVERIFY(qAbs(int(product.image.constScanLine(1)[1]) - 92) <= 1);
 		product = slopeRaster(*voided, slope);
 		for (int r = 0; r < 2; ++r)
 			for (int c = 0; c < 2; ++c)
@@ -1568,8 +1590,8 @@ private slots:
 		hill.method = HillShadeParams::SlopeShading;
 		QVERIFY(everywhere(hillShade(*flat, hill), 255));
 		SlopeParams plane_slope;
-		QVERIFY(everywhere(slopeRaster(*inclined, plane_slope), 223));
-		QVERIFY(everywhere(slopeRaster(*steep, plane_slope), 0));
+		QVERIFY(everywhere(slopeRaster(*inclined, plane_slope), 229));
+		QVERIFY(everywhere(slopeRaster(*steep, plane_slope), 51));
 		QVERIFY(everywhere(slopeRaster(*flat, plane_slope), 255));
 		plane_slope.binary = true;
 		QVERIFY(everywhere(slopeRaster(*inclined, plane_slope), 255));

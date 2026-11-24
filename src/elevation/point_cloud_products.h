@@ -47,6 +47,7 @@ struct FeatureMapParams
 	double cell = 1.0;
 	double band_from = 0.0;   ///< Height above the terrain model, m.
 	double band_to = 2.0;
+	bool legacy = false;      ///< Legacy mode: the objects on the terrain, shaded together.
 };
 
 

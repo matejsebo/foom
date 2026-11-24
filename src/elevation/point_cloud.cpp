@@ -192,15 +192,18 @@ bool readFile(const QString& path, bool xy_only, const std::function<void (const
 /**
  * Fills void cells from the cells with points.
  *
- * A void cell is filled when a cell with points lies within reach cells of it
- * in each direction (a square; seen on
- * a tile of real data on 2026-11-23). Its value is the inverse distance
- * weighting (power 2) of the cells with points in the square about it which
- * reaches a little beyond the nearest of them, so that a small hole is filled
- * from its rim and a wide one costs no more than it must.
+ * A void cell inside the data is filled when a cell with points lies within
+ * reach cells of it in each direction (a square). A void cell is inside
+ * the data when cells with points lie on both sides of it, within reach, along
+ * its row, its column or one of its diagonals: a hole, not the surroundings.
+ * Past the outer edge of the data only edge_reach cells are filled. The value is the inverse
+ * distance weighting (power 2) of the cells with points in the square about
+ * the cell which reaches a little beyond the nearest of them, so that a small
+ * hole is filled from its rim and a wide one costs no more than it must.
  */
-void fillVoids(ElevationModel& grid, int reach)
+void fillVoids(ElevationModel& grid, int reach, int edge_reach)
 {
+	edge_reach = std::min(edge_reach, reach);
 	if (reach <= 0)
 		return;
 	auto const width = grid.width();
@@ -226,11 +229,56 @@ void fillVoids(ElevationModel& grid, int reach)
 		return counts[r1 * stride + c1] - counts[r0 * stride + c1] - counts[r1 * stride + c0] + counts[r0 * stride + c0];
 	};
 	
+	// Which void cells have points on both sides along a line through them.
+	std::vector<char> enclosed(source.size(), 0);
+	if (edge_reach < reach)
+	{
+		// Along every line of the four directions: the steps since the last cell with points, forwards and backwards.
+		std::vector<int> since;
+		auto const scan = [&](int col, int row, int dc, int dr) {
+			since.clear();
+			auto last = -1;
+			for (int c = col, r = row, i = 0; c >= 0 && c < width && r >= 0 && r < height; c += dc, r += dr, ++i)
+			{
+				if (!std::isnan(source[at(c, r)]))
+					last = i;
+				since.push_back(last < 0 ? reach + 1 : i - last);
+			}
+			auto const n = int(since.size());
+			auto next = -1;
+			for (int i = n - 1; i >= 0; --i)
+			{
+				auto const c = col + i * dc, r = row + i * dr;
+				if (!std::isnan(source[at(c, r)]))
+					next = i;
+				else if (next >= 0 && next - i <= reach && since[std::size_t(i)] <= reach)
+					enclosed[at(c, r)] = 1;
+			}
+		};
+		for (int row = 0; row < height; ++row)
+		{
+			scan(0, row, 1, 0);       // rows
+			scan(0, row, 1, 1);       // diagonals down from the west edge
+			scan(0, row, 1, -1);      // diagonals up from the west edge
+		}
+		for (int col = 0; col < width; ++col)
+		{
+			scan(col, 0, 0, 1);       // columns
+			if (col > 0)
+			{
+				scan(col, 0, 1, 1);           // diagonals down from the north edge
+				scan(col, height - 1, 1, -1); // diagonals up from the south edge
+			}
+		}
+	}
+	
 	for (int row = 0; row < height; ++row)
 	{
 		for (int col = 0; col < width; ++col)
 		{
-			if (!std::isnan(source[at(col, row)]) || within(col, row, reach) == 0)
+			if (!std::isnan(source[at(col, row)]))
+				continue;
+			if (within(col, row, enclosed[at(col, row)] || edge_reach >= reach ? reach : edge_reach) == 0)
 				continue;
 			// The distance to the nearest cell with points, in cells each way.
 			auto low = 1, high = reach;
@@ -794,7 +842,7 @@ GriddingResult PointCloud::grid(const QStringList& paths, const GriddingParams& 
 			sum = {};
 			count = {};
 			ElevationModel piece(width, band_height, QPointF(left, band_top), cell, std::move(values));
-			fillVoids(piece, params.fill_cells);
+			fillVoids(piece, params.fill_cells, params.edge_cells);
 			auto const& filled = piece.values();
 			auto const from = filled.begin() + std::ptrdiff_t(std::size_t(r0 - b0) * std::size_t(width));
 			if (on_disk)

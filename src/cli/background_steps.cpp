@@ -418,7 +418,7 @@ QJsonObject wizardParams(const Args& a)
 {
 	QJsonObject wizard;
 	wizard.insert(QLatin1String("source"), QLatin1String("point-cloud"));
-	for (auto const* name : { "files", "cell", "dtm", "dsm", "dtm_classes", "dtm_returns", "dsm_classes", "dsm_returns", "vegetation_height", "vegetation_map", "feature_map", "attach" })
+	for (auto const* name : { "files", "cell", "dtm", "dsm", "dtm_classes", "dtm_returns", "dsm_classes", "dsm_returns", "fill_cells", "edge_cells", "vegetation_height", "vegetation_map", "feature_map", "attach" })
 	{
 		if (a.has(name))
 			wizard.insert(QLatin1String(name), a.value(name));
@@ -662,7 +662,7 @@ void validateBackgroundStep(const Step& step, bool map_open)
 	}
 	else if (name == point_cloud_step)
 	{
-		a.known({ "files", "cell", "box", "dtm", "dsm", "dtm_classes", "dtm_returns", "dsm_classes", "dsm_returns", "products", "vegetation_height", "vegetation_map", "feature_map", "attach" });
+		a.known({ "files", "cell", "box", "dtm", "dsm", "dtm_classes", "dtm_returns", "dsm_classes", "dsm_returns", "fill_cells", "edge_cells", "products", "vegetation_height", "vegetation_map", "feature_map", "attach" });
 		cloudJob(a);
 	}
 	else if (name == load_canvases_step)

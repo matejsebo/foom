@@ -204,6 +204,7 @@ private:
 	QSpinBox* vegetation_kernel_edit;
 	QCheckBox* no_data_check;
 	std::array<QDoubleSpinBox*, 2> feature_edits;
+	QCheckBox* feature_legacy_check;
 
 	// Output
 	QLabel* folder_label;

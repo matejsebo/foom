@@ -485,6 +485,9 @@ QWidget* ElevationWizardDialog::makeCloudProductsPage()
 	auto* feature_layout = new QFormLayout(feature_box);
 	feature_edits = {{ spin(0.0, 100.0, 2, products.feature_from, tr(" m")), spin(0.0, 100.0, 2, products.feature_to, tr(" m")) }};
 	feature_layout->addRow(tr("Height band from, to:"), row({ feature_edits[0], feature_edits[1] }));
+	feature_legacy_check = named(new QCheckBox(tr("Legacy mode (the objects on the terrain)")), "feature_legacy_check");
+	feature_legacy_check->setChecked(products.feature_legacy);
+	feature_layout->addRow(feature_legacy_check);
 	layout->addWidget(feature_box);
 	return widget;
 }
@@ -827,6 +830,7 @@ ElevationWizardJob ElevationWizardDialog::job() const
 	job.cloud.feature_map = cloud && feature_map_check->isChecked();
 	job.cloud.feature_from = feature_edits[0]->value();
 	job.cloud.feature_to = feature_edits[1]->value();
+	job.cloud.feature_legacy = feature_legacy_check->isChecked();
 	job.cloud.intensity_map = cloud && intensity_check->isChecked();
 	job.cloud.classification_map = cloud && classification_check->isChecked();
 

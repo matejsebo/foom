@@ -469,6 +469,84 @@ private slots:
 	}
 	
 	
+	/// the design notes, "Filling voids: inside the data and past its edge", Accept.
+	void edgeTest()
+	{
+		// Two blocks of ground of 30 m by 30 m with 20 m between them, and a few points 90 m away
+		// which make the grid 120 m by 120 m.
+		std::vector<CloudPoint> points;
+		auto const add = [&points](double lx, double ly) {
+			CloudPoint ground;
+			ground.x = east0 + lx;
+			ground.y = north0 + ly;
+			ground.z = plane(ground.x, ground.y);
+			ground.classification = 2;
+			points.push_back(ground);
+		};
+		for (int i = 0; i < 60; ++i)
+		{
+			for (int j = 0; j < 60; ++j)
+			{
+				add(0.5 * i + 0.25, 0.5 * j + 0.25);
+				add(50.0 + 0.5 * i + 0.25, 0.5 * j + 0.25);
+			}
+		}
+		add(119.25, 119.25);
+		add(119.75, 119.75);
+		auto const path = writeCloud(QStringLiteral("edge.laz"), points);
+		auto const valueAt = [](const ElevationModel& grid, double lx, double ly) {
+			for (int row = 0; row < grid.height(); ++row)
+			{
+				for (int col = 0; col < grid.width(); ++col)
+				{
+					auto const c = grid.cellCenter(col, row);
+					if (std::abs(c.x() - east0 - lx) < 0.01 && std::abs(c.y() - north0 - ly) < 0.01)
+						return double(grid.value(col, row));
+				}
+			}
+			return -1.0;   // no such cell
+		};
+		
+		QCOMPARE(GriddingParams().edge_cells, 10);
+		auto result = PointCloud::grid({ path }, GriddingParams());
+		QVERIFY2(result.dtm, qPrintable(result.error));
+		QCOMPARE(result.dtm->width(), 120);
+		// Between the blocks is inside the data: filled all the way, near the plane (the weighting is not exact on a slope).
+		for (auto lx = 30.5; lx < 50.0; lx += 1.0)
+		{
+			for (auto ly = 0.5; ly < 30.0; ly += 1.0)
+			{
+				auto const z = valueAt(*result.dtm, lx, ly);
+				QVERIFY2(std::abs(z - plane(east0 + lx, north0 + ly)) < 1.5, qPrintable(QString::fromLatin1("%1 %2: %3").arg(lx).arg(ly).arg(z)));
+			}
+		}
+		// Past the outer edge: ten cells, not more.
+		QVERIFY(!std::isnan(valueAt(*result.dtm, 15.5, 39.5)));
+		QVERIFY(std::isnan(valueAt(*result.dtm, 15.5, 40.5)));
+		QVERIFY(!std::isnan(valueAt(*result.dtm, 89.5, 15.5)));
+		QVERIFY(std::isnan(valueAt(*result.dtm, 90.5, 15.5)));
+		QVERIFY(std::isnan(valueAt(*result.dtm, 40.5, 45.5)));
+		QVERIFY(std::isnan(valueAt(*result.dtm, 60.5, 80.5)));
+		
+		// The same reach past the edge as inside.
+		GriddingParams wide;
+		wide.edge_cells = 50;
+		result = PointCloud::grid({ path }, wide);
+		QVERIFY(result.dtm);
+		QVERIFY(!std::isnan(valueAt(*result.dtm, 15.5, 40.5)));
+		QVERIFY(!std::isnan(valueAt(*result.dtm, 15.5, 79.5)));
+		QVERIFY(std::isnan(valueAt(*result.dtm, 15.5, 80.5)));
+		
+		// Nothing past the edge; the gap is still filled.
+		GriddingParams none;
+		none.edge_cells = 0;
+		result = PointCloud::grid({ path }, none);
+		QVERIFY(result.dtm);
+		QVERIFY(std::isnan(valueAt(*result.dtm, 15.5, 30.5)));
+		QVERIFY(!std::isnan(valueAt(*result.dtm, 40.5, 15.5)));
+	}
+	
+	
 	void boxTest()
 	{
 		// Accept (6).
@@ -1100,6 +1178,64 @@ private slots:
 	}
 
 
+	/// the design notes, "The feature map's legacy mode", Accept.
+	void featureMapLegacyTest()
+	{
+		// Ground rising to the east by 0.5 m per metre over 30 by 20 m, four ground returns per square metre;
+		// in the square (5, 5) to (13, 13) also four returns per square metre 1 m above it; no return in the cell (28, 17).
+		std::vector<CloudPoint> points;
+		for (int col = 0; col < 30; ++col)
+		{
+			for (int row = 0; row < 20; ++row)
+			{
+				if (col == 28 && row == 17)
+					continue;
+				for (int k = 0; k < 4; ++k)
+				{
+					CloudPoint p;
+					p.x = east0 + col + 0.3 + 0.4 * (k % 2);
+					p.y = north0 + row + 0.3 + 0.4 * (k / 2);
+					p.z = 100.0 + 0.5 * (p.x - east0);
+					p.classification = 2;
+					points.push_back(p);
+					if (col >= 5 && col < 13 && row >= 5 && row < 13)
+					{
+						p.z += 1.0;
+						p.classification = 1;
+						points.push_back(p);
+					}
+				}
+			}
+		}
+		auto const path = writeCloud(QStringLiteral("features_slope.laz"), points);
+		auto const grid = PointCloud::grid({ path }, GriddingParams());
+		QVERIFY2(grid.dtm, qPrintable(grid.error));
+		QCOMPARE(FeatureMapParams().legacy, false);
+		auto const plain = featureMap({ path }, *grid.dtm, FeatureMapParams());
+		FeatureMapParams params;
+		params.legacy = true;
+		auto const legacy = featureMap({ path }, *grid.dtm, params);
+		QVERIFY2(plain.error.isEmpty() && legacy.error.isEmpty(), qPrintable(plain.error + legacy.error));
+		QCOMPARE(legacy.image.size(), plain.image.size());
+		QCOMPARE(legacy.extent, plain.extent);
+		auto const grey = [](const RasterProduct& product, int col, int row) { return qGray(product.image.pixel(col, 19 - row)); };
+		// Away from the square: FOOM's map is white, the legacy one has the shade of the slope,
+		// 255 (1 - 26.57 / 90) = 180.
+		for (int col = 16; col <= 25; ++col)
+		{
+			QCOMPARE(grey(plain, col, 9), 255);
+			QVERIFY2(qAbs(grey(legacy, col, 9) - 180) <= 2, qPrintable(QString::number(grey(legacy, col, 9))));
+		}
+		// Inside the square the same; its lower edge is steeper and darker, its upper edge flatter and lighter.
+		QVERIFY2(qAbs(grey(legacy, 9, 9) - 180) <= 2, qPrintable(QString::number(grey(legacy, 9, 9))));
+		QVERIFY2(grey(legacy, 5, 9) < 170, qPrintable(QString::number(grey(legacy, 5, 9))));
+		QVERIFY2(grey(legacy, 12, 9) > 190, qPrintable(QString::number(grey(legacy, 12, 9))));
+		// The cell without returns: black in FOOM's map; in the legacy one the terrain is known there (filled) and shown.
+		QCOMPARE(grey(plain, 28, 17), 0);
+		QVERIFY2(qAbs(grey(legacy, 28, 17) - 180) <= 10, qPrintable(QString::number(grey(legacy, 28, 17))));
+	}
+	
+	
 	void intensityMapTest()
 	{
 		// Accept (2).

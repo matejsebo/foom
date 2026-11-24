@@ -226,11 +226,12 @@ RasterProduct slopeRaster(const ElevationModel& grid, const SlopeParams& params)
 {
 	auto const threshold = qDegreesToRadians(qMax(params.threshold_deg, 1e-9));
 	auto const binary = params.binary;
+	auto const darkest = qBound(0.0, params.darkest, 1.0);
 	return makeProduct(grid, params.cell_size, ElevationModel::Interpolation::Bilinear, params.gradient, [=](double dzdx, double dzdy) {
 		auto const slope = std::atan(std::hypot(dzdx, dzdy));
 		if (binary)
 			return slope < threshold ? 1.0 : 0.0;
-		return qBound(0.0, 1.0 - slope / threshold, 1.0);
+		return darkest + (1.0 - darkest) * qBound(0.0, 1.0 - slope / threshold, 1.0);
 	});
 }
 

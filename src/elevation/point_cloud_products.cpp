@@ -251,6 +251,21 @@ RasterProduct featureMapOf(const QStringList& paths, const Grid& dtm, const Feat
 	}
 	// Cells without returns are shaded as height 0 so that their neighbours keep their shade.
 	auto const extent = layout.extent();
+	if (params.legacy)
+	{
+		// Legacy mode: what stands in the band is put on the terrain,
+		// and the terrain is shown wherever it is known, with returns or without.
+		for (int row = 0; row < layout.height; ++row)
+		{
+			for (int col = 0; col < layout.width; ++col)
+			{
+				auto const k = std::size_t(row) * std::size_t(layout.width) + std::size_t(col);
+				auto const base = groundAt(dtm, layout.left + (col + 0.5) * layout.cell, layout.bottom + (layout.height - row - 0.5) * layout.cell);
+				has_return[k] = !std::isnan(base);
+				heights[k] = has_return[k] ? heights[k] + float(base) : std::numeric_limits<float>::quiet_NaN();
+			}
+		}
+	}
 	ElevationModel grid(layout.width, layout.height, QPointF(extent.left(), extent.top() + extent.height()), layout.cell, std::move(heights), layout.crs_spec);
 	// The slope shading of hillShade() with exaggeration 1, inline: hillShade() would pull
 	// the template code of raster_products.cpp into every user of this file.
@@ -272,7 +287,7 @@ RasterProduct featureMapOf(const QStringList& paths, const Grid& dtm, const Feat
 				continue;
 			}
 			auto const g = grid.gradientAt(col, row);
-			line[col] = toGrey(1.0 - std::atan(std::hypot(g.x(), g.y())) / half_pi);
+			line[col] = std::isnan(g.x()) || std::isnan(g.y()) ? 0 : toGrey(1.0 - std::atan(std::hypot(g.x(), g.y())) / half_pi);
 		}
 	}
 	product.extent = extent;

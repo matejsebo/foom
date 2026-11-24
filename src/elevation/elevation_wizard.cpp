@@ -347,7 +347,7 @@ bool elevationWizardJobFromJson(const QJsonObject& object, ElevationWizardJob* j
 {
 	// the design notes, "Wizard", the runner step.
 	Reader r(object, {}, error);
-	r.known({ "source", "files", "products", "attach", "units", "cell", "dtm", "dsm", "dtm_classes", "dtm_returns", "dsm_classes", "dsm_returns", "contour_sets", "hill_shading",
+	r.known({ "source", "files", "products", "attach", "units", "cell", "dtm", "dsm", "dtm_classes", "dtm_returns", "dsm_classes", "dsm_returns", "fill_cells", "edge_cells", "contour_sets", "hill_shading",
 	          "slope_gradient", "hypsometric_map", "feature_extraction", "vegetation_height", "vegetation_map", "feature_map",
 	          "memory_limit_mb" });
 	auto const source = r.choice("source", { "grid", "point-cloud" });
@@ -417,6 +417,9 @@ bool elevationWizardJobFromJson(const QJsonObject& object, ElevationWizardJob* j
 	result.cloud.vegetation.cell = result.gridding.cell;
 	r.boolean("dtm", result.gridding.dtm);
 	r.boolean("dsm", result.gridding.dsm);
+	// "Filling voids: inside the data and past its edge".
+	r.integer("fill_cells", result.gridding.fill_cells, 0, 1000);
+	r.integer("edge_cells", result.gridding.edge_cells, 0, 1000);
 	// "The points of the models": the classes as numbers or as the names of the rows, and the returns.
 	auto const points = [&r](const char* classes_name, const char* returns_name, PointChoice& choice) {
 		auto const list = r.value(classes_name);
@@ -511,7 +514,8 @@ bool elevationWizardJobFromJson(const QJsonObject& object, ElevationWizardJob* j
 		h.number("cell", result.hill_shade.cell_size, 0.0, 1000.0);
 	});
 	r.nested("slope_gradient", [&result](Reader& s) {
-		s.known({ "binary", "threshold", "cell", "cliffs", "min_area", "min_length" });
+		s.known({ "binary", "threshold", "darkest", "cell", "cliffs", "min_area", "min_length" });
+		s.number("darkest", result.slope_params.darkest, 0.0, 1.0);
 		s.boolean("binary", result.slope_params.binary);
 		s.number("threshold", result.slope_params.threshold_deg, 1.0, 89.0);
 		s.number("cell", result.slope_params.cell_size, 0.0, 1000.0);
@@ -529,11 +533,12 @@ bool elevationWizardJobFromJson(const QJsonObject& object, ElevationWizardJob* j
 		h.boolean("white_at_zero", result.hypsometric_params.white_at_zero);
 	});
 	r.nested("feature_extraction", [&result](Reader& f) {
-		f.known({ "knolls", "min_height", "depressions", "min_depth", "trees", "tree_min_height" });
+		f.known({ "knolls", "min_height", "depressions", "min_depth", "max_area", "trees", "tree_min_height" });
 		f.boolean("knolls", result.landforms.knolls);
 		f.number("min_height", result.landforms.min_height, 0.1, 100.0);
 		f.boolean("depressions", result.landforms.depressions);
 		f.number("min_depth", result.landforms.min_depth, 0.1, 100.0);
+		f.number("max_area", result.landforms.max_area, 10.0, 1000000.0);
 		f.boolean("trees", result.landforms.trees);
 		f.number("tree_min_height", result.landforms.tree_min_height, 1.0, 100.0);
 	});
@@ -560,9 +565,10 @@ bool elevationWizardJobFromJson(const QJsonObject& object, ElevationWizardJob* j
 		v.boolean("no_data_red", p.no_data_red);
 	});
 	r.nested("feature_map", [&result](Reader& f) {
-		f.known({ "from", "to" });
+		f.known({ "from", "to", "legacy" });
 		f.number("from", result.cloud.feature_from, 0.0, 100.0);
 		f.number("to", result.cloud.feature_to, 0.0, 100.0);
+		f.boolean("legacy", result.cloud.feature_legacy);
 	});
 
 	if (!r.ok())

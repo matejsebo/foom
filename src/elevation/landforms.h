@@ -44,7 +44,7 @@ struct LandformParams
 	double min_height = 1.0;      ///< m
 	bool depressions = true;
 	double min_depth = 1.0;       ///< m
-	double ring_m = 4.0;          ///< The distance at which the surroundings are taken.
+	double max_area = 2000.0;     ///< m2: the widest region about a summit or pit in which its height or depth must be reached.
 	bool cliffs = false;          ///< Also cliffs from the slope gradient, see cliffs.h (MapEditorController::extractLandforms).
 	double cliff_threshold = 45.0; ///< The slope threshold, degrees.
 	int cliff_min_area = 3;       ///< Pixels.
@@ -58,7 +58,7 @@ struct Landform
 	enum Kind { Knoll, Depression };
 	Kind kind = Knoll;
 	QPointF projected;            ///< The centre of the cell, in the grid's coordinates.
-	double size = 0.0;            ///< Height above (depth below) the ring, m.
+	double size = 0.0;            ///< The prominence of a knoll, the depth of a depression to its spill point, m.
 };
 
 /**

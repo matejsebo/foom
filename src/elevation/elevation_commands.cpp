@@ -287,6 +287,7 @@ bool importPointClouds(Map& map, const QString& map_path, const QStringList& pat
 		features.cell = params.cell;
 		features.band_from = products.feature_from;
 		features.band_to = products.feature_to;
+		features.legacy = products.feature_legacy;
 		if (!product(on_disk ? featureMap(paths, *dtm_cache, features) : featureMap(paths, *result.dtm, features), QStringLiteral("features")))
 			return false;
 	}

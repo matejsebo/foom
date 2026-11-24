@@ -212,6 +212,7 @@ private:
 	QCheckBox* no_data_check;
 	QGroupBox* feature_box;
 	std::array<QDoubleSpinBox*, 2> feature_edits;       ///< the band, from and to
+	QCheckBox* feature_legacy_check;
 	QCheckBox* intensity_check;
 	QCheckBox* classification_check;
 };

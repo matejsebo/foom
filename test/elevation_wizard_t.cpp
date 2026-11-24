@@ -322,7 +322,11 @@ private slots:
 		QVERIFY(job.landforms.knolls && job.landforms.depressions && !job.landforms.trees);
 		QCOMPARE(job.landforms.min_height, 1.0);
 		QCOMPARE(job.landforms.min_depth, 1.0);
+		QCOMPARE(job.landforms.max_area, 2000.0);
 		QCOMPARE(job.landforms.tree_min_height, 4.0);
+		// The choices of 2026-11-23: the four lights, and dark grey for the steepest.
+		QVERIFY(job.hill_shade.multi_directional);
+		QCOMPARE(job.slope_params.darkest, 0.2);
 		QCOMPARE(job.hypsometric_params.ramp, HypsometricParams::BrownYellowGreen);
 		QCOMPARE(job.hypsometric_params.interval, 100.0);
 
@@ -398,6 +402,14 @@ private slots:
 		QVERIFY(job.cloud.vegetation.no_data_red);
 		QCOMPARE(job.cloud.feature_from, 0.0);
 		QCOMPARE(job.cloud.feature_to, 2.0);
+		// The choices of 2026-11-23: FOOM's feature map first, the other as the legacy mode; the reach of the void filling.
+		QVERIFY(!job.cloud.feature_legacy);
+		QVERIFY(button(wizard, "feature_legacy_check"));
+		button(wizard, "feature_legacy_check")->setChecked(true);
+		QVERIFY(wizard.job().cloud.feature_legacy);
+		button(wizard, "feature_legacy_check")->setChecked(false);
+		QCOMPARE(job.gridding.fill_cells, 50);
+		QCOMPARE(job.gridding.edge_cells, 10);
 
 		// Without the cloud's products, no page for them.
 		wizard.restart();
@@ -702,6 +714,24 @@ private slots:
 		QCOMPARE(job.gridding.memory_limit, qint64(1048576));
 		object[QStringLiteral("memory_limit_mb")] = -1;
 		QVERIFY(!elevationWizardJobFromJson(object, &job, &error));
+		
+		// The members of 2026-11-23.
+		QJsonObject choices{ { QStringLiteral("source"), QStringLiteral("point-cloud") },
+		                     { QStringLiteral("files"), QJsonArray{ QStringLiteral("plane.laz") } },
+		                     { QStringLiteral("fill_cells"), 20 },
+		                     { QStringLiteral("edge_cells"), 0 },
+		                     { QStringLiteral("slope_gradient"), QJsonObject{ { QStringLiteral("darkest"), 0.0 } } },
+		                     { QStringLiteral("feature_extraction"), QJsonObject{ { QStringLiteral("max_area"), 500 } } },
+		                     { QStringLiteral("feature_map"), QJsonObject{ { QStringLiteral("legacy"), true } } } };
+		ElevationWizardJob chosen;
+		QVERIFY2(elevationWizardJobFromJson(choices, &chosen, &error), qPrintable(error));
+		QCOMPARE(chosen.gridding.fill_cells, 20);
+		QCOMPARE(chosen.gridding.edge_cells, 0);
+		QCOMPARE(chosen.slope_params.darkest, 0.0);
+		QCOMPARE(chosen.landforms.max_area, 500.0);
+		QVERIFY(chosen.cloud.feature_legacy);
+		choices[QStringLiteral("edge_cells")] = -1;
+		QVERIFY(!elevationWizardJobFromJson(choices, &chosen, &error));
 	}
 	
 	// Accept (7).

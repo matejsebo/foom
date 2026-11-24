@@ -58,7 +58,7 @@ struct HillShadeParams
 	};
 
 	Method method = Oblique;
-	bool multi_directional = false;   ///< Four lights at 225, 270, 315 and 360 degrees weighted by sin^2(aspect - azimuth).
+	bool multi_directional = true;    ///< Four lights at 225, 270, 315 and 360 degrees weighted by sin^2(aspect - azimuth); the default since 2026-11-23.
 	double azimuth_deg = 315.0;       ///< Light direction, clockwise from north.
 	double elevation_deg = 45.0;      ///< Sun elevation.
 	double exaggeration = 4.0;        ///< Multiplies the gradient.
@@ -80,7 +80,8 @@ struct HillShadeParams
  */
 struct SlopeParams
 {
-	bool binary = false;              ///< White below the threshold, black above; else grey 1 - slope / threshold.
+	bool binary = false;              ///< White below the threshold, black above; else grey from white to darkest at the threshold.
+	double darkest = 0.2;             ///< The grey at and above the threshold of the continuous raster (0 black, 1 white); dark grey since 2026-11-23.
 	double threshold_deg = 45.0;
 	double cell_size = 0.0;
 	GradientMethod gradient = GradientMethod::Corners;  ///< The lattice of corners.
