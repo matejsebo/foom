@@ -366,8 +366,23 @@ double pointSegmentDistance(const MapCoordF& p, const MapCoordF& a, const MapCoo
 /** The distance of two segments and the closest points; 0 when they touch or cross. */
 double segmentDistance(const MapCoordF& a1, const MapCoordF& a2, const MapCoordF& b1, const MapCoordF& b2, MapCoordF& pa, MapCoordF& pb)
 {
-	if (segmentsIntersect(a1, a2, b1, b2))
-		return 0.0;
+	auto const intersect = segmentsIntersect(a1, a2, b1, b2);
+	if (intersect)
+	{
+		// The place where they cross; segments along one another touch at an end, found below.
+		auto const rx = a2.x() - a1.x();
+		auto const ry = a2.y() - a1.y();
+		auto const sx = b2.x() - b1.x();
+		auto const sy = b2.y() - b1.y();
+		auto const denominator = rx * sy - ry * sx;
+		if (std::abs(denominator) > 1e-12)
+		{
+			auto const t = std::max(0.0, std::min(1.0, ((b1.x() - a1.x()) * sy - (b1.y() - a1.y()) * sx) / denominator));
+			pa = MapCoordF(a1.x() + rx * t, a1.y() + ry * t);
+			pb = pa;
+			return 0.0;
+		}
+	}
 	MapCoordF closest;
 	auto best = pointSegmentDistance(a1, b1, b2, closest);
 	pa = a1;
@@ -393,7 +408,7 @@ double segmentDistance(const MapCoordF& a1, const MapCoordF& a2, const MapCoordF
 		pa = closest;
 		pb = b2;
 	}
-	return best;
+	return intersect ? 0.0 : best;
 }
 
 /** The distance of two axis-aligned boxes, 0 when they overlap. */
@@ -470,6 +485,84 @@ double outlineDistance(const Outline& a, const Outline& b, double bound, MapCoor
  * other place: the line ends there before the other object, as a boundary of
  * dots before a road. The band is the line's centre line.
  */
+/// How far around a join, in mm, two joined lines may be nearer to one another than the gap.
+constexpr double join_radius = 1.0;
+
+/**
+ * outlineDistance() of what lies outside a circle: the parts of the first
+ * outline farther than the radius from the centre, against the second.
+ */
+double outlineDistanceOutside(const Outline& a, const Outline& b, double bound, const MapCoordF& centre, double radius, MapCoordF& where, MapCoordF& on_a, MapCoordF& on_b)
+{
+	auto best = bound;
+	MapCoordF pa, pb;
+	for (std::size_t i = 0; i + 1 < a.points.size(); ++i)
+	{
+		if (!a.segment_follows[i])
+			continue;
+		auto const& p = a.points[i];
+		auto const& q = a.points[i + 1];
+		auto const wa = a.halfWidthAt(i);
+		// The parameters at which the segment enters and leaves the circle.
+		auto const dx = q.x() - p.x();
+		auto const dy = q.y() - p.y();
+		auto const fx = p.x() - centre.x();
+		auto const fy = p.y() - centre.y();
+		auto const qa = dx * dx + dy * dy;
+		auto const qb = 2 * (fx * dx + fy * dy);
+		auto const qc = fx * fx + fy * fy - radius * radius;
+		double ranges[2][2] = { { 0.0, 1.0 }, { 1.0, 1.0 } };
+		auto count = 1;
+		if (qa < 1e-18)
+		{
+			if (qc < 0.0)
+				count = 0;
+		}
+		else
+		{
+			auto const discriminant = qb * qb - 4 * qa * qc;
+			if (discriminant > 0.0)
+			{
+				auto const root = std::sqrt(discriminant);
+				auto const t1 = (-qb - root) / (2 * qa);
+				auto const t2 = (-qb + root) / (2 * qa);
+				count = 0;
+				if (t1 > 0.0)
+				{
+					ranges[count][0] = 0.0;
+					ranges[count][1] = std::min(t1, 1.0);
+					++count;
+				}
+				if (t2 < 1.0)
+				{
+					ranges[count][0] = std::max(t2, 0.0);
+					ranges[count][1] = 1.0;
+					++count;
+				}
+			}
+		}
+		for (auto r = 0; r < count; ++r)
+		{
+			auto const a1 = MapCoordF(p.x() + dx * ranges[r][0], p.y() + dy * ranges[r][0]);
+			auto const a2 = MapCoordF(p.x() + dx * ranges[r][1], p.y() + dy * ranges[r][1]);
+			for (std::size_t j = 0; j + 1 < b.points.size(); ++j)
+			{
+				if (!b.segment_follows[j])
+					continue;
+				auto const d = segmentDistance(a1, a2, b.points[j], b.points[j + 1], pa, pb) - wa - b.halfWidthAt(j);
+				if (d < best)
+				{
+					best = d;
+					where = MapCoordF((pa.x() + pb.x()) / 2, (pa.y() + pb.y()) / 2);
+					on_a = pa;
+					on_b = pb;
+				}
+			}
+		}
+	}
+	return best;
+}
+
 bool endsToward(const Outline& band, double reach, const MapCoordF& on_line, const MapCoordF& on_other)
 {
 	auto const check = [&](const MapCoordF& end, const MapCoordF& before) {
@@ -738,24 +831,38 @@ void checkPart(const MapPart& part, const LegibilityParams& params, double enlar
 			if (sharesVertex(a, b))
 				continue;
 			MapCoordF where, on_a, on_b;
-			// A line drawn in pieces which reaches the other object is joined to it, as a boundary of dots
-			// which ends at a road: no conflict, though its last dot stops short.
-			if (a.band || b.band)
-			{
-				if (outlineDistance(a.band ? *a.band : a, b.band ? *b.band : b, limit, where, on_a, on_b) <= 0.0)
-					continue;
-			}
-			auto const reduced = outlineDistance(a, b, limit, where, on_a, on_b);
+			auto reduced = outlineDistance(a, b, limit, where, on_a, on_b);
 			if (reduced >= limit)
 				continue;
 			if (reduced <= 0.0)
 				continue;  // the outlines touch or overlap
-			// The standard's exception for the joins of network symbols: a road, a path, a fence or a
-			// boundary which ends just before another of them, pointing at it, is joined to it.
-			if (a.network && b.network && a.object->getType() == Object::Path && b.object->getType() == Object::Path
+			// Joins. A line drawn in pieces which reaches the other object is joined to it, as a boundary
+			// of dots which ends at a road, though its last dot stops short. And the standard's exception
+			// for network symbols: a road, a path, a fence or a boundary which ends just before another of
+			// them, pointing at it, is joined to it.
+			auto joined = false;
+			MapCoordF join;
+			if (a.band || b.band)
+			{
+				MapCoordF band_a, band_b;
+				joined = outlineDistance(a.band ? *a.band : a, b.band ? *b.band : b, limit, join, band_a, band_b) <= 0.0;
+			}
+			if (!joined && a.network && b.network && a.object->getType() == Object::Path && b.object->getType() == Object::Path
 			    && (endsToward(a.band ? *a.band : a, a.half_width + limit, on_a, on_b)
 			        || endsToward(b.band ? *b.band : b, b.half_width + limit, on_b, on_a)))
-				continue;
+			{
+				joined = true;
+				join = where;
+			}
+			if (joined)
+			{
+				// A join excuses its own neighbourhood only: a fence which runs along the road it ends at
+				// leaves a sliver of paper, and that is a conflict.
+				reduced = outlineDistanceOutside(a, b, limit, join, join_radius, where, on_a, on_b);
+				reduced = outlineDistanceOutside(b, a, reduced, join, join_radius, where, on_b, on_a);
+				if (reduced >= limit || reduced <= 0.0)
+					continue;
+			}
 			if (contains(a, b) || contains(b, a))
 				continue;
 			if (contour_pair)

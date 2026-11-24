@@ -963,6 +963,21 @@ void CheckTest::legibilityDrawnTest()
 	addLine(map, dotted_to_end, MapCoord(0.0, 90.0), MapCoord(6.0, 90.0));
 	addLine(map, solid, MapCoord(6.35, 87.0), MapCoord(6.35, 93.0));
 	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), 4);
+	// A fence which runs along a road, 0.13 mm of paper between them, and turns to it at its end is no
+	// join: the sliver along the road is a conflict. Coming from clear ground with the same end, it is one.
+	auto* fence = new LineSymbol();
+	fence->setColor(brown);
+	fence->setLineWidth(0.14);
+	fence->setNumberComponent(0, 516);
+	map.addSymbol(fence, map.getNumSymbols());
+	addLine(map, road, MapCoord(0.0, 100.0), MapCoord(10.0, 100.0));
+	auto* along = new PathObject(fence, { MapCoord(0.0, 100.3), MapCoord(5.0, 100.3), MapCoord(5.05, 100.25) });
+	map.addObject(along);
+	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), 5);
+	addLine(map, road, MapCoord(0.0, 110.0), MapCoord(10.0, 110.0));
+	auto* joining = new PathObject(fence, { MapCoord(3.0, 112.0), MapCoord(5.0, 110.4), MapCoord(5.05, 110.25) });
+	map.addObject(joining);
+	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), 5);
 
 	// (4) The standard's exception: a contour beside an earth bank is no conflict; beside another line it is.
 	auto const brown_line = [&map, brown](int number) {
@@ -978,10 +993,10 @@ void CheckTest::legibilityDrawnTest()
 	auto* gully = brown_line(107);
 	addLine(map, contour, MapCoord(0.0, 40.0), MapCoord(6.0, 40.0));
 	addLine(map, earth_bank, MapCoord(0.0, 40.24), MapCoord(6.0, 40.24));    // 0.1 mm of paper
-	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), 4);
+	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), 5);
 	addLine(map, contour, MapCoord(0.0, 50.0), MapCoord(6.0, 50.0));
 	addLine(map, gully, MapCoord(0.0, 50.24), MapCoord(6.0, 50.24));
-	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), 5);
+	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), 6);
 }
 
 
