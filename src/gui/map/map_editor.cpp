@@ -10276,7 +10276,7 @@ int MapEditorController::mergeContourLines(double tolerance)
 void MapEditorController::elevationMergeContoursClicked()
 {
 	bool ok = false;
-	auto const tolerance = QInputDialog::getDouble(window, tr("Merge contour lines"), tr("Join ends closer than:"), ops::JoinParams().tolerance, 0.0, 100.0, 2, &ok);
+	auto const tolerance = QInputDialog::getDouble(window, tr("Merge contour lines"), tr("Join ends closer than (mm):"), ops::merge_contours_tolerance, 0.0, 100.0, 2, &ok);
 	if (ok)
 		mergeContourLines(tolerance);
 }

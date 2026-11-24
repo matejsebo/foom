@@ -59,6 +59,7 @@
 #include "core/map_coord.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
+#include "core/ops/topology.h"
 #include "core/renderables/renderable.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
@@ -1247,10 +1248,14 @@ private slots:
 		QVERIFY(std::abs(steepGradient(30) - 0.7125) < 0.002);
 		QVERIFY(std::abs(steepGradient(40) - 1.1115) < 0.002);
 		QVERIFY(std::abs(steepGradient(45) - 1.413) < 0.002);
+		// 35 and 50 degrees; at 60 nothing is steep on a fixture of up to 79.5 degrees.
+		QVERIFY(std::abs(steepGradient(35) - 0.893) < 0.005);
+		QVERIFY(std::abs(steepGradient(50) - 2.673) < 0.01);
+		QVERIFY(steepGradient(60) > 5.38);
 		for (int degrees = 2; degrees <= 89; ++degrees)
 		{
 			// Rising up to the measured range, never falling beyond it.
-			QVERIFY(degrees > 45 ? steepGradient(degrees) >= steepGradient(degrees - 1) : steepGradient(degrees) > steepGradient(degrees - 1));
+			QVERIFY(degrees > 50 ? steepGradient(degrees) >= steepGradient(degrees - 1) : steepGradient(degrees) > steepGradient(degrees - 1));
 			QVERIFY(cliffGradient(degrees) > steepGradient(degrees));
 		}
 		// A region of steep corners is a cliff from its steepest corner: the 3.0 m step

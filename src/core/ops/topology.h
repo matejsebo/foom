@@ -52,6 +52,12 @@ struct JoinParams : public OpParams
 OpResult joinLines(const Map& map, const std::vector<const Object*>& in, const JoinParams& params);
 
 /**
+ * The tolerance (mm) which "Merge contour lines" proposes: ends which lie on one
+ * place. A wider tolerance also closes pieces which end near each other at the edge of a grid.
+ */
+constexpr double merge_contours_tolerance = 0.01;
+
+/**
  * Joins the lines as joinLines() does within groups of one height (the "ele" tag),
  * so that contour lines of different heights never join ("dem-merge-contours").
  *

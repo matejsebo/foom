@@ -54,7 +54,9 @@ struct Turn
 
 // the design notes, "Cliffs from the slope gradient": the gradients
 // 0.7125, 1.1115 and 1.413, as angles.
-constexpr Turn steep_turns[] = { { 0.0, 0.0 }, { 30.0, 35.47 }, { 40.0, 48.02 }, { 45.0, 54.71 } };
+// Known at 30, 35, 40, 45 and 50 degrees; at 60 nothing is black on a fixture whose
+// steepest corner has 79.5 degrees, which the last segment continued gives too.
+constexpr Turn steep_turns[] = { { 0.0, 0.0 }, { 30.0, 35.47 }, { 35.0, 41.76 }, { 40.0, 48.02 }, { 45.0, 54.71 }, { 50.0, 69.49 } };
 
 /// A region of steep corners is a cliff when its steepest corner reaches this factor of the threshold (1.28 to 1.32).
 constexpr double cliff_factor = 1.3;
