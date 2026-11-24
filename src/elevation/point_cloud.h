@@ -70,6 +70,46 @@ struct PointCloudInfo
 };
 
 
+/** Which returns of a pulse go into a model. */
+enum class ReturnChoice { First, Last, All };
+
+/**
+ * The points which go into a model: their classes and returns.
+ *
+ * See the design notes, "The points of the models".
+ */
+struct PointChoice
+{
+	std::array<bool, 256> classes = {};
+	ReturnChoice returns = ReturnChoice::All;
+	
+	bool accepts(const CloudPoint& p) const
+	{
+		return classes[p.classification]
+		       && (returns == ReturnChoice::All
+		           || (returns == ReturnChoice::First ? p.return_number <= 1 : p.return_number >= p.number_of_returns));
+	}
+	
+	/// Ground and water, the last returns.
+	static PointChoice terrain();
+	/// Every class but the noise (7 and 18), the first returns.
+	static PointChoice surface();
+	
+	/// Ten rows: unclassified (0, 1), ground, low, medium and high vegetation, building, low point, water, overlap, other.
+	static constexpr int group_count = 10;
+	static int groupOf(int classification);
+	/// The name in job files: "unclassified", "ground", "low-vegetation", ...
+	static const char* groupId(int group);
+	static QString groupName(int group);
+	/// Whether a class of the group is chosen.
+	bool group(int group) const;
+	void setGroup(int group, bool chosen);
+};
+
+bool operator==(const PointChoice& lhs, const PointChoice& rhs);
+inline bool operator!=(const PointChoice& lhs, const PointChoice& rhs) { return !(lhs == rhs); }
+
+
 /**
  * The settings of gridding.
  */
@@ -79,7 +119,9 @@ struct GriddingParams
 	QRectF box;             ///< left, bottom, width, height; empty for all points
 	bool dtm = true;
 	bool dsm = true;
-	int fill_cells = 10;    ///< reach of the void filling, in cells
+	PointChoice dtm_points = PointChoice::terrain();
+	PointChoice dsm_points = PointChoice::surface();
+	int fill_cells = 50;    ///< reach of the void filling, in cells each way
 	double tile_size = 1000.0;  ///< rows of tiles of this many metres are gridded one at a time
 	double tile_buffer = 20.0;  ///< metres read beyond a row of tiles; at least the reach of the void filling
 	/// Bytes the gridding may hold; 0 for PointCloud::defaultMemoryLimit().

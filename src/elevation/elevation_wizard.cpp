@@ -347,7 +347,7 @@ bool elevationWizardJobFromJson(const QJsonObject& object, ElevationWizardJob* j
 {
 	// the design notes, "Wizard", the runner step.
 	Reader r(object, {}, error);
-	r.known({ "source", "files", "products", "attach", "units", "cell", "dtm", "dsm", "contour_sets", "hill_shading",
+	r.known({ "source", "files", "products", "attach", "units", "cell", "dtm", "dsm", "dtm_classes", "dtm_returns", "dsm_classes", "dsm_returns", "contour_sets", "hill_shading",
 	          "slope_gradient", "hypsometric_map", "feature_extraction", "vegetation_height", "vegetation_map", "feature_map",
 	          "memory_limit_mb" });
 	auto const source = r.choice("source", { "grid", "point-cloud" });
@@ -417,6 +417,44 @@ bool elevationWizardJobFromJson(const QJsonObject& object, ElevationWizardJob* j
 	result.cloud.vegetation.cell = result.gridding.cell;
 	r.boolean("dtm", result.gridding.dtm);
 	r.boolean("dsm", result.gridding.dsm);
+	// "The points of the models": the classes as numbers or as the names of the rows, and the returns.
+	auto const points = [&r](const char* classes_name, const char* returns_name, PointChoice& choice) {
+		auto const list = r.value(classes_name);
+		if (!list.isUndefined())
+		{
+			if (!list.isArray())
+			{
+				r.fail(QString::fromLatin1("\"%1\" must be a list of class numbers or names").arg(QLatin1String(classes_name)));
+				return;
+			}
+			choice.classes.fill(false);
+			for (auto const& entry : list.toArray())
+			{
+				auto group = -1;
+				for (int g = 0; entry.isString() && g < PointChoice::group_count; ++g)
+				{
+					if (entry.toString() == QLatin1String(PointChoice::groupId(g)))
+						group = g;
+				}
+				auto const number = entry.isDouble() ? entry.toDouble(-1) : -1.0;
+				if (group >= 0)
+					choice.setGroup(group, true);
+				else if (number >= 0 && number <= 255 && number == std::floor(number))
+					choice.classes[std::size_t(number)] = true;
+				else
+				{
+					r.fail(QString::fromLatin1("\"%1\": a class is a number from 0 to 255 or one of unclassified, ground, low-vegetation, "
+					                           "medium-vegetation, high-vegetation, building, low-point, water, overlap, other").arg(QLatin1String(classes_name)));
+					return;
+				}
+			}
+		}
+		auto const returns = r.choice(returns_name, { "first", "last", "all" });
+		if (returns >= 0)
+			choice.returns = returns == 0 ? ReturnChoice::First : returns == 1 ? ReturnChoice::Last : ReturnChoice::All;
+	};
+	points("dtm_classes", "dtm_returns", result.gridding.dtm_points);
+	points("dsm_classes", "dsm_returns", result.gridding.dsm_points);
 	// "Grids on disk, a tile cache, and a progress bar".
 	double memory_mb = 0.0;
 	r.number("memory_limit_mb", memory_mb, 1.0, 1.0e7);

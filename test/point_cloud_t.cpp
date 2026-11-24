@@ -286,7 +286,12 @@ private slots:
 		auto const points = testCloud(options);
 		auto const las = writeCloud(QStringLiteral("cloud.las"), points);
 		auto const laz = writeCloud(QStringLiteral("cloud.laz"), points);
-		auto const result = PointCloud::grid({ laz }, GriddingParams());
+		// The surface model of the classified points, without the unclassified ones 50 m up.
+		GriddingParams classified;
+		classified.dsm_points.classes.fill(false);
+		for (auto c : { 2, 3, 4, 5, 6, 9 })
+			classified.dsm_points.classes[std::size_t(c)] = true;
+		auto const result = PointCloud::grid({ laz }, classified);
 		QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
 		QVERIFY(result.dtm);
 		QVERIFY(result.dsm);
@@ -316,7 +321,7 @@ private slots:
 		}
 		QVERIFY2(worst < 0.05, qPrintable(QString::number(worst)));
 		
-		auto const again = PointCloud::grid({ las }, GriddingParams());
+		auto const again = PointCloud::grid({ las }, classified);
 		QVERIFY(again.dtm && again.dsm);
 		QCOMPARE(again.dtm->values(), dtm.values());
 		QCOMPARE(again.dsm->values(), dsm.values());
@@ -326,6 +331,91 @@ private slots:
 		auto const one = PointCloud::grid({ laz }, only_dtm);
 		QVERIFY(one.dtm);
 		QVERIFY(!one.dsm);
+	}
+	
+	/// "The points of the models" (2026-11-23): a tile of the USGS has its vegetation in class 1.
+	void pointChoiceTest()
+	{
+		// The defaults: the terrain from ground and water, last returns; the surface from every class but the noise, first returns.
+		auto const terrain = PointChoice::terrain();
+		auto const surface = PointChoice::surface();
+		QVERIFY(terrain.classes[2] && terrain.classes[9] && !terrain.classes[1] && !terrain.classes[5]);
+		QCOMPARE(terrain.returns, ReturnChoice::Last);
+		QVERIFY(surface.classes[0] && surface.classes[1] && surface.classes[2] && surface.classes[5] && surface.classes[17]);
+		QVERIFY(!surface.classes[7] && !surface.classes[18]);
+		QCOMPARE(surface.returns, ReturnChoice::First);
+		QVERIFY(GriddingParams().dtm_points == terrain && GriddingParams().dsm_points == surface);
+	
+		CloudPoint p;
+		p.classification = 2; p.return_number = 2; p.number_of_returns = 2;
+		QVERIFY(terrain.accepts(p) && !surface.accepts(p));
+		p.return_number = 1;
+		QVERIFY(!terrain.accepts(p) && surface.accepts(p));
+		p.classification = 7; p.number_of_returns = 1;
+		QVERIFY(!terrain.accepts(p) && !surface.accepts(p));
+	
+		// The rows.
+		QCOMPARE(PointChoice::groupOf(0), 0);
+		QCOMPARE(PointChoice::groupOf(1), 0);
+		QCOMPARE(PointChoice::groupOf(9), 7);
+		QCOMPARE(PointChoice::groupOf(12), 8);
+		QCOMPARE(PointChoice::groupOf(17), 9);
+		QCOMPARE(QString::fromLatin1(PointChoice::groupId(3)), QStringLiteral("medium-vegetation"));
+		auto choice = terrain;
+		QVERIFY(choice.group(1) && choice.group(7) && !choice.group(0));
+		choice.setGroup(0, true);
+		QVERIFY(choice.classes[0] && choice.classes[1]);
+		choice.setGroup(7, false);
+		QVERIFY(!choice.classes[9] && choice != terrain);
+	
+		// The surface of a cloud whose vegetation is unclassified, as the USGS delivers it:
+		// ground, and in a square points of class 1, the first of two returns, 10 to 20 m up.
+		std::vector<CloudPoint> points;
+		Sequence random;
+		for (int i = 0; i < 100; ++i)
+		{
+			for (int j = 0; j < 100; ++j)
+			{
+				CloudPoint ground;
+				ground.x = east0 + 0.5 * i + 0.25;
+				ground.y = north0 + 0.5 * j + 0.25;
+				ground.z = 100.0;
+				ground.classification = 2;
+				auto const wooded = i >= 60 && i < 80 && j >= 60 && j < 80;
+				ground.return_number = wooded ? 2 : 1;
+				ground.number_of_returns = wooded ? 2 : 1;
+				points.push_back(ground);
+				if (wooded)
+				{
+					auto canopy = ground;
+					canopy.z = 110.0 + 10.0 * random.next();
+					canopy.classification = 1;
+					canopy.return_number = 1;
+					points.push_back(canopy);
+				}
+			}
+		}
+		auto const path = writeCloud(QStringLiteral("usgs.laz"), points);
+		auto const result = PointCloud::grid({ path }, GriddingParams());
+		QVERIFY2(result.dtm && result.dsm, qPrintable(result.error));
+		QVERIFY(std::abs(result.dtm->value(35, 15) - 100.0f) < 0.01f);   // under the canopy
+		QVERIFY(std::abs(result.dsm->value(10, 40) - 100.0f) < 0.01f);   // open ground
+		auto const canopy_height = result.dsm->value(35, 15) - result.dtm->value(35, 15);
+		QVERIFY2(canopy_height > 10.0f && canopy_height < 20.0f, qPrintable(QString::number(canopy_height)));
+	
+		// With the unclassified points left out, the surface there is the ground: void, and filled from around.
+		GriddingParams without;
+		without.dsm_points.setGroup(0, false);
+		auto const bare = PointCloud::grid({ path }, without);
+		QVERIFY(bare.dsm);
+		QVERIFY(std::abs(bare.dsm->value(35, 15) - 100.0f) < 0.01f);
+	
+		// All returns into the terrain model: nothing changes here, the ground has one return per pulse or the last.
+		GriddingParams all;
+		all.dtm_points.returns = ReturnChoice::All;
+		auto const every = PointCloud::grid({ path }, all);
+		QVERIFY(every.dtm);
+		QCOMPARE(every.dtm->values(), result.dtm->values());
 	}
 	
 	
@@ -349,13 +439,23 @@ private slots:
 		}
 		QVERIFY2(worst < 0.15, qPrintable(QString::number(worst)));
 		
+		// A hole wider than the reach keeps its middle: with a reach of 8 cells each way (a square, so the
+		// diagonal counts as the axes), a disc of 15 m.
 		CloudOptions large;
 		large.hole = 15.0;
-		result = PointCloud::grid({ writeCloud(QStringLiteral("hole15.laz"), testCloud(large)) }, GriddingParams());
+		GriddingParams short_reach;
+		short_reach.fill_cells = 8;
+		result = PointCloud::grid({ writeCloud(QStringLiteral("hole15.laz"), testCloud(large)) }, short_reach);
 		QVERIFY2(result.dtm, qPrintable(result.error));
 		auto const& dtm = *result.dtm;
 		QVERIFY(std::isnan(dtm.value(24, 25)));
 		QVERIFY(std::isnan(dtm.value(25, 24)));
+		// With the default reach, 50 cells each way, it is filled, on the plane.
+		QCOMPARE(GriddingParams().fill_cells, 50);
+		auto const wide = PointCloud::grid({ writeCloud(QStringLiteral("hole15b.laz"), testCloud(large)) }, GriddingParams());
+		QVERIFY(wide.dtm);
+		auto const centre = wide.dtm->cellCenter(24, 25);
+		QVERIFY2(std::abs(double(wide.dtm->value(24, 25)) - plane(centre.x(), centre.y())) < 0.3, qPrintable(QString::number(wide.dtm->value(24, 25))));
 		for (int row = 0; row < 50; ++row)
 		{
 			for (int col = 0; col < 50; ++col)

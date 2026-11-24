@@ -26,6 +26,7 @@
 
 #include <QDialog>
 #include <QObject>
+#include <QWidget>
 
 #include "elevation/contours.h"
 #include "elevation/elevation_model.h"
@@ -47,6 +48,28 @@ class QRectF;
 class QWidget;
 
 namespace OpenOrienteering {
+
+
+/**
+ * The classes and the returns of the points of a model: a check box per group of classes, and the returns.
+ *
+ * See the design notes, "The points of the models".
+ */
+class PointChoiceWidget : public QWidget
+{
+Q_OBJECT
+public:
+	PointChoiceWidget(const PointChoice& choice, QWidget* parent = nullptr);
+	~PointChoiceWidget() override;
+	
+	/// The choice: a group which was not touched keeps the classes it came with.
+	PointChoice choice() const;
+	
+private:
+	PointChoice value;
+	std::array<QCheckBox*, PointChoice::group_count> boxes;
+	QComboBox* returns_box;
+};
 
 
 /**
@@ -178,6 +201,8 @@ private:
 	QDoubleSpinBox* cell_edit;
 	QCheckBox* dtm_check;
 	QCheckBox* dsm_check;
+	PointChoiceWidget* dtm_points;
+	PointChoiceWidget* dsm_points;
 	QCheckBox* height_check;
 	QGroupBox* vegetation_box;
 	std::array<QDoubleSpinBox*, 4> undergrowth_edits;   ///< from, to, two thresholds

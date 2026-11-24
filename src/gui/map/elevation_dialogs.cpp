@@ -41,6 +41,7 @@
 #include <QDoubleSpinBox>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -92,6 +93,44 @@ QDialogButtonBox* makeButtons(QDialog* dialog)
 }
 
 }  // namespace
+
+
+
+// ### PointChoiceWidget ###
+
+PointChoiceWidget::PointChoiceWidget(const PointChoice& choice, QWidget* parent)
+: QWidget(parent)
+, value(choice)
+{
+	auto* grid = new QGridLayout(this);
+	grid->setContentsMargins(20, 0, 0, 0);
+	for (int group = 0; group < PointChoice::group_count; ++group)
+	{
+		auto* box = new QCheckBox(PointChoice::groupName(group));
+		box->setObjectName(QLatin1String("class_") + QLatin1String(PointChoice::groupId(group)));
+		box->setChecked(choice.group(group));
+		connect(box, &QCheckBox::clicked, this, [this, group](bool checked) { value.setGroup(group, checked); });
+		grid->addWidget(box, group / 5, group % 5);
+		boxes[std::size_t(group)] = box;
+	}
+	returns_box = new QComboBox();
+	returns_box->setObjectName(QStringLiteral("returns"));
+	returns_box->addItem(tr("First return"));
+	returns_box->addItem(tr("Last return"));
+	returns_box->addItem(tr("All returns"));
+	returns_box->setCurrentIndex(choice.returns == ReturnChoice::First ? 0 : choice.returns == ReturnChoice::Last ? 1 : 2);
+	grid->addWidget(returns_box, 2, 0, 1, 2);
+}
+
+PointChoiceWidget::~PointChoiceWidget() = default;
+
+PointChoice PointChoiceWidget::choice() const
+{
+	auto result = value;
+	auto const index = returns_box->currentIndex();
+	result.returns = index == 0 ? ReturnChoice::First : index == 1 ? ReturnChoice::Last : ReturnChoice::All;
+	return result;
+}
 
 
 
@@ -386,10 +425,16 @@ PointCloudDialog::PointCloudDialog(const QStringList& paths, QWidget* parent)
 	cell_edit->setSingleStep(0.5);
 	cell_edit->setSuffix(QStringLiteral(" m"));
 	cell_edit->setValue(defaults.cell);
-	dtm_check = new QCheckBox(tr("Terrain model (DTM): ground and water, last returns"));
+	dtm_check = new QCheckBox(tr("Terrain model (DTM), from:"));
 	dtm_check->setChecked(defaults.dtm);
-	dsm_check = new QCheckBox(tr("Surface model (DSM): ground, vegetation, buildings and water, first returns"));
+	dtm_points = new PointChoiceWidget(defaults.dtm_points);
+	dtm_points->setObjectName(QStringLiteral("dtm_points"));
+	dsm_check = new QCheckBox(tr("Surface model (DSM), from:"));
 	dsm_check->setChecked(defaults.dsm);
+	dsm_points = new PointChoiceWidget(defaults.dsm_points);
+	dsm_points->setObjectName(QStringLiteral("dsm_points"));
+	connect(dtm_check, &QCheckBox::toggled, dtm_points, &QWidget::setEnabled);
+	connect(dsm_check, &QCheckBox::toggled, dsm_points, &QWidget::setEnabled);
 	connect(analyse_button, &QPushButton::clicked, this, &PointCloudDialog::analyse);
 	
 	// The products: the design notes, "Vegetation height and vegetation base map".
@@ -457,7 +502,9 @@ PointCloudDialog::PointCloudDialog(const QStringList& paths, QWidget* parent)
 	layout->addRow(analyse_button, report_label);
 	layout->addRow(tr("Cell size:"), cell_edit);
 	layout->addRow(dtm_check);
+	layout->addRow(dtm_points);
 	layout->addRow(dsm_check);
+	layout->addRow(dsm_points);
 	layout->addRow(height_check);
 	auto* main_layout = new QVBoxLayout(this);
 	main_layout->addLayout(layout);
@@ -515,6 +562,8 @@ GriddingParams PointCloudDialog::params() const
 	params.cell = cell_edit->value();
 	params.dtm = dtm_check->isChecked();
 	params.dsm = dsm_check->isChecked();
+	params.dtm_points = dtm_points->choice();
+	params.dsm_points = dsm_points->choice();
 	return params;
 }
 

@@ -189,44 +189,73 @@ bool readFile(const QString& path, bool xy_only, const std::function<void (const
 
 #endif
 
-/// Fills void cells by inverse distance weighting (power 2) from the cells with points within reach.
+/**
+ * Fills void cells from the cells with points.
+ *
+ * A void cell is filled when a cell with points lies within reach cells of it
+ * in each direction (a square; seen on
+ * a tile of real data on 2026-11-23). Its value is the inverse distance
+ * weighting (power 2) of the cells with points in the square about it which
+ * reaches a little beyond the nearest of them, so that a small hole is filled
+ * from its rim and a wide one costs no more than it must.
+ */
 void fillVoids(ElevationModel& grid, int reach)
 {
 	if (reach <= 0)
 		return;
-	struct Offset { int dc, dr; double weight; };
-	std::vector<Offset> offsets;
-	for (int dr = -reach; dr <= reach; ++dr)
-	{
-		for (int dc = -reach; dc <= reach; ++dc)
-		{
-			auto const d2 = dc * dc + dr * dr;
-			if (d2 > 0 && d2 <= reach * reach)
-				offsets.push_back({ dc, dr, 1.0 / d2 });
-		}
-	}
 	auto const width = grid.width();
 	auto const height = grid.height();
 	auto const source = grid.values();
+	auto const at = [width](int col, int row) { return std::size_t(row) * std::size_t(width) + std::size_t(col); };
+	
+	// The number of cells with points above and left of each corner.
+	auto const stride = std::size_t(width) + 1;
+	std::vector<int> counts(stride * (std::size_t(height) + 1), 0);
+	for (int row = 0; row < height; ++row)
+	{
+		auto in_row = 0;
+		for (int col = 0; col < width; ++col)
+		{
+			in_row += std::isnan(source[at(col, row)]) ? 0 : 1;
+			counts[std::size_t(row + 1) * stride + std::size_t(col + 1)] = counts[std::size_t(row) * stride + std::size_t(col + 1)] + in_row;
+		}
+	}
+	auto const within = [&counts, stride, width, height](int col, int row, int s) {
+		auto const c0 = std::size_t(std::max(0, col - s)), c1 = std::size_t(std::min(width, col + s + 1));
+		auto const r0 = std::size_t(std::max(0, row - s)), r1 = std::size_t(std::min(height, row + s + 1));
+		return counts[r1 * stride + c1] - counts[r0 * stride + c1] - counts[r1 * stride + c0] + counts[r0 * stride + c0];
+	};
+	
 	for (int row = 0; row < height; ++row)
 	{
 		for (int col = 0; col < width; ++col)
 		{
-			if (!std::isnan(source[std::size_t(row) * std::size_t(width) + std::size_t(col)]))
+			if (!std::isnan(source[at(col, row)]) || within(col, row, reach) == 0)
 				continue;
+			// The distance to the nearest cell with points, in cells each way.
+			auto low = 1, high = reach;
+			while (low < high)
+			{
+				auto const middle = (low + high) / 2;
+				if (within(col, row, middle) > 0)
+					high = middle;
+				else
+					low = middle + 1;
+			}
+			auto const s = std::min(reach, low + 2 + low / 4);
 			auto sum = 0.0;
 			auto weights = 0.0;
-			for (auto const& offset : offsets)
+			for (int r = std::max(0, row - s); r <= std::min(height - 1, row + s); ++r)
 			{
-				auto const c = col + offset.dc;
-				auto const r = row + offset.dr;
-				if (c < 0 || r < 0 || c >= width || r >= height)
-					continue;
-				auto const value = source[std::size_t(r) * std::size_t(width) + std::size_t(c)];
-				if (std::isnan(value))
-					continue;
-				sum += offset.weight * double(value);
-				weights += offset.weight;
+				for (int c = std::max(0, col - s); c <= std::min(width - 1, col + s); ++c)
+				{
+					auto const value = source[at(c, r)];
+					if (std::isnan(value))
+						continue;
+					auto const weight = 1.0 / double((c - col) * (c - col) + (r - row) * (r - row));
+					sum += weight * double(value);
+					weights += weight;
+				}
 			}
 			if (weights > 0)
 				grid.setValue(col, row, float(sum / weights));
@@ -235,6 +264,100 @@ void fillVoids(ElevationModel& grid, int reach)
 }
 
 }  // namespace
+
+
+
+// ### PointChoice ###
+
+// static
+PointChoice PointChoice::terrain()
+{
+	PointChoice choice;
+	choice.classes[2] = true;
+	choice.classes[9] = true;
+	choice.returns = ReturnChoice::Last;
+	return choice;
+}
+
+// static
+PointChoice PointChoice::surface()
+{
+	// Every class but the two noise classes.
+	PointChoice choice;
+	choice.classes.fill(true);
+	choice.classes[7] = false;
+	choice.classes[18] = false;
+	choice.returns = ReturnChoice::First;
+	return choice;
+}
+
+// static
+int PointChoice::groupOf(int classification)
+{
+	switch (classification)
+	{
+	case 0: case 1: return 0;
+	case 2: return 1;
+	case 3: return 2;
+	case 4: return 3;
+	case 5: return 4;
+	case 6: return 5;
+	case 7: return 6;
+	case 9: return 7;
+	case 12: return 8;
+	default: return 9;
+	}
+}
+
+// static
+const char* PointChoice::groupId(int group)
+{
+	static const char* const ids[group_count] = { "unclassified", "ground", "low-vegetation", "medium-vegetation", "high-vegetation",
+	                                              "building", "low-point", "water", "overlap", "other" };
+	return group >= 0 && group < group_count ? ids[group] : "";
+}
+
+// static
+QString PointChoice::groupName(int group)
+{
+	switch (group)
+	{
+	case 0: return PointCloud::tr("Unclassified");
+	case 1: return PointCloud::tr("Ground");
+	case 2: return PointCloud::tr("Low vegetation");
+	case 3: return PointCloud::tr("Medium vegetation");
+	case 4: return PointCloud::tr("High vegetation");
+	case 5: return PointCloud::tr("Building");
+	case 6: return PointCloud::tr("Low point (noise)");
+	case 7: return PointCloud::tr("Water");
+	case 8: return PointCloud::tr("Overlap points");
+	default: return PointCloud::tr("Other");
+	}
+}
+
+bool PointChoice::group(int group) const
+{
+	for (int c = 0; c < 256; ++c)
+	{
+		if (classes[std::size_t(c)] && groupOf(c) == group)
+			return true;
+	}
+	return false;
+}
+
+void PointChoice::setGroup(int group, bool chosen)
+{
+	for (int c = 0; c < 256; ++c)
+	{
+		if (groupOf(c) == group)
+			classes[std::size_t(c)] = chosen;
+	}
+}
+
+bool operator==(const PointChoice& lhs, const PointChoice& rhs)
+{
+	return lhs.classes == rhs.classes && lhs.returns == rhs.returns;
+}
 
 
 
@@ -634,16 +757,15 @@ GriddingResult PointCloud::grid(const QStringList& paths, const GriddingParams& 
 				return;
 			auto const col = std::min(width - 1, int((p.x - left) / cell));
 			auto const k = std::size_t(row - b0) * std::size_t(width) + std::size_t(col);
-			auto const c = p.classification;
 			if (std::isnan(reference))
 				reference = p.z;
-			if (params.dtm && (c == 2 || c == 9) && p.return_number >= p.number_of_returns)
+			if (params.dtm && params.dtm_points.accepts(p))
 			{
 				dtm_sum[k] += float(p.z - reference);
 				++dtm_count[k];
 			}
 			// The mean.
-			if (params.dsm && (c == 2 || c == 3 || c == 4 || c == 5 || c == 6 || c == 9) && p.return_number <= 1)
+			if (params.dsm && params.dsm_points.accepts(p))
 			{
 				dsm_sum[k] += float(p.z - reference);
 				++dsm_count[k];

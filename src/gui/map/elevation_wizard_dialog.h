@@ -42,6 +42,8 @@ class QWidget;
 
 namespace OpenOrienteering {
 
+class PointChoiceWidget;
+
 
 /**
  * The elevation wizard.
@@ -138,6 +140,8 @@ private:
 	QDoubleSpinBox* cell_edit;
 	QCheckBox* dtm_check;
 	QCheckBox* dsm_check;
+	PointChoiceWidget* dtm_points;
+	PointChoiceWidget* dsm_points;
 	QLabel* report_label;
 
 	// Products

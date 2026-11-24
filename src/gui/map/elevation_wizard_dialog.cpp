@@ -18,6 +18,7 @@
  */
 
 #include "elevation_wizard_dialog.h"
+#include "gui/map/elevation_dialogs.h"
 
 #include <functional>
 #include <initializer_list>
@@ -226,12 +227,18 @@ QWidget* ElevationWizardDialog::makeSettingsPage()
 	cloud_layout->addRow(analyse_button);
 	cell_edit = named(spin(0.1, 100.0, 2, gridding.cell, tr(" m")), "cell_edit");
 	cloud_layout->addRow(tr("Cell size:"), cell_edit);
-	dtm_check = named(new QCheckBox(tr("Terrain model (DTM): ground and water, last return")), "dtm_check");
+	dtm_check = named(new QCheckBox(tr("Terrain model (DTM), from:")), "dtm_check");
 	dtm_check->setChecked(gridding.dtm);
-	dsm_check = named(new QCheckBox(tr("Surface model (DSM): ground, vegetation, building and water, first return")), "dsm_check");
+	dtm_points = named(new PointChoiceWidget(gridding.dtm_points), "dtm_points");
+	dsm_check = named(new QCheckBox(tr("Surface model (DSM), from:")), "dsm_check");
 	dsm_check->setChecked(gridding.dsm);
+	dsm_points = named(new PointChoiceWidget(gridding.dsm_points), "dsm_points");
+	connect(dtm_check, &QCheckBox::toggled, dtm_points, &QWidget::setEnabled);
+	connect(dsm_check, &QCheckBox::toggled, dsm_points, &QWidget::setEnabled);
 	cloud_layout->addRow(dtm_check);
+	cloud_layout->addRow(dtm_points);
 	cloud_layout->addRow(dsm_check);
+	cloud_layout->addRow(dsm_points);
 	layout->addWidget(cloud_box);
 
 	report_label = named(new QLabel(), "report_label");
@@ -750,6 +757,8 @@ ElevationWizardJob ElevationWizardDialog::job() const
 	job.gridding.cell = cell_edit->value();
 	job.gridding.dtm = dtm_check->isChecked();
 	job.gridding.dsm = dsm_check->isChecked();
+	job.gridding.dtm_points = dtm_points->choice();
+	job.gridding.dsm_points = dsm_points->choice();
 
 	job.contours = contours_check->isChecked();
 	job.contour_sets.clear();
