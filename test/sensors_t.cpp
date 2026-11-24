@@ -17,10 +17,13 @@
  *    along with OpenOrienteering.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <vector>
+
 #include <QtTest>
 #include <QDir>           // IWYU pragma: keep
 #include <QFileInfo>      // IWYU pragma: keep
 #include <QObject>
+#include <QScopedPointer> // IWYU pragma: keep
 #include <QSignalSpy>     // IWYU pragma: keep
 #include <QStandardPaths> // IWYU pragma: keep
 #include <QStaticPlugin>  // IWYU pragma: keep
@@ -35,6 +38,8 @@ using namespace OpenOrienteering;
 
 
 #ifdef QT_POSITIONING_LIB
+#include <QGeoCoordinate>         // IWYU pragma: keep
+#include <QGeoPositionInfo>       // IWYU pragma: keep
 #include <QGeoPositionInfoSource>
 #endif
 
@@ -176,27 +181,78 @@ private slots:
 		QVERIFY(!powershell_path.isEmpty());
 		
 		auto powershell_position_source = QStringLiteral("Windows");
-		auto* source = QGeoPositionInfoSource::createSource(powershell_position_source, this);
+		// foom: The test owns the source, so that the helper process ends with the test.
+		QScopedPointer<QGeoPositionInfoSource> generic_source { QGeoPositionInfoSource::createSource(powershell_position_source, nullptr) };
+		auto* source = qobject_cast<PowershellPositionSource*>(generic_source.data());
+		QVERIFY(source);
 		QCOMPARE(source->error(), QGeoPositionInfoSource::NoError);
+		QCOMPARE(source->status(), PowershellPositionSource::Status::NotStarted);
 		
 		QSignalSpy source_spy(source, &QGeoPositionInfoSource::positionUpdated);
+		QVERIFY(source_spy.isValid());
 		source->startUpdates();
-		if (source_spy.wait(2000))
-			return;
 		
-		switch(source->error())
+		// foom: Whether there is a position is up to the location service of
+		// this machine, and so is the time it takes. When updates start,
+		// Windows reports "NoData" and then, as soon as a provider has a
+		// position, "Ready" and the position. That took between a hundredth
+		// of a second and more than three seconds on one machine, and the
+		// source reports an error in between. So the test waits for a position
+		// or for a status which will not change by itself, and it skips when
+		// the location service is what stands in the way. Anything else, such
+		// as a helper process which does not start, ends or writes nonsense,
+		// is a fault of the source and fails.
+		using Status = PowershellPositionSource::Status;
+		auto const waiting_for_service = [source]() {
+			switch (source->status())
+			{
+			case Status::HelperStarting:
+			case Status::Listening:
+			case Status::Initializing:
+			case Status::Ready:
+			case Status::NoData:
+				return true;
+			default:
+				return false;
+			}
+		};
+		auto const timeout = 20000;
+		auto const settled = QTest::qWaitFor([&source_spy, &waiting_for_service]() {
+			return source_spy.count() > 0 || !waiting_for_service();
+		}, timeout);
+		Q_UNUSED(settled)  // what the source says is looked at below
+		
+		if (source_spy.count() > 0)
 		{
-		case QGeoPositionInfoSource::NoError:
-			QWARN("startUpdates(): QGeoPositionInfoSource::NoError");  // and no position yet!
+			auto const last = source->lastKnownPosition(false);
+			QVERIFY(last.isValid());
+			QVERIFY(last.coordinate().isValid());
+			QVERIFY(last.hasAttribute(QGeoPositionInfo::HorizontalAccuracy));
+			source->stopUpdates();
+			return;
+		}
+		
+		auto const status_text = source->statusText();
+		switch (source->status())
+		{
+		case Status::Disabled:
+		case Status::Denied:
+			QSKIP(qPrintable(status_text));
 			break;
-		case QGeoPositionInfoSource::AccessError:
-			QWARN("startUpdates(): QGeoPositionInfoSource::AccessError");
+		case Status::Listening:
+		case Status::Initializing:
+		case Status::Ready:
+		case Status::NoData:
+			QSKIP(qPrintable(QStringLiteral("No position within %1 s. %2").arg(timeout / 1000).arg(status_text)));
 			break;
-		case QGeoPositionInfoSource::ClosedError:
-			QFAIL("startUpdates(): QGeoPositionInfoSource::ClosedError");
+		case Status::HelperStarting:
+			QFAIL(qPrintable(QStringLiteral("Nothing from the helper process within %1 s. %2").arg(timeout / 1000).arg(status_text)));
+			break;
+		case Status::NotStarted:
+			QFAIL(qPrintable(QStringLiteral("The helper process ended by itself. %1").arg(status_text)));
 			break;
 		default:
-			QFAIL("startUpdates(): unknown error");
+			QFAIL(qPrintable(status_text));
 			break;
 		}
 	}
@@ -234,6 +290,108 @@ private slots:
 		QCOMPARE(int(last.coordinate().longitude()), 8);
 		
 		source.stopUpdates();
+	}
+	
+	
+	// foom: What the source makes of single lines of the helper process,
+	// and that status() tells apart what error() reports as the same error.
+	
+private:
+	static QString& simulatedLine()
+	{
+		static QString line;
+		return line;
+	}
+	
+private slots:
+	static QGeoPositionInfoSource::Error powershellPositionSourceLineSetup(QProcess& process, QByteArray& /* unused */, QByteArray& /* unused */)
+	{
+#if defined(Q_OS_WIN)
+		process.setProgram(QStandardPaths::findExecutable(QStringLiteral("cmd")));
+		process.setArguments({QStringLiteral("/C"), QStringLiteral("echo"), simulatedLine()});
+#else
+		process.setProgram(QStringLiteral("/bin/echo"));
+		process.setArguments({simulatedLine()});
+#endif
+		return QGeoPositionInfoSource::NoError;
+	};
+	
+	void powershellPositionSourceStatusTest_data()
+	{
+		using Status = PowershellPositionSource::Status;
+		QTest::addColumn<QString>("line");
+		QTest::addColumn<int>("expected_error");
+		QTest::addColumn<int>("status_at_error");
+		QTest::addColumn<int>("status_at_end");
+		
+		// The helper process of the test ends after its line. A status which
+		// says why there can be no position outlasts the process.
+		QTest::newRow("no data")
+		        << QStringLiteral("Status;NoData")
+		        << int(QGeoPositionInfoSource::UnknownSourceError) << int(Status::NoData) << int(Status::NotStarted);
+		QTest::newRow("location turned off")
+		        << QStringLiteral("Status;Disabled")
+		        << int(QGeoPositionInfoSource::AccessError) << int(Status::Disabled) << int(Status::Disabled);
+		QTest::newRow("permission denied")
+		        << QStringLiteral("Permission;Denied")
+		        << int(QGeoPositionInfoSource::AccessError) << int(Status::Denied) << int(Status::Denied);
+		QTest::newRow("unknown status")
+		        << QStringLiteral("Status;Nonsense")
+		        << int(QGeoPositionInfoSource::UnknownSourceError) << int(Status::BadData) << int(Status::BadData);
+		QTest::newRow("unreadable position")
+		        << QStringLiteral("Position;yesterday;north;east;up;near;far")
+		        << int(QGeoPositionInfoSource::UnknownSourceError) << int(Status::BadData) << int(Status::BadData);
+	}
+	
+	void powershellPositionSourceStatusTest()
+	{
+		using Status = PowershellPositionSource::Status;
+		QFETCH(QString, line);
+		QFETCH(int, expected_error);
+		QFETCH(int, status_at_error);
+		QFETCH(int, status_at_end);
+		
+		simulatedLine() = line;
+		PowershellPositionSource source(powershellPositionSourceLineSetup);
+		QCOMPARE(int(source.error()), int(QGeoPositionInfoSource::NoError));
+		QCOMPARE(source.status(), Status::NotStarted);
+		
+		QSignalSpy position_spy(&source, &QGeoPositionInfoSource::positionUpdated);
+		QVERIFY(position_spy.isValid());
+		std::vector<int> statuses_at_error;
+		connect(&source, QOverload<QGeoPositionInfoSource::Error>::of(&QGeoPositionInfoSource::error), &source, [&source, &statuses_at_error]() {
+			statuses_at_error.push_back(int(source.status()));
+		});
+		
+		source.startUpdates();
+		QCOMPARE(source.status(), Status::HelperStarting);
+		QTRY_VERIFY(!statuses_at_error.empty());
+		QCOMPARE(statuses_at_error.front(), status_at_error);
+		QCOMPARE(int(source.error()), expected_error);
+		QTRY_COMPARE(int(source.status()), status_at_end);
+		QVERIFY(!source.statusText().isEmpty());
+		QCOMPARE(position_spy.count(), 0);
+	}
+	
+	static QGeoPositionInfoSource::Error powershellPositionSourceMissingHelperSetup(QProcess& process, QByteArray& /* unused */, QByteArray& /* unused */)
+	{
+		process.setProgram(QStringLiteral("no-such-position-helper"));
+		return QGeoPositionInfoSource::NoError;
+	};
+	
+	void powershellPositionSourceMissingHelperTest()
+	{
+#if !defined(Q_OS_WIN)
+		QSKIP("Elsewhere, QProcess learns later that a program is missing");
+#endif
+		using Status = PowershellPositionSource::Status;
+		PowershellPositionSource source(powershellPositionSourceMissingHelperSetup);
+		QCOMPARE(int(source.error()), int(QGeoPositionInfoSource::NoError));
+		
+		source.startUpdates();
+		QCOMPARE(int(source.error()), int(QGeoPositionInfoSource::UnknownSourceError));
+		QCOMPARE(source.status(), Status::HelperNotStarted);
+		QVERIFY(source.statusText().startsWith(QLatin1String("The helper process could not be started")));
 	}
 #endif  // MAPPER_USE_POWERSHELL_POSITION_PLUGIN
 	

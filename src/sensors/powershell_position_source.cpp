@@ -149,7 +149,10 @@ PowershellPositionSource::PowershellPositionSource(SetupFunction& setup, QObject
 {
 	setError(setup(powershell, start_script, stop_script));
 	if (position_error != QGeoPositionInfoSource::NoError)
+	{
+		source_status = Status::SetupFailed;  // foom
 		return;
+	}
 	
 	powershell.setReadChannel(QProcess::StandardOutput);
 	
@@ -197,6 +200,64 @@ void PowershellPositionSource::setError(QGeoPositionInfoSource::Error value)
 		emit this->QGeoPositionInfoSource::error(value);
 		break;
 	}
+}
+
+
+// foom
+PowershellPositionSource::Status PowershellPositionSource::status() const
+{
+	return source_status;
+}
+
+// foom
+QString PowershellPositionSource::statusText() const
+{
+	auto text = QString{};
+	switch (source_status)
+	{
+	case Status::NotStarted:
+		text = QStringLiteral("The helper process is not running.");
+		break;
+	case Status::HelperStarting:
+		text = QStringLiteral("The helper process was started and has not reported yet.");
+		break;
+	case Status::Listening:
+		text = QStringLiteral("The helper process runs, and Windows has not reported the status of the location service.");
+		break;
+	case Status::Initializing:
+		text = QStringLiteral("The location providers of Windows are initializing.");
+		break;
+	case Status::Ready:
+		text = QStringLiteral("The location service of Windows is ready.");
+		break;
+	case Status::NoData:
+		text = QStringLiteral("The location service of Windows has no data from any location provider.");
+		break;
+	case Status::Disabled:
+		text = QStringLiteral("The location service of Windows is turned off.");
+		break;
+	case Status::Denied:
+		text = QStringLiteral("Windows does not allow this program to use the location.");
+		break;
+	case Status::SetupFailed:
+		text = QStringLiteral("The helper script or powershell.exe was not found.");
+		break;
+	case Status::HelperNotStarted:
+		text = QStringLiteral("The helper process could not be started: %1").arg(powershell.errorString());
+		break;
+	case Status::HelperFailed:
+		text = QStringLiteral("The helper process ended abnormally: %1").arg(powershell.errorString());
+		break;
+	case Status::BadData:
+		text = QStringLiteral("The helper process wrote a position or a status which cannot be read.");
+		break;
+	}
+	if (!helper_error_output.isEmpty())
+	{
+		text += QStringLiteral(" Error output of the helper process: ");
+		text += QString::fromLocal8Bit(helper_error_output).trimmed();
+	}
+	return text;
 }
 
 
@@ -271,12 +332,15 @@ bool PowershellPositionSource::startPowershell()
 	if (powershell.state() != QProcess::NotRunning)
 		return true;
 	
+	helper_error_output.clear();  // foom
 	powershell.start();
 	if (powershell.state() == QProcess::NotRunning)
 	{
+		source_status = Status::HelperNotStarted;  // foom
 		setError(QGeoPositionInfoSource::UnknownSourceError);
 		return false;
 	}
+	source_status = Status::HelperStarting;  // foom
 	
 	return true;
 }
@@ -297,7 +361,23 @@ void PowershellPositionSource::powershellStateChanged(QProcess::ProcessState new
 		single_update_timer.stop();
 		if (powershell.exitStatus() != QProcess::NormalExit)
 		{
+			source_status = Status::HelperFailed;  // foom
 			setError(UnknownSourceError);
+		}
+		else  // foom: a status which says why there is no position stays
+		{
+			switch (source_status)
+			{
+			case Status::HelperStarting:
+			case Status::Listening:
+			case Status::Initializing:
+			case Status::Ready:
+			case Status::NoData:
+				source_status = Status::NotStarted;
+				break;
+			default:
+				break;
+			}
 		}
 		break;
 	}
@@ -306,6 +386,9 @@ void PowershellPositionSource::powershellStateChanged(QProcess::ProcessState new
 void PowershellPositionSource::readStandardError()
 {
 	auto const output = powershell.readAllStandardError();
+	// foom: kept for statusText(); the beginning, where the first error is
+	helper_error_output += output;
+	helper_error_output.truncate(2000);
 	qWarning("PowershellPositionSource: Error output:\r\n%s", output.data());
 }
 
@@ -342,6 +425,7 @@ void PowershellPositionSource::processPosition(const QByteArray& line)
 	    || !date_time.isValid())
 	{
 		qDebug("PowershellPositionSource: Could not parse location '%s'", line.data());
+		source_status = Status::BadData;  // foom
 		setError(UnknownSourceError);
 		return;
 	}
@@ -372,23 +456,30 @@ void PowershellPositionSource::processStatus(const QByteArray& line)
 	// Cf. https://docs.microsoft.com/en-US/dotnet/api/system.device.location.geopositionstatus
 	if (value == "Disabled")
 	{
+		source_status = Status::Disabled;  // foom
 		setError(AccessError);
 	}
 	else if (value == "Initializing")
 	{
+		source_status = Status::Initializing;  // foom
 		setError(NoError);
 	}
 	else if (value == "NoData")
 	{
+		// foom: Windows reports this at the start, too, until a provider has
+		// a position. The next status or position clears the error.
+		source_status = Status::NoData;
 		setError(UnknownSourceError);
 	}
 	else if (value == "Ready")
 	{
+		source_status = Status::Ready;  // foom
 		setError(NoError);
 	}
 	else
 	{
 		qDebug("PowershellPositionSource: Unknown status '%s'", line.data()+7);
+		source_status = Status::BadData;  // foom
 		setError(UnknownSourceError);
 	}
 }
@@ -401,15 +492,16 @@ void PowershellPositionSource::processPermission(const QByteArray& line)
 	// Cf. https://docs.microsoft.com/en-US/dotnet/api/system.device.location.geopositionpermission
 	if (value == "Denied")
 	{
+		source_status = Status::Denied;  // foom
 		setError(AccessError);
 	}
 	else if (value == "Granted")
 	{
-		// no action
+		helperReported();  // foom
 	}
 	else if (value == "Unknown")
 	{
-		// no action
+		helperReported();  // foom
 	}
 	else
 	{
@@ -418,11 +510,19 @@ void PowershellPositionSource::processPermission(const QByteArray& line)
 	}
 }
 
+// foom
+void PowershellPositionSource::helperReported()
+{
+	if (source_status == Status::HelperStarting)
+		source_status = Status::Listening;
+}
+
 void PowershellPositionSource::nativePositionUpdate(const QGeoPositionInfo& position)
 {
 	periodic_update_timer.stop();
 	single_update_timer.stop();
 	last_position = position;
+	source_status = Status::Ready;  // foom: a position is data
 	setError(NoError);
 	emit positionUpdated(last_position);
 	

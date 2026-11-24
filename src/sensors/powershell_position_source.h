@@ -69,6 +69,44 @@ public:
 	QGeoPositionInfoSource::Error error() const override;
 	
 	using QGeoPositionInfoSource::error;  // the signal
+	
+	
+	/**
+	 * What the source knows about the helper process and the location service.
+	 * (foom)
+	 * 
+	 * error() cannot tell these apart. It is UnknownSourceError for NoData,
+	 * which Windows reports when updates start, before a location provider
+	 * has a position, and which ends by itself, and it is the same value for
+	 * a helper process which cannot work at all.
+	 */
+	enum class Status
+	{
+		NotStarted,        ///< No helper process is running, and none has failed.
+		HelperStarting,    ///< The helper process was started and has not reported yet.
+		Listening,         ///< The helper reported the permission; no status from Windows yet.
+		Initializing,      ///< Windows: the location providers are initializing.
+		Ready,             ///< Windows: a location provider has data.
+		NoData,            ///< Windows: no location provider has data (yet).
+		Disabled,          ///< Windows: the location service is turned off.
+		Denied,            ///< Windows: the program is not allowed to use the location.
+		SetupFailed,       ///< The helper's script or powershell.exe was not found.
+		HelperNotStarted,  ///< The helper process could not be started.
+		HelperFailed,      ///< The helper process ended abnormally.
+		BadData,           ///< The helper wrote a position or a status which cannot be read.
+	};
+	Q_ENUM(Status)
+	
+	/**
+	 * Returns what is known about the helper process and the location service.
+	 */
+	Status status() const;
+	
+	/**
+	 * Returns the status as a sentence in English, followed by what the helper
+	 * process wrote to its error output, if anything. For logs and tests.
+	 */
+	QString statusText() const;
 
 private:
 	/**
@@ -107,6 +145,8 @@ private:
 	
 	void processPermission(const QByteArray& line);
 	
+	void helperReported();  // foom
+	
 	void nativePositionUpdate(const QGeoPositionInfo& position);
 	
 
@@ -121,6 +161,8 @@ private:
 	QTimer periodic_update_timer;
 	QTimer single_update_timer;
 	Error position_error = NoError;
+	Status source_status = Status::NotStarted;  // foom
+	QByteArray helper_error_output;             // foom
 	bool updates_ongoing = false;
 };
 
