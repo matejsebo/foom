@@ -144,6 +144,39 @@ StandardMinimum isom2017Minimum(const Symbol& symbol)
 }
 
 
+double isom2017OpeningMinimum(const Symbol& symbol)
+{
+	if ((symbol.getContainedTypes() & Symbol::Area) == 0)
+		return 0.0;
+	switch (symbol.getNumberComponent(0))
+	{
+	case 401:  // Open land: 0.7 mm x 0.7 mm
+	case 408:  // Vegetation: walk
+		return 0.49;
+	case 410:  // Vegetation: fight: 0.55 mm x 0.55 mm
+		return 0.3025;
+	case 402:
+	case 403:
+	case 404:
+	case 406:
+	case 407:
+	case 409:  // the other screens: 1 mm x 1 mm
+		return 1.0;
+	default:
+		return 0.0;
+	}
+}
+
+
+bool isom2017AreaWithoutGap(const Symbol& symbol)
+{
+	if (symbol.getContainedTypes() != Symbol::Area)
+		return false;
+	auto const number = symbol.getNumberComponent(0);
+	return number == 213 || number == 214 || (number >= 401 && number <= 414);
+}
+
+
 double standardEnlargement(const Map& map)
 {
 	auto const scale = map.getScaleDenominator();

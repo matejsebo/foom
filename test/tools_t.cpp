@@ -3452,6 +3452,25 @@ void ToolsTest::legibility()
 	QVERIFY(map.map->getPart(std::size_t(map.map->findPartIndexWithRole(MapPart::Role::Issues)))->getNumObjects() >= 2);
 	editor.editor->runMapCheck();
 	QVERIFY(!has_short_line());
+
+	// The readout while drawing takes the standard's minimum where the symbol has none
+	// (the design notes, "The standard's minimum sizes").
+	{
+		Map standard_map;
+		standard_map.setScaleDenominator(10000);
+		auto* fence = new LineSymbol();
+		fence->setNumberComponent(0, 516);
+		fence->setLineWidth(0.14);
+		standard_map.addSymbol(fence, 0);
+		auto* drawn = new PathObject(fence, { MapCoord(0.0, 0.0), MapCoord(2.0, 0.0) });
+		standard_map.addObject(drawn);
+		drawn->update();
+		auto const text = legibilityReadout(standard_map, fence, *drawn);
+		QVERIFY2(text.contains(QLatin1String("2.00 / 2.25")), qPrintable(text));
+		QVERIFY(text.contains(QLatin1String("red")));
+		standard_map.setScaleDenominator(4000);
+		QVERIFY(legibilityReadout(standard_map, fence, *drawn).isEmpty());
+	}
 	
 	// The minimum gap per symbol in the symbol editor.
 	{

@@ -93,7 +93,7 @@ private slots:
 	void legibilityStandardTest();  // foom
 	void legibilityDrawnTest();  // foom
 	void legibilityResultsTest();  // foom
-void mapCheckRelinkTest();  // foom
+	void mapCheckRelinkTest();  // foom
 };
 
 
@@ -775,6 +775,64 @@ void CheckTest::legibilityStandardTest()
 	params.standard_minimums = true;
 	map.setScaleDenominator(4000);
 	QVERIFY(checkLegibility(map, params).empty());
+	map.setScaleDenominator(10000);
+
+	// (5) Openings ("Openings", Accept): a hole with nothing in it, smaller than the standard allows in that screen.
+	auto* slow = area_symbol(green, 406);
+	auto* open_land = area_symbol(green, 401);
+	QCOMPARE(isom2017OpeningMinimum(*slow), 1.0);
+	QCOMPARE(isom2017OpeningMinimum(*open_land), 0.49);
+	QCOMPARE(isom2017OpeningMinimum(*area_symbol(green, 410)), 0.3025);
+	QCOMPARE(isom2017OpeningMinimum(*building), 0.0);
+	QCOMPARE(isom2017OpeningMinimum(*fence), 0.0);
+	auto const before = checkLegibility(map, params).size();
+	auto* with_small = addSquare(map, slow, 100.0, 0.0, 5.0, 1.2);      // an opening of 1.44 mm2: below 2.25
+	addSquare(map, slow, 100.0, 10.0, 5.0, 1.6);                         // 2.56 mm2: enough
+	auto* filled = addSquare(map, slow, 100.0, 20.0, 5.0, 1.2);         // 1.44 mm2, but a building stands in it
+	addSquare(map, building, 101.9, 21.9, 1.2);
+	auto* land = addSquare(map, open_land, 100.0, 30.0, 5.0, 1.0);      // 1.0 mm2: below 1.1025
+	addSquare(map, open_land, 100.0, 40.0, 5.0, 1.1);                    // 1.21 mm2: enough
+	addSquare(map, building, 100.0, 50.0, 5.0, 0.3);                     // a building has no openings to speak of
+	issues = checkLegibility(map, params);
+	QCOMPARE(issues.size(), before + 2);
+	issue = findObjectIssue(issues, rule::area_small, with_small);
+	QVERIFY(issue);
+	QVERIFY(std::abs(issue->measured - 1.44) < 1e-6);
+	QCOMPARE(issue->limit, 2.25);
+	QVERIFY(!findObjectIssue(issues, rule::area_small, filled));
+	issue = findObjectIssue(issues, rule::area_small, land);
+	QVERIFY(issue);
+	QVERIFY(std::abs(issue->measured - 1.0) < 1e-6);
+	QVERIFY(std::abs(issue->limit - 1.1025) < 1e-9);
+	params.standard_minimums = false;
+	QVERIFY(checkLegibility(map, params).empty());
+
+	// (6) Areas without an outline ("Areas which need no gap", Accept): 0.1 mm of paper between two screens,
+	// or between bare rock and a building, is no conflict; between two buildings it is.
+	QVERIFY(isom2017AreaWithoutGap(*slow));
+	QVERIFY(isom2017AreaWithoutGap(*open_land));
+	auto* bare_rock = area_symbol(black, 214);
+	QVERIFY(isom2017AreaWithoutGap(*bare_rock));
+	QVERIFY(!isom2017AreaWithoutGap(*building));
+	QVERIFY(!isom2017AreaWithoutGap(*area_symbol(black, 501)));
+	QVERIFY(!isom2017AreaWithoutGap(*line_symbol(green, 416)));
+	params = {};
+	params.minimum_length = false;
+	params.minimum_area = false;
+	auto const gaps_before = countRule(checkLegibility(map, params), rule::gap);
+	addSquare(map, slow, 200.0, 0.0, 3.0);
+	addSquare(map, open_land, 203.1, 0.0, 3.0);
+	addSquare(map, bare_rock, 200.0, 10.0, 3.0);
+	addSquare(map, building, 203.1, 10.0, 3.0);
+	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), gaps_before);
+	addSquare(map, building, 200.0, 20.0, 3.0);
+	addSquare(map, building, 203.1, 20.0, 3.0);
+	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), gaps_before + 1);
+	// Without the standard every one of the three is a conflict.
+	params.standard_minimums = false;
+	auto const all_gaps = countRule(checkLegibility(map, params), rule::gap);
+	params.standard_minimums = true;
+	QCOMPARE(all_gaps, countRule(checkLegibility(map, params), rule::gap) + 2);
 }
 
 /// the design notes, "The distance on what is drawn", Accept.
@@ -853,6 +911,61 @@ void CheckTest::legibilityDrawnTest()
 	addLine(map, dotted, MapCoord(0.0, 30.0), MapCoord(6.0, 30.0));
 	addLine(map, solid, MapCoord(0.0, 30.45), MapCoord(6.0, 30.45));
 	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), 2);
+
+	// A dotted line which ends at a solid line is joined to it: its last dot stops 0.05 mm short of the
+	// stroke, and that is no conflict.
+	addLine(map, dotted, MapCoord(0.0, 60.0), MapCoord(6.0, 60.0));
+	addLine(map, solid, MapCoord(6.0, 55.0), MapCoord(6.0, 65.0));
+	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), 2);
+
+	// The joins of network symbols, which the standard excepts: a vegetation boundary of dots with a dot on
+	// its end, 0.1 mm of paper between that dot and a road across its way, is joined to the road. The road
+	// 0.1 mm beside the dots is a conflict, and so is a line which is no network symbol across the end.
+	auto* road = new LineSymbol();
+	road->setColor(brown);
+	road->setLineWidth(0.2);
+	road->setNumberComponent(0, 503);
+	map.addSymbol(road, map.getNumSymbols());
+	auto* dotted_to_end = new LineSymbol();
+	dotted_to_end->setColor(nullptr);
+	dotted_to_end->setLineWidth(0.0);
+	dotted_to_end->setNumberComponent(0, 416);
+	auto* end_dot = new PointSymbol();
+	end_dot->setInnerRadius(150);
+	end_dot->setInnerColor(brown);
+	dotted_to_end->setMidSymbol(end_dot);
+	dotted_to_end->setMidSymbolsPerSpot(1);
+	dotted_to_end->setSegmentLength(600);
+	dotted_to_end->setEndLength(0);
+	map.addSymbol(dotted_to_end, map.getNumSymbols());
+	addLine(map, dotted_to_end, MapCoord(0.0, 70.0), MapCoord(6.0, 70.0));
+	addLine(map, road, MapCoord(6.35, 67.0), MapCoord(6.35, 73.0));
+	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), 2);
+	addLine(map, dotted_to_end, MapCoord(0.0, 80.0), MapCoord(6.0, 80.0));
+	addLine(map, road, MapCoord(1.0, 80.35), MapCoord(5.0, 80.35));
+	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), 3);
+	addLine(map, dotted_to_end, MapCoord(0.0, 90.0), MapCoord(6.0, 90.0));
+	addLine(map, solid, MapCoord(6.35, 87.0), MapCoord(6.35, 93.0));
+	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), 4);
+
+	// (4) The standard's exception: a contour beside an earth bank is no conflict; beside another line it is.
+	auto const brown_line = [&map, brown](int number) {
+		auto* symbol = new LineSymbol();
+		symbol->setColor(brown);
+		symbol->setLineWidth(0.14);
+		symbol->setNumberComponent(0, number);
+		map.addSymbol(symbol, map.getNumSymbols());
+		return symbol;
+	};
+	auto* contour = brown_line(101);
+	auto* earth_bank = brown_line(104);
+	auto* gully = brown_line(107);
+	addLine(map, contour, MapCoord(0.0, 40.0), MapCoord(6.0, 40.0));
+	addLine(map, earth_bank, MapCoord(0.0, 40.24), MapCoord(6.0, 40.24));    // 0.1 mm of paper
+	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), 4);
+	addLine(map, contour, MapCoord(0.0, 50.0), MapCoord(6.0, 50.0));
+	addLine(map, gully, MapCoord(0.0, 50.24), MapCoord(6.0, 50.24));
+	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), 5);
 }
 
 

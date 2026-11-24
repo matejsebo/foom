@@ -32,6 +32,7 @@
 
 #include "settings.h"
 #include "check/legibility.h"
+#include "check/standard_minimums.h"
 #include "core/map.h"
 #include "core/map_coord.h"
 #include "core/map_view.h"
@@ -73,7 +74,6 @@ QString readout(const QString& label, double value, double minimum, const QStrin
 
 QString legibilityReadout(const Map& map, const Symbol* symbol, const PathObject& preview)
 {
-	Q_UNUSED(map);
 	if (!symbol || !Settings::getInstance().getSettingCached(Settings::MapEditor_LegibilityMinimumCheck).toBool())
 		return {};
 	if (preview.getCoordinateCount() < 2 || preview.parts().empty())
@@ -84,10 +84,12 @@ QString legibilityReadout(const Map& map, const Symbol* symbol, const PathObject
 			return {};  // not updated yet
 	}
 	
+	// The limits of the scan: the standard's where the symbol has none of its own.
+	auto const enlargement = standardEnlargement(map);
 	auto const types = symbol->getContainedTypes();
 	if (types & Symbol::Line)
 	{
-		auto const minimum = minimumLineLength(symbol);
+		auto const minimum = minimumLineLength(symbol, enlargement);
 		if (minimum <= 0.0)
 			return {};
 		auto length = 0.0;
@@ -97,7 +99,7 @@ QString legibilityReadout(const Map& map, const Symbol* symbol, const PathObject
 	}
 	if (types & Symbol::Area)
 	{
-		auto const minimum = minimumAreaSize(symbol);
+		auto const minimum = minimumAreaSize(symbol, enlargement);
 		if (minimum <= 0.0)
 			return {};
 		auto const area = preview.parts().front().calculateArea();

@@ -1043,7 +1043,7 @@ void OcdFileImport::importObjects(const OcdFile< F >& file)
 					target = ensureLayoutPart(*map);
 				target->addObject(object, target->getNumObjects());
 			}
-else  // foom: keep the record for the round trip
+			else  // foom: keep the record for the round trip
 			{
 				auto const* data = reinterpret_cast<const char*>(ocd_object.entity);
 				auto const offset = data - buffer.constData();

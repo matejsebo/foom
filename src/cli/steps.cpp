@@ -1343,14 +1343,14 @@ void StepRunner::validate(const Step& step, bool& map_open)
 	{
 		p.requireMap(map_open);
 		p.checkKnown({ "rules", "out", "gap", "between_contours", "standard_minimums", "fail_on" });
-parseCheckRules(p);
+		parseCheckRules(p);
 		if (p.has("out"))
 			checkOutIsJson(p, p.requireString("out"));
 		parseGap(p, nullptr);
 		p.optionalBool("between_contours", false);
 		p.optionalBool("standard_minimums", true);
 		parseFailOn(p);
-}
+	}
 	else if (name == QLatin1String("course-statistics"))  // foom
 	{
 		p.requireMap(map_open);
@@ -2296,7 +2296,7 @@ StepResult StepRunner::checkStep(const Step& step)
 		params.gap_mm = parseGap(p, map.get());
 		params.between_contours = p.optionalBool("between_contours", false);
 		params.standard_minimums = p.optionalBool("standard_minimums", true);
-keep(checkLegibility(*map, params), LegibilityChecker);
+		keep(checkLegibility(*map, params), LegibilityChecker);
 	}
 	if (rules.run[CourseChecker])
 		keep(checkCourses(*map, map->courseData()), CourseChecker);

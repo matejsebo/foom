@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <memory>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -39,6 +40,7 @@
 
 #include "core/color_group.h"
 #include "core/map.h"
+#include "core/map_color.h"
 #include "core/map_coord.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
@@ -83,6 +85,33 @@ bool isCliffClass(const Symbol* symbol)
 	return number == 201 || number == 202;
 }
 
+/// The earth bank, which the standard lets stand beside a contour (ISOM 2017-2, 2.11.3, Minimum gaps).
+bool isEarthBank(const Symbol* symbol)
+{
+	return symbol->getNumberComponent(0) == 104;
+}
+
+/// The lines whose joins the standard excepts from the minimum gap (the same section): earth walls,
+/// watercourses, roads, tracks and paths, power lines, walls and fences; and, proposed, the two
+/// boundaries, which end at them in the same way.
+bool isNetworkClass(const Symbol* symbol)
+{
+	if ((symbol->getContainedTypes() & Symbol::Area) != 0)
+		return false;
+	switch (symbol->getNumberComponent(0))
+	{
+	case 105: case 106:
+	case 304: case 305: case 306:
+	case 415: case 416:
+	case 502: case 503: case 504: case 505: case 506: case 507: case 508:
+	case 510: case 511:
+	case 513: case 514: case 515: case 516: case 517: case 518:
+		return true;
+	default:
+		return false;
+	}
+}
+
 
 /** Whether a line is drawn in pieces: dashes, or symbols along it. */
 bool drawnInPieces(const Symbol* symbol)
@@ -118,19 +147,23 @@ struct Outline
 	/// Half the stroke at each vertex's segment, when the outline is made of what is drawn
 	/// (dashes, dots, the shapes of a point symbol); empty when half_width holds for all.
 	std::vector<float> widths;
-	/// The object's own vertices when the points are those of what is drawn: for sharesVertex().
-	std::vector<MapCoordF> anchors;
+	/// The line as one band along its centre line, when the points are those of what is drawn:
+	/// its own vertices for sharesVertex(), and whether it reaches another object.
+	std::shared_ptr<Outline> band;
 	double half_width = 0.0;            ///< The largest half stroke.
-QRectF extent;                      ///< Of the vertices.
+	QRectF extent;                      ///< Of the vertices.
 	ColourGroup group = ColourGroup::Other;
 	bool contour = false;
 	bool cliff = false;
-	
+	bool earth_bank = false;
+	bool network = false;
+	bool without_gap = false;           ///< An area the standard asks no gap around.
+
 	bool build(const Object* object);
 	bool buildFromRenderables(const Object* object);
 	const PathObject* closedPath() const;
 	double halfWidthAt(std::size_t i) const { return widths.empty() ? half_width : double(widths[i]); }
-	const std::vector<MapCoordF>& vertices() const { return anchors.empty() ? points : anchors; }
+	const std::vector<MapCoordF>& vertices() const { return band ? band->points : points; }
 };
 
 /// the design notes, "The distance on what is drawn".
@@ -198,10 +231,13 @@ bool Outline::build(const Object* input)
 	group = colourGroupOf(symbol->guessDominantColor());
 	contour = isContourClass(symbol);
 	cliff = isCliffClass(symbol);
+	earth_bank = isEarthBank(symbol);
+	network = isNetworkClass(symbol);
+	without_gap = isom2017AreaWithoutGap(*symbol);
 	points.clear();
 	segment_follows.clear();
 	widths.clear();
-	anchors.clear();
+	band.reset();
 	switch (input->getType())
 	{
 	case Object::Path:
@@ -223,7 +259,12 @@ bool Outline::build(const Object* input)
 				segment_follows.clear();
 				if (buildFromRenderables(input))
 				{
-					anchors = std::move(centre_line);
+					band = std::make_shared<Outline>();
+					band->object = object;
+					band->symbol = symbol;
+					band->points = std::move(centre_line);
+					band->segment_follows = std::move(follows);
+					band->half_width = strokeHalfWidth(symbol);
 				}
 				else
 				{
@@ -232,7 +273,7 @@ bool Outline::build(const Object* input)
 					widths.clear();
 					half_width = strokeHalfWidth(symbol);
 				}
-			}
+}
 		}
 		break;
 	case Object::Point:
@@ -254,7 +295,7 @@ bool Outline::build(const Object* input)
 	default:
 		return false;
 	}
-if (points.empty())
+	if (points.empty())
 		return false;
 	extent = QRectF(points.front(), points.front());
 	for (auto const& point : points)
@@ -263,6 +304,17 @@ if (points.empty())
 		extent.setRight(std::max(extent.right(), point.x()));
 		extent.setTop(std::min(extent.top(), point.y()));
 		extent.setBottom(std::max(extent.bottom(), point.y()));
+	}
+	if (band && !band->points.empty())
+	{
+		band->extent = QRectF(band->points.front(), band->points.front());
+		for (auto const& point : band->points)
+		{
+			band->extent.setLeft(std::min(band->extent.left(), point.x()));
+			band->extent.setRight(std::max(band->extent.right(), point.x()));
+			band->extent.setTop(std::min(band->extent.top(), point.y()));
+			band->extent.setBottom(std::max(band->extent.bottom(), point.y()));
+		}
 	}
 	return true;
 }
@@ -357,7 +409,7 @@ bool sharesVertex(const Outline& a, const Outline& b)
 	for (auto const& p : a.vertices())
 	{
 		for (auto const& q : b.vertices())
-{
+		{
 			if (std::abs(p.x() - q.x()) <= vertex_tolerance && std::abs(p.y() - q.y()) <= vertex_tolerance)
 				return true;
 		}
@@ -413,6 +465,44 @@ double outlineDistance(const Outline& a, const Outline& b, double bound, MapCoor
 	return best;
 }
 
+/**
+ * Whether a place on a line lies at an end of the line which points at the
+ * other place: the line ends there before the other object, as a boundary of
+ * dots before a road. The band is the line's centre line.
+ */
+bool endsToward(const Outline& band, double reach, const MapCoordF& on_line, const MapCoordF& on_other)
+{
+	auto const check = [&](const MapCoordF& end, const MapCoordF& before) {
+		if (std::hypot(on_line.x() - end.x(), on_line.y() - end.y()) > reach)
+			return false;
+		auto const dx = end.x() - before.x();
+		auto const dy = end.y() - before.y();
+		auto const length = std::hypot(dx, dy);
+		if (length < 1e-9)
+			return false;
+		auto const vx = on_other.x() - end.x();
+		auto const vy = on_other.y() - end.y();
+		// Ahead of the end rather than beside it.
+		return (vx * dx + vy * dy) / length > std::abs(vx * dy - vy * dx) / length;
+	};
+	std::size_t start = 0;
+	for (std::size_t i = 0; i < band.points.size(); ++i)
+	{
+		if (band.segment_follows[i])
+			continue;
+		if (i > start)
+		{
+			auto const& first = band.points[start];
+			auto const& last = band.points[i];
+			auto const closed = std::abs(first.x() - last.x()) <= vertex_tolerance && std::abs(first.y() - last.y()) <= vertex_tolerance;
+			if (!closed && (check(first, band.points[start + 1]) || check(last, band.points[i - 1])))
+				return true;
+		}
+		start = i + 1;
+	}
+	return false;
+}
+
 /** The distance from a point to the centre line of an outline. */
 double pointOutlineDistance(const MapCoordF& p, const Outline& outline)
 {
@@ -447,9 +537,58 @@ Issue objectIssue(const char* rule, const Object& object, double measured, doubl
 	return issue;
 }
 
-void checkSizes(const Object& object, const LegibilityParams& params, double enlargement, std::vector<Issue>& issues)
+/// A point 0.02 mm inside the outline of a hole.
+bool pointInside(const PathPart& hole, MapCoordF& inside)
 {
-if (object.getType() != Object::Path)
+	auto const& coords = hole.path_coords;
+	for (std::size_t i = 0; i + 1 < coords.size(); ++i)
+	{
+		auto const a = coords[i].pos;
+		auto const b = coords[i + 1].pos;
+		auto const length = std::hypot(b.x() - a.x(), b.y() - a.y());
+		if (length < 1e-6)
+			continue;
+		for (auto const side : { 1.0, -1.0 })
+		{
+			MapCoordF const p((a.x() + b.x()) / 2 - side * 0.02 * (b.y() - a.y()) / length,
+			                  (a.y() + b.y()) / 2 + side * 0.02 * (b.x() - a.x()) / length);
+			if (hole.isPointInside(p))
+			{
+				inside = p;
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+/// Whether a hole of the object is an opening: nothing but white lies in it.
+bool isOpening(const MapPart& part, const Object& object, const PathPart& hole)
+{
+	MapCoordF inside;
+	if (!pointInside(hole, inside))
+		return false;
+	std::vector<Object*> candidates;
+	part.query(QRectF(inside.x() - 0.01, inside.y() - 0.01, 0.02, 0.02), candidates);
+	for (auto const* candidate : candidates)
+	{
+		if (candidate == &object || candidate->getType() != Object::Path)
+			continue;
+		auto const* symbol = candidate->getSymbol();
+		if (!symbol || symbol->isHidden() || (symbol->getContainedTypes() & Symbol::Area) == 0)
+			continue;
+		auto const* color = symbol->guessDominantColor();
+		if (color && color->isWhite())
+			continue;
+		if (candidate->asPath()->isPointInsideArea(inside))
+			return false;
+	}
+	return true;
+}
+
+void checkSizes(const MapPart& part, const Object& object, const LegibilityParams& params, double enlargement, std::vector<Issue>& issues)
+{
+	if (object.getType() != Object::Path)
 		return;
 	auto const* path = object.asPath();
 	auto const* symbol = object.getSymbol();
@@ -461,7 +600,7 @@ if (object.getType() != Object::Path)
 		if (minimum > 0.0)
 		{
 			auto length = 0.0;
-for (auto const& part : path->parts())
+			for (auto const& part : path->parts())
 				length += part.length();
 			if (length < minimum)
 				issues.push_back(objectIssue(rule::line_short, object, length, minimum, tr("The line is %1 mm long; the minimum of symbol %2 is %3 mm.").arg(mm(length), symbol->getNumberAsString(), mm(minimum))));
@@ -471,13 +610,35 @@ for (auto const& part : path->parts())
 	{
 		auto const minimum = minimumAreaSize(symbol, enlargement);
 		if (minimum > 0.0 && !path->parts().empty())
-{
+		{
 			auto area = std::abs(path->parts().front().calculateArea());
 			for (std::size_t i = 1; i < path->parts().size(); ++i)
 				area -= std::abs(path->parts()[i].calculateArea());
 			area = std::max(0.0, area);
 			if (area < minimum)
+			{
 				issues.push_back(objectIssue(rule::area_small, object, area, minimum, tr("The area is %1 mm²; the minimum of symbol %2 is %3 mm².").arg(mm(area), symbol->getNumberAsString(), mm(minimum))));
+				return;
+			}
+		}
+		// the design notes, "Openings": a hole with nothing in it which is smaller
+		// than the standard allows an opening in this screen to be. The smallest one is reported.
+		auto const opening_minimum = enlargement > 0.0 ? isom2017OpeningMinimum(*symbol) * enlargement * enlargement : 0.0;
+		if (opening_minimum > 0.0 && path->parts().size() > 1)
+		{
+			auto smallest = opening_minimum;
+			auto found = false;
+			for (std::size_t i = 1; i < path->parts().size(); ++i)
+			{
+				auto const opening = std::abs(path->parts()[i].calculateArea());
+				if (opening < smallest && isOpening(part, object, path->parts()[i]))
+				{
+					smallest = opening;
+					found = true;
+				}
+			}
+			if (found)
+				issues.push_back(objectIssue(rule::area_small, object, smallest, opening_minimum, tr("An opening in the area is %1 mm²; the minimum in symbol %2 is %3 mm².").arg(mm(smallest), symbol->getNumberAsString(), mm(opening_minimum))));
 		}
 	}
 }
@@ -506,7 +667,7 @@ double symbolGap(const Symbol* symbol, const LegibilityParams& params)
 
 void checkPart(const MapPart& part, const LegibilityParams& params, double enlargement, std::vector<Issue>& issues)
 {
-std::vector<Outline> outlines;
+	std::vector<Outline> outlines;
 	std::vector<Outline> cliffs;
 	std::unordered_map<const Object*, std::size_t> index_of;
 	auto widest = 0.0;
@@ -524,8 +685,8 @@ std::vector<Outline> outlines;
 			}
 			continue;
 		}
-		checkSizes(*object, params, enlargement, issues);
-if (!params.gap)
+		checkSizes(part, *object, params, enlargement, issues);
+		if (!params.gap)
 			continue;
 		Outline outline;
 		if (!outline.build(object))
@@ -559,6 +720,12 @@ if (!params.gap)
 			auto const contour_pair = a.contour && b.contour;
 			if (contour_pair && !params.between_contours)
 				continue;
+			// The standard's own exception: a contour and an earth bank may lie side by side.
+			if ((a.contour && b.earth_bank) || (b.contour && a.earth_bank))
+				continue;
+			// And areas without an outline, the screens of open land and vegetation, need no gap.
+			if (enlargement > 0.0 && (a.without_gap || b.without_gap))
+				continue;
 			// Point objects of one symbol set side by side are a pattern the mapper made, as the dots
 			// of an orchard.
 			if (a.symbol == b.symbol && a.object->getType() == Object::Point && b.object->getType() == Object::Point)
@@ -571,12 +738,25 @@ if (!params.gap)
 			if (sharesVertex(a, b))
 				continue;
 			MapCoordF where, on_a, on_b;
+			// A line drawn in pieces which reaches the other object is joined to it, as a boundary of dots
+			// which ends at a road: no conflict, though its last dot stops short.
+			if (a.band || b.band)
+			{
+				if (outlineDistance(a.band ? *a.band : a, b.band ? *b.band : b, limit, where, on_a, on_b) <= 0.0)
+					continue;
+			}
 			auto const reduced = outlineDistance(a, b, limit, where, on_a, on_b);
 			if (reduced >= limit)
 				continue;
 			if (reduced <= 0.0)
 				continue;  // the outlines touch or overlap
-if (contains(a, b) || contains(b, a))
+			// The standard's exception for the joins of network symbols: a road, a path, a fence or a
+			// boundary which ends just before another of them, pointing at it, is joined to it.
+			if (a.network && b.network && a.object->getType() == Object::Path && b.object->getType() == Object::Path
+			    && (endsToward(a.band ? *a.band : a, a.half_width + limit, on_a, on_b)
+			        || endsToward(b.band ? *b.band : b, b.half_width + limit, on_b, on_a)))
+				continue;
+			if (contains(a, b) || contains(b, a))
 				continue;
 			if (contour_pair)
 			{
@@ -700,7 +880,7 @@ std::vector<Issue> checkLegibility(const Map& map, const LegibilityParams& param
 		if (role != MapPart::Role::Layout && role != MapPart::Role::Issues)
 			checkPart(*map.getPart(p), params, enlargement, issues);
 	}
-return issues;
+	return issues;
 }
 
 

@@ -65,7 +65,7 @@ struct LegibilityParams
 	 * which carries none of its own, see standard_minimums.h.
 	 */
 	bool standard_minimums = true;
-/** The symbols to test; empty means all. */
+	/** The symbols to test; empty means all. */
 	std::vector<const Symbol*> symbols;
 	/** The area (mm) to test; a null rectangle means the whole map. */
 	QRectF extent;

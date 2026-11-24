@@ -46,6 +46,21 @@ struct StandardMinimum
 StandardMinimum isom2017Minimum(const Symbol& symbol);
 
 /**
+ * The smallest opening the standard allows in an area of the symbol, in mm²
+ * at 1:15,000 (ISOM 2017-2, 405 Forest: openings in screens of other
+ * colours); 0 for a symbol which is no such screen.
+ */
+double isom2017OpeningMinimum(const Symbol& symbol);
+
+/**
+ * Whether the standard asks no gap around an area of the symbol: it asks one
+ * for areas with an outline and for those which are a solid shape alone
+ * (ISOM 2017-2, 2.11.3, Minimum gaps), and so none for the screens of open
+ * land and vegetation, sandy ground and bare rock.
+ */
+bool isom2017AreaWithoutGap(const Symbol& symbol);
+
+/**
  * How much larger than at 1:15,000 the minimums are in this map (1.5 at
  * 1:10,000), or 0 when the standard is not the map's: when its symbol set
  * is named and is not ISOM 2017 (a map read from an OCD file names none),
