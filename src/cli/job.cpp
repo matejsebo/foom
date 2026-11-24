@@ -20,7 +20,9 @@
 
 #include "job.h"
 
+#include <cstddef>
 #include <utility>
+#include <vector>
 
 #include <QByteArray>
 #include <QElapsedTimer>
@@ -62,10 +64,11 @@ Job Job::load(const QString& path, bool strict)
 	
 	// foom: the design notes
 	QJsonObject script_report;
+	std::vector<QStringList> script_warnings;  // for each step of a script
 	QJsonDocument document;
 	if (isXmlScript(bytes))
 	{
-		auto const script = readXmlScript(bytes);
+		auto const script = readXmlScript(bytes, QFileInfo(path).absoluteDir());
 		if (strict && !script.unsupported.empty())
 		{
 			QStringList names;
@@ -74,6 +77,7 @@ Job Job::load(const QString& path, bool strict)
 			throw JobError(QLatin1String("unsupported commands: ") + names.join(QLatin1String(", ")));
 		}
 		script_report = script.report(path);
+		script_warnings = script.warnings;
 		document = QJsonDocument(script.steps);
 	}
 	else
@@ -111,7 +115,9 @@ Job Job::load(const QString& path, bool strict)
 	for (auto const& value : steps)
 	{
 		++index;
-		Step step { index, {}, {} };
+		Step step { index, {}, {}, {} };
+		if (std::size_t(index) <= script_warnings.size())
+			step.warnings = script_warnings[std::size_t(index) - 1];  // foom
 		if (!value.isObject())
 			throw JobError(step.prefix() + QLatin1String("a step must be a JSON object"));
 		
@@ -156,6 +162,16 @@ int Job::run(QTextStream& log) const
 		line.insert(QLatin1String("ms"), timer.elapsed());
 		if (!result.ok)
 			line.insert(QLatin1String("message"), result.message);
+		if (!step.warnings.isEmpty())  // foom: what an XML script asked for and the step does not do
+		{
+			// Beside the step's own warnings; a step which counts its warnings there keeps its number.
+			auto const own = line.value(QLatin1String("warnings"));
+			auto const name = own.isUndefined() || own.isArray() ? QLatin1String("warnings") : QLatin1String("script_warnings");
+			auto list = line.value(name).toArray();
+			for (auto const& warning : step.warnings)
+				list.append(warning);
+			line.insert(name, list);
+		}
 		
 		log << QString::fromUtf8(QJsonDocument(line).toJson(QJsonDocument::Compact)) << '\n';
 		log.flush();

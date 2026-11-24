@@ -24,9 +24,11 @@
 #include <vector>
 
 #include <QByteArray>
+#include <QDir>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QString>
+#include <QStringList>
 
 namespace OpenOrienteering {
 
@@ -35,9 +37,10 @@ namespace Cli {
 /**
  * An XML script, read as the steps of a job.
  *
- * See the design notes, "XML scripts". Only the root
- * element <OcadScript> and the command CsCanvas are the format's; the other
- * commands are FOOM's proposal.
+ * See the design notes, "XML scripts" and "The commands
+ * of the LiDAR script". The root OcadScript, the command CsCanvas and
+ * the commands of the files, of the DEM and of LiDAR (File.Open,
+ * Dem.DemImport, ...) are the format's; the other commands are FOOM's own.
  */
 struct XmlScript
 {
@@ -48,24 +51,38 @@ struct XmlScript
 		QString reason;
 	};
 
+	/// A command which was read and makes no step.
+	struct Note
+	{
+		QString command;
+		int line = 0;
+		QString note;
+	};
+
 	QJsonArray steps;                       ///< As the "steps" of a job file.
+	std::vector<QStringList> warnings;      ///< For each step, what the script asked for and FOOM does not do.
 	int commands = 0;                       ///< Commands in the script.
 	std::vector<Unsupported> unsupported;   ///< Commands which are not run.
+	std::vector<Note> notes;                ///< Commands which need no step.
 
 	/// The first line of the log: the script, its commands and what is not run.
 	QJsonObject report(const QString& path) const;
 };
 
 
-/** True when the bytes begin, after white space and an XML declaration, with <OcadScript. */
+/** True when the bytes begin, after white space, an XML declaration and comments, with <OcadScript. */
 bool isXmlScript(const QByteArray& bytes);
 
 /**
  * Translates the commands of a script into steps.
  *
- * @throws JobError when the script is not well formed.
+ * The folder is that of the script: the commands which name a folder of
+ * point clouds, grids or maps are given the files which are in it now.
+ *
+ * @throws JobError when the script is not well formed, or saves a file
+ *         while none is open.
  */
-XmlScript readXmlScript(const QByteArray& bytes);
+XmlScript readXmlScript(const QByteArray& bytes, const QDir& folder);
 
 
 }  // namespace Cli

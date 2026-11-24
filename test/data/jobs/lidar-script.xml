@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!--
+  A script for test/runner_background_t.cpp (lidarScript), written for FOOM.
+  It has the commands and element names of XML scripts for LiDAR data;
+  see the design notes, "The commands of the LiDAR script".
+  The paths are relative to the script. The folders must exist.
+-->
+<OcadScript>
+
+  <!-- 1: the grids of the point clouds, beside the map which is saved first -->
+  <File.Open>
+    <File>Template.ocd</File>
+  </File.Open>
+  <File.SaveAs>
+    <File>1_ocdDem\Map.ocd</File>
+  </File.SaveAs>
+  <Dem.DemImport>
+    <LasImport>
+      <Directory>0_LAZ\</Directory>
+    </LasImport>
+    <CreateOcdDem>
+      <Enabled>true</Enabled>
+      <Cellsize100>200</Cellsize100>
+      <CreateVegetationBaseMap>false</CreateVegetationBaseMap>
+      <LasDtm>
+        <Enabled>true</Enabled>
+        <Classification>
+          <Unclassified>false</Unclassified>
+          <Ground>true</Ground>
+          <LowVegetation>false</LowVegetation>
+          <MeanVegetation>false</MeanVegetation>
+          <HighVegetation>false</HighVegetation>
+          <Building>false</Building>
+          <LowPoint>false</LowPoint>
+          <Water>false</Water>
+          <OverlapPoints>false</OverlapPoints>
+          <Other>false</Other>
+        </Classification>
+        <ReturnType>1</ReturnType>
+        <CreateIntensityMap>false</CreateIntensityMap>
+        <CreateClassificationMap>false</CreateClassificationMap>
+      </LasDtm>
+      <LasDsm>
+        <Enabled>true</Enabled>
+        <Classification>
+          <Unclassified>false</Unclassified>
+          <Ground>true</Ground>
+          <LowVegetation>false</LowVegetation>
+          <MeanVegetation>false</MeanVegetation>
+          <HighVegetation>true</HighVegetation>
+          <Building>false</Building>
+          <LowPoint>false</LowPoint>
+          <Water>false</Water>
+          <OverlapPoints>false</OverlapPoints>
+          <Other>false</Other>
+        </Classification>
+        <ReturnType>2</ReturnType>
+        <CreateIntensityMap>false</CreateIntensityMap>
+        <CreateClassificationMap>false</CreateClassificationMap>
+      </LasDsm>
+    </CreateOcdDem>
+    <CreateOcdLas>
+      <Enabled>true</Enabled>
+    </CreateOcdLas>
+  </Dem.DemImport>
+  <File.Save><Enabled>true</Enabled></File.Save>
+  <File.Close><Enabled>true</Enabled></File.Close>
+
+  <!-- 2 to 4: the tiles matched, merged and cropped -->
+  <Dem.MatchTiles>
+    <InputFolder>1_ocdDem\</InputFolder>
+    <OutputFolder>2_ocdDemMatching\</OutputFolder>
+  </Dem.MatchTiles>
+  <Dem.MergeTiles>
+    <InputFolder>2_ocdDemMatching\</InputFolder>
+    <OutputFolder>3_ocdDemMerging\</OutputFolder>
+    <TileSize>5000</TileSize>
+  </Dem.MergeTiles>
+  <Dem.CropTiles>
+    <InputFolder>3_ocdDemMerging\</InputFolder>
+    <OutputFolder>4_ocdDem_Cropped\</OutputFolder>
+    <TileSize>5000</TileSize>
+  </Dem.CropTiles>
+
+  <!-- 5: contours of 5 m, every fifth an index contour -->
+  <Dem.CreateContourLines>
+    <Enabled>true</Enabled>
+    <TemplateFile>Template.ocd</TemplateFile>
+    <InputFolder>4_ocdDem_Cropped\</InputFolder>
+    <OutputFolder>5_CreateContourLines\</OutputFolder>
+    <TileSizeCropping>0</TileSizeCropping>
+    <Merging>true</Merging>
+    <EquidistanceOriginal>500</EquidistanceOriginal>
+    <CreateNotSmoothedContours>false</CreateNotSmoothedContours>
+    <EquidistanceLevel1>500</EquidistanceLevel1>
+    <EquidistanceLevel2>2500</EquidistanceLevel2>
+    <EquidistanceLevel3>0</EquidistanceLevel3>
+    <SymbolNumberLevel1>101000</SymbolNumberLevel1>
+    <SymbolNumberLevel2>102000</SymbolNumberLevel2>
+    <SymbolNumberLevel3>0</SymbolNumberLevel3>
+    <CreateSmoothedContoursUsingTpi>true</CreateSmoothedContoursUsingTpi>
+    <EquidistanceTpiOriginal>500</EquidistanceTpiOriginal>
+    <EquidistanceTpiLevel1>500</EquidistanceTpiLevel1>
+    <EquidistanceTpiLevel2>2500</EquidistanceTpiLevel2>
+    <EquidistanceTpiLevel3>0</EquidistanceTpiLevel3>
+    <SymbolNumberTpiLevel1>101000</SymbolNumberTpiLevel1>
+    <SymbolNumberTpiLevel2>102000</SymbolNumberTpiLevel2>
+    <SymbolNumberTpiLevel3>0</SymbolNumberTpiLevel3>
+    <UseDifferentSymbolsForDepressions>false</UseDifferentSymbolsForDepressions>
+    <SymbolNumberLevel1Depr>0</SymbolNumberLevel1Depr>
+    <SymbolNumberLevel2Depr>0</SymbolNumberLevel2Depr>
+    <SymbolNumberLevel3Depr>0</SymbolNumberLevel3Depr>
+    <SymbolNumberTpiLevel1Depr>0</SymbolNumberTpiLevel1Depr>
+    <SymbolNumberTpiLevel2Depr>0</SymbolNumberTpiLevel2Depr>
+    <SymbolNumberTpiLevel3Depr>0</SymbolNumberTpiLevel3Depr>
+    <ConvertTpiContoursToBezier>true</ConvertTpiContoursToBezier>
+    <DeleteCombinedDemFile>true</DeleteCombinedDemFile>
+    <MinimumContourValue>0</MinimumContourValue>
+    <MaximumContourValue>0</MaximumContourValue>
+    <IsMaxContourLength>false</IsMaxContourLength>
+    <MaxContourLength>0</MaxContourLength>
+  </Dem.CreateContourLines>
+
+  <!-- 6: the maps of contours in one map -->
+  <File.Open>
+    <File>Template.ocd</File>
+  </File.Open>
+  <File.SaveAs>
+    <File>6_ImportAllOcds\Contour Lines.ocd</File>
+  </File.SaveAs>
+  <File.Import.Ocd>
+    <Directory>5_CreateContourLines\</Directory>
+    <SymbolOption>0</SymbolOption>
+    <ColorOption>0</ColorOption>
+  </File.Import.Ocd>
+  <File.Save><Enabled>true</Enabled></File.Save>
+  <File.Close><Enabled>true</Enabled></File.Close>
+
+  <!-- 7: the vegetation base map -->
+  <File.Open>
+    <File>Template.ocd</File>
+  </File.Open>
+  <File.SaveAs>
+    <File>7_png\Map_Vegetation.ocd</File>
+  </File.SaveAs>
+  <Dem.CreateVegetationBaseMap>
+    <Enabled>true</Enabled>
+    <InputFolder>1_ocdDem\</InputFolder>
+    <OutputFolder>7_png\</OutputFolder>
+    <CellSize>1</CellSize>
+    <NeighborhoodKernelUndergrowth>3</NeighborhoodKernelUndergrowth>
+    <ThresholdUndergrowthLow>0.00</ThresholdUndergrowthLow>
+    <ThresholdUndergrowthHigh>0.00</ThresholdUndergrowthHigh>
+    <ThresholdUndergrowthSlow>+1.00</ThresholdUndergrowthSlow>
+    <ThresholdUndergrowthDifficult>+1.00</ThresholdUndergrowthDifficult>
+    <NeighborhoodKernelVegetation>5</NeighborhoodKernelVegetation>
+    <ThresholdVegetationLow>0.30</ThresholdVegetationLow>
+    <ThresholdVegetationHigh>3.00</ThresholdVegetationHigh>
+    <ThresholdVegetationSlow>-0.40</ThresholdVegetationSlow>
+    <ThresholdVegetationDifficult>-0.20</ThresholdVegetationDifficult>
+    <ThresholdVegetationVeryDifficult>+0.20</ThresholdVegetationVeryDifficult>
+    <ThresholdOverlapPointsLow>0.30</ThresholdOverlapPointsLow>
+    <ShowAreaWithNoData>false</ShowAreaWithNoData>
+    <UseFilter>true</UseFilter>
+    <LasClassification>
+      <NeverClassified>false</NeverClassified>
+      <Unclassified>true</Unclassified>
+      <Ground>true</Ground>
+      <LowVegetation>true</LowVegetation>
+      <MediumVegetation>true</MediumVegetation>
+      <HighVegetation>true</HighVegetation>
+      <Building>false</Building>
+      <LowPoint>false</LowPoint>
+      <HighPoint>false</HighPoint>
+      <Water>false</Water>
+      <Railroad>false</Railroad>
+      <Road>false</Road>
+      <Overlap>false</Overlap>
+      <WireGuard>false</WireGuard>
+      <WireConductor>false</WireConductor>
+      <TransmissionTower>false</TransmissionTower>
+      <WireStructurConnector>false</WireStructurConnector>
+      <Bridge>false</Bridge>
+      <Other>false</Other>
+    </LasClassification>
+  </Dem.CreateVegetationBaseMap>
+  <File.Save><Enabled>true</Enabled></File.Save>
+  <File.Close><Enabled>true</Enabled></File.Close>
+
+  <!-- 8: the rasters of the tiles in larger tiles -->
+  <Dem.MergeRasterMapTiles>
+    <Enabled>true</Enabled>
+    <InputFolder>7_png\</InputFolder>
+    <OutputFolder>8_mergePNG\</OutputFolder>
+    <TileSizeMeter>10000</TileSizeMeter>
+  </Dem.MergeRasterMapTiles>
+
+</OcadScript>

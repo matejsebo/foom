@@ -26,6 +26,7 @@
 #include <QDir>
 #include <QJsonObject>
 #include <QString>
+#include <QStringList>
 
 class QTextStream;
 
@@ -70,6 +71,7 @@ struct Step
 	int index;            ///< The 1-based position in the job, for messages.
 	QString name;         ///< The step id.
 	QJsonObject params;   ///< The step object without the "step" member.
+	QStringList warnings; ///< foom: from an XML script, what its command asked for and the step does not do.
 	
 	/**
 	 * Returns a message prefix naming this step, e.g. "step 3 (export): ".

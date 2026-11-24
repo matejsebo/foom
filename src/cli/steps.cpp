@@ -1471,7 +1471,8 @@ void StepRunner::validate(const Step& step, bool& map_open)
 	else if (name == QLatin1String("save-as"))
 	{
 		p.requireMap(map_open);
-		p.checkKnown({ "path", "format", "version" });
+		p.checkKnown({ "path", "format", "version", "current" });
+		p.optionalBool("current", false);  // foom
 		auto const path = p.requireString("path");
 		auto const version = p.has("version") ? p.requirePositiveInt("version") : 0u;
 		resolveSaveFormat(p, path, p.optionalString("format"), version);
@@ -2555,6 +2556,10 @@ StepResult StepRunner::saveAs(const Step& step)
 		return failure(QString::fromLatin1("saving as %1 is not supported").arg(format->description()));
 	if (!exporter->doExport())
 		return failure(lastWarning(exporter->warnings(), QString::fromLatin1("cannot write \"%1\"").arg(path)));
+	
+	// foom: as after Save as... in the editor; the design notes
+	if (p.optionalBool("current", false))
+		map_path = path;
 	
 	StepResult result;
 	result.details.insert(QLatin1String("path"), path);

@@ -341,6 +341,11 @@ add_dependencies(runner_template_t foom-cli)
 add_system_test(runner_background_t)  # foom: the design notes, Background maps and point clouds in the runner; XML scripts
 target_compile_definitions(runner_background_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
 add_dependencies(runner_background_t foom-cli)
+target_sources(runner_background_t PRIVATE "${PROJECT_SOURCE_DIR}/src/cli/xml_script.cpp")  # foom: the reader of XML scripts, tested step by step
+if(TARGET mapper-elevation)
+	target_link_libraries(runner_background_t PRIVATE mapper-elevation)
+	target_compile_definitions(runner_background_t PRIVATE FOOM_TEST_ELEVATION)
+endif()
 add_system_test(runner_check_t)  # foom: the design notes, Headless runner: check and course-statistics
 target_compile_definitions(runner_check_t PRIVATE "FOOM_CLI_EXECUTABLE=\"$<TARGET_FILE:foom-cli>\"")
 add_dependencies(runner_check_t foom-cli)

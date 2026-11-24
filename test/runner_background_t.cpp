@@ -20,6 +20,7 @@
 
 #include <cmath>
 #include <memory>
+#include <vector>
 
 #include <Qt>
 #include <QtGlobal>
@@ -41,9 +42,12 @@
 #include <QProcessEnvironment>
 #include <QRectF>
 #include <QString>
+#include <QStringList>
 #include <QTemporaryDir>
 
 #include "global.h"
+#include "cli/job.h"
+#include "cli/xml_script.h"
 #include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_color.h"
@@ -52,6 +56,10 @@
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
 #include "course/course_data.h"
+#ifdef FOOM_TEST_ELEVATION
+#  include "elevation/elevation_model.h"
+#  include "elevation/point_cloud.h"
+#endif
 #include "templates/template.h"
 
 using namespace OpenOrienteering;
@@ -125,6 +133,29 @@ bool near(double a, double b, double tolerance)
 	return std::abs(a - b) <= tolerance;
 }
 
+/// A step or a list as one line of JSON, its members in the order of their names.
+QString compact(const QJsonObject& object)
+{
+	return QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact));
+}
+
+/// Whether one of the warnings begins with the name of the field.
+bool names(const QStringList& warnings, const char* field)
+{
+	for (auto const& warning : warnings)
+	{
+		if (warning.startsWith(QLatin1String(field)))
+			return true;
+	}
+	return false;
+}
+
+bool touch(const QString& path)
+{
+	QFile file(path);
+	return file.open(QIODevice::WriteOnly);
+}
+
 }  // namespace
 
 
@@ -196,6 +227,7 @@ private slots:
 	void templateSteps();
 	void gnssStep();
 	void xmlScript();
+	void lidarScript();
 };
 
 
@@ -479,6 +511,278 @@ void RunnerBackgroundTest::xmlScript()
 	QImage png(file("out.png"));
 	QVERIFY(!png.isNull());
 	QVERIFY(near(png.dotsPerMeterX(), 100 / 0.0254, 1.0));
+}
+
+
+/// Accept (18)
+void RunnerBackgroundTest::lidarScript()
+{
+	QFile fixture(QFINDTESTDATA("data/jobs/lidar-script.xml"));
+	QVERIFY(fixture.open(QIODevice::ReadOnly));
+	auto const bytes = fixture.readAll();
+	auto const folders = { "0_LAZ", "1_ocdDem", "5_CreateContourLines", "6_ImportAllOcds", "7_png" };
+
+	// (1) The steps of the script.
+	QDir const read_dir(file("read"));
+	for (auto const* folder : folders)
+		QVERIFY(read_dir.mkpath(QLatin1String(folder)));
+	for (auto const* name : { "0_LAZ/b.las", "0_LAZ/a.laz", "0_LAZ/notes.txt" })
+		QVERIFY(touch(read_dir.filePath(QLatin1String(name))));
+	auto const path = [&read_dir](const char* name) {
+		return QDir::cleanPath(read_dir.absoluteFilePath(QLatin1String(name)));
+	};
+	auto const script = Cli::readXmlScript(bytes, read_dir);
+	QCOMPARE(script.commands, 20);
+	QCOMPARE(script.steps.size(), 15);
+	QCOMPARE(int(script.warnings.size()), 15);
+	QVERIFY(script.unsupported.empty());
+	QStringList noted;
+	for (auto const& note : script.notes)
+		noted.push_back(note.command);
+	QCOMPARE(noted, (QStringList{ QStringLiteral("Dem.MatchTiles"), QStringLiteral("Dem.MergeTiles"), QStringLiteral("Dem.CropTiles"), QStringLiteral("Dem.MergeRasterMapTiles") }));
+
+	auto const open = stepOf("open", { { QStringLiteral("path"), QStringLiteral("Template.ocd") } });
+	auto const save = [](const QString& to, bool current) {
+		QJsonObject step { { QStringLiteral("path"), to } };
+		if (current)
+			step.insert(QStringLiteral("current"), true);
+		return stepOf("save-as", step);
+	};
+	auto const clouds = QJsonArray{ path("0_LAZ/a.laz"), path("0_LAZ/b.las") };
+	QList<QJsonObject> const expected = {
+	    open,
+	    save(QStringLiteral("1_ocdDem/Map.ocd"), true),
+	    stepOf("point-cloud", {
+	        { QStringLiteral("files"), clouds },
+	        { QStringLiteral("cell"), 2 },
+	        { QStringLiteral("dtm"), true },
+	        { QStringLiteral("dsm"), true },
+	        { QStringLiteral("dtm_classes"), QJsonArray{ QStringLiteral("ground") } },
+	        { QStringLiteral("dtm_returns"), QStringLiteral("last") },
+	        { QStringLiteral("dsm_classes"), QJsonArray{ QStringLiteral("ground"), QStringLiteral("high-vegetation") } },
+	        { QStringLiteral("dsm_returns"), QStringLiteral("all") },
+	        { QStringLiteral("products"), QJsonArray{} } }),
+	    save(QStringLiteral("1_ocdDem/Map.ocd"), false),
+	    open,
+	    stepOf("elevation-wizard", {
+	        { QStringLiteral("source"), QStringLiteral("grid") },
+	        { QStringLiteral("files"), QJsonArray{ path("1_ocdDem/Map_DTM.tif") } },
+	        { QStringLiteral("products"), QJsonArray{ QStringLiteral("contours") } },
+	        { QStringLiteral("contour_sets"), QJsonArray{ QJsonObject{
+	            { QStringLiteral("smoothed"), true },
+	            { QStringLiteral("interval"), 5 },
+	            { QStringLiteral("main_interval"), 5 },
+	            { QStringLiteral("index_interval"), 25 },
+	            { QStringLiteral("curves"), true },
+	            { QStringLiteral("depressions"), false } } } } }),
+	    save(path("5_CreateContourLines/Contours.ocd"), false),
+	    open,
+	    save(QStringLiteral("6_ImportAllOcds/Contour Lines.ocd"), true),
+	    stepOf("import", { { QStringLiteral("path"), path("5_CreateContourLines/Contours.ocd") } }),
+	    save(QStringLiteral("6_ImportAllOcds/Contour Lines.ocd"), false),
+	    open,
+	    save(QStringLiteral("7_png/Map_Vegetation.ocd"), true),
+	    stepOf("point-cloud", {
+	        { QStringLiteral("files"), clouds },
+	        { QStringLiteral("cell"), 1 },
+	        { QStringLiteral("dtm"), true },
+	        { QStringLiteral("dsm"), false },
+	        { QStringLiteral("dtm_classes"), QJsonArray{ QStringLiteral("ground") } },
+	        { QStringLiteral("dtm_returns"), QStringLiteral("last") },
+	        { QStringLiteral("products"), QJsonArray{ QStringLiteral("vegetation-map") } },
+	        { QStringLiteral("vegetation_map"), QJsonObject{
+	            { QStringLiteral("undergrowth_kernel"), 3 },
+	            { QStringLiteral("undergrowth_from"), 0 },
+	            { QStringLiteral("undergrowth_to"), 0 },
+	            { QStringLiteral("undergrowth_thresholds"), QJsonArray{ 1, 1 } },
+	            { QStringLiteral("vegetation_kernel"), 5 },
+	            { QStringLiteral("vegetation_from"), 0.3 },
+	            { QStringLiteral("vegetation_to"), 3 },
+	            { QStringLiteral("vegetation_thresholds"), QJsonArray{ -0.4, -0.2, 0.2 } },
+	            { QStringLiteral("no_data_red"), false } } } }),
+	    save(QStringLiteral("7_png/Map_Vegetation.ocd"), false),
+	};
+	for (int i = 0; i < expected.size(); ++i)
+		QCOMPARE(compact(script.steps.at(i).toObject()), compact(expected.at(i)));
+
+	for (int i = 0; i < 15; ++i)
+	{
+		if (i != 5 && i != 9 && i != 13)
+			QVERIFY2(script.warnings[std::size_t(i)].isEmpty(), qPrintable(script.warnings[std::size_t(i)].join(QLatin1Char('|'))));
+	}
+	auto const& contour_warnings = script.warnings[5];
+	QVERIFY(names(contour_warnings, "SymbolNumberTpiLevel1 "));
+	QVERIFY(names(contour_warnings, "SymbolNumberTpiLevel2 "));
+	QCOMPARE(contour_warnings.size(), 2);
+	auto const& vegetation_warnings = script.warnings[13];
+	QVERIFY(names(vegetation_warnings, "UseFilter"));
+	QVERIFY(names(vegetation_warnings, "ThresholdOverlapPointsLow"));
+	QVERIFY(names(vegetation_warnings, "LasClassification"));
+	QCOMPARE(vegetation_warnings.size(), 3);
+	QVERIFY(names(script.warnings[9], "SymbolOption"));
+	QVERIFY(names(script.warnings[9], "ColorOption"));
+	auto const report = script.report(QStringLiteral("script.xml"));
+	QCOMPARE(report.value(QLatin1String("notes")).toArray().size(), 4);
+	QCOMPARE(report.value(QLatin1String("notes")).toArray().at(0).toObject().value(QLatin1String("command")).toString(), QStringLiteral("Dem.MatchTiles"));
+
+	// (2) Other scripts.
+	auto const read = [&read_dir](const char* commands) {
+		return Cli::readXmlScript(QByteArray("<OcadScript>") + commands + "</OcadScript>", read_dir);
+	};
+	auto other = read("<FileOpen><FileName>map.foom</FileName></FileOpen>"
+	                  "<LidarImport><FileName>a.las</FileName><FileName>b.las</FileName><CellSize>2</CellSize></LidarImport>");
+	QCOMPARE(other.steps.size(), 2);
+	QCOMPARE(compact(other.steps.at(1).toObject()), compact(stepOf("point-cloud", {
+	    { QStringLiteral("files"), QJsonArray{ QStringLiteral("a.las"), QStringLiteral("b.las") } }, { QStringLiteral("cell"), 2 } })));
+
+	other = read("<File.Open><File>Template.ocd</File></File.Open>"
+	             "<Dem.DemImport><LasImport><Directory>0_LAZ</Directory></LasImport><Sharpen>1</Sharpen>"
+	             "<CreateOcdDem><LasDtm><ReturnType>0</ReturnType></LasDtm><LasDsm><ReturnType>7</ReturnType></LasDsm></CreateOcdDem>"
+	             "</Dem.DemImport>");
+	QVERIFY(other.unsupported.empty());
+	QCOMPARE(other.steps.size(), 2);
+	QCOMPARE(compact(other.steps.at(1).toObject()), compact(stepOf("point-cloud", {
+	    { QStringLiteral("files"), clouds }, { QStringLiteral("dtm_returns"), QStringLiteral("first") }, { QStringLiteral("products"), QJsonArray{} } })));
+	QCOMPARE(other.warnings[1].size(), 3);
+	QVERIFY(names(other.warnings[1], "Sharpen"));
+	QVERIFY(names(other.warnings[1], "LasDtm/ReturnType 0"));
+	QVERIFY(names(other.warnings[1], "LasDsm/ReturnType 7"));
+
+	other = read("<File.Open><File>Template.ocd</File></File.Open>"
+	             "<File.SaveAs><File>out.ocd</File><Encrypt>true</Encrypt></File.SaveAs>");
+	QCOMPARE(other.steps.size(), 1);
+	QCOMPARE(int(other.unsupported.size()), 1);
+	QCOMPARE(other.unsupported.front().reason, QStringLiteral("Encrypt"));
+
+	other = read("<File.Open><File>Template.ocd</File></File.Open>"
+	             "<Dem.DemImport><Enabled>false</Enabled><LasImport><Directory>0_LAZ</Directory></LasImport></Dem.DemImport>"
+	             "<Dem.DemImport><LasImport><Directory>1_ocdDem</Directory></LasImport></Dem.DemImport>");
+	QCOMPARE(other.steps.size(), 1);
+	QCOMPARE(int(other.notes.size()), 1);
+	QCOMPARE(other.notes.front().command, QStringLiteral("Dem.DemImport"));
+	QCOMPARE(other.notes.front().line, 1);
+	QCOMPARE(int(other.unsupported.size()), 1);
+	QVERIFY(other.unsupported.front().reason.startsWith(QLatin1String("LasImport/Directory")));
+
+	QVERIFY_EXCEPTION_THROWN(read("<File.Save><Enabled>true</Enabled></File.Save>"), Cli::JobError);
+	QVERIFY_EXCEPTION_THROWN(read("<File.Open><File>Template.ocd</File></File.Open><File.Close/><File.Save/>"), Cli::JobError);
+
+	auto const contours = [&read](const char* before, const char* input) {
+		return read(QByteArray(QByteArray(before) + "<Dem.CreateContourLines><TemplateFile>Template.ocd</TemplateFile><InputFolder>" + input
+		             + "</InputFolder><OutputFolder>5_CreateContourLines</OutputFolder>"
+		               "<CreateNotSmoothedContours>true</CreateNotSmoothedContours><EquidistanceOriginal>100</EquidistanceOriginal>"
+		               "<EquidistanceLevel1>100</EquidistanceLevel1><EquidistanceLevel2>500</EquidistanceLevel2><EquidistanceLevel3>2500</EquidistanceLevel3>"
+		               "</Dem.CreateContourLines>").constData());
+	};
+	other = contours("", "7_png");
+	QCOMPARE(other.steps.size(), 0);
+	QCOMPARE(int(other.unsupported.size()), 1);
+	QVERIFY(other.unsupported.front().reason.startsWith(QLatin1String("InputFolder")));
+	QVERIFY(read_dir.mkpath(QStringLiteral("grids")));
+	for (auto const* name : { "grids/x_DTM.ocdDem", "grids/x_DSM.ocdDem", "grids/y_DTM.tif", "grids/y_hillshade.tif" })
+		QVERIFY(touch(read_dir.filePath(QLatin1String(name))));
+	other = contours("<File.Open><File>Template.ocd</File></File.Open>", "grids");
+	QCOMPARE(other.steps.size(), 1);
+	QCOMPARE(int(other.unsupported.size()), 1);
+	other = contours("", "grids\\");
+	QVERIFY(other.unsupported.empty());
+	QCOMPARE(other.steps.size(), 3);
+	QCOMPARE(compact(other.steps.at(1).toObject()), compact(stepOf("elevation-wizard", {
+	    { QStringLiteral("source"), QStringLiteral("grid") },
+	    { QStringLiteral("files"), QJsonArray{ path("grids/x_DTM.ocdDem"), path("grids/y_DTM.tif") } },
+	    { QStringLiteral("products"), QJsonArray{ QStringLiteral("contours") } },
+	    { QStringLiteral("contour_sets"), QJsonArray{ QJsonObject{
+	        { QStringLiteral("smoothed"), false },
+	        { QStringLiteral("interval"), 1 },
+	        { QStringLiteral("main_interval"), 5 },
+	        { QStringLiteral("index_interval"), 25 },
+	        { QStringLiteral("depressions"), false } } } } })));
+	QVERIFY(other.warnings[1].isEmpty());
+
+	// (3) The script run on a cloud.
+#ifdef FOOM_TEST_ELEVATION
+	if (!PointCloud::supported())
+		QSKIP("Built without LASzip");
+	QDir const run_dir(file("run"));
+	for (auto const* folder : folders)
+		QVERIFY(run_dir.mkpath(QLatin1String(folder)));
+	auto result = runJob("template.json", { stepOf("save-as", { { QStringLiteral("path"), QStringLiteral("run/Template.ocd") } }) }, "map.foom", false);
+	QVERIFY2(result.exit_code == 0, result.err.constData());
+	auto const template_bytes = [&run_dir]() {
+		QFile ocd(run_dir.filePath(QStringLiteral("Template.ocd")));
+		return ocd.open(QIODevice::ReadOnly) ? ocd.readAll() : QByteArray();
+	};
+	auto const before = template_bytes();
+	QVERIFY(!before.isEmpty());
+
+	std::vector<CloudPoint> points;
+	for (int i = 0; i < 40; ++i)
+	{
+		for (int j = 0; j < 40; ++j)
+		{
+			CloudPoint ground;
+			ground.x = 500000.5 + i;
+			ground.y = 5000000.5 + j;
+			ground.z = 100.0 + 0.5 * (i + 0.5);
+			ground.classification = 2;
+			ground.return_number = 2;
+			ground.number_of_returns = 2;
+			points.push_back(ground);
+			auto canopy = ground;
+			canopy.z += 10.0;
+			canopy.classification = 5;
+			canopy.return_number = 1;
+			points.push_back(canopy);
+			auto noise = ground;
+			noise.z = 50.0;
+			noise.classification = 7;
+			noise.return_number = 1;
+			noise.number_of_returns = 1;
+			points.push_back(noise);
+		}
+	}
+	QString error;
+	QVERIFY2(PointCloud::write(run_dir.filePath(QStringLiteral("0_LAZ/plane.laz")), points, {}, 0, &error), qPrintable(error));
+	QVERIFY(QFile::copy(fixture.fileName(), run_dir.filePath(QStringLiteral("script.xml"))));
+
+	result = runFile(run_dir.filePath(QStringLiteral("script.xml")));
+	QVERIFY2(result.exit_code == 0, QByteArray(result.err + result.out).constData());
+	QCOMPARE(result.lines().front().value(QLatin1String("notes")).toArray().size(), 4);
+	QVERIFY(result.lines().front().value(QLatin1String("unsupported")).toArray().isEmpty());
+
+	// The grids lie beside the saved map, from the points the script chose.
+	QVERIFY(!QFileInfo::exists(run_dir.filePath(QStringLiteral("Template_DTM.tif"))));
+	auto const dtm = ElevationModel::open(run_dir.filePath(QStringLiteral("1_ocdDem/Map_DTM.tif")));
+	auto const dsm = ElevationModel::open(run_dir.filePath(QStringLiteral("1_ocdDem/Map_DSM.tif")));
+	QVERIFY(dtm);
+	QVERIFY(dsm);
+	QCOMPARE(dtm->cellSize(), 2.0);
+	QVERIFY2(near(dtm->at(QPointF(500021.0, 5000021.0)), 110.5, 0.01), qPrintable(QString::number(dtm->at(QPointF(500021.0, 5000021.0)))));
+	QVERIFY2(near(dsm->at(QPointF(500021.0, 5000021.0)), 115.5, 0.01), qPrintable(QString::number(dsm->at(QPointF(500021.0, 5000021.0)))));
+
+	// The contours, in a map of their own and then imported.
+	auto const wizard = result.logOf("elevation-wizard");
+	auto const contour_count = wizard.value(QLatin1String("contours")).toInt();
+	QVERIFY2(contour_count >= 3, qPrintable(QString::number(contour_count)));
+	QVERIFY(wizard.value(QLatin1String("warnings")).toArray().at(0).toString().startsWith(QLatin1String("SymbolNumberTpiLevel1 ")));
+	QVERIFY(QFileInfo::exists(run_dir.filePath(QStringLiteral("5_CreateContourLines/Contours.ocd"))));
+	Map contour_map;
+	QVERIFY(contour_map.loadFrom(run_dir.filePath(QStringLiteral("6_ImportAllOcds/Contour Lines.ocd"))));
+	QCOMPARE(contour_map.getNumObjects(), contour_count);
+
+	// The vegetation base map, beside its map and a template of it.
+	QVERIFY(QFileInfo::exists(run_dir.filePath(QStringLiteral("7_png/Map_Vegetation_vegetation.tif"))));
+	Map vegetation_map;
+	QVERIFY(vegetation_map.loadFrom(run_dir.filePath(QStringLiteral("7_png/Map_Vegetation.ocd"))));
+	auto has_raster = false;
+	for (int i = 0; i < vegetation_map.getNumTemplates(); ++i)
+		has_raster = has_raster || vegetation_map.getTemplate(i)->getTemplateFilename() == QLatin1String("Map_Vegetation_vegetation.tif");
+	QVERIFY(has_raster);
+
+	QCOMPARE(template_bytes(), before);
+#else
+	QSKIP("Built without the elevation library");
+#endif
 }
 
 
