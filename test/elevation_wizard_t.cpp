@@ -27,6 +27,7 @@
 #include <QtTest>
 #include <QAbstractButton>
 #include <QAction>
+#include <QByteArray>
 #include <QCheckBox>
 #include <QDir>
 #include <QFile>
@@ -37,6 +38,7 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QLocale>
+#include <QMap>
 #include <QMenu>
 #include <QMenuBar>
 #include <QObject>
@@ -54,6 +56,8 @@
 #include "core/map_coord.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
+#include "core/symbols/line_symbol.h"
+#include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
 #include "elevation/contours.h"
 #include "elevation/elevation_commands.h"
@@ -857,6 +861,185 @@ private slots:
 		bad = wizard;
 		bad.insert(QStringLiteral("files"), QJsonArray{ QStringLiteral("absent.asc") });
 		QCOMPARE(run({ open, bad }, nullptr), 1);
+	}
+
+	// Accept (10): the symbols of a contour set.
+	void contourSetSymbols()
+	{
+		QTemporaryDir dir;
+		// A plane at 95.5 m with a cone 12 m high and a cone 12 m deep, 80 by 40 cells of 1 m.
+		auto const grid = dir.filePath(QStringLiteral("cones.asc"));
+		{
+			QByteArray text("ncols 80\nnrows 40\nxllcorner 966260\nyllcorner 557180\ncellsize 1\nNODATA_value -9999\n");
+			for (int row = 0; row < 40; ++row)
+			{
+				for (int col = 0; col < 80; ++col)
+				{
+					auto const up = qMax(0.0, 12.0 - 0.8 * std::hypot(col - 20.0, row - 20.0));
+					auto const down = qMax(0.0, 12.0 - 0.8 * std::hypot(col - 60.0, row - 20.0));
+					text += QByteArray::number(95.5 + up - down, 'f', 3);
+					text += col == 79 ? '\n' : ' ';
+				}
+			}
+			QFile file(grid);
+			QVERIFY(file.open(QIODevice::WriteOnly));
+			QCOMPARE(file.write(text), qint64(text.size()));
+		}
+
+		// The line symbols 101.0, 102, 103.1 and 104, and the point symbol 109.
+		auto const prepare = [](Map& map) {
+			georeference(map);
+			auto const line = [&map](int number, int variant) {
+				auto* symbol = new LineSymbol();
+				symbol->setNumberComponent(0, number);
+				symbol->setNumberComponent(1, variant);
+				symbol->setLineWidth(0.2);
+				map.addSymbol(symbol, map.getNumSymbols());
+			};
+			line(101, 0);
+			line(102, -1);
+			line(103, 1);
+			line(104, -1);
+			auto* point = new PointSymbol();
+			point->setNumberComponent(0, 109);
+			map.addSymbol(point, map.getNumSymbols());
+		};
+		auto const jobOf = [&grid](QJsonObject set, ElevationWizardJob* job, QString* error) {
+			set.insert(QStringLiteral("interval"), 1);
+			set.insert(QStringLiteral("main_interval"), 5);
+			set.insert(QStringLiteral("index_interval"), 25);
+			QJsonObject const object{ { QStringLiteral("source"), QStringLiteral("grid") },
+			                          { QStringLiteral("files"), QJsonArray{ grid } },
+			                          { QStringLiteral("products"), QJsonArray{ QStringLiteral("contours") } },
+			                          { QStringLiteral("attach"), false },
+			                          { QStringLiteral("contour_sets"), QJsonArray{ set } } };
+			return elevationWizardJobFromJson(object, job, error);
+		};
+		// The number of the symbol of each contour, by its height; a height with two lines gives "twice".
+		auto const symbolsByHeight = [](const Map& map) {
+			QMap<int, QString> result;
+			auto const* part = map.getPart(0);
+			for (int i = 0; i < part->getNumObjects(); ++i)
+			{
+				auto const* object = part->getObject(i);
+				auto const height = object->getTag(QStringLiteral("ele")).toInt();
+				result.insert(height, result.contains(height) ? QStringLiteral("twice") : object->getSymbol()->getNumberAsString());
+			}
+			return result;
+		};
+		auto const hasSymbol = [](const Map& map, int number) {
+			for (int i = 0; i < map.getNumSymbols(); ++i)
+			{
+				if (map.getSymbol(i)->getNumberComponent(0) == number)
+					return true;
+			}
+			return false;
+		};
+		ElevationWizardJob job;
+		QString error;
+
+		// Without a choice: FOOM's own symbols.
+		Map plain;
+		prepare(plain);
+		QVERIFY2(jobOf({}, &job, &error), qPrintable(error));
+		auto result = runElevationWizard(plain, QString{}, job);
+		QVERIFY2(result.ok, qPrintable(result.error));
+		auto const contour_count = result.contours;
+		auto const own = symbolsByHeight(plain);
+		QCOMPARE(own.size(), contour_count);
+		for (int height = 84; height <= 107; ++height)
+			QCOMPARE(own.value(height), QString::fromLatin1(height % 25 == 0 ? "10052.0" : height % 5 == 0 ? "10051.0" : "10050.0"));
+
+		// All three classes chosen: the numbers as text, without ".0", and as a number.
+		QJsonObject const chosen{ { QStringLiteral("smallest"), QStringLiteral("104") },
+		                          { QStringLiteral("main"), QStringLiteral("101") },
+		                          { QStringLiteral("index"), 102 } };
+		auto const chosenSymbol = [](int height) {
+			return QString::fromLatin1(height % 25 == 0 ? "102" : height % 5 == 0 ? "101.0" : "104");
+		};
+		{
+			Map map;
+			prepare(map);
+			auto const symbol_count = map.getNumSymbols();
+			QVERIFY2(jobOf({ { QStringLiteral("symbols"), chosen } }, &job, &error), qPrintable(error));
+			result = runElevationWizard(map, QString{}, job);
+			QVERIFY2(result.ok, qPrintable(result.error));
+			QCOMPARE(result.contours, contour_count);
+			auto const symbols = symbolsByHeight(map);
+			QCOMPARE(symbols.size(), contour_count);
+			for (int height = 84; height <= 107; ++height)
+				QCOMPARE(symbols.value(height), chosenSymbol(height));
+			QCOMPARE(map.getNumSymbols(), symbol_count);
+		}
+
+		// Depressions with a symbol of their own for one class.
+		{
+			Map map;
+			prepare(map);
+			auto const symbol_count = map.getNumSymbols();
+			QVERIFY2(jobOf({ { QStringLiteral("symbols"), chosen },
+			                 { QStringLiteral("depressions"), true },
+			                 { QStringLiteral("depression_symbols"), QJsonObject{ { QStringLiteral("main"), QStringLiteral("103.1") } } } }, &job, &error), qPrintable(error));
+			result = runElevationWizard(map, QString{}, job);
+			QVERIFY2(result.ok, qPrintable(result.error));
+			QCOMPARE(result.contours, contour_count);
+			auto const symbols = symbolsByHeight(map);
+			for (int height = 84; height <= 95; ++height)
+				QCOMPARE(symbols.value(height), QString::fromLatin1(height % 5 == 0 ? "103.1" : "104"));
+			for (int height = 96; height <= 107; ++height)
+				QCOMPARE(symbols.value(height), chosenSymbol(height));
+			QCOMPARE(map.getNumSymbols(), symbol_count);
+		}
+
+		// One class chosen: the others keep FOOM's own, and no symbol is made for the chosen class.
+		{
+			Map map;
+			prepare(map);
+			QVERIFY2(jobOf({ { QStringLiteral("symbols"), QJsonObject{ { QStringLiteral("index"), QStringLiteral("102.0") } } } }, &job, &error), qPrintable(error));
+			result = runElevationWizard(map, QString{}, job);
+			QVERIFY2(result.ok, qPrintable(result.error));
+			auto const symbols = symbolsByHeight(map);
+			QCOMPARE(symbols.value(100), QStringLiteral("102"));
+			QCOMPARE(symbols.value(105), QStringLiteral("10051.0"));
+			QCOMPARE(symbols.value(96), QStringLiteral("10050.0"));
+			QVERIFY(hasSymbol(map, 10050));
+			QVERIFY(hasSymbol(map, 10051));
+			QVERIFY(!hasSymbol(map, 10052));
+		}
+
+		// A number which no line symbol has fails before the grid is read.
+		for (auto const* number : { "777", "109" })
+		{
+			Map map;
+			prepare(map);
+			auto const symbol_count = map.getNumSymbols();
+			QVERIFY2(jobOf({ { QStringLiteral("symbols"), QJsonObject{ { QStringLiteral("main"), QString::fromLatin1(number) } } } }, &job, &error), qPrintable(error));
+			result = runElevationWizard(map, QString{}, job);
+			QVERIFY(!result.ok);
+			QVERIFY2(result.error.contains(QLatin1String(number)), qPrintable(result.error));
+			QVERIFY(map.elevationSet().isEmpty());
+			QCOMPARE(map.getNumObjects(), 0);
+			QCOMPARE(map.getNumTemplates(), 0);
+			QCOMPARE(map.getNumSymbols(), symbol_count);
+		}
+		{
+			// The numbers of depressions are checked although none is drawn with them.
+			Map map;
+			prepare(map);
+			QVERIFY2(jobOf({ { QStringLiteral("depression_symbols"), QJsonObject{ { QStringLiteral("index"), QStringLiteral("778") } } } }, &job, &error), qPrintable(error));
+			result = runElevationWizard(map, QString{}, job);
+			QVERIFY(!result.ok);
+			QVERIFY2(result.error.contains(QLatin1String("778")), qPrintable(result.error));
+			QVERIFY(map.elevationSet().isEmpty());
+		}
+
+		// What the reader of the job refuses.
+		QVERIFY(!jobOf({ { QStringLiteral("symbols"), QJsonObject{ { QStringLiteral("middle"), QStringLiteral("101") } } } }, &job, &error));
+		QVERIFY2(error.contains(QLatin1String("middle")), qPrintable(error));
+		QVERIFY(!jobOf({ { QStringLiteral("symbols"), QJsonObject{ { QStringLiteral("main"), true } } } }, &job, &error));
+		QVERIFY2(error.contains(QLatin1String("main")), qPrintable(error));
+		QVERIFY(!jobOf({ { QStringLiteral("symbols"), QJsonArray{ QStringLiteral("101") } } }, &job, &error));
+		QVERIFY(!jobOf({ { QStringLiteral("depression_symbols"), QJsonObject{ { QStringLiteral("main"), QString() } } } }, &job, &error));
 	}
 
 	// foom: the design notes, "Background maps and point clouds in the runner", Accept (15).

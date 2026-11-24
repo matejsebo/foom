@@ -52,6 +52,7 @@
 #include "core/map.h"
 #include "core/map_color.h"
 #include "core/map_coord.h"
+#include "core/map_part.h"
 #include "core/objects/object.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
@@ -574,7 +575,11 @@ void RunnerBackgroundTest::lidarScript()
 	            { QStringLiteral("main_interval"), 5 },
 	            { QStringLiteral("index_interval"), 25 },
 	            { QStringLiteral("curves"), true },
-	            { QStringLiteral("depressions"), false } } } } }),
+	            { QStringLiteral("depressions"), false },
+	            { QStringLiteral("symbols"), QJsonObject{
+	                { QStringLiteral("smallest"), QStringLiteral("101.0") },
+	                { QStringLiteral("main"), QStringLiteral("101.0") },
+	                { QStringLiteral("index"), QStringLiteral("102.0") } } } } } } }),
 	    save(path("5_CreateContourLines/Contours.ocd"), false),
 	    open,
 	    save(QStringLiteral("6_ImportAllOcds/Contour Lines.ocd"), true),
@@ -607,13 +612,9 @@ void RunnerBackgroundTest::lidarScript()
 
 	for (int i = 0; i < 15; ++i)
 	{
-		if (i != 5 && i != 9 && i != 13)
+		if (i != 9 && i != 13)
 			QVERIFY2(script.warnings[std::size_t(i)].isEmpty(), qPrintable(script.warnings[std::size_t(i)].join(QLatin1Char('|'))));
 	}
-	auto const& contour_warnings = script.warnings[5];
-	QVERIFY(names(contour_warnings, "SymbolNumberTpiLevel1 "));
-	QVERIFY(names(contour_warnings, "SymbolNumberTpiLevel2 "));
-	QCOMPARE(contour_warnings.size(), 2);
 	auto const& vegetation_warnings = script.warnings[13];
 	QVERIFY(names(vegetation_warnings, "UseFilter"));
 	QVERIFY(names(vegetation_warnings, "ThresholdOverlapPointsLow"));
@@ -699,6 +700,65 @@ void RunnerBackgroundTest::lidarScript()
 	        { QStringLiteral("depressions"), false } } } } })));
 	QVERIFY(other.warnings[1].isEmpty());
 
+	// The symbols go with the intervals of their levels.
+	struct SetOf
+	{
+		QJsonObject set;
+		QStringList warnings;
+	};
+	auto const setOf = [&read](const char* fields) {
+		auto const script = read(QByteArray(QByteArray("<Dem.CreateContourLines><TemplateFile>Template.ocd</TemplateFile><InputFolder>grids</InputFolder>"
+		                                               "<OutputFolder>5_CreateContourLines</OutputFolder><CreateNotSmoothedContours>true</CreateNotSmoothedContours>")
+		                                    + fields + "</Dem.CreateContourLines>").constData());
+		SetOf result;
+		if (script.steps.size() == 3 && script.unsupported.empty())
+		{
+			result.set = script.steps.at(1).toObject().value(QLatin1String("contour_sets")).toArray().at(0).toObject();
+			result.warnings = script.warnings[1];
+		}
+		return result;
+	};
+	auto const three = QJsonObject{ { QStringLiteral("smallest"), QStringLiteral("103.0") },
+	                                { QStringLiteral("main"), QStringLiteral("101.0") },
+	                                { QStringLiteral("index"), QStringLiteral("102.1") } };
+	auto set = setOf("<EquidistanceLevel1>100</EquidistanceLevel1><EquidistanceLevel2>500</EquidistanceLevel2><EquidistanceLevel3>2500</EquidistanceLevel3>"
+	                 "<SymbolNumberLevel1>103000</SymbolNumberLevel1><SymbolNumberLevel2>101000</SymbolNumberLevel2><SymbolNumberLevel3>102001</SymbolNumberLevel3>");
+	QCOMPARE(compact(set.set.value(QLatin1String("symbols")).toObject()), compact(three));
+	QVERIFY(!set.set.contains(QLatin1String("depression_symbols")));
+	QVERIFY2(set.warnings.isEmpty(), qPrintable(set.warnings.join(QLatin1Char('|'))));
+	set = setOf("<EquidistanceLevel1>2500</EquidistanceLevel1><EquidistanceLevel2>100</EquidistanceLevel2><EquidistanceLevel3>500</EquidistanceLevel3>"
+	            "<SymbolNumberLevel1>102001</SymbolNumberLevel1><SymbolNumberLevel2>103000</SymbolNumberLevel2><SymbolNumberLevel3>101000</SymbolNumberLevel3>");
+	QCOMPARE(compact(set.set.value(QLatin1String("symbols")).toObject()), compact(three));
+	QCOMPARE(set.set.value(QLatin1String("interval")).toDouble(), 1.0);
+	QCOMPARE(set.set.value(QLatin1String("index_interval")).toDouble(), 25.0);
+
+	set = setOf("<EquidistanceLevel1>500</EquidistanceLevel1><SymbolNumberLevel1>101000</SymbolNumberLevel1>");
+	QCOMPARE(compact(set.set.value(QLatin1String("symbols")).toObject()), compact(QJsonObject{
+	    { QStringLiteral("smallest"), QStringLiteral("101.0") }, { QStringLiteral("main"), QStringLiteral("101.0") }, { QStringLiteral("index"), QStringLiteral("101.0") } }));
+
+	set = setOf("<EquidistanceLevel1>500</EquidistanceLevel1><EquidistanceLevel2>2500</EquidistanceLevel2>"
+	            "<SymbolNumberLevel1>0</SymbolNumberLevel1><SymbolNumberLevel2>102000</SymbolNumberLevel2>");
+	QCOMPARE(compact(set.set.value(QLatin1String("symbols")).toObject()), compact(QJsonObject{ { QStringLiteral("index"), QStringLiteral("102.0") } }));
+	QCOMPARE(set.warnings.size(), 1);
+	QVERIFY(names(set.warnings, "SymbolNumberLevel1 "));
+
+	auto const with_depressions = [&setOf](const char* different) {
+		return setOf(QByteArray(QByteArray("<EquidistanceLevel1>100</EquidistanceLevel1><EquidistanceLevel2>500</EquidistanceLevel2><EquidistanceLevel3>2500</EquidistanceLevel3>"
+		                                   "<SymbolNumberLevel1>103000</SymbolNumberLevel1><SymbolNumberLevel2>101000</SymbolNumberLevel2><SymbolNumberLevel3>102001</SymbolNumberLevel3>"
+		                                   "<SymbolNumberLevel1Depr>0</SymbolNumberLevel1Depr><SymbolNumberLevel2Depr>104000</SymbolNumberLevel2Depr>"
+		                                   "<UseDifferentSymbolsForDepressions>") + different + "</UseDifferentSymbolsForDepressions>").constData());
+	};
+	set = with_depressions("true");
+	QCOMPARE(set.set.value(QLatin1String("depressions")).toBool(), true);
+	QCOMPARE(compact(set.set.value(QLatin1String("symbols")).toObject()), compact(three));
+	QCOMPARE(compact(set.set.value(QLatin1String("depression_symbols")).toObject()), compact(QJsonObject{ { QStringLiteral("main"), QStringLiteral("104.0") } }));
+	QVERIFY2(set.warnings.isEmpty(), qPrintable(set.warnings.join(QLatin1Char('|'))));
+	set = with_depressions("false");
+	QCOMPARE(set.set.value(QLatin1String("depressions")).toBool(true), false);
+	QCOMPARE(compact(set.set.value(QLatin1String("symbols")).toObject()), compact(three));
+	QVERIFY(!set.set.contains(QLatin1String("depression_symbols")));
+	QVERIFY2(set.warnings.isEmpty(), qPrintable(set.warnings.join(QLatin1Char('|'))));
+
 	// (3) The script run on a cloud.
 #ifdef FOOM_TEST_ELEVATION
 	if (!PointCloud::supported())
@@ -706,7 +766,27 @@ void RunnerBackgroundTest::lidarScript()
 	QDir const run_dir(file("run"));
 	for (auto const* folder : folders)
 		QVERIFY(run_dir.mkpath(QLatin1String(folder)));
-	auto result = runJob("template.json", { stepOf("save-as", { { QStringLiteral("path"), QStringLiteral("run/Template.ocd") } }) }, "map.foom", false);
+	{
+		// The template: the map of the other cases with the contour symbols 101.0 and 102.0.
+		Map map;
+		map.setScaleDenominator(10000);
+		map.setGeoreferencing(utm32Georeferencing());
+		auto* brown = new MapColor(QStringLiteral("Brown"), 0);
+		brown->setCmyk(MapColorCmyk(0.0f, 0.56f, 1.0f, 0.18f));
+		brown->setRgbFromCmyk();
+		map.addColor(brown, 0);
+		for (auto number : { 101, 102 })
+		{
+			auto* line = new LineSymbol();
+			line->setNumberComponent(0, number);
+			line->setNumberComponent(1, 0);
+			line->setLineWidth(number == 101 ? 0.14 : 0.25);
+			line->setColor(brown);
+			map.addSymbol(line, map.getNumSymbols());
+		}
+		QVERIFY(saveMap(map, file("contour-template.foom")));
+	}
+	auto result = runJob("template.json", { stepOf("save-as", { { QStringLiteral("path"), QStringLiteral("run/Template.ocd") } }) }, "contour-template.foom", false);
 	QVERIFY2(result.exit_code == 0, result.err.constData());
 	auto const template_bytes = [&run_dir]() {
 		QFile ocd(run_dir.filePath(QStringLiteral("Template.ocd")));
@@ -764,8 +844,16 @@ void RunnerBackgroundTest::lidarScript()
 	auto const wizard = result.logOf("elevation-wizard");
 	auto const contour_count = wizard.value(QLatin1String("contours")).toInt();
 	QVERIFY2(contour_count >= 3, qPrintable(QString::number(contour_count)));
-	QVERIFY(wizard.value(QLatin1String("warnings")).toArray().at(0).toString().startsWith(QLatin1String("SymbolNumberTpiLevel1 ")));
-	QVERIFY(QFileInfo::exists(run_dir.filePath(QStringLiteral("5_CreateContourLines/Contours.ocd"))));
+	QVERIFY(wizard.value(QLatin1String("warnings")).toArray().isEmpty());
+	// On the symbol which the script names (no level of the plane is a multiple of 25 m), and no symbol of FOOM's own.
+	Map template_map;
+	QVERIFY(template_map.loadFrom(run_dir.filePath(QStringLiteral("Template.ocd"))));
+	Map contours_only;
+	QVERIFY(contours_only.loadFrom(run_dir.filePath(QStringLiteral("5_CreateContourLines/Contours.ocd"))));
+	QCOMPARE(contours_only.getNumObjects(), contour_count);
+	for (int i = 0; i < contour_count; ++i)
+		QCOMPARE(contours_only.getPart(0)->getObject(i)->getSymbol()->getNumberAsString(), QStringLiteral("101.0"));
+	QCOMPARE(contours_only.getNumSymbols(), template_map.getNumSymbols());
 	Map contour_map;
 	QVERIFY(contour_map.loadFrom(run_dir.filePath(QStringLiteral("6_ImportAllOcds/Contour Lines.ocd"))));
 	QCOMPARE(contour_map.getNumObjects(), contour_count);

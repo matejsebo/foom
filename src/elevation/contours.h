@@ -38,6 +38,20 @@ class Object;
 
 
 /**
+ * foom: The symbols which the lines of a set take instead of FOOM's own, by class
+ * (ContourLine::Class): the number of a line symbol of the map as its text
+ * ("101", "101.0"), or nothing for FOOM's own symbol of the class.
+ *
+ * See the design notes, "The symbols of a contour set".
+ */
+struct ContourSymbolChoice
+{
+	QString hill[3];
+	QString depression[3];
+};
+
+
+/**
  * Parameters of contour generation, see the design notes, "Contours".
  */
 struct ContourParams
@@ -53,6 +67,7 @@ struct ContourParams
 	int tile_size = 1000;           ///< Cells per tile side; lines are joined across tile edges.
 	double simplify_cells = 0.5;    ///< Simplification tolerance in cells (0: none).
 	double smooth_tolerance = 0.05; ///< Line smoothing tolerance for the smoothed set, mm on paper.
+	ContourSymbolChoice symbols;    ///< foom: The symbols chosen for the set; contourSymbols() of the params reads it.
 };
 
 
@@ -114,6 +129,23 @@ struct ContourSymbols
  * depressions.
  */
 ContourSymbols contourSymbols(Map& map, bool smoothed);
+
+/**
+ * foom: The symbols of the set of params: the map's line symbol of each number
+ * in params.symbols, and FOOM's own symbol (found or made as above) for a
+ * class without a number. A depression of a class without a number of its own
+ * takes the symbol chosen for the class.
+ *
+ * When a number is no line symbol's, error is set, the result has no symbols,
+ * and the map is unchanged.
+ */
+ContourSymbols contourSymbols(Map& map, const ContourParams& params, QString* error);
+
+/**
+ * foom: What is wrong with the numbers in params.symbols for this map, or
+ * nothing. Does not change the map.
+ */
+QString contourSymbolsError(const Map& map, const ContourParams& params);
 
 /** foom: The map's brown, which the contours take; made when the map has none. */
 const MapColor* contourBrown(Map& map);

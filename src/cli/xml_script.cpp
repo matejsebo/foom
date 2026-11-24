@@ -775,20 +775,32 @@ private:
 			return QString(QString::fromLatin1(before) + QLatin1String(infix) + after);
 		};
 		auto const made = flag(QLatin1String(made_field), node->child(made_field), false);
+		// A level: its interval and the numbers of its symbols as a map read from an OCD file shows them ("101.0").
+		struct Level
+		{
+			double interval;
+			QString symbol;
+			QString depression_symbol;
+		};
+		auto const symbolText = [](const Node* field) {
+			auto const number = qRound64(plainNumber(field));
+			return number > 0 ? QString(QString::number(number / 1000) + QLatin1Char('.') + QString::number(number % 1000)) : QString();
+		};
+		std::vector<Level> levels;
 		std::vector<double> intervals;
 		for (int level = 1; level <= 3; ++level)
 		{
 			auto const level_name = QString::fromLatin1("Level%1").arg(level);
 			auto const interval = plainNumber(node->child(name("Equidistance", level_name))) / 100.0;
-			if (interval > 0.0)
-				intervals.push_back(interval);
-			for (auto const* suffix : { "", "Depr" })
-			{
-				auto const symbol_name = name("SymbolNumber", level_name + QLatin1String(suffix));
-				auto const* symbol = node->child(symbol_name);
-				if (made && plainNumber(symbol) != 0.0)
-					noCounterpart(symbol_name, symbol, "FOOM draws contours with its own symbols, 10050 to 10052 and 10060 to 10062");
-			}
+			auto const symbol_name = name("SymbolNumber", level_name);
+			auto const* symbol = node->child(symbol_name);
+			auto const* depression_symbol = node->child(name("SymbolNumber", level_name + QLatin1String("Depr")));
+			if (!(interval > 0.0))
+				continue;
+			intervals.push_back(interval);
+			levels.push_back({ interval, symbolText(symbol), depressions ? symbolText(depression_symbol) : QString() });
+			if (made && symbol && levels.back().symbol.isEmpty())
+				noCounterpart(symbol_name, symbol, "no symbol: FOOM draws the lines of this level with its own contour symbol");
 		}
 		auto const original_name = name("Equidistance", QLatin1String("Original"));
 		auto const* original = node->child(original_name);
@@ -812,6 +824,27 @@ private:
 		auto const* curves = node->child("ConvertTpiContoursToBezier");
 		if (smoothed && curves)
 			set.insert(QLatin1String("curves"), flag(QLatin1String("ConvertTpiContoursToBezier"), curves, true));
+
+		// The symbols go with the intervals: the classes take the levels as the intervals above do.
+		std::stable_sort(levels.begin(), levels.end(), [](const Level& a, const Level& b) { return a.interval < b.interval; });
+		levels.erase(std::unique(levels.begin(), levels.end(), [](const Level& a, const Level& b) { return a.interval == b.interval; }), levels.end());
+		auto const count = levels.size();
+		const Level* const classes[3] = { &levels.front(), count == 3 ? &levels[1] : &levels.front(), &levels.back() };
+		QJsonObject symbols;
+		QJsonObject depression_symbols;
+		auto cls = 0;
+		for (auto const* member : { "smallest", "main", "index" })
+		{
+			if (!classes[cls]->symbol.isEmpty())
+				symbols.insert(QLatin1String(member), classes[cls]->symbol);
+			if (!classes[cls]->depression_symbol.isEmpty())
+				depression_symbols.insert(QLatin1String(member), classes[cls]->depression_symbol);
+			++cls;
+		}
+		if (!symbols.isEmpty())
+			set.insert(QLatin1String("symbols"), symbols);
+		if (!depression_symbols.isEmpty())
+			set.insert(QLatin1String("depression_symbols"), depression_symbols);
 		sets.append(set);
 		return true;
 	}

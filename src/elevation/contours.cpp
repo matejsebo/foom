@@ -616,6 +616,55 @@ const LineSymbol* findContourSymbol(const Map& map, int number, int variant)
 	return nullptr;
 }
 
+/// foom: A symbol number without its trailing ".0": 101.000 of an OCD file is "101.0" in the map read from it and "101" in FOOM's sets.
+QString plainSymbolNumber(QString number)
+{
+	while (number.endsWith(QLatin1String(".0")))
+		number.chop(2);
+	return number;
+}
+
+/**
+ * foom: The map's line symbol of the number: the one whose number is this text,
+ * or else the one whose number is the same without trailing ".0".
+ * When there is none, other is set if a symbol of another kind has the number.
+ */
+const LineSymbol* findSymbolByNumber(const Map& map, const QString& number, bool* other = nullptr)
+{
+	const LineSymbol* loose = nullptr;
+	auto const plain = plainSymbolNumber(number);
+	for (int i = 0; i < map.getNumSymbols(); ++i)
+	{
+		auto const* symbol = map.getSymbol(i);
+		auto const symbol_number = symbol->getNumberAsString();
+		auto const exact = symbol_number == number;
+		if (!exact && plainSymbolNumber(symbol_number) != plain)
+			continue;
+		if (symbol->getType() != Symbol::Line)
+		{
+			if (other)
+				*other = true;
+			continue;
+		}
+		if (exact)
+			return symbol->asLine();
+		if (!loose)
+			loose = symbol->asLine();
+	}
+	return loose;
+}
+
+struct OwnContourClass
+{
+	const char* name;
+	double width;
+	bool dashed;
+};
+OwnContourClass const own_contour_classes[3] = {
+    { "Form line", 0.1, true },
+    { "Contour", 0.14, false },
+    { "Index contour", 0.25, false } };
+
 const LineSymbol* makeContourSymbol(Map& map, int number, int variant, const QString& name, double width_mm, bool dashed)
 {
 	auto* symbol = new LineSymbol();
@@ -635,6 +684,20 @@ const LineSymbol* makeContourSymbol(Map& map, int number, int variant, const QSt
 	}
 	map.addSymbol(symbol, map.getNumSymbols());
 	return symbol;
+}
+
+/// foom: FOOM's own symbol of a class, found or made; variant 1 is the depression's.
+const LineSymbol* ownContourSymbol(Map& map, bool smoothed, int cls, int variant)
+{
+	auto const number = (smoothed ? 10060 : 10050) + cls;
+	if (auto const* symbol = findContourSymbol(map, number, variant))
+		return symbol;
+	QString name = QLatin1String(own_contour_classes[cls].name);
+	if (variant == 1)
+		name += QLatin1String(", depression");
+	if (smoothed)
+		name += QLatin1String(", smoothed");
+	return makeContourSymbol(map, number, variant, name, own_contour_classes[cls].width, own_contour_classes[cls].dashed);
 }
 
 }  // namespace
@@ -676,22 +739,55 @@ const MapColor* contourBrown(Map& map)
 
 ContourSymbols contourSymbols(Map& map, bool smoothed)
 {
-	auto const base = smoothed ? 10060 : 10050;
-	struct { const char* name; double width; bool dashed; } const classes[3] = {
-	    { "Form line", 0.1, true },
-	    { "Contour", 0.14, false },
-	    { "Index contour", 0.25, false } };
 	ContourSymbols symbols;
 	for (int cls = 0; cls < 3; ++cls)
 	{
-		auto const suffix = smoothed ? QLatin1String(", smoothed") : QLatin1String("");
-		auto const name = QLatin1String(classes[cls].name);
-		symbols.hill[cls] = findContourSymbol(map, base + cls, 0);
-		if (!symbols.hill[cls])
-			symbols.hill[cls] = makeContourSymbol(map, base + cls, 0, name + suffix, classes[cls].width, classes[cls].dashed);
-		symbols.depression[cls] = findContourSymbol(map, base + cls, 1);
-		if (!symbols.depression[cls])
-			symbols.depression[cls] = makeContourSymbol(map, base + cls, 1, name + QLatin1String(", depression") + suffix, classes[cls].width, classes[cls].dashed);
+		symbols.hill[cls] = ownContourSymbol(map, smoothed, cls, 0);
+		symbols.depression[cls] = ownContourSymbol(map, smoothed, cls, 1);
+	}
+	return symbols;
+}
+
+
+QString contourSymbolsError(const Map& map, const ContourParams& params)
+{
+	for (auto const* numbers : { params.symbols.hill, params.symbols.depression })
+	{
+		for (int cls = 0; cls < 3; ++cls)
+		{
+			auto const& number = numbers[cls];
+			auto other = false;
+			if (number.isEmpty() || findSymbolByNumber(map, number, &other))
+				continue;
+			return other ? ElevationModel::tr("The symbol %1 is not a line symbol.").arg(number)
+			             : ElevationModel::tr("The map has no line symbol %1.").arg(number);
+		}
+	}
+	return {};
+}
+
+
+ContourSymbols contourSymbols(Map& map, const ContourParams& params, QString* error)
+{
+	auto const message = contourSymbolsError(map, params);
+	if (!message.isEmpty())
+	{
+		if (error)
+			*error = message;
+		return {};
+	}
+	ContourSymbols symbols;
+	for (int cls = 0; cls < 3; ++cls)
+	{
+		auto const& hill = params.symbols.hill[cls];
+		auto const& depression = params.symbols.depression[cls];
+		symbols.hill[cls] = hill.isEmpty() ? ownContourSymbol(map, params.smoothed, cls, 0) : findSymbolByNumber(map, hill);
+		if (!depression.isEmpty())
+			symbols.depression[cls] = findSymbolByNumber(map, depression);
+		else if (!hill.isEmpty())
+			symbols.depression[cls] = symbols.hill[cls];
+		else
+			symbols.depression[cls] = ownContourSymbol(map, params.smoothed, cls, 1);
 	}
 	return symbols;
 }

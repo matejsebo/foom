@@ -107,6 +107,16 @@ ElevationWizardResult runElevationWizard(Map& map, const QString& map_path, cons
 	auto const landforms = job.effectiveLandforms();
 	auto const attach = job.attach;
 	QString error;
+	// foom: "The symbols of a contour set": a number which is no line symbol's fails before a file is read.
+	if (job.contours)
+	{
+		for (auto const& params : job.contour_sets)
+		{
+			error = contourSymbolsError(map, params);
+			if (!error.isEmpty())
+				return fail(error);
+		}
+	}
 
 	// 1. The grids.
 	if (job.source == ElevationWizardJob::Grid)
@@ -174,7 +184,11 @@ ElevationWizardResult runElevationWizard(Map& map, const QString& map_path, cons
 	{
 		for (auto const& params : job.contour_sets)
 		{
-			auto contours = makeContourObjects(map, *model, params, contourSymbols(map, params.smoothed));
+			error.clear();
+			auto const symbols = contourSymbols(map, params, &error);
+			if (!error.isEmpty())
+				return fail(error);
+			auto contours = makeContourObjects(map, *model, params, symbols);
 			if (!contours.error.isEmpty())
 				return fail(contours.error);
 			std::move(contours.objects.begin(), contours.objects.end(), std::back_inserter(objects));
@@ -479,7 +493,7 @@ bool elevationWizardJobFromJson(const QJsonObject& object, ElevationWizardJob* j
 			}
 			QString message;
 			Reader s(set.toObject(), QString::fromLatin1("\"contour_sets\": "), &message);
-			s.known({ "interval", "main_interval", "index_interval", "smoothed", "curves", "depressions" });
+			s.known({ "interval", "main_interval", "index_interval", "smoothed", "curves", "depressions", "symbols", "depression_symbols" });
 			ContourParams params;
 			s.boolean("smoothed", params.smoothed);
 			if (params.smoothed)
@@ -493,6 +507,26 @@ bool elevationWizardJobFromJson(const QJsonObject& object, ElevationWizardJob* j
 			s.number("index_interval", params.index_interval, 0.01, 10000.0);
 			s.boolean("curves", params.curves);
 			s.boolean("depressions", params.depression_symbols);
+			// "The symbols of a contour set": the number of a line symbol per class, as text or as a number.
+			auto const symbols = [&s](const char* name, QString* numbers) {
+				s.nested(name, [numbers](Reader& n) {
+					n.known({ "smallest", "main", "index" });
+					auto cls = 0;
+					for (auto const* member : { "smallest", "main", "index" })
+					{
+						auto const v = n.value(member);
+						if (v.isString() && !v.toString().trimmed().isEmpty())
+							numbers[cls] = v.toString().trimmed();
+						else if (v.isDouble())
+							numbers[cls] = QString::number(v.toDouble(), 'g', 10);
+						else if (!v.isUndefined())
+							n.fail(QString::fromLatin1("\"%1\" must be the number of a line symbol, as a text or a number").arg(QLatin1String(member)));
+						++cls;
+					}
+				});
+			};
+			symbols("symbols", params.symbols.hill);
+			symbols("depression_symbols", params.symbols.depression);
 			if (!s.ok())
 			{
 				r.fail(message);
