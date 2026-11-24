@@ -452,6 +452,7 @@ Features findFeatures(Map& map, const LandformParams& params)
 		cliff_params.threshold = params.cliff_threshold;
 		cliff_params.min_area = params.cliff_min_area;
 		cliff_params.min_length = params.cliff_min_length;
+		cliff_params.line_width = params.cliff_line_width;
 		cliffs = findCliffs(*model, cliff_params);
 	}
 	// the design notes, "Trees": from the surface less the terrain.
@@ -479,7 +480,9 @@ Features findFeatures(Map& map, const LandformParams& params)
 		features.objects = makeLandformObjects(map, landforms, landformSymbols(map));
 	if (!cliffs.empty())
 	{
-		auto cliff_objects = makeCliffObjects(map, cliffs, cliffSymbol(map));
+		auto const has_lines = std::any_of(cliffs.begin(), cliffs.end(), [](const CliffArea& cliff) { return cliff.isLine(); });
+		auto const has_areas = std::any_of(cliffs.begin(), cliffs.end(), [](const CliffArea& cliff) { return !cliff.isLine(); });
+		auto cliff_objects = makeCliffObjects(map, cliffs, has_areas ? cliffSymbol(map) : nullptr, has_lines ? cliffLineSymbol(map) : nullptr);
 		std::move(cliff_objects.begin(), cliff_objects.end(), std::back_inserter(features.objects));
 	}
 	if (!trees.empty())

@@ -377,7 +377,9 @@ QWidget* ElevationWizardDialog::makeSlopePage()
 	layout->addRow(cliffs_check);
 	area_edit = intSpin(1, 1000, landforms.cliff_min_area, tr(" pixels"));
 	layout->addRow(tr("Minimum area:"), area_edit);
+	area_edit->setToolTip(tr("Of the cliffs which are drawn as areas."));
 	length_edit = intSpin(1, 1000, landforms.cliff_min_length, tr(" pixels"));
+	length_edit->setToolTip(tr("Of the narrow cliffs, which are drawn as lines."));
 	layout->addRow(tr("Minimum length:"), length_edit);
 	connect(cliffs_check, &QCheckBox::toggled, this, &ElevationWizardDialog::updateEnabled);
 	return widget;

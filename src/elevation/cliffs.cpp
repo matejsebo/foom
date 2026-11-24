@@ -20,7 +20,9 @@
 #include "cliffs.h"
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <map>
 #include <numeric>
@@ -37,6 +39,7 @@
 #include "core/map_coord.h"
 #include "core/objects/object.h"
 #include "core/symbols/area_symbol.h"
+#include "core/symbols/line_symbol.h"
 #include "core/symbols/symbol.h"
 #include "elevation/elevation_model.h"
 
@@ -101,6 +104,167 @@ struct Edge
 	int u0, v0, u1, v1;
 	bool used = false;
 };
+
+
+/// Drops the points which lie within the tolerance of the line through their kept neighbours (Douglas and Peucker).
+std::vector<QPointF> simplified(const std::vector<QPointF>& points, double tolerance)
+{
+	if (points.size() < 3)
+		return points;
+	std::vector<bool> keep(points.size(), false);
+	keep.front() = true;
+	keep.back() = true;
+	std::vector<std::pair<std::size_t, std::size_t>> spans = { { 0, points.size() - 1 } };
+	while (!spans.empty())
+	{
+		auto const span = spans.back();
+		spans.pop_back();
+		auto const& a = points[span.first];
+		auto const& b = points[span.second];
+		auto const length = std::hypot(b.x() - a.x(), b.y() - a.y());
+		auto worst = tolerance;
+		auto at = span.first;
+		for (auto k = span.first + 1; k < span.second; ++k)
+		{
+			auto const& p = points[k];
+			auto const distance = length > 0.0
+			                      ? std::abs((b.x() - a.x()) * (p.y() - a.y()) - (b.y() - a.y()) * (p.x() - a.x())) / length
+			                      : std::hypot(p.x() - a.x(), p.y() - a.y());
+			if (distance > worst)
+			{
+				worst = distance;
+				at = k;
+			}
+		}
+		if (at != span.first)
+		{
+			keep[at] = true;
+			spans.emplace_back(span.first, at);
+			spans.emplace_back(at, span.second);
+		}
+	}
+	std::vector<QPointF> result;
+	for (std::size_t k = 0; k < points.size(); ++k)
+	{
+		if (keep[k])
+			result.push_back(points[k]);
+	}
+	return result;
+}
+
+
+/// The line along the middle of a narrow region, in corners (x eastwards, y southwards), and the region's length in cells.
+struct MiddleLine
+{
+	std::vector<QPointF> points;
+	double length = 0.0;
+};
+
+/// the design notes, "Cliff lines": no points when the region is to stay an area.
+MiddleLine middleLine(const std::vector<std::pair<int, int>>& pixels, double line_width)
+{
+	MiddleLine none;
+	if (pixels.size() < 2 || !(line_width > 0.0))
+		return none;
+	std::map<std::pair<int, int>, int> place;
+	for (std::size_t k = 0; k < pixels.size(); ++k)
+		place.emplace(pixels[k], int(k));
+	// The distance of every corner from one of them, through the region and its eight neighbours.
+	auto const distances = [&pixels, &place](int start) {
+		std::vector<int> distance(pixels.size(), -1);
+		std::vector<int> queue = { start };
+		distance[std::size_t(start)] = 0;
+		for (std::size_t head = 0; head < queue.size(); ++head)
+		{
+			auto const k = std::size_t(queue[head]);
+			for (int dj = -1; dj <= 1; ++dj)
+			{
+				for (int di = -1; di <= 1; ++di)
+				{
+					auto const it = place.find({ pixels[k].first + di, pixels[k].second + dj });
+					if (it != place.end() && distance[std::size_t(it->second)] < 0)
+					{
+						distance[std::size_t(it->second)] = distance[k] + 1;
+						queue.push_back(it->second);
+					}
+				}
+			}
+		}
+		return distance;
+	};
+	auto const from_first = distances(0);
+	auto const end = int(std::max_element(from_first.begin(), from_first.end()) - from_first.begin());
+	auto const distance = distances(end);
+	auto const last = *std::max_element(distance.begin(), distance.end());
+	if (last < 1)
+		return none;
+
+	// The groups of equal distance; the first two and the last two are taken together,
+	// which puts the line's ends on the middle of the region's ends.
+	struct Group
+	{
+		double x = 0.0;
+		double y = 0.0;
+		int count = 0;
+		int min_i = INT_MAX;
+		int max_i = INT_MIN;
+		int min_j = INT_MAX;
+		int max_j = INT_MIN;
+	};
+	auto const merged = last >= 3;
+	auto const group_of = [merged, last](int d) {
+		if (!merged)
+			return d;
+		return d <= 1 ? 0 : (d >= last - 1 ? last - 2 : d - 1);
+	};
+	std::vector<Group> groups(std::size_t(merged ? last - 1 : last + 1));
+	std::vector<Group> fronts(std::size_t(last + 1));
+	for (std::size_t k = 0; k < pixels.size(); ++k)
+	{
+		auto& group = groups[std::size_t(group_of(distance[k]))];
+		group.x += pixels[k].first;
+		group.y += pixels[k].second;
+		++group.count;
+		auto& front = fronts[std::size_t(distance[k])];
+		front.min_i = std::min(front.min_i, pixels[k].first);
+		front.max_i = std::max(front.max_i, pixels[k].first);
+		front.min_j = std::min(front.min_j, pixels[k].second);
+		front.max_j = std::max(front.max_j, pixels[k].second);
+	}
+	// A ring or a fork has corners of one distance far apart: no line.
+	for (auto const& front : fronts)
+	{
+		if (std::max(front.max_i - front.min_i, front.max_j - front.min_j) + 1 > 2 * line_width)
+			return none;
+	}
+	std::vector<QPointF> points;
+	for (auto const& group : groups)
+	{
+		if (group.count > 0)
+			points.emplace_back(group.x / group.count, group.y / group.count);
+	}
+	points = simplified(points, 0.5);
+	if (points.size() < 2)
+		return none;
+	// Half a cell more at each end: to the middle of the region's outermost corners.
+	if (merged)
+	{
+		auto const lengthen = [](const QPointF& from, QPointF& end) {
+			auto const length = std::hypot(end.x() - from.x(), end.y() - from.y());
+			if (length > 0.0)
+				end += (end - from) * (0.5 / length);
+		};
+		lengthen(points[1], points[0]);
+		lengthen(points[points.size() - 2], points[points.size() - 1]);
+	}
+	auto length = 1.0;
+	for (std::size_t k = 1; k < points.size(); ++k)
+		length += std::hypot(points[k].x() - points[k - 1].x(), points[k].y() - points[k - 1].y());
+	auto const width = double(pixels.size()) / length;
+	if (width > line_width || length < 2 * width)
+		return none;
+	return { std::move(points), length };
+}
 
 }  // namespace
 
@@ -245,7 +409,7 @@ CliffRaster cliffRaster(const ElevationModel& grid, double threshold)
 
 std::vector<CliffArea> cliffAreas(const CliffRaster& raster, const CliffParams& params)
 {
-	// the design notes, "Cliffs from the slope gradient".
+	// the design notes, "Cliffs from the slope gradient" and "Cliff lines".
 	std::vector<CliffArea> areas;
 	auto const width = raster.width;
 	auto const height = raster.height;
@@ -266,16 +430,11 @@ std::vector<CliffArea> cliffAreas(const CliffRaster& raster, const CliffParams& 
 			std::vector<std::pair<int, int>> pixels;
 			std::vector<std::pair<int, int>> stack = { { i0, j0 } };
 			component[index(i0, j0)] = label;
-			int min_i = i0, max_i = i0, min_j = j0, max_j = j0;
 			while (!stack.empty())
 			{
 				auto const p = stack.back();
 				stack.pop_back();
 				pixels.push_back(p);
-				min_i = std::min(min_i, p.first);
-				max_i = std::max(max_i, p.first);
-				min_j = std::min(min_j, p.second);
-				max_j = std::max(max_j, p.second);
 				for (int dj = -1; dj <= 1; ++dj)
 				{
 					for (int di = -1; di <= 1; ++di)
@@ -291,7 +450,21 @@ std::vector<CliffArea> cliffAreas(const CliffRaster& raster, const CliffParams& 
 				}
 			}
 			auto const this_label = label++;
-			if (int(pixels.size()) < params.min_area || std::max(max_i - min_i, max_j - min_j) + 1 < params.min_length)
+			// A narrow region is a line along its middle; the minimum length is of the lines
+			// and the minimum area of the areas.
+			auto middle = middleLine(pixels, params.line_width);
+			if (!middle.points.empty())
+			{
+				if (middle.length < params.min_length)
+					continue;
+				CliffArea cliff;
+				cliff.pixels = int(pixels.size());
+				for (auto const& point : middle.points)
+					cliff.line.emplace_back(raster.first.x() + point.x() * raster.cell, raster.first.y() - point.y() * raster.cell);
+				areas.push_back(std::move(cliff));
+				continue;
+			}
+			if (int(pixels.size()) < params.min_area)
 				continue;
 			
 			// The outline: the sides of the squares which no square of the component shares,
@@ -377,7 +550,31 @@ std::vector<CliffArea> cliffAreas(const CliffRaster& raster, const CliffParams& 
 
 std::vector<CliffArea> findCliffs(const ElevationModel& grid, const CliffParams& params)
 {
-	return cliffAreas(cliffRaster(grid, params.threshold), params);
+	auto cliffs = cliffAreas(cliffRaster(grid, params.threshold), params);
+	// Cliff lines run with the lower ground on their right.
+	auto const reach = 2 * grid.cellSize();
+	for (auto& cliff : cliffs)
+	{
+		auto balance = 0.0;
+		for (std::size_t k = 1; k < cliff.line.size(); ++k)
+		{
+			auto const& a = cliff.line[k - 1];
+			auto const& b = cliff.line[k];
+			auto const length = std::hypot(b.x() - a.x(), b.y() - a.y());
+			if (!(length > 0.0))
+				continue;
+			// Projected coordinates: x eastwards, y northwards.
+			QPointF const middle((a.x() + b.x()) / 2, (a.y() + b.y()) / 2);
+			QPointF const right((b.y() - a.y()) / length * reach, -(b.x() - a.x()) / length * reach);
+			auto const right_height = grid.at(middle + right);
+			auto const left_height = grid.at(middle - right);
+			if (!std::isnan(right_height) && !std::isnan(left_height))
+				balance += (right_height - left_height) * length;
+		}
+		if (balance > 0.0)
+			std::reverse(cliff.line.begin(), cliff.line.end());
+	}
+	return cliffs;
 }
 
 
@@ -401,14 +598,46 @@ const AreaSymbol* cliffSymbol(Map& map)
 }
 
 
-std::vector<std::unique_ptr<Object>> makeCliffObjects(const Map& map, const std::vector<CliffArea>& areas, const AreaSymbol* symbol)
+const LineSymbol* cliffLineSymbol(Map& map)
+{
+	for (int i = 0; i < map.getNumSymbols(); ++i)
+	{
+		auto const* symbol = map.getSymbol(i);
+		if (symbol->getType() == Symbol::Line
+		    && symbol->getNumberComponent(0) == 10082
+		    && symbol->getNumberComponent(1) <= 0)
+			return symbol->asLine();
+	}
+	auto* symbol = new LineSymbol();
+	symbol->setNumberComponent(0, 10082);
+	symbol->setNumberComponent(1, -1);
+	symbol->setName(QStringLiteral("Cliff from slope gradient (line)"));
+	symbol->setColor(blackColor(map));
+	symbol->setLineWidth(0.18);
+	map.addSymbol(symbol, map.getNumSymbols());
+	return symbol;
+}
+
+
+std::vector<std::unique_ptr<Object>> makeCliffObjects(const Map& map, const std::vector<CliffArea>& areas, const AreaSymbol* symbol, const LineSymbol* line_symbol)
 {
 	std::vector<std::unique_ptr<Object>> objects;
-	if (!symbol)
-		return objects;
 	auto const& georef = map.getGeoreferencing();
 	for (auto const& area : areas)
 	{
+		if (area.isLine())
+		{
+			if (!line_symbol)
+				continue;
+			auto line = std::make_unique<PathObject>(line_symbol);
+			for (auto const& point : area.line)
+				line->addCoordinate(MapCoord(georef.toMapCoordF(point)));
+			line->setTag(QStringLiteral("feature"), QStringLiteral("cliff"));
+			objects.push_back(std::move(line));
+			continue;
+		}
+		if (!symbol)
+			continue;
 		auto object = std::make_unique<PathObject>(symbol);
 		for (auto const& ring : area.rings)
 		{

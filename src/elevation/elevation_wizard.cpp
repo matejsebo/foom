@@ -514,7 +514,7 @@ bool elevationWizardJobFromJson(const QJsonObject& object, ElevationWizardJob* j
 		h.number("cell", result.hill_shade.cell_size, 0.0, 1000.0);
 	});
 	r.nested("slope_gradient", [&result](Reader& s) {
-		s.known({ "binary", "threshold", "darkest", "cell", "cliffs", "min_area", "min_length" });
+		s.known({ "binary", "threshold", "darkest", "cell", "cliffs", "min_area", "min_length", "line_width" });
 		s.number("darkest", result.slope_params.darkest, 0.0, 1.0);
 		s.boolean("binary", result.slope_params.binary);
 		s.number("threshold", result.slope_params.threshold_deg, 1.0, 89.0);
@@ -522,6 +522,7 @@ bool elevationWizardJobFromJson(const QJsonObject& object, ElevationWizardJob* j
 		s.boolean("cliffs", result.landforms.cliffs);
 		s.integer("min_area", result.landforms.cliff_min_area, 1, 1000);
 		s.integer("min_length", result.landforms.cliff_min_length, 1, 1000);
+		s.number("line_width", result.landforms.cliff_line_width, 0.0, 100.0);
 	});
 	r.nested("hypsometric_map", [&result](Reader& h) {
 		h.known({ "ramp", "interval", "white_at_zero" });

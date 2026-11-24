@@ -2052,6 +2052,24 @@ void ToolsTest::demCliffs()
 	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 1);
 	QVERIFY(map.map->undoManager().undo());
 	QCOMPARE(map.map->getNumObjects(), objects);
+
+	// "Cliff lines", Accept (7): a step of 8 m across the grid is one line of symbol 10082.
+	std::vector<float> step(40 * 40, 100.0f);
+	for (int row = 0; row < 40; ++row)
+	{
+		for (int col = 20; col < 40; ++col)
+			step[std::size_t(row) * 40 + std::size_t(col)] = 108.0f;
+	}
+	map.map->elevationSet().setModel(ElevationSet::Terrain, std::make_unique<ElevationModel>(40, 40, QPointF(0.0, 40.0), 1.0, std::move(step)), QStringLiteral("step.asc"));
+	QCOMPARE(editor.editor->extractLandforms(params), 1);
+	QCOMPARE(map.map->getNumObjects(), objects + 1);
+	QCOMPARE(map.map->undoManager().undoStepCount(), undo_steps + 1);
+	auto const* part = map.map->getCurrentPart();
+	auto const* line = part->getObject(part->getNumObjects() - 1);
+	QVERIFY(line->getSymbol());
+	QCOMPARE(line->getSymbol()->getNumberComponent(0), 10082);
+	QCOMPARE(line->getSymbol()->getType(), Symbol::Line);
+	QVERIFY(!line->asPath()->parts().front().isClosed());
 }
 
 

@@ -319,6 +319,7 @@ private slots:
 		QVERIFY(!job.landforms.cliffs);
 		QCOMPARE(job.landforms.cliff_min_area, 3);
 		QCOMPARE(job.landforms.cliff_min_length, 3);
+		QCOMPARE(job.landforms.cliff_line_width, 3.0);
 		QVERIFY(job.landforms.knolls && job.landforms.depressions && !job.landforms.trees);
 		QCOMPARE(job.landforms.min_height, 1.0);
 		QCOMPARE(job.landforms.min_depth, 1.0);

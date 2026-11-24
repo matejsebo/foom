@@ -357,6 +357,8 @@ LandformDialog::LandformDialog(QWidget* parent)
 	};
 	area_edit = makeCount(defaults.cliff_min_area);
 	length_edit = makeCount(defaults.cliff_min_length);
+	area_edit->setToolTip(tr("Of the cliffs which are drawn as areas."));
+	length_edit->setToolTip(tr("Of the narrow cliffs, which are drawn as lines."));
 	for (auto* widget : std::initializer_list<QWidget*>{ threshold_edit, area_edit, length_edit })
 	{
 		widget->setEnabled(defaults.cliffs);

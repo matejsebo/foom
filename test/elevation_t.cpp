@@ -1292,6 +1292,7 @@ private slots:
 			return false;
 		};
 		CliffParams params;
+		params.line_width = 0.0;  // areas only, as built on 2026-11-20
 		auto const areas = findCliffs(*grid, params);
 		QVERIFY(!areas.empty());
 		// The 4.5 m step: its west edge at x = 270 and its north and south edges at y = 20 and 60.
@@ -1340,17 +1341,179 @@ private slots:
 		CliffParams params;
 		QVERIFY(cliffAreas(raster, params).empty());
 		params.min_area = 1;
-		params.min_length = 1;
 		auto const one = cliffAreas(raster, params);
 		QCOMPARE(int(one.size()), 1);
 		QCOMPARE(one.front().pixels, 1);
+		QVERIFY(!one.front().isLine());
 		QCOMPARE(int(one.front().rings.size()), 1);
 		QCOMPARE(int(one.front().rings.front().size()), 4);
+		// Two corners in a row are a line of two cells ("Cliff lines", Accept (3)): the minimum length is asked of
+		// them, not the minimum area; with areas only it is the other way round.
 		raster.state[45] = CliffRaster::Cliff;
-		params.min_length = 3;
-		QVERIFY(cliffAreas(raster, params).empty());
+		params.min_area = 100;
 		params.min_length = 2;
 		QCOMPARE(int(cliffAreas(raster, params).size()), 1);
+		QVERIFY(cliffAreas(raster, params).front().isLine());
+		params.min_length = 3;
+		QVERIFY(cliffAreas(raster, params).empty());
+		params.line_width = 0.0;
+		params.min_area = 2;
+		params.min_length = 12;
+		QCOMPARE(int(cliffAreas(raster, params).size()), 1);
+		QVERIFY(!cliffAreas(raster, params).front().isLine());
+		params.min_area = 3;
+		QVERIFY(cliffAreas(raster, params).empty());
+	}
+
+	/// the design notes, "Cliff lines", Accept (1) to (4).
+	void cliffLines()
+	{
+		auto const blank = [](int width, int height) {
+			CliffRaster raster;
+			raster.width = width;
+			raster.height = height;
+			raster.first = QPointF(1000.0, 2000.0);
+			raster.gradient.assign(std::size_t(width) * std::size_t(height), 0.0f);
+			raster.state.assign(std::size_t(width) * std::size_t(height), CliffRaster::Flat);
+			return raster;
+		};
+		auto const set = [](CliffRaster& raster, int i0, int j0, int i1, int j1) {
+			for (int j = j0; j <= j1; ++j)
+				for (int i = i0; i <= i1; ++i)
+					raster.state[std::size_t(j) * std::size_t(raster.width) + std::size_t(i)] = CliffRaster::Cliff;
+		};
+		CliffParams params;
+		QCOMPARE(params.line_width, 3.0);
+
+		// (1) A strip of 2 by 8 corners: a line along its middle, from end to end.
+		auto strip = blank(40, 40);
+		set(strip, 10, 20, 17, 21);
+		auto cliffs = cliffAreas(strip, params);
+		QCOMPARE(int(cliffs.size()), 1);
+		QVERIFY(cliffs.front().isLine());
+		QVERIFY(cliffs.front().rings.empty());
+		QCOMPARE(cliffs.front().pixels, 16);
+		QCOMPARE(int(cliffs.front().line.size()), 2);
+		{
+			auto a = cliffs.front().line.front();
+			auto b = cliffs.front().line.back();
+			if (a.x() > b.x())
+				std::swap(a, b);
+			QVERIFY2(std::abs(a.x() - 1010.0) < 0.01 && std::abs(b.x() - 1017.0) < 0.01, qPrintable(QStringLiteral("%1 %2").arg(a.x()).arg(b.x())));
+			QVERIFY2(std::abs(a.y() - 1979.5) < 0.01 && std::abs(b.y() - 1979.5) < 0.01, qPrintable(QStringLiteral("%1 %2").arg(a.y()).arg(b.y())));
+		}
+		// A strip one corner wide which turns a right angle: 8 corners east, then 6 south.
+		auto bent = blank(40, 40);
+		set(bent, 5, 5, 12, 5);
+		set(bent, 12, 6, 12, 11);
+		cliffs = cliffAreas(bent, params);
+		QCOMPARE(int(cliffs.size()), 1);
+		QVERIFY(cliffs.front().isLine());
+		{
+			auto const& line = cliffs.front().line;
+			auto length = 1.0;
+			auto turn = 1e9;
+			for (std::size_t k = 0; k < line.size(); ++k)
+			{
+				if (k > 0)
+					length += std::hypot(line[k].x() - line[k - 1].x(), line[k].y() - line[k - 1].y());
+				turn = std::min(turn, std::hypot(line[k].x() - 1012.0, line[k].y() - 1995.0));
+				// No vertex far from the region: from a corner of the row or of the column.
+				auto const to_row = std::hypot(line[k].x() - qBound(1005.0, line[k].x(), 1012.0), line[k].y() - 1995.0);
+				auto const to_column = std::hypot(line[k].x() - 1012.0, line[k].y() - qBound(1989.0, line[k].y(), 1995.0));
+				QVERIFY2(std::min(to_row, to_column) <= 0.75, qPrintable(QStringLiteral("%1 %2").arg(line[k].x()).arg(line[k].y())));
+			}
+			QVERIFY2(std::abs(length - 14.0) < 0.6, qPrintable(QString::number(length)));
+			QVERIFY2(turn <= 0.75, qPrintable(QString::number(turn)));
+		}
+
+		// (2) Blocks and a ring are areas.
+		auto block = blank(40, 40);
+		set(block, 10, 10, 14, 15);
+		cliffs = cliffAreas(block, params);
+		QCOMPARE(int(cliffs.size()), 1);
+		QVERIFY(!cliffs.front().isLine());
+		QCOMPARE(cliffs.front().pixels, 30);
+		auto small = blank(40, 40);
+		set(small, 10, 10, 12, 12);
+		cliffs = cliffAreas(small, params);
+		QCOMPARE(int(cliffs.size()), 1);
+		QVERIFY(!cliffs.front().isLine());
+		auto ring = blank(40, 40);
+		set(ring, 10, 10, 21, 21);
+		for (int j = 12; j <= 19; ++j)
+			for (int i = 12; i <= 19; ++i)
+				ring.state[std::size_t(j) * 40 + std::size_t(i)] = CliffRaster::Flat;
+		cliffs = cliffAreas(ring, params);
+		QCOMPARE(int(cliffs.size()), 1);
+		QVERIFY(!cliffs.front().isLine());
+		QCOMPARE(int(cliffs.front().rings.size()), 2);
+
+		// (3) Each minimum is of its own kind.
+		auto both = blank(40, 40);
+		set(both, 10, 20, 17, 21);
+		set(both, 25, 5, 29, 10);
+		auto const kinds = [&both](const CliffParams& p) {
+			auto lines = 0, areas = 0;
+			for (auto const& cliff : cliffAreas(both, p))
+				++(cliff.isLine() ? lines : areas);
+			return std::make_pair(lines, areas);
+		};
+		QCOMPARE(kinds(params), std::make_pair(1, 1));
+		auto longer = params;
+		longer.min_length = 12;
+		QCOMPARE(kinds(longer), std::make_pair(0, 1));
+		auto larger = params;
+		larger.min_area = 40;
+		QCOMPARE(kinds(larger), std::make_pair(1, 0));
+		auto areas_only = longer;
+		areas_only.line_width = 0.0;
+		QCOMPARE(kinds(areas_only), std::make_pair(0, 2));
+
+		// (4) The lower ground is on the line's right: a step of 8 m across a grid of 50 cells.
+		for (auto const low_south : { true, false })
+		{
+			auto const grid = makeGrid(50, 40, 500000.0, 5000040.0, 1.0, [low_south](double, double y) {
+				return 100.0 + ((y > 5000020.0) == low_south ? 8.0 : 0.0);
+			});
+			auto const found = findCliffs(*grid, params);
+			auto lines = 0;
+			for (auto const& cliff : found)
+			{
+				if (!cliff.isLine() || std::abs(cliff.line.front().y() - 5000020.0) > 2.0 || std::abs(cliff.line.back().y() - 5000020.0) > 2.0)
+					continue;
+				++lines;
+				QVERIFY(std::abs(cliff.line.back().x() - cliff.line.front().x()) > 20.0);
+				QCOMPARE(cliff.line.back().x() > cliff.line.front().x(), low_south);
+			}
+			QCOMPARE(lines, 1);
+		}
+	}
+
+	/// "Cliff lines", Accept (5): the fixture of make_cliffs.py with the defaults.
+	void cliffLinesOfFixture()
+	{
+		auto const grid = cliffsGrid();
+		auto const cliffs = findCliffs(*grid, CliffParams());
+		auto lines = 0, areas = 0;
+		auto step_edge = 0.0;
+		for (auto const& cliff : cliffs)
+		{
+			QVERIFY(cliff.isLine() == cliff.rings.empty());
+			++(cliff.isLine() ? lines : areas);
+			if (!cliff.isLine())
+				continue;
+			// The west edge of the 4.5 m step: x = 270, y = 20 to 60 from the grid's north-west corner.
+			auto length = 0.0;
+			for (std::size_t k = 1; k < cliff.line.size(); ++k)
+			{
+				if (std::abs(cliff.line[k].x() - 966270.0) < 2.0 && std::abs(cliff.line[k - 1].x() - 966270.0) < 2.0)
+					length += std::abs(cliff.line[k].y() - cliff.line[k - 1].y());
+			}
+			step_edge = std::max(step_edge, length);
+		}
+		QVERIFY2(lines > 0 && areas > 0, qPrintable(QStringLiteral("%1 lines, %2 areas").arg(lines).arg(areas)));
+		QVERIFY2(step_edge > 30.0, qPrintable(QString::number(step_edge)));
 	}
 
 	void cliffObjects()
@@ -1380,6 +1543,27 @@ private slots:
 		auto const actual = MapCoordF(coords[1]);
 		QVERIFY(std::abs(actual.x() - expected.x()) < 0.001 && std::abs(actual.y() - expected.y()) < 0.001);
 		QCOMPARE(tagValue(objects[0].get(), "feature"), QStringLiteral("cliff"));
+
+		// "Cliff lines", Accept (6).
+		auto const* line_symbol = cliffLineSymbol(map);
+		QVERIFY(line_symbol);
+		QCOMPARE(line_symbol->getNumberComponent(0), 10082);
+		QCOMPARE(line_symbol->getType(), Symbol::Line);
+		auto const with_line = map.getNumSymbols();
+		QCOMPARE(cliffLineSymbol(map), line_symbol);
+		QCOMPARE(map.getNumSymbols(), with_line);
+		CliffArea narrow;
+		narrow.line = { QPointF(500000.0, 5000000.0), QPointF(500010.0, 5000000.0), QPointF(500010.0, 4999990.0) };
+		narrow.pixels = 20;
+		QCOMPARE(int(makeCliffObjects(map, { area, narrow }, symbol).size()), 1);
+		auto const mixed = makeCliffObjects(map, { area, narrow }, symbol, line_symbol);
+		QCOMPARE(int(mixed.size()), 2);
+		QCOMPARE(mixed[1]->getSymbol(), static_cast<const Symbol*>(line_symbol));
+		QCOMPARE(mixed[1]->getType(), Object::Path);
+		auto const* path = mixed[1]->asPath();
+		QCOMPARE(int(path->getCoordinateCount()), 3);
+		QVERIFY(!path->parts().front().isClosed());
+		QCOMPARE(tagValue(mixed[1].get(), "feature"), QStringLiteral("cliff"));
 	}
 
 	void treeCases()

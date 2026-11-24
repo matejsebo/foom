@@ -30,6 +30,7 @@ namespace OpenOrienteering {
 
 class AreaSymbol;
 class ElevationModel;
+class LineSymbol;
 class Map;
 class Object;
 
@@ -42,8 +43,10 @@ class Object;
 struct CliffParams
 {
 	double threshold = 45.0;      ///< The slope threshold, degrees.
-	int min_area = 3;             ///< Corners of a component, at least.
-	int min_length = 3;           ///< The longer side of a component's bounding box, in corners, at least.
+	int min_area = 3;             ///< Corners of a region which is drawn as an area, at least.
+	int min_length = 3;           ///< The length, in cells, of a region which is drawn as a line, at least.
+	/// Regions at most this wide, in cells, and at least twice as long become lines along their middle; 0 for areas only.
+	double line_width = 3.0;
 };
 
 
@@ -67,13 +70,19 @@ struct CliffRaster
 
 
 /**
- * A cliff area: rings in projected coordinates, outlines and holes, and the
- * number of corners whose squares it covers.
+ * A cliff. An area has rings in projected coordinates, outlines and holes;
+ * a narrow region has a line along its middle instead, and no rings.
+ * Both have the number of corners whose squares the region covers.
+ *
+ * See the design notes, "Cliff lines".
  */
 struct CliffArea
 {
 	std::vector<std::vector<QPointF>> rings;
+	std::vector<QPointF> line;
 	int pixels = 0;
+
+	bool isLine() const { return !line.empty(); }
 };
 
 
@@ -89,17 +98,21 @@ double cliffGradient(double threshold);
 /// The gradient at every interior corner of the filtered grid, and whether it is steep or in a cliff region.
 CliffRaster cliffRaster(const ElevationModel& grid, double threshold);
 
-/// The areas of the components of cliff corners which pass the minimums.
+/// The areas and lines of the regions of cliff corners which pass the minimum of their kind.
 std::vector<CliffArea> cliffAreas(const CliffRaster& raster, const CliffParams& params);
 
-/// cliffAreas() of cliffRaster().
+/// cliffAreas() of cliffRaster(), the lines turned so that the lower ground is on their right.
 std::vector<CliffArea> findCliffs(const ElevationModel& grid, const CliffParams& params);
 
 /// Finds the area symbol 10080, or makes it in the map's black.
 const AreaSymbol* cliffSymbol(Map& map);
 
-/// Area objects of the cliffs in the map's coordinates, with the tag feature = cliff.
-std::vector<std::unique_ptr<Object>> makeCliffObjects(const Map& map, const std::vector<CliffArea>& areas, const AreaSymbol* symbol);
+/// Finds the line symbol 10082, or makes it in the map's black, 0.18 mm wide.
+const LineSymbol* cliffLineSymbol(Map& map);
+
+/// Objects of the cliffs in the map's coordinates, areas and open paths, with the tag feature = cliff.
+/// A cliff whose symbol is missing is left out.
+std::vector<std::unique_ptr<Object>> makeCliffObjects(const Map& map, const std::vector<CliffArea>& cliffs, const AreaSymbol* symbol, const LineSymbol* line_symbol = nullptr);
 
 
 }  // namespace OpenOrienteering

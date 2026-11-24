@@ -47,8 +47,9 @@ struct LandformParams
 	double max_area = 2000.0;     ///< m2: the widest region about a summit or pit in which its height or depth must be reached.
 	bool cliffs = false;          ///< Also cliffs from the slope gradient, see cliffs.h (MapEditorController::extractLandforms).
 	double cliff_threshold = 45.0; ///< The slope threshold, degrees.
-	int cliff_min_area = 3;       ///< Pixels.
-	int cliff_min_length = 3;     ///< Pixels.
+	int cliff_min_area = 3;       ///< Pixels, of the cliffs drawn as areas.
+	int cliff_min_length = 3;     ///< Pixels, of the cliffs drawn as lines.
+	double cliff_line_width = 3.0; ///< Pixels: narrower regions are drawn as lines; 0 for areas only (CliffParams::line_width).
 	bool trees = false;           ///< Also trees from the vegetation heights, see trees.h (MapEditorController::extractLandforms).
 	double tree_min_height = 4.0; ///< m.
 };
