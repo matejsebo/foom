@@ -349,6 +349,19 @@ Template* attachProductTemplate(Map& map, const QString& path, QString* error)
 		temp->placeByExtent(grid->extent());
 	temp->setTemplateState(Template::Loaded);  // a new template starts in the Configuring state
 	auto* result = temp.get();
+	// A product written a second time takes the place of its template (seen twice in the list on 2026-11-23).
+	auto const file = QFileInfo(path);
+	for (int i = 0; i < map.getNumTemplates(); ++i)
+	{
+		if (QFileInfo(map.getTemplate(i)->getTemplatePath()) == file)
+		{
+			map.setTemplateAreaDirty(i);
+			map.deleteTemplate(i);
+			map.addTemplate(i, std::move(temp));
+			map.setTemplateAreaDirty(i);
+			return result;
+		}
+	}
 	map.addTemplate(-1, std::move(temp));
 	return result;
 }
@@ -562,7 +575,36 @@ RasterProduct hypsometricRaster(const ElevationModel& grid, const HypsometricPar
 	auto const black = qRgb(0, 0, 0);
 	auto const white = qRgb(255, 255, 255);
 	std::vector<QRgb> stops;   // from low to high
-	switch (params.ramp)
+	if (params.legacy)
+	{
+		// The colours at t = 0, 0.25, 0.5, 0.75 and 1 (0, 0.5 and 1 for the two of two colours).
+		switch (params.ramp)
+		{
+		case HypsometricParams::RedGreenBlue:
+			stops = { qRgb(0, 0, 255), qRgb(0, 255, 255), qRgb(0, 255, 0), qRgb(255, 255, 0), qRgb(255, 0, 0) };
+			break;
+		case HypsometricParams::RedYellowGreen:
+			stops = { qRgb(26, 150, 65), qRgb(166, 217, 106), qRgb(255, 255, 191), qRgb(253, 174, 97), qRgb(215, 25, 28) };
+			break;
+		case HypsometricParams::RedYellowBlue:
+			stops = { qRgb(44, 123, 182), qRgb(171, 217, 233), qRgb(255, 255, 191), qRgb(253, 174, 97), qRgb(215, 25, 28) };
+			break;
+		case HypsometricParams::BrownYellowGreen:
+			stops = { qRgb(0, 117, 39), qRgb(86, 185, 30), qRgb(255, 226, 54), qRgb(255, 178, 0), qRgb(166, 122, 83) };
+			break;
+		case HypsometricParams::BrownYellow:
+			stops = { qRgb(255, 255, 190), qRgb(211, 189, 137), qRgb(166, 122, 83) };
+			break;
+		case HypsometricParams::RedYellow:
+			stops = { qRgb(255, 255, 191), qRgb(235, 140, 110), qRgb(215, 25, 28) };
+			break;
+		case HypsometricParams::Greyscale:
+		case HypsometricParams::GreyscaleInterval:
+			stops = { black, white };
+			break;
+		}
+	}
+	else switch (params.ramp)
 	{
 	case HypsometricParams::RedGreenBlue:     stops = { blue, green, red }; break;
 	case HypsometricParams::RedYellowGreen:   stops = { green, yellow, red }; break;
@@ -585,8 +627,13 @@ RasterProduct hypsometricRaster(const ElevationModel& grid, const HypsometricPar
 		return mix(stops[k], stops[k + 1], t - double(k));
 	};
 	auto const info = grid.info();
-	auto const range = info.maximum - info.minimum;
+	auto const lowest = std::isnan(params.range_from) ? info.minimum : params.range_from;
+	auto const highest = std::isnan(params.range_to) ? info.maximum : params.range_to;
+	auto const range = highest - lowest;
 	auto const interval = params.interval > 0.0 ? params.interval : 100.0;
+	// Legacy mode: the intervals which the heights touch, counted from multiples of the interval.
+	auto const first_band = std::floor(lowest / interval);
+	auto const bands = std::floor(highest / interval) - first_band + 1.0;
 	
 	RasterProduct product;
 	product.image = QImage(grid.width(), grid.height(), QImage::Format_RGB32);
@@ -600,10 +647,12 @@ RasterProduct hypsometricRaster(const ElevationModel& grid, const HypsometricPar
 				line[col] = black;
 			else if (params.white_at_zero && z == 0.0)
 				line[col] = white;
+			else if (params.ramp == HypsometricParams::GreyscaleInterval && params.legacy)
+				line[col] = colour(bands > 0.0 ? (std::floor(z / interval) - first_band) / bands : 0.0);
 			else if (params.ramp == HypsometricParams::GreyscaleInterval)
 				line[col] = colour((z - std::floor(z / interval) * interval) / interval);
 			else
-				line[col] = colour(range > 0.0 ? (z - info.minimum) / range : 0.0);
+				line[col] = colour(range > 0.0 ? (z - lowest) / range : 0.0);
 		}
 	}
 	product.extent = grid.extent();

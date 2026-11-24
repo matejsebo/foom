@@ -687,7 +687,7 @@ SlopeDialog::SlopeDialog(double cell_size, QWidget* parent)
 {
 	setWindowTitle(tr("Slope gradient"));
 	SlopeParams const defaults;
-	continuous_button = new QRadioButton(tr("Continuous: grey up to the threshold, black above"));
+	continuous_button = new QRadioButton(tr("Continuous: from white to dark grey at the threshold and above"));
 	binary_button = new QRadioButton(tr("Black and white: white below the threshold, black above"));
 	(defaults.binary ? binary_button : continuous_button)->setChecked(true);
 	threshold_edit = new QDoubleSpinBox();
@@ -763,6 +763,9 @@ HypsometricDialog::HypsometricDialog(QWidget* parent)
 	update();
 	zero_check = new QCheckBox(tr("White at elevation 0"));
 	zero_check->setChecked(defaults.white_at_zero);
+	legacy_check = new QCheckBox(tr("Legacy mode (other colours)"));
+	legacy_check->setObjectName(QStringLiteral("hypsometric_legacy_check"));
+	legacy_check->setChecked(defaults.legacy);
 	attach_check = new QCheckBox(tr("Attach as template"));
 	attach_check->setChecked(true);
 	
@@ -770,6 +773,7 @@ HypsometricDialog::HypsometricDialog(QWidget* parent)
 	layout->addRow(tr("Colours:"), ramp_combo);
 	layout->addRow(tr("Interval:"), interval_edit);
 	layout->addRow(zero_check);
+	layout->addRow(legacy_check);
 	layout->addRow(attach_check);
 	auto* main_layout = new QVBoxLayout(this);
 	main_layout->addLayout(layout);
@@ -784,6 +788,7 @@ HypsometricParams HypsometricDialog::params() const
 	params.ramp = HypsometricParams::Ramp(ramp_combo->currentData().toInt());
 	params.interval = interval_edit->value();
 	params.white_at_zero = zero_check->isChecked();
+	params.legacy = legacy_check->isChecked();
 	return params;
 }
 

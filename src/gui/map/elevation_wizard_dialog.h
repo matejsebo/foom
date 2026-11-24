@@ -184,6 +184,7 @@ private:
 	QComboBox* ramp_combo;
 	QDoubleSpinBox* interval_edit;
 	QCheckBox* zero_check;
+	QCheckBox* hypsometric_legacy_check;
 
 	// Features
 	QCheckBox* knolls_check;

@@ -336,6 +336,16 @@ QWidget* ElevationWizardDialog::makeHillShadePage()
 	hill_corners_check = named(new QCheckBox(tr("Gradient on cell corners (legacy mode)")), "hill_corners_check");
 	hill_corners_check->setChecked(defaults.gradient == GradientMethod::Corners);
 	layout->addRow(hill_corners_check);
+	// As Elevation > Hill shading: no azimuth for the four lights (seen enabled on 2026-11-23), no light for slope shading.
+	auto update_enabled = [this]() {
+		auto const directional = method_combo->currentData().toInt() != int(HillShadeParams::SlopeShading);
+		multi_check->setEnabled(directional);
+		azimuth_edit->setEnabled(directional && !multi_check->isChecked());
+		elevation_edit->setEnabled(directional);
+	};
+	connect(method_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, update_enabled);
+	connect(multi_check, &QCheckBox::toggled, this, update_enabled);
+	update_enabled();
 	return widget;
 }
 
@@ -397,6 +407,9 @@ QWidget* ElevationWizardDialog::makeHypsometricPage()
 	zero_check = new QCheckBox(tr("White at elevation 0"));
 	zero_check->setChecked(defaults.white_at_zero);
 	layout->addRow(zero_check);
+	hypsometric_legacy_check = named(new QCheckBox(tr("Legacy mode (other colours)")), "hypsometric_legacy_check");
+	hypsometric_legacy_check->setChecked(defaults.legacy);
+	layout->addRow(hypsometric_legacy_check);
 	connect(ramp_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ElevationWizardDialog::updateEnabled);
 	return widget;
 }
@@ -802,6 +815,7 @@ ElevationWizardJob ElevationWizardDialog::job() const
 	job.hypsometric_params.ramp = HypsometricParams::Ramp(ramp_combo->currentData().toInt());
 	job.hypsometric_params.interval = interval_edit->value();
 	job.hypsometric_params.white_at_zero = zero_check->isChecked();
+	job.hypsometric_params.legacy = hypsometric_legacy_check->isChecked();
 
 	job.features = features_check->isChecked();
 	job.landforms.knolls = knolls_check->isChecked();

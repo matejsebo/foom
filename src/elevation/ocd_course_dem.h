@@ -40,10 +40,11 @@ constexpr int ocd_dem_string_type = 1045;
  *
  * One zlib stream of "CS_DEM", a 16-bit version, twelve 32-bit integers
  * (columns, rows, x of the first and the last cell centre, y of the south and
- * the north one, the lowest and the highest height, the cell size, the base
- * height, the height step, the cell size again; all in centimetres) and 16
- * bits a cell, rows from the north: the height above the base in steps, 0xFFFF
- * for a void cell.
+ * the north one, the lowest and the highest height, the number of height
+ * units in a metre, the base height, a 1, and the cell size; the coordinates
+ * and the cell size in centimetres, the heights in height units, of which
+ * a metre has 100) and 16 bits a cell, rows from the north: the
+ * height above the base in height units, 0xFFFF for a void cell.
  *
  * See the design notes, "The embedded DEM in OCD files".
  */

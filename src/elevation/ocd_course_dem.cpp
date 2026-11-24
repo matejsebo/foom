@@ -56,6 +56,9 @@ qint32 centimetres(double metres)
 	return qint32(std::llround(metres * 100.0));
 }
 
+/// The height unit of the block is the centimetre.
+constexpr qint32 ocd_units_per_metre = 100;
+
 }  // namespace
 
 
@@ -64,10 +67,14 @@ QByteArray encodeOcdCourseDem(const ElevationModel& grid)
 {
 	auto const info = grid.info();
 	auto const all_void = std::isnan(info.minimum);
-	auto const lowest = all_void ? qint32(0) : centimetres(info.minimum);
-	auto const highest = all_void ? qint32(0) : centimetres(info.maximum);
-	// One centimetre a step while the heights fit into 16 bits; a coarser step for higher ground.
-	auto const step = qint32(std::max<qint64>(1, (qint64(highest) - lowest + largest_value - 1) / largest_value));
+	// Centimetres while the heights fit into 16 bits; fewer units in a metre for higher ground.
+	// (The heights of the header are divided by the ninth field, and the twelfth is the cell size;
+	// both are 100 in blocks of 1 m cells.)
+	auto units = ocd_units_per_metre;
+	if (!all_void && (info.maximum - info.minimum) * units > double(largest_value))
+		units = qint32(std::max(1.0, std::floor(double(largest_value) / (info.maximum - info.minimum))));
+	auto const lowest = all_void ? qint32(0) : qint32(std::llround(info.minimum * units));
+	auto const highest = all_void ? qint32(0) : qint32(std::llround(info.maximum * units));
 	auto const extent = grid.extent();
 	auto const cell = grid.cellSize();
 	auto const width = grid.width();
@@ -81,7 +88,7 @@ QByteArray encodeOcdCourseDem(const ElevationModel& grid)
 	    width, height,
 	    centimetres(extent.left() + cell / 2), centimetres(extent.left() + (width - 0.5) * cell),
 	    centimetres(extent.top() + cell / 2), centimetres(extent.top() + (height - 0.5) * cell),
-	    lowest, highest, centimetres(cell), lowest, all_void ? 1 : step, centimetres(cell),
+	    lowest, highest, units, lowest, 1, centimetres(cell),
 	};
 	for (int i = 0; i < 12; ++i)
 		qToLittleEndian<qint32>(fields[i], out + 8 + 4 * i);
@@ -93,7 +100,7 @@ QByteArray encodeOcdCourseDem(const ElevationModel& grid)
 			auto const v = grid.value(col, row);
 			auto q = void_value;
 			if (!std::isnan(v))
-				q = quint16(qBound<qint64>(0, std::llround((double(v) * 100.0 - lowest) / step), largest_value));
+				q = quint16(qBound<qint64>(0, std::llround(double(v) * units) - lowest, largest_value));
 			qToLittleEndian<quint16>(q, cells);
 			cells += 2;
 		}
@@ -129,9 +136,11 @@ std::unique_ptr<ElevationModel> decodeOcdCourseDem(const QByteArray& block, cons
 		fields[i] = qFromLittleEndian<qint32>(in + 8 + 4 * i);
 	auto const width = fields[0];
 	auto const height = fields[1];
-	auto const cell = fields[8] / 100.0;
-	auto const base = fields[9] / 100.0;
-	auto const step = std::max(1, fields[10]) / 100.0;
+	auto const units = double(fields[8] > 0 ? fields[8] : ocd_units_per_metre);
+	// The cell size; a block without it has the distance of the first and the last cell centre.
+	auto const cell = fields[11] > 0 ? fields[11] / 100.0
+	                                 : (width > 1 ? (fields[3] - fields[2]) / 100.0 / (width - 1) : 0.0);
+	auto const base = fields[9];
 	if (width <= 0 || height <= 0 || qint64(width) * height > largest_grid || !(cell > 0)
 	    || qint64(raw.size()) - header_size != qint64(width) * height * 2)
 		return fail(Tr::tr("The embedded DEM is damaged."));
@@ -142,7 +151,7 @@ std::unique_ptr<ElevationModel> decodeOcdCourseDem(const QByteArray& block, cons
 	for (std::size_t k = 0; k < n; ++k)
 	{
 		auto const q = qFromLittleEndian<quint16>(cells + 2 * k);
-		values[k] = (q == void_value) ? std::numeric_limits<float>::quiet_NaN() : float(base + q * step);
+		values[k] = (q == void_value) ? std::numeric_limits<float>::quiet_NaN() : float((double(base) + q) / units);
 	}
 	// The header has the centres of the first and the last cell; the top edge is half a cell north of the north row.
 	auto const left = fields[2] / 100.0 - cell / 2;

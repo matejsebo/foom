@@ -32,6 +32,7 @@
 
 #include <QtGlobal>
 #include <QtMath>
+#include <QtEndian>
 #include <QtTest>
 #include <QDir>
 #include <QFile>
@@ -764,6 +765,9 @@ private slots:
 
 		QCOMPARE(map.getNumTemplates(), 0);
 		auto* temp = attachProductTemplate(map, path, &error);
+		// A second time, the template takes the place of the first.
+		QVERIFY(temp);
+		temp = attachProductTemplate(map, path, &error);
 		QVERIFY2(temp, qPrintable(error));
 		QCOMPARE(map.getNumTemplates(), 1);
 		QCOMPARE(map.getTemplate(0), temp);
