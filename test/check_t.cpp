@@ -49,6 +49,7 @@
 #include "check/legibility.h"
 #include "check/legibility_results.h"
 #include "check/map_check.h"
+#include "check/standard_minimums.h"
 #include "core/color_group.h"
 #include "core/map.h"
 #include "core/map_color.h"
@@ -89,8 +90,10 @@ private slots:
 	void legibilityTest();
 	void legibilitySymbolGapTest();
 	void colourGroupTest();
+	void legibilityStandardTest();  // foom
+	void legibilityDrawnTest();  // foom
 	void legibilityResultsTest();  // foom
-	void mapCheckRelinkTest();  // foom
+void mapCheckRelinkTest();  // foom
 };
 
 
@@ -652,6 +655,192 @@ void CheckTest::colourGroupTest()
 	plain_exporter->setDevice(&plain_buffer);
 	QVERIFY(plain_exporter->doExport());
 	QVERIFY(!QString::fromUtf8(plain_buffer.data()).contains(QLatin1String(" group=")));
+}
+
+
+/// the design notes, "The standard's minimum sizes", Accept.
+void CheckTest::legibilityStandardTest()
+{
+	Map map;
+	map.setScaleDenominator(10000);
+	auto* black = new MapColor(QStringLiteral("Black"), 0);
+	black->setCmyk(MapColorCmyk(0.0f, 0.0f, 0.0f, 1.0f));
+	map.addColor(black, 0);
+	auto* green = new MapColor(QStringLiteral("Green"), 1);
+	green->setCmyk(MapColorCmyk(0.76f, 0.0f, 0.91f, 0.0f));
+	map.addColor(green, 1);
+	auto const line_symbol = [&map](const MapColor* color, int number, int sub = -1) {
+		auto* symbol = new LineSymbol();
+		symbol->setColor(color);
+		symbol->setLineWidth(0.2);
+		symbol->setNumberComponent(0, number);
+		symbol->setNumberComponent(1, sub);
+		map.addSymbol(symbol, map.getNumSymbols());
+		return symbol;
+	};
+	auto const area_symbol = [&map](const MapColor* color, int number) {
+		auto* symbol = new AreaSymbol();
+		symbol->setColor(color);
+		symbol->setNumberComponent(0, number);
+		map.addSymbol(symbol, map.getNumSymbols());
+		return symbol;
+	};
+	auto* footpath = line_symbol(black, 505);
+	footpath->setDashed(true);
+	footpath->setDashLength(3000);
+	footpath->setBreakLength(375);
+	auto* own_path = line_symbol(black, 505, 1);
+	own_path->setMinimumLength(2000);
+	auto* fence = line_symbol(black, 516);
+	auto* building = area_symbol(black, 521);
+	auto* unknown = line_symbol(black, 950);
+
+	// (1) The table.
+	QCOMPARE(isom2017Minimum(*footpath).length, 4.25);
+	QCOMPARE(isom2017Minimum(*footpath).area, 0.0);
+	QCOMPARE(isom2017Minimum(*fence).length, 1.5);
+	QCOMPARE(isom2017Minimum(*building).area, 0.25);
+	QCOMPARE(isom2017Minimum(*building).length, 0.0);
+	QCOMPARE(isom2017Minimum(*unknown).length, 0.0);
+	QCOMPARE(isom2017Minimum(*line_symbol(black, 521)).length, 0.0);   // a line numbered as the building
+	QCOMPARE(isom2017Minimum(*area_symbol(black, 505)).area, 0.0);
+	QCOMPARE(isom2017Minimum(*line_symbol(green, 416)).length, 1.8);
+	QCOMPARE(isom2017Minimum(*line_symbol(black, 416)).length, 2.5);
+	QCOMPARE(isom2017Minimum(*line_symbol(black, 513, 1)).length, 1.4);
+	QCOMPARE(isom2017Minimum(*line_symbol(black, 513, 2)).length, 2.4);
+
+	// (2) Where the standard holds.
+	QCOMPARE(standardEnlargement(map), 1.5);
+	map.setScaleDenominator(15000);
+	QCOMPARE(standardEnlargement(map), 1.0);
+	map.setScaleDenominator(4000);
+	QCOMPARE(standardEnlargement(map), 0.0);
+	map.setScaleDenominator(10000);
+	map.setSymbolSetId(QStringLiteral("ISSprOM 2019"));
+	QCOMPARE(standardEnlargement(map), 0.0);
+	map.setSymbolSetId(QStringLiteral("ISOM 2017-2"));
+	QCOMPARE(standardEnlargement(map), 1.5);
+	map.setSymbolSetId(QStringLiteral("ISOM2017"));
+	QCOMPARE(standardEnlargement(map), 1.5);
+	map.setSymbolSetId(QStringLiteral("OCD"));  // as the OCD import names it
+	QCOMPARE(standardEnlargement(map), 1.5);
+	map.setSymbolSetId({});
+
+	// (3) The limits of the scan at 1:10,000.
+	QCOMPARE(minimumLineLength(footpath, 1.5), 6.375);
+	QVERIFY(std::abs(minimumLineLength(footpath, 0.0) - 4.6875) < 1e-9);   // two dashes
+	QCOMPARE(minimumLineLength(own_path, 1.5), 2.0);
+	QCOMPARE(minimumLineLength(fence, 1.5), 2.25);
+	QCOMPARE(minimumLineLength(unknown, 1.5), 0.0);
+	QCOMPARE(minimumAreaSize(building, 1.5), 0.5625);
+	QCOMPARE(minimumAreaSize(building, 0.0), 0.0);
+
+	// (4) The scan.
+	auto* path_5 = addLine(map, footpath, MapCoord(0.0, 0.0), MapCoord(5.0, 0.0));
+	addLine(map, footpath, MapCoord(0.0, 10.0), MapCoord(7.0, 10.0));
+	addLine(map, own_path, MapCoord(0.0, 20.0), MapCoord(5.0, 20.0));
+	auto* short_fence = addLine(map, fence, MapCoord(0.0, 30.0), MapCoord(2.0, 30.0));
+	auto* hut = addSquare(map, building, 0.0, 40.0, 0.7);     // 0.49 mm2
+	addSquare(map, building, 0.0, 50.0, 0.8);                 // 0.64 mm2
+	LegibilityParams params;
+	params.gap = false;
+	auto issues = checkLegibility(map, params);
+	QCOMPARE(countRule(issues, rule::line_short), 2);
+	QCOMPARE(countRule(issues, rule::area_small), 1);
+	auto const* issue = findObjectIssue(issues, rule::line_short, path_5);
+	QVERIFY(issue);
+	QCOMPARE(issue->limit, 6.375);
+	issue = findObjectIssue(issues, rule::line_short, short_fence);
+	QVERIFY(issue);
+	QCOMPARE(issue->limit, 2.25);
+	issue = findObjectIssue(issues, rule::area_small, hut);
+	QVERIFY(issue);
+	QCOMPARE(issue->limit, 0.5625);
+	QVERIFY(std::abs(issue->measured - 0.49) < 1e-6);
+	// Without the standard, and in a sprint map, nothing of this is asked.
+	params.standard_minimums = false;
+	QVERIFY(checkLegibility(map, params).empty());
+	params.standard_minimums = true;
+	map.setScaleDenominator(4000);
+	QVERIFY(checkLegibility(map, params).empty());
+}
+
+/// the design notes, "The distance on what is drawn", Accept.
+void CheckTest::legibilityDrawnTest()
+{
+	Map map;
+	map.setScaleDenominator(15000);
+	auto* brown = new MapColor(QStringLiteral("Brown"), 0);
+	brown->setCmyk(MapColorCmyk(0.0f, 0.56f, 1.0f, 0.18f));
+	map.addColor(brown, 0);
+	auto const dot_symbol = [&map, brown](int radius, int number) {
+		auto* symbol = new PointSymbol();
+		symbol->setInnerRadius(radius);
+		symbol->setInnerColor(brown);
+		symbol->setNumberComponent(0, number);
+		map.addSymbol(symbol, map.getNumSymbols());
+		return symbol;
+	};
+	auto const add_point = [&map](const PointSymbol* symbol, double x, double y) {
+		auto* point = new PointObject(symbol);
+		point->setPosition(MapCoord(x, y));
+		map.addObject(point);
+		return point;
+	};
+	auto* knoll = dot_symbol(300, 109);
+	auto* other = dot_symbol(300, 110);
+	auto* solid = new LineSymbol();
+	solid->setColor(brown);
+	solid->setLineWidth(0.2);
+	solid->setNumberComponent(0, 901);
+	map.addSymbol(solid, map.getNumSymbols());
+	// A dotted line: no stroke, a dot of 0.3 mm every 0.6 mm.
+	auto* dotted = new LineSymbol();
+	dotted->setColor(nullptr);
+	dotted->setLineWidth(0.0);
+	dotted->setNumberComponent(0, 902);
+	auto* dot = new PointSymbol();
+	dot->setInnerRadius(150);
+	dot->setInnerColor(brown);
+	dotted->setMidSymbol(dot);
+	dotted->setMidSymbolsPerSpot(1);
+	dotted->setSegmentLength(600);
+	dotted->setEndLength(300);
+	map.addSymbol(dotted, map.getNumSymbols());
+
+	LegibilityParams params;
+	params.gap_mm = 0.15;
+	params.minimum_length = false;
+	params.minimum_area = false;
+
+	// (1) Two dots of one symbol, 0.1 mm of paper between them: a pattern, not reported.
+	add_point(knoll, 0.0, 0.0);
+	add_point(knoll, 0.7, 0.0);
+	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), 0);
+	// (2) A dot of another symbol as near: reported, measured between the round shapes.
+	auto* foreign = add_point(other, 0.0, 0.7);
+	auto issues = checkLegibility(map, params);
+	QCOMPARE(countRule(issues, rule::gap), 1);
+	auto const* issue = findObjectIssue(issues, rule::gap, foreign);
+	QVERIFY(issue);
+	QVERIFY2(std::abs(issue->measured - 0.1) < 0.005, qPrintable(QString::number(issue->measured)));
+	// Diagonal neighbours which the boxes of the dots would bring too near: 0.25 mm between the round shapes.
+	add_point(other, 10.0, 0.0);
+	add_point(dot_symbol(300, 111), 10.601, 0.601);
+	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), 1);
+
+	// (3) A dotted line 0.35 mm beside a solid line: 0.1 mm between a dot and the stroke.
+	auto* dots = addLine(map, dotted, MapCoord(0.0, 20.0), MapCoord(6.0, 20.0));
+	addLine(map, solid, MapCoord(0.0, 20.35), MapCoord(6.0, 20.35));
+	issues = checkLegibility(map, params);
+	QCOMPARE(countRule(issues, rule::gap), 2);
+	issue = findObjectIssue(issues, rule::gap, dots);
+	QVERIFY(issue);
+	QVERIFY2(std::abs(issue->measured - 0.1) < 0.005, qPrintable(QString::number(issue->measured)));
+	// 0.45 mm apart there is 0.2 mm of paper: nothing.
+	addLine(map, dotted, MapCoord(0.0, 30.0), MapCoord(6.0, 30.0));
+	addLine(map, solid, MapCoord(0.0, 30.45), MapCoord(6.0, 30.45));
+	QCOMPARE(countRule(checkLegibility(map, params), rule::gap), 2);
 }
 
 

@@ -30,8 +30,12 @@
 
 #include <QtGlobal>
 #include <QCoreApplication>
+#include <QList>
+#include <QPainterPath>
+#include <QPolygonF>
 #include <QRectF>
 #include <QString>
+#include <QTransform>
 
 #include "core/color_group.h"
 #include "core/map.h"
@@ -39,10 +43,14 @@
 #include "core/map_part.h"
 #include "core/objects/object.h"
 #include "core/ops/flatten.h"
+#include "core/renderables/renderable.h"
+#include "core/renderables/renderable_implementation.h"
 #include "core/symbols/combined_symbol.h"
 #include "core/symbols/line_symbol.h"
+#include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
 #include "core/virtual_path.h"
+#include "check/standard_minimums.h"
 
 
 namespace OpenOrienteering {
@@ -76,6 +84,30 @@ bool isCliffClass(const Symbol* symbol)
 }
 
 
+/** Whether a line is drawn in pieces: dashes, or symbols along it. */
+bool drawnInPieces(const Symbol* symbol)
+{
+	if (!symbol)
+		return false;
+	if (symbol->getType() == Symbol::Line)
+	{
+		auto const* line = symbol->asLine();
+		auto const has = [](const PointSymbol* point) { return point && !point->isEmpty(); };
+		return line->isDashed() || has(line->getMidSymbol()) || has(line->getDashSymbol()) || has(line->getStartSymbol()) || has(line->getEndSymbol());
+	}
+	if (symbol->getType() == Symbol::Combined)
+	{
+		auto const* combined = symbol->asCombined();
+		for (int i = 0; i < combined->getNumParts(); ++i)
+		{
+			if (drawnInPieces(combined->getPart(i)))
+				return true;
+		}
+	}
+	return false;
+}
+
+
 /** The centre line (or boundary) of an object as straight segments. */
 struct Outline
 {
@@ -83,15 +115,80 @@ struct Outline
 	const Symbol* symbol = nullptr;
 	std::vector<MapCoordF> points;      ///< The vertices, parts one after the other.
 	std::vector<bool> segment_follows;  ///< Whether a segment leads from the vertex to the next.
-	double half_width = 0.0;
-	QRectF extent;                      ///< Of the vertices.
+	/// Half the stroke at each vertex's segment, when the outline is made of what is drawn
+	/// (dashes, dots, the shapes of a point symbol); empty when half_width holds for all.
+	std::vector<float> widths;
+	/// The object's own vertices when the points are those of what is drawn: for sharesVertex().
+	std::vector<MapCoordF> anchors;
+	double half_width = 0.0;            ///< The largest half stroke.
+QRectF extent;                      ///< Of the vertices.
 	ColourGroup group = ColourGroup::Other;
 	bool contour = false;
 	bool cliff = false;
 	
 	bool build(const Object* object);
+	bool buildFromRenderables(const Object* object);
 	const PathObject* closedPath() const;
+	double halfWidthAt(std::size_t i) const { return widths.empty() ? half_width : double(widths[i]); }
+	const std::vector<MapCoordF>& vertices() const { return anchors.empty() ? points : anchors; }
 };
+
+/// the design notes, "The distance on what is drawn".
+bool Outline::buildFromRenderables(const Object* input)
+{
+	input->update();
+	half_width = 0.0;
+	auto const add = [this](const QPolygonF& polygon, double half, bool close) {
+		if (polygon.isEmpty())
+			return;
+		auto const n = polygon.size();
+		for (int k = 0; k < n; ++k)
+		{
+			points.emplace_back(polygon[k].x() / 100.0, polygon[k].y() / 100.0);
+			segment_follows.push_back(k + 1 < n);
+			widths.push_back(float(half));
+		}
+		if (close && n > 2 && polygon.first() != polygon.last())
+		{
+			segment_follows.back() = true;
+			points.emplace_back(polygon.first().x() / 100.0, polygon.first().y() / 100.0);
+			segment_follows.push_back(false);
+			widths.push_back(float(half));
+		}
+		half_width = std::max(half_width, half);
+	};
+	// A dot is a segment of no length to speak of, as wide as the dot.
+	auto const add_disc = [&add](const QRectF& extent) {
+		if (extent.isEmpty())
+			return;
+		auto const centre = extent.center();
+		QPolygonF polygon;
+		polygon << QPointF(100 * centre.x() - 0.01, 100 * centre.y()) << QPointF(100 * centre.x() + 0.01, 100 * centre.y());
+		add(polygon, extent.width() / 2, false);
+	};
+	// Curves are flattened in hundredths of a millimetre.
+	auto const scale = QTransform::fromScale(100.0, 100.0);
+	input->renderables().forEach([&](const Renderable& renderable) {
+		if (auto const* line = dynamic_cast<const LineRenderable*>(&renderable))
+		{
+			for (auto const& polygon : line->painterPath().toSubpathPolygons(scale))
+				add(polygon, line->lineWidth() / 2, false);
+		}
+		else if (auto const* area = dynamic_cast<const AreaRenderable*>(&renderable))
+		{
+			if (area->painterPath())
+			{
+				for (auto const& polygon : area->painterPath()->toSubpathPolygons(scale))
+					add(polygon, 0.0, true);
+			}
+		}
+		else if (dynamic_cast<const DotRenderable*>(&renderable) || dynamic_cast<const CircleRenderable*>(&renderable))
+		{
+			add_disc(renderable.getExtent());
+		}
+	});
+	return !points.empty();
+}
 
 bool Outline::build(const Object* input)
 {
@@ -103,6 +200,8 @@ bool Outline::build(const Object* input)
 	cliff = isCliffClass(symbol);
 	points.clear();
 	segment_follows.clear();
+	widths.clear();
+	anchors.clear();
 	switch (input->getType())
 	{
 	case Object::Path:
@@ -115,24 +214,47 @@ bool Outline::build(const Object* input)
 				points.emplace_back(coords[i]);
 				segment_follows.push_back(i + 1 < coords.size() && !coords[i].isHolePoint());
 			}
+			// A line drawn in dashes or dots is measured by its dashes and dots.
+			if ((symbol->getContainedTypes() & Symbol::Area) == 0 && drawnInPieces(symbol))
+			{
+				auto centre_line = std::move(points);
+				auto follows = std::move(segment_follows);
+				points.clear();
+				segment_follows.clear();
+				if (buildFromRenderables(input))
+				{
+					anchors = std::move(centre_line);
+				}
+				else
+				{
+					points = std::move(centre_line);
+					segment_follows = std::move(follows);
+					widths.clear();
+					half_width = strokeHalfWidth(symbol);
+				}
+			}
 		}
 		break;
 	case Object::Point:
 		{
-			input->update();
-			auto const rect = input->getExtent();
-			if (rect.isEmpty())
-				return false;
-			for (auto const& corner : { rect.topLeft(), rect.topRight(), rect.bottomRight(), rect.bottomLeft(), rect.topLeft() })
-				points.emplace_back(corner);
-			segment_follows.assign(5, true);
-			segment_follows.back() = false;
+			// The shapes of the point symbol; its box when it draws nothing the scan can read.
+			if (!buildFromRenderables(input))
+			{
+				auto const rect = input->getExtent();
+				if (rect.isEmpty())
+					return false;
+				widths.clear();
+				for (auto const& corner : { rect.topLeft(), rect.topRight(), rect.bottomRight(), rect.bottomLeft(), rect.topLeft() })
+					points.emplace_back(corner);
+				segment_follows.assign(5, true);
+				segment_follows.back() = false;
+			}
 		}
 		break;
 	default:
 		return false;
 	}
-	if (points.empty())
+if (points.empty())
 		return false;
 	extent = QRectF(points.front(), points.front());
 	for (auto const& point : points)
@@ -232,10 +354,10 @@ double boxDistance(double min_ax, double min_ay, double max_ax, double max_ay, d
 
 bool sharesVertex(const Outline& a, const Outline& b)
 {
-	for (auto const& p : a.points)
+	for (auto const& p : a.vertices())
 	{
-		for (auto const& q : b.points)
-		{
+		for (auto const& q : b.vertices())
+{
 			if (std::abs(p.x() - q.x()) <= vertex_tolerance && std::abs(p.y() - q.y()) <= vertex_tolerance)
 				return true;
 		}
@@ -250,6 +372,8 @@ bool sharesVertex(const Outline& a, const Outline& b)
  */
 double outlineDistance(const Outline& a, const Outline& b, double bound, MapCoordF& where, MapCoordF& on_a, MapCoordF& on_b)
 {
+	// The gap between the strokes: the distance of two segments less half the stroke of each.
+	// The bound and the result are gaps too; a result of 0 or less means the strokes touch.
 	auto best = bound;
 	MapCoordF pa, pb;
 	for (std::size_t i = 0; i + 1 < a.points.size(); ++i)
@@ -258,11 +382,12 @@ double outlineDistance(const Outline& a, const Outline& b, double bound, MapCoor
 			continue;
 		auto const& a1 = a.points[i];
 		auto const& a2 = a.points[i + 1];
+		auto const wa = a.halfWidthAt(i);
 		auto const min_ax = std::min(a1.x(), a2.x());
 		auto const max_ax = std::max(a1.x(), a2.x());
 		auto const min_ay = std::min(a1.y(), a2.y());
 		auto const max_ay = std::max(a1.y(), a2.y());
-		if (boxDistance(min_ax, min_ay, max_ax, max_ay, b.extent.left(), b.extent.top(), b.extent.right(), b.extent.bottom()) >= best)
+		if (boxDistance(min_ax, min_ay, max_ax, max_ay, b.extent.left(), b.extent.top(), b.extent.right(), b.extent.bottom()) - wa - b.half_width >= best)
 			continue;
 		for (std::size_t j = 0; j + 1 < b.points.size(); ++j)
 		{
@@ -270,9 +395,10 @@ double outlineDistance(const Outline& a, const Outline& b, double bound, MapCoor
 				continue;
 			auto const& b1 = b.points[j];
 			auto const& b2 = b.points[j + 1];
-			if (boxDistance(min_ax, min_ay, max_ax, max_ay, std::min(b1.x(), b2.x()), std::min(b1.y(), b2.y()), std::max(b1.x(), b2.x()), std::max(b1.y(), b2.y())) >= best)
+			auto const wb = b.halfWidthAt(j);
+			if (boxDistance(min_ax, min_ay, max_ax, max_ay, std::min(b1.x(), b2.x()), std::min(b1.y(), b2.y()), std::max(b1.x(), b2.x()), std::max(b1.y(), b2.y())) - wa - wb >= best)
 				continue;
-			auto const d = segmentDistance(a1, a2, b1, b2, pa, pb);
+			auto const d = segmentDistance(a1, a2, b1, b2, pa, pb) - wa - wb;
 			if (d < best)
 			{
 				best = d;
@@ -280,7 +406,7 @@ double outlineDistance(const Outline& a, const Outline& b, double bound, MapCoor
 				on_a = pa;  // foom: for the line marker
 				on_b = pb;
 				if (best <= 0.0)
-					return 0.0;
+					return best;
 			}
 		}
 	}
@@ -321,9 +447,9 @@ Issue objectIssue(const char* rule, const Object& object, double measured, doubl
 	return issue;
 }
 
-void checkSizes(const Object& object, const LegibilityParams& params, std::vector<Issue>& issues)
+void checkSizes(const Object& object, const LegibilityParams& params, double enlargement, std::vector<Issue>& issues)
 {
-	if (object.getType() != Object::Path)
+if (object.getType() != Object::Path)
 		return;
 	auto const* path = object.asPath();
 	auto const* symbol = object.getSymbol();
@@ -331,11 +457,11 @@ void checkSizes(const Object& object, const LegibilityParams& params, std::vecto
 	path->update();
 	if (params.minimum_length && (types & Symbol::Line))
 	{
-		auto const minimum = minimumLineLength(symbol);
+		auto const minimum = minimumLineLength(symbol, enlargement);
 		if (minimum > 0.0)
 		{
 			auto length = 0.0;
-			for (auto const& part : path->parts())
+for (auto const& part : path->parts())
 				length += part.length();
 			if (length < minimum)
 				issues.push_back(objectIssue(rule::line_short, object, length, minimum, tr("The line is %1 mm long; the minimum of symbol %2 is %3 mm.").arg(mm(length), symbol->getNumberAsString(), mm(minimum))));
@@ -343,9 +469,9 @@ void checkSizes(const Object& object, const LegibilityParams& params, std::vecto
 	}
 	else if (params.minimum_area && (types & Symbol::Area))
 	{
-		auto const minimum = minimumAreaSize(symbol);
+		auto const minimum = minimumAreaSize(symbol, enlargement);
 		if (minimum > 0.0 && !path->parts().empty())
-		{
+{
 			auto area = std::abs(path->parts().front().calculateArea());
 			for (std::size_t i = 1; i < path->parts().size(); ++i)
 				area -= std::abs(path->parts()[i].calculateArea());
@@ -378,9 +504,9 @@ double symbolGap(const Symbol* symbol, const LegibilityParams& params)
 	return (symbol && symbol->minimumGap() > 0) ? 0.001 * symbol->minimumGap() : params.gap_mm;
 }
 
-void checkPart(const MapPart& part, const LegibilityParams& params, std::vector<Issue>& issues)
+void checkPart(const MapPart& part, const LegibilityParams& params, double enlargement, std::vector<Issue>& issues)
 {
-	std::vector<Outline> outlines;
+std::vector<Outline> outlines;
 	std::vector<Outline> cliffs;
 	std::unordered_map<const Object*, std::size_t> index_of;
 	auto widest = 0.0;
@@ -398,8 +524,8 @@ void checkPart(const MapPart& part, const LegibilityParams& params, std::vector<
 			}
 			continue;
 		}
-		checkSizes(*object, params, issues);
-		if (!params.gap)
+		checkSizes(*object, params, enlargement, issues);
+if (!params.gap)
 			continue;
 		Outline outline;
 		if (!outline.build(object))
@@ -433,6 +559,10 @@ void checkPart(const MapPart& part, const LegibilityParams& params, std::vector<
 			auto const contour_pair = a.contour && b.contour;
 			if (contour_pair && !params.between_contours)
 				continue;
+			// Point objects of one symbol set side by side are a pattern the mapper made, as the dots
+			// of an orchard.
+			if (a.symbol == b.symbol && a.object->getType() == Object::Point && b.object->getType() == Object::Point)
+				continue;
 			// the design notes, "Legibility": the larger gap of the two symbols.
 			auto const limit = std::max(a_gap, symbolGap(b.symbol, params));
 			auto const bound = limit + a.half_width + b.half_width;
@@ -441,13 +571,12 @@ void checkPart(const MapPart& part, const LegibilityParams& params, std::vector<
 			if (sharesVertex(a, b))
 				continue;
 			MapCoordF where, on_a, on_b;
-			auto const distance = outlineDistance(a, b, bound, where, on_a, on_b);
-			if (distance >= bound)
+			auto const reduced = outlineDistance(a, b, limit, where, on_a, on_b);
+			if (reduced >= limit)
 				continue;
-			auto const reduced = distance - a.half_width - b.half_width;
 			if (reduced <= 0.0)
 				continue;  // the outlines touch or overlap
-			if (contains(a, b) || contains(b, a))
+if (contains(a, b) || contains(b, a))
 				continue;
 			if (contour_pair)
 			{
@@ -543,18 +672,35 @@ double minimumAreaSize(const Symbol* symbol)
 	return 0.001 * symbol->getMinimumArea();
 }
 
+double minimumLineLength(const Symbol* symbol, double enlargement)
+{
+	// the design notes, "The standard's minimum sizes".
+	if (symbol->getMinimumLength() > 0 || !(enlargement > 0.0))
+		return minimumLineLength(symbol);
+	auto const standard = isom2017Minimum(*symbol).length * enlargement;
+	return standard > 0.0 ? standard : minimumLineLength(symbol);
+}
+
+double minimumAreaSize(const Symbol* symbol, double enlargement)
+{
+	if (symbol->getMinimumArea() > 0 || !(enlargement > 0.0))
+		return minimumAreaSize(symbol);
+	return isom2017Minimum(*symbol).area * enlargement * enlargement;
+}
+
 std::vector<Issue> checkLegibility(const Map& map, const LegibilityParams& params)
 {
 	// the design notes, "Legibility".
 	std::vector<Issue> issues;
+	auto const enlargement = params.standard_minimums ? standardEnlargement(map) : 0.0;
 	for (int p = 0; p < map.getNumParts(); ++p)
 	{
 		auto const role = map.getPart(p)->role();
 		// the design notes; the markers: the design notes, "Legibility"
 		if (role != MapPart::Role::Layout && role != MapPart::Role::Issues)
-			checkPart(*map.getPart(p), params, issues);
+			checkPart(*map.getPart(p), params, enlargement, issues);
 	}
-	return issues;
+return issues;
 }
 
 

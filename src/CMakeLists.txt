@@ -195,6 +195,7 @@ set(Mapper_Common_SRCS
   check/legibility_results.cpp
   tools/legibility_feedback.cpp
   check/map_check.cpp
+  check/standard_minimums.cpp
   layout/generator.cpp
   layout/generator_more.cpp
   layout/qr_code.cpp

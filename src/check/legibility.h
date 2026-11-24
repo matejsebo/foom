@@ -60,7 +60,12 @@ struct LegibilityParams
 	bool same_colour_group_only = true;
 	/** Test gaps between two contour-class objects too. */
 	bool between_contours = false;
-	/** The symbols to test; empty means all. */
+	/**
+	 * Take the minimum length and area of the IOF's standard for a symbol
+	 * which carries none of its own, see standard_minimums.h.
+	 */
+	bool standard_minimums = true;
+/** The symbols to test; empty means all. */
 	std::vector<const Symbol*> symbols;
 	/** The area (mm) to test; a null rectangle means the whole map. */
 	QRectF extent;
@@ -84,6 +89,16 @@ double minimumLineLength(const Symbol* symbol);
  * Returns the minimum area of an area symbol in mm²; zero when there is none.
  */
 double minimumAreaSize(const Symbol* symbol);
+
+/**
+ * The minimum length as the scan takes it: the symbol's own (and the two
+ * dashes), else the standard's times the enlargement, else the two dashes.
+ * An enlargement of 0 leaves the standard out.
+ */
+double minimumLineLength(const Symbol* symbol, double enlargement);
+
+/** The minimum area as the scan takes it: the symbol's own, else the standard's times the enlargement squared. */
+double minimumAreaSize(const Symbol* symbol, double enlargement);
 
 /**
  * Returns half the width of the symbol's widest visible stroke in mm.

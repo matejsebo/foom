@@ -76,7 +76,10 @@ public:
 	LineRenderable(const LineSymbol* symbol, QPointF first, QPointF second);
 	void render(QPainter& painter, const RenderConfig& config) const override;
 	PainterConfig getPainterConfig(const QPainterPath* clip_path = nullptr) const override;
-	
+
+	const QPainterPath& painterPath() const { return path; }  // foom: for the legibility scan
+	qreal lineWidth() const { return line_width; }             // foom
+
 protected:
 	void extentIncludeCap(quint32 i, qreal half_line_width, bool end_cap, const LineSymbol* symbol, const VirtualPath& path);
 	
