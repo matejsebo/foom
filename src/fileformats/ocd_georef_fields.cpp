@@ -129,6 +129,9 @@ enum struct OcdGrid
 	KenyaTanzania = 68,
 	Pulkovo42 = 69,
 	Canada = 70,
+	/// "North America NAD83(2011)": zone 12 is UTM zone 10N;
+	/// the other zones follow in order, beginning with the zones 59N and 60N.
+	UtmNad83Nsrs2011 = 74,
 };
 
 constexpr struct
@@ -668,6 +671,27 @@ constexpr struct
     { OcdGrid::UtmNad83, 22, 26921 }, // NAD83 / UTM zone 21N
     { OcdGrid::UtmNad83, 23, 26922 }, // NAD83 / UTM zone 22N
     { OcdGrid::UtmNad83, 24, 26923 }, // NAD83 / UTM zone 23N
+    { OcdGrid::UtmNad83Nsrs2011, 1, 6328 }, // NAD83(2011) / UTM zone 59N
+    { OcdGrid::UtmNad83Nsrs2011, 2, 6329 }, // NAD83(2011) / UTM zone 60N
+    { OcdGrid::UtmNad83Nsrs2011, 3, 6330 }, // NAD83(2011) / UTM zone 1N
+    { OcdGrid::UtmNad83Nsrs2011, 4, 6331 }, // NAD83(2011) / UTM zone 2N
+    { OcdGrid::UtmNad83Nsrs2011, 5, 6332 }, // NAD83(2011) / UTM zone 3N
+    { OcdGrid::UtmNad83Nsrs2011, 6, 6333 }, // NAD83(2011) / UTM zone 4N
+    { OcdGrid::UtmNad83Nsrs2011, 7, 6334 }, // NAD83(2011) / UTM zone 5N
+    { OcdGrid::UtmNad83Nsrs2011, 8, 6335 }, // NAD83(2011) / UTM zone 6N
+    { OcdGrid::UtmNad83Nsrs2011, 9, 6336 }, // NAD83(2011) / UTM zone 7N
+    { OcdGrid::UtmNad83Nsrs2011, 10, 6337 }, // NAD83(2011) / UTM zone 8N
+    { OcdGrid::UtmNad83Nsrs2011, 11, 6338 }, // NAD83(2011) / UTM zone 9N
+    { OcdGrid::UtmNad83Nsrs2011, 12, 6339 }, // NAD83(2011) / UTM zone 10N
+    { OcdGrid::UtmNad83Nsrs2011, 13, 6340 }, // NAD83(2011) / UTM zone 11N
+    { OcdGrid::UtmNad83Nsrs2011, 14, 6341 }, // NAD83(2011) / UTM zone 12N
+    { OcdGrid::UtmNad83Nsrs2011, 15, 6342 }, // NAD83(2011) / UTM zone 13N
+    { OcdGrid::UtmNad83Nsrs2011, 16, 6343 }, // NAD83(2011) / UTM zone 14N
+    { OcdGrid::UtmNad83Nsrs2011, 17, 6344 }, // NAD83(2011) / UTM zone 15N
+    { OcdGrid::UtmNad83Nsrs2011, 18, 6345 }, // NAD83(2011) / UTM zone 16N
+    { OcdGrid::UtmNad83Nsrs2011, 19, 6346 }, // NAD83(2011) / UTM zone 17N
+    { OcdGrid::UtmNad83Nsrs2011, 20, 6347 }, // NAD83(2011) / UTM zone 18N
+    { OcdGrid::UtmNad83Nsrs2011, 21, 6348 }, // NAD83(2011) / UTM zone 19N
     { OcdGrid::Wgs84PseudoMercator, 0, 3857 }, // WGS 84 / Pseudo-Mercator
 };
 

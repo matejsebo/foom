@@ -140,6 +140,11 @@ void commonTestData()
 	        << OcdGeorefFields { -2.70000000, 15000, 504606, 8358028, -2018, 1 }
 	        << GeorefCoreData { 15000, -2.71, -2.70, { 504606, 8358028 }, QStringLiteral("UTM"), { QStringLiteral("18 S") } }
 	        << 0U;
+	// Grid 74 of OCD files, North America NAD83(2011).
+	QTest::newRow("NAD83(2011)/UTM zone 10N")
+	        << OcdGeorefFields { 15.20000000, 10000, 450000, 5100000, 74012, 1 }
+	        << GeorefCoreData { 10000, 14.73, 15.20, { 450000, 5100000 }, QStringLiteral("EPSG"), { QStringLiteral("6339") } }
+	        << 0U;
 	QTest::newRow("Wellington airport - New Zealand, WGS 84/UTM zone 60S")
 	        << OcdGeorefFields { 21.14000000, 15000, 316493, 5423682, -2060, 1 }
 	        << GeorefCoreData { 15000, 22.59, 21.14, { 316493, 5423682 }, QStringLiteral("UTM"), { QStringLiteral("60 S") } }
