@@ -71,11 +71,17 @@ std::unique_ptr<ImageObject> ocdLayoutImageFromString(const QString& param_strin
 	auto x = 0.0;
 	auto y = 0.0;
 	auto rotated = false;
+	auto vector_object = false;
 	while (parameters.readNext())
 	{
 		auto const value = parameters.value();
 		switch (parameters.key())
 		{
+		case 'n':
+			// The entry of a layout line, area or text: n is its place in the object index.
+			// The object itself is imported with the objects.
+			vector_object = true;
+			break;
 		case 'F':
 			bytes = QByteArray::fromBase64(value.toLatin1());
 			break;
@@ -100,6 +106,9 @@ std::unique_ptr<ImageObject> ocdLayoutImageFromString(const QString& param_strin
 		}
 	}
 	
+	if (vector_object && bytes.isEmpty())
+		return {};
+
 	auto image = std::make_unique<ImageObject>();
 	image->setData(bytes, name);
 	auto const pixels = image->image().size();

@@ -260,6 +260,7 @@ set(Mapper_Common_SRCS
   fileformats/ocd_file_format.cpp
   fileformats/ocd_file_import.cpp
   fileformats/ocd_georef_fields.cpp
+  fileformats/ocd_graphic_object.cpp
   fileformats/ocd_icon.cpp
   fileformats/ocd_layout_image.cpp
   fileformats/ocd_parameter_stream_reader.cpp

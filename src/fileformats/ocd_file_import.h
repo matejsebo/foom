@@ -375,6 +375,9 @@ protected:
 	
 	/// maps OCD symbol number to oo-mapper symbol object
 	QHash<unsigned int, Symbol *> symbol_index;
+
+	/// foom: the private symbol of the graphic or layout object which importObject() is about to read
+	Symbol* pending_graphic_symbol = nullptr;
 	
 	/// maps OO Mapper text symbol pointer to OCD defined horizontal alignment (stored in objects instead of symbols in OO Mapper)
 	QHash<Symbol*, TextObject::HorizontalAlignment> text_halign_map;

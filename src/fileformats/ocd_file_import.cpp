@@ -83,6 +83,7 @@
 #include "fileformats/ocd_file_format.h"
 #include "fileformats/ocd_layout_image.h"  // foom
 #include "fileformats/ocd_georef_fields.h"
+#include "fileformats/ocd_graphic_object.h"
 #include "fileformats/ocd_icon.h"
 #include "fileformats/ocd_parameter_stream_reader.h"
 #include "fileformats/ocd_types_v8.h"
@@ -899,32 +900,106 @@ void importObjectFieldsV12(const O& /*ocd_object*/, const E& /*entry*/, Object* 
 	// nothing before version 12
 }
 
+/// The object string of an object, and whether the record holds one.
+bool objectStringV12(const Ocd::ObjectV12& ocd_object, const Ocd::ObjectV12::IndexEntryType& entry, QString& text)
+{
+	if (!ocd_object.object_string_length)
+		return false;
+	auto const header_size = sizeof(Ocd::ObjectV12) - sizeof(Ocd::OcdPoint32);
+	auto const offset = header_size + sizeof(Ocd::OcdPoint32) * (std::size_t(ocd_object.num_items) + ocd_object.num_text);
+	// The length counts units of 8 bytes, as the coordinates before the string
+	// are counted. The string is UTF-16, little endian, and ends with a zero.
+	auto const area = std::size_t(ocd_object.object_string_length) * sizeof(Ocd::OcdPoint32);
+	if (offset + area > entry.size)
+		return false;
+	auto const* bytes = reinterpret_cast<const uchar*>(&ocd_object) + offset;
+	text.clear();
+	for (std::size_t i = 0; i + 1 < area; i += 2)
+	{
+		auto const unit = ushort(bytes[i] | (bytes[i + 1] << 8));
+		if (!unit)
+			break;
+		text.append(QChar(unit));
+	}
+	return true;
+}
+
 void importObjectFieldsV12(const Ocd::ObjectV12& ocd_object, const Ocd::ObjectV12::IndexEntryType& entry, Object* object)
 {
 	if (ocd_object.height)
 		object->setTag(QStringLiteral("ele"), QString::number(ocd_object.height / 256000.0, 'g', 10));
-	if (ocd_object.object_string_length)
+	QString text;
+	if (objectStringV12(ocd_object, entry, text))
 	{
-		auto const header_size = sizeof(Ocd::ObjectV12) - sizeof(Ocd::OcdPoint32);
-		auto const offset = header_size + sizeof(Ocd::OcdPoint32) * (std::size_t(ocd_object.num_items) + ocd_object.num_text);
-		// The length counts units of 8 bytes, as the coordinates before the string
-		// are counted. The string is UTF-16, little endian, and ends with a zero.
-		auto const area = std::size_t(ocd_object.object_string_length) * sizeof(Ocd::OcdPoint32);
-		if (offset + area <= entry.size)
-		{
-			auto const* bytes = reinterpret_cast<const uchar*>(&ocd_object) + offset;
-			QString text;
-			for (std::size_t i = 0; i + 1 < area; i += 2)
-			{
-				auto const unit = ushort(bytes[i] | (bytes[i + 1] << 8));
-				if (!unit)
-					break;
-				text.append(QChar(unit));
-			}
-			object->setTag(QStringLiteral("ocd:object_string_type"), QString::number(ocd_object.object_string_type));
-			object->setTag(QStringLiteral("ocd:object_string"), text);
-		}
+		object->setTag(QStringLiteral("ocd:object_string_type"), QString::number(ocd_object.object_string_type));
+		object->setTag(QStringLiteral("ocd:object_string"), text);
 	}
+}
+
+
+// foom: the graphic and layout objects, which have no symbol.
+// See the design notes, "Graphic and layout objects in OCD files".
+struct GraphicSymbol
+{
+	std::unique_ptr<Symbol> symbol;
+	TextObject::HorizontalAlignment alignment = TextObject::AlignLeft;
+	bool layout = false;  ///< The object belongs to the layout part.
+	bool skip = false;    ///< An empty layout text: nothing to import.
+};
+
+template< class O, class E >
+GraphicSymbol graphicSymbolFor(const O& /*ocd_object*/, const E& /*entry*/, Map& /*map*/, const QHash<int, const MapColor*>& /*colors*/)
+{
+	return {};  // nothing before version 12
+}
+
+GraphicSymbol graphicSymbolFor(const Ocd::ObjectV12& ocd_object, const Ocd::ObjectV12::IndexEntryType& entry, Map& map, const QHash<int, const MapColor*>& colors)
+{
+	GraphicSymbol result;
+	if (ocd_object.symbol == ocd_graphic_object_symbol)
+	{
+		// The colour field is the number of a colour of the map.
+		auto const* color = colors.value(int(ocd_object.color), nullptr);
+		if (color)
+			result.symbol = makeOcdGraphicSymbol(ocd_object.type, color, ocd_object.line_width, nullptr, QStringLiteral("Graphic object"));
+	}
+	else if (ocd_object.symbol == ocd_layout_object_symbol)
+	{
+		result.layout = true;
+		if (ocd_object.type == 4 && ocd_object.num_text == 0)
+		{
+			result.skip = true;
+			return result;
+		}
+		QString string;
+		auto style = OcdLayoutStyle {};
+		if (objectStringV12(ocd_object, entry, string) && ocd_object.object_string_type == ocd_layout_object_string_type)
+			style = parseOcdLayoutStyle(string);
+		auto const cmyk = ocdLayoutCmyk(quint32(ocd_object.color));
+		auto const name = ocd_object.type == 2 ? QStringLiteral("Line object")
+		                : ocd_object.type == 3 ? QStringLiteral("Area object")
+		                : QStringLiteral("Text object");
+		if (ocd_object.type >= 2 && ocd_object.type <= 4)
+			result.symbol = makeOcdGraphicSymbol(ocd_object.type, ocdLayoutColor(map, cmyk, style.opacity), ocd_object.line_width, &style, name);
+		// A justified text without a box stands as a left-aligned one.
+		result.alignment = style.alignment == 1 ? TextObject::AlignHCenter
+		                 : style.alignment == 2 ? TextObject::AlignRight
+		                 : TextObject::AlignLeft;
+	}
+	return result;
+}
+
+MapPart* ensureLayoutPart(Map& map)
+{
+	auto index = map.findPartIndexWithRole(MapPart::Role::Layout);
+	if (index < 0)
+	{
+		auto* part = new MapPart(QCoreApplication::translate("OpenOrienteering::LayoutPart", "Layout"), &map);
+		part->setRole(MapPart::Role::Layout);
+		index = map.getNumParts();
+		map.addPart(part, std::size_t(index));
+	}
+	return map.getPart(std::size_t(index));
 }
 
 }  // namespace
@@ -942,7 +1017,20 @@ void OcdFileImport::importObjects(const OcdFile< F >& file)
 		     && ocd_object.entry->status != Ocd::ObjectDeleted
 		     && ocd_object.entry->status != Ocd::ObjectDeletedForUndo )
 		{
-			if (auto object = importObject(*ocd_object.entity, part))
+			// foom: a graphic or layout object gets a private symbol of its own
+			auto graphic = graphicSymbolFor(*ocd_object.entity, *ocd_object.entry, *map, color_index);
+			if (graphic.skip)
+				continue;
+			if (graphic.symbol)
+			{
+				pending_graphic_symbol = graphic.symbol.release();
+				map->addSymbol(pending_graphic_symbol, map->getNumSymbols());
+				text_halign_map[pending_graphic_symbol] = graphic.alignment;
+				text_valign_map[pending_graphic_symbol] = TextObject::AlignBaseline;
+			}
+			auto object = importObject(*ocd_object.entity, part);
+			pending_graphic_symbol = nullptr;
+			if (object)
 			{
 				importObjectDates(*ocd_object.entity, object);  // foom
 				importObjectFieldsV12(*ocd_object.entity, *ocd_object.entry, object);  // foom
@@ -951,9 +1039,11 @@ void OcdFileImport::importObjects(const OcdFile< F >& file)
 				auto* target = part;
 				if (object->getTag(QStringLiteral("ocd:object_string_type")) == QLatin1String("2"))
 					target = ensureCourseOverridesPart(*map);
+				else if (graphic.layout)
+					target = ensureLayoutPart(*map);
 				target->addObject(object, target->getNumObjects());
 			}
-			else  // foom: keep the record for the round trip
+else  // foom: keep the record for the round trip
 			{
 				auto const* data = reinterpret_cast<const char*>(ocd_object.entity);
 				auto const offset = data - buffer.constData();
@@ -2081,11 +2171,15 @@ Object* OcdFileImport::importObject(const O& ocd_object, MapPart* part)
 	{
 		symbol = symbol_index[ocd_object.symbol];
 	}
-	
+	else if (pending_graphic_symbol)
+	{
+		symbol = pending_graphic_symbol;  // foom
+	}
+
 	if (!symbol)
 	{
 		switch (ocd_object.type)
-		{
+{
 		case 1:
 			symbol = map->getUndefinedPoint();
 			break;
