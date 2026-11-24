@@ -566,52 +566,34 @@ bool loadHeightClasses(const QString& path, std::vector<HeightClass>& classes, Q
 
 RasterProduct hypsometricRaster(const ElevationModel& grid, const HypsometricParams& params)
 {
-	// the design notes, "Hypsometric map".
-	auto const red = qRgb(255, 0, 0);
-	auto const yellow = qRgb(255, 255, 0);
-	auto const green = qRgb(0, 160, 0);
-	auto const blue = qRgb(0, 0, 255);
-	auto const brown = qRgb(153, 102, 51);
+	// the design notes, "Hypsometric map: the colours by convention".
 	auto const black = qRgb(0, 0, 0);
 	auto const white = qRgb(255, 255, 255);
-	std::vector<QRgb> stops;   // from low to high
-	if (params.legacy)
+	std::vector<QRgb> stops;   // from low to high, evenly spaced
+	switch (params.ramp)
 	{
-		// The colours at t = 0, 0.25, 0.5, 0.75 and 1 (0, 0.5 and 1 for the two of two colours).
-		switch (params.ramp)
-		{
-		case HypsometricParams::RedGreenBlue:
-			stops = { qRgb(0, 0, 255), qRgb(0, 255, 255), qRgb(0, 255, 0), qRgb(255, 255, 0), qRgb(255, 0, 0) };
-			break;
-		case HypsometricParams::RedYellowGreen:
-			stops = { qRgb(26, 150, 65), qRgb(166, 217, 106), qRgb(255, 255, 191), qRgb(253, 174, 97), qRgb(215, 25, 28) };
-			break;
-		case HypsometricParams::RedYellowBlue:
-			stops = { qRgb(44, 123, 182), qRgb(171, 217, 233), qRgb(255, 255, 191), qRgb(253, 174, 97), qRgb(215, 25, 28) };
-			break;
-		case HypsometricParams::BrownYellowGreen:
-			stops = { qRgb(0, 117, 39), qRgb(86, 185, 30), qRgb(255, 226, 54), qRgb(255, 178, 0), qRgb(166, 122, 83) };
-			break;
-		case HypsometricParams::BrownYellow:
-			stops = { qRgb(255, 255, 190), qRgb(211, 189, 137), qRgb(166, 122, 83) };
-			break;
-		case HypsometricParams::RedYellow:
-			stops = { qRgb(255, 255, 191), qRgb(235, 140, 110), qRgb(215, 25, 28) };
-			break;
-		case HypsometricParams::Greyscale:
-		case HypsometricParams::GreyscaleInterval:
-			stops = { black, white };
-			break;
-		}
-	}
-	else switch (params.ramp)
-	{
-	case HypsometricParams::RedGreenBlue:     stops = { blue, green, red }; break;
-	case HypsometricParams::RedYellowGreen:   stops = { green, yellow, red }; break;
-	case HypsometricParams::RedYellowBlue:    stops = { blue, yellow, red }; break;
-	case HypsometricParams::BrownYellowGreen: stops = { green, yellow, brown }; break;
-	case HypsometricParams::BrownYellow:      stops = { yellow, brown }; break;
-	case HypsometricParams::RedYellow:        stops = { yellow, red }; break;
+	case HypsometricParams::RedGreenBlue:
+		stops = { qRgb(0, 0, 255), qRgb(0, 255, 255), qRgb(0, 255, 0), qRgb(255, 255, 0), qRgb(255, 0, 0) };
+		break;
+	case HypsometricParams::RedYellowGreen:    // ColorBrewer's RdYlGn of five classes
+		stops = { qRgb(26, 150, 65), qRgb(166, 217, 106), qRgb(255, 255, 191), qRgb(253, 174, 97), qRgb(215, 25, 28) };
+		break;
+	case HypsometricParams::RedYellowBlue:     // ColorBrewer's RdYlBu of five classes
+		stops = { qRgb(44, 123, 182), qRgb(171, 217, 233), qRgb(255, 255, 191), qRgb(253, 174, 97), qRgb(215, 25, 28) };
+		break;
+	case HypsometricParams::BrownYellowGreen:  // the layer tints of atlases: green lowlands, brown heights
+		stops = { qRgb(0, 117, 39), qRgb(86, 185, 30), qRgb(255, 226, 54), qRgb(255, 178, 0), qRgb(166, 122, 83) };
+		break;
+	case HypsometricParams::BrownYellow:
+		stops = { qRgb(255, 255, 190), qRgb(211, 189, 137), qRgb(166, 122, 83) };
+		break;
+	case HypsometricParams::RedYellow:
+		stops = { qRgb(255, 255, 191), qRgb(235, 140, 110), qRgb(215, 25, 28) };
+		break;
+	case HypsometricParams::Viridis:           // matplotlib's viridis (CC0) at every eighth
+		stops = { qRgb(68, 1, 84), qRgb(71, 45, 123), qRgb(59, 82, 139), qRgb(44, 114, 142), qRgb(33, 145, 140),
+		          qRgb(40, 174, 128), qRgb(94, 201, 98), qRgb(173, 220, 48), qRgb(253, 231, 37) };
+		break;
 	case HypsometricParams::Greyscale:
 	case HypsometricParams::GreyscaleInterval:
 		stops = { black, white };
@@ -631,7 +613,7 @@ RasterProduct hypsometricRaster(const ElevationModel& grid, const HypsometricPar
 	auto const highest = std::isnan(params.range_to) ? info.maximum : params.range_to;
 	auto const range = highest - lowest;
 	auto const interval = params.interval > 0.0 ? params.interval : 100.0;
-	// Legacy mode: the intervals which the heights touch, counted from multiples of the interval.
+	// The intervals which the heights touch, counted from multiples of the interval.
 	auto const first_band = std::floor(lowest / interval);
 	auto const bands = std::floor(highest / interval) - first_band + 1.0;
 	
@@ -647,10 +629,8 @@ RasterProduct hypsometricRaster(const ElevationModel& grid, const HypsometricPar
 				line[col] = black;
 			else if (params.white_at_zero && z == 0.0)
 				line[col] = white;
-			else if (params.ramp == HypsometricParams::GreyscaleInterval && params.legacy)
-				line[col] = colour(bands > 0.0 ? (std::floor(z / interval) - first_band) / bands : 0.0);
 			else if (params.ramp == HypsometricParams::GreyscaleInterval)
-				line[col] = colour((z - std::floor(z / interval) * interval) / interval);
+				line[col] = colour(bands > 0.0 ? (std::floor(z / interval) - first_band) / bands : 0.0);
 			else
 				line[col] = colour(range > 0.0 ? (z - lowest) / range : 0.0);
 		}

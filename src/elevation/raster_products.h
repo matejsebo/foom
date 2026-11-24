@@ -111,7 +111,7 @@ RasterProduct slopeRaster(const ElevationModel& grid, const SlopeParams& params)
  */
 struct HypsometricParams
 {
-	/// The ramps, named from high to low.
+	/// The ramps, named from high to low, and one which every reader can tell apart.
 	enum Ramp
 	{
 		Greyscale,
@@ -121,15 +121,13 @@ struct HypsometricParams
 		BrownYellowGreen,
 		BrownYellow,
 		RedYellow,
-		GreyscaleInterval
+		GreyscaleInterval,
+		Viridis            ///< Dark blue to yellow, even in lightness and safe for colour-blind readers.
 	};
 	
 	Ramp ramp = BrownYellowGreen;
-	double interval = 100.0;          ///< m, for GreyscaleInterval.
+	double interval = 100.0;          ///< m, for GreyscaleInterval: one grey per interval, from black upwards.
 	bool white_at_zero = false;       ///< Cells of height 0 white.
-	/// Legacy mode: other colours, and for GreyscaleInterval steps of
-	/// one grey per interval from black upwards in place of black to white in each.
-	bool legacy = false;
 	/// The heights of the ramp's ends; NaN takes the grid's lowest and highest.
 	double range_from = std::numeric_limits<double>::quiet_NaN();
 	double range_to = std::numeric_limits<double>::quiet_NaN();

@@ -648,10 +648,13 @@ private slots:
 		QCOMPARE(product.image.format(), QImage::Format_RGB32);
 		QCOMPARE(product.image.size(), QSize(101, 3));
 		QCOMPARE(product.extent, rising->extent());
-		QVERIFY(near(pixel(product, 0), qRgb(0, 160, 0)));
-		QVERIFY(near(pixel(product, 50), qRgb(255, 255, 0)));
-		QVERIFY(near(pixel(product, 100), qRgb(153, 102, 51)));
-		QVERIFY2(near(pixel(product, 25), qRgb(128, 208, 0)), qPrintable(QString::number(pixel(product, 25), 16)));
+		QVERIFY(near(pixel(product, 0), qRgb(0, 117, 39)));
+		QVERIFY(near(pixel(product, 25), qRgb(86, 185, 30)));
+		QVERIFY(near(pixel(product, 50), qRgb(255, 226, 54)));
+		QVERIFY(near(pixel(product, 75), qRgb(255, 178, 0)));
+		QVERIFY(near(pixel(product, 100), qRgb(166, 122, 83)));
+		// Between the stops the channels are mixed: half way from 0.25 to 0.5.
+		QVERIFY2(near(pixel(product, 37), qRgb(167, 205, 42)) || near(pixel(product, 38), qRgb(174, 206, 42)), qPrintable(QString::number(pixel(product, 37), 16)));
 	
 		params.ramp = HypsometricParams::Greyscale;
 		product = hypsometricRaster(*rising, params);
@@ -661,16 +664,37 @@ private slots:
 		params.ramp = HypsometricParams::RedGreenBlue;
 		product = hypsometricRaster(*rising, params);
 		QVERIFY(near(pixel(product, 0), qRgb(0, 0, 255)));
-		QVERIFY(near(pixel(product, 50), qRgb(0, 160, 0)));
+		QVERIFY(near(pixel(product, 25), qRgb(0, 255, 255)));
+		QVERIFY(near(pixel(product, 50), qRgb(0, 255, 0)));
 		QVERIFY(near(pixel(product, 100), qRgb(255, 0, 0)));
+
+		// (5) Viridis: its ends and middle, and lighter with every step upwards.
+		params.ramp = HypsometricParams::Viridis;
+		product = hypsometricRaster(*rising, params);
+		QVERIFY(near(pixel(product, 0), qRgb(68, 1, 84)));
+		QVERIFY(near(pixel(product, 50), qRgb(33, 145, 140)));
+		QVERIFY(near(pixel(product, 100), qRgb(253, 231, 37)));
+		for (int col = 1; col <= 100; ++col)
+		{
+			auto const luminance = [](QRgb c) { return 0.2126 * qRed(c) + 0.7152 * qGreen(c) + 0.0722 * qBlue(c); };
+			QVERIFY2(luminance(pixel(product, col)) > luminance(pixel(product, col - 1)), qPrintable(QString::number(col)));
+		}
 	
 		params.ramp = HypsometricParams::GreyscaleInterval;
 		params.interval = 100.0;
 		product = hypsometricRaster(*rising, params);
-		QVERIFY(near(pixel(product, 50), qRgb(128, 128, 128)));
+		// 100 to 200 m touches two intervals of 100 m: the lower black, the upper half way to white.
 		QCOMPARE(pixel(product, 0), qRgb(0, 0, 0));
-		QCOMPARE(pixel(product, 100), qRgb(0, 0, 0));
-		QVERIFY(qRed(pixel(product, 99)) >= 250);
+		QCOMPARE(pixel(product, 99), qRgb(0, 0, 0));
+		QVERIFY(near(pixel(product, 100), qRgb(128, 128, 128)));
+		// Five of 25 m: a fifth of white more with each.
+		params.interval = 25.0;
+		product = hypsometricRaster(*rising, params);
+		QCOMPARE(pixel(product, 24), qRgb(0, 0, 0));
+		QCOMPARE(pixel(product, 25), qRgb(51, 51, 51));
+		QCOMPARE(pixel(product, 74), qRgb(102, 102, 102));
+		QCOMPARE(pixel(product, 99), qRgb(153, 153, 153));
+		QCOMPARE(pixel(product, 100), qRgb(204, 204, 204));
 	
 		auto zero = makeGrid(3, 1, 0.0, 1.0, 1.0, [](double x, double) { return x < 1.0 ? 0.0 : 50.0; });
 		zero->setValue(2, 0, std::numeric_limits<float>::quiet_NaN());

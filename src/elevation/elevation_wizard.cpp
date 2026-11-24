@@ -524,14 +524,13 @@ bool elevationWizardJobFromJson(const QJsonObject& object, ElevationWizardJob* j
 		s.integer("min_length", result.landforms.cliff_min_length, 1, 1000);
 	});
 	r.nested("hypsometric_map", [&result](Reader& h) {
-		h.known({ "ramp", "interval", "white_at_zero", "legacy" });
+		h.known({ "ramp", "interval", "white_at_zero" });
 		auto const ramp = h.choice("ramp", { "greyscale", "red-green-blue", "red-yellow-green", "red-yellow-blue",
-		                                     "brown-yellow-green", "brown-yellow", "red-yellow", "greyscale-interval" });
+		                                     "brown-yellow-green", "brown-yellow", "red-yellow", "greyscale-interval", "viridis" });
 		if (ramp >= 0)
 			result.hypsometric_params.ramp = HypsometricParams::Ramp(ramp);
 		h.number("interval", result.hypsometric_params.interval, 1.0, 10000.0);
 		h.boolean("white_at_zero", result.hypsometric_params.white_at_zero);
-		h.boolean("legacy", result.hypsometric_params.legacy);
 	});
 	r.nested("feature_extraction", [&result](Reader& f) {
 		f.known({ "knolls", "min_height", "depressions", "min_depth", "max_area", "trees", "tree_min_height" });

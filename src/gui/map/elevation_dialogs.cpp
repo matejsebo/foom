@@ -750,6 +750,7 @@ HypsometricDialog::HypsometricDialog(QWidget* parent)
 	ramp_combo->addItem(tr("Red-yellow"), int(HypsometricParams::RedYellow));
 	ramp_combo->addItem(tr("Greyscale"), int(HypsometricParams::Greyscale));
 	ramp_combo->addItem(tr("Greyscale interval"), int(HypsometricParams::GreyscaleInterval));
+	ramp_combo->addItem(tr("Viridis (colour-blind safe)"), int(HypsometricParams::Viridis));
 	ramp_combo->setCurrentIndex(ramp_combo->findData(int(defaults.ramp)));
 	interval_edit = new QDoubleSpinBox();
 	interval_edit->setDecimals(0);
@@ -763,9 +764,6 @@ HypsometricDialog::HypsometricDialog(QWidget* parent)
 	update();
 	zero_check = new QCheckBox(tr("White at elevation 0"));
 	zero_check->setChecked(defaults.white_at_zero);
-	legacy_check = new QCheckBox(tr("Legacy mode (other colours)"));
-	legacy_check->setObjectName(QStringLiteral("hypsometric_legacy_check"));
-	legacy_check->setChecked(defaults.legacy);
 	attach_check = new QCheckBox(tr("Attach as template"));
 	attach_check->setChecked(true);
 	
@@ -773,7 +771,6 @@ HypsometricDialog::HypsometricDialog(QWidget* parent)
 	layout->addRow(tr("Colours:"), ramp_combo);
 	layout->addRow(tr("Interval:"), interval_edit);
 	layout->addRow(zero_check);
-	layout->addRow(legacy_check);
 	layout->addRow(attach_check);
 	auto* main_layout = new QVBoxLayout(this);
 	main_layout->addLayout(layout);
@@ -788,7 +785,6 @@ HypsometricParams HypsometricDialog::params() const
 	params.ramp = HypsometricParams::Ramp(ramp_combo->currentData().toInt());
 	params.interval = interval_edit->value();
 	params.white_at_zero = zero_check->isChecked();
-	params.legacy = legacy_check->isChecked();
 	return params;
 }
 

@@ -284,7 +284,6 @@ private:
 	QComboBox* ramp_combo;
 	QDoubleSpinBox* interval_edit;
 	QCheckBox* zero_check;
-	QCheckBox* legacy_check;
 	QCheckBox* attach_check;
 };
 

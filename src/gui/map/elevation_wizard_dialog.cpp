@@ -398,7 +398,8 @@ QWidget* ElevationWizardDialog::makeHypsometricPage()
 	         { HypsometricParams::RedYellowBlue, tr("Red-yellow-blue") },
 	         { HypsometricParams::BrownYellow, tr("Brown-yellow") },
 	         { HypsometricParams::RedYellow, tr("Red-yellow") },
-	         { HypsometricParams::GreyscaleInterval, tr("Greyscale interval") } })
+	         { HypsometricParams::GreyscaleInterval, tr("Greyscale interval") },
+	         { HypsometricParams::Viridis, tr("Viridis (colour-blind safe)") } })
 		ramp_combo->addItem(item.second, int(item.first));
 	ramp_combo->setCurrentIndex(ramp_combo->findData(int(defaults.ramp)));
 	layout->addRow(tr("Ramp:"), ramp_combo);
@@ -407,9 +408,6 @@ QWidget* ElevationWizardDialog::makeHypsometricPage()
 	zero_check = new QCheckBox(tr("White at elevation 0"));
 	zero_check->setChecked(defaults.white_at_zero);
 	layout->addRow(zero_check);
-	hypsometric_legacy_check = named(new QCheckBox(tr("Legacy mode (other colours)")), "hypsometric_legacy_check");
-	hypsometric_legacy_check->setChecked(defaults.legacy);
-	layout->addRow(hypsometric_legacy_check);
 	connect(ramp_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ElevationWizardDialog::updateEnabled);
 	return widget;
 }
@@ -815,7 +813,6 @@ ElevationWizardJob ElevationWizardDialog::job() const
 	job.hypsometric_params.ramp = HypsometricParams::Ramp(ramp_combo->currentData().toInt());
 	job.hypsometric_params.interval = interval_edit->value();
 	job.hypsometric_params.white_at_zero = zero_check->isChecked();
-	job.hypsometric_params.legacy = hypsometric_legacy_check->isChecked();
 
 	job.features = features_check->isChecked();
 	job.landforms.knolls = knolls_check->isChecked();
