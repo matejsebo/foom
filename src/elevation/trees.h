@@ -42,6 +42,9 @@ struct TreeParams
 {
 	double min_height = 4.0;      ///< m, of the filtered heights.
 	double merge_distance = 7.5;  ///< m: closer maxima are one tree.
+	/// m: a tree whose crown, where it is at least the minimum height, reaches farther than this from it along
+	/// east or north is no single tree (7.5 m is one, 8.5 m is none); 0 for no limit.
+	double crown_reach = 8.0;
 };
 
 struct Tree

@@ -22,7 +22,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <set>
 #include <utility>
+#include <vector>
 
 #include <QtGlobal>
 #include <QLatin1String>
@@ -86,6 +88,8 @@ std::vector<Tree> findTrees(const ElevationModel& heights, const TreeParams& par
 	{
 		QPointF position;
 		double height;
+		int col;
+		int row;
 	};
 	std::vector<Candidate> candidates;
 	auto const filtered = gaussianFiltered(heights, 2);
@@ -116,7 +120,7 @@ std::vector<Tree> findTrees(const ElevationModel& heights, const TreeParams& par
 			auto const dx = peakOffset(g.value(col - 1, row), value, g.value(col + 1, row));
 			auto const dy = peakOffset(g.value(col, row - 1), value, g.value(col, row + 1));
 			auto const centre = g.cellCenter(col, row);
-			candidates.push_back({ QPointF(centre.x() + dx * cell, centre.y() - dy * cell), value });
+			candidates.push_back({ QPointF(centre.x() + dx * cell, centre.y() - dy * cell), value, col, row });
 		}
 	}
 	
@@ -157,7 +161,42 @@ std::vector<Tree> findTrees(const ElevationModel& heights, const TreeParams& par
 			tree.height = std::max(tree.height, candidates[m].height);
 		}
 		tree.projected = QPointF(x / members.size(), y / members.size());
-		trees.push_back(tree);
+
+		// The crown: the cells of at least the minimum height which hang together with the maxima.
+		// A crown which reaches too far is a canopy, not a tree.
+		auto single = true;
+		if (params.crown_reach > 0.0)
+		{
+			std::vector<std::pair<int, int>> open;
+			std::set<std::pair<int, int>> crown;
+			for (auto const m : members)
+			{
+				if (crown.insert({ candidates[m].col, candidates[m].row }).second)
+					open.push_back({ candidates[m].col, candidates[m].row });
+			}
+			while (single && !open.empty())
+			{
+				auto const at = open.back();
+				open.pop_back();
+				auto const centre = g.cellCenter(at.first, at.second);
+				if (std::max(std::abs(centre.x() - tree.projected.x()), std::abs(centre.y() - tree.projected.y())) > params.crown_reach)
+				{
+					single = false;
+					break;
+				}
+				std::pair<int, int> const next[] = { { at.first + 1, at.second }, { at.first - 1, at.second }, { at.first, at.second + 1 }, { at.first, at.second - 1 } };
+				for (auto const& n : next)
+				{
+					if (n.first < 0 || n.second < 0 || n.first >= g.width() || n.second >= g.height())
+						continue;
+					auto const value = g.value(n.first, n.second);
+					if (!std::isnan(value) && value >= params.min_height && crown.insert(n).second)
+						open.push_back(n);
+				}
+			}
+		}
+		if (single)
+			trees.push_back(tree);
 	}
 	return trees;
 }
