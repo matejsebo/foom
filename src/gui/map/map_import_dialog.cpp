@@ -81,7 +81,7 @@ MapImportDialog::MapImportDialog(const Map& imported, const Map& map, QWidget* p
 	none_radio = new QRadioButton(tr("No symbols or colours"));
 	absent_radio = new QRadioButton(tr("Only symbols whose number is absent"));
 	renumber_radio = new QRadioButton(tr("Absent symbols, renumbering on a clash"));
-	all_radio = new QRadioButton(tr("All symbols and colours, replacing on a clash"));
+	all_radio = new QRadioButton(tr("All symbols and colours, renumbering on a clash"));
 	auto* symbols_group = new QButtonGroup(this);
 	for (auto* radio : { none_radio, absent_radio, renumber_radio, all_radio })
 	{
@@ -91,7 +91,7 @@ MapImportDialog::MapImportDialog(const Map& imported, const Map& map, QWidget* p
 	colours_combo = new QComboBox();
 	colours_combo->addItem(tr("Above the map's colours"), true);
 	colours_combo->addItem(tr("Below the map's colours"), false);
-	layout->addRow(tr("New colours:"), colours_combo);
+	layout->addRow(tr("The file's colours:"), colours_combo);
 	protect_check = new QCheckBox(tr("Protect the imported symbols"));
 	layout->addRow(protect_check);
 	rescale_check = new QCheckBox(tr("Scale from 1:%1 to 1:%2")
@@ -148,6 +148,7 @@ MapImportDialog::MapImportDialog(const Map& imported, const Map& map, QWidget* p
 	connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 	connect(buttons, &QDialogButtonBox::helpRequested, this, [this]() { Util::showHelp(this, "import_geodata.html", "map-files"); });
 	connect(none_radio, &QAbstractButton::toggled, this, &MapImportDialog::updateWidgets);
+	connect(all_radio, &QAbstractButton::toggled, this, &MapImportDialog::updateWidgets);
 	connect(offset_radio, &QAbstractButton::toggled, this, &MapImportDialog::updateWidgets);
 	updateWidgets();
 }
@@ -158,7 +159,7 @@ MapImportDialog::~MapImportDialog() = default;
 
 void MapImportDialog::updateWidgets()
 {
-	colours_combo->setEnabled(!none_radio->isChecked());
+	colours_combo->setEnabled(all_radio->isChecked());  // foom: a choice for the whole colour table alone
 	protect_check->setEnabled(!none_radio->isChecked());
 	offset_x_spin->setEnabled(offset_radio->isChecked());
 	offset_y_spin->setEnabled(offset_radio->isChecked());

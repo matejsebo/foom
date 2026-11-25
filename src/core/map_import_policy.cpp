@@ -288,8 +288,22 @@ MapImportResult importMapWithPolicy(Map& map, Map& imported, const MapImportPoli
 		old_colors.insert(map.getColor(i));
 	auto const objects_before = map.getNumObjects();
 
+	// foom: under "All symbols and colours" the file's colours come as a
+	// block of their own, none shared with the map's. For the import their names carry a mark with their place in
+	// the file, so that OOM's import finds none of them equal to a colour of the map; the mark goes afterwards.
+	auto const all_symbols = policy.symbols == MapImportPolicy::AllSymbols;
+	auto const block_mark = QChar(0x1f);
+	if (all_symbols)
+	{
+		for (int i = 0; i < imported.getNumColors(); ++i)
+		{
+			auto* color = imported.getMapColor(i);
+			color->setName(QString(color->getName() + block_mark + QString::number(i)));
+		}
+	}
+
 	// The import: OOM's, which shares symbols and colours equal to the map's
-	auto const mode = policy.symbols == MapImportPolicy::AllSymbols ? Map::ObjectImport : Map::MinimalObjectImport;
+	auto const mode = all_symbols ? Map::ObjectImport : Map::MinimalObjectImport;
 	QHash<const Symbol*, Symbol*> symbol_map;
 	switch (policy.placement)
 	{
@@ -318,6 +332,15 @@ MapImportResult importMapWithPolicy(Map& map, Map& imported, const MapImportPoli
 			new_symbols.push_back(added);
 	}
 
+	// What the import made of the copies of the map's own symbols: under "All symbols" they are new symbols too,
+	// since their colours are the block's, and go back to the map's symbols of their numbers.
+	QSet<const Symbol*> map_symbols_added;
+	for (auto const* copy : map_symbols)
+	{
+		if (auto const* added = symbol_map.value(copy, nullptr))
+			map_symbols_added.insert(added);
+	}
+
 	for (auto* symbol : new_symbols)
 	{
 		auto const* own = symbolNumbered(map, symbol->getNumberAsString(), symbol);
@@ -333,18 +356,10 @@ MapImportResult importMapWithPolicy(Map& map, Map& imported, const MapImportPoli
 
 		auto const same_type = own->getType() == symbol->getType();
 		if (same_type
-		    && (policy.symbols == MapImportPolicy::NoSymbols || policy.symbols == MapImportPolicy::AbsentSymbols))
+		    && (policy.symbols == MapImportPolicy::NoSymbols || policy.symbols == MapImportPolicy::AbsentSymbols
+		        || map_symbols_added.contains(symbol)))
 		{
 			mergeSymbolInto(map, symbol, own);
-		}
-		else if (same_type && policy.symbols == MapImportPolicy::AllSymbols)
-		{
-			auto const position = map.findSymbolIndex(own);
-			mergeSymbolInto(map, own, symbol);
-			map.moveSymbol(map.findSymbolIndex(symbol), position);
-			if (policy.protect_symbols)
-				symbol->setProtected(true);
-			++result.symbols_replaced;
 		}
 		else
 		{
@@ -358,7 +373,9 @@ MapImportResult importMapWithPolicy(Map& map, Map& imported, const MapImportPoli
 	if (result.symbols_renumbered > 0)
 		result.warnings.append(tr("%n symbol(s) renumbered: their number was taken by a different symbol.", result.symbols_renumbered));
 
-	// New colours which no symbol uses any longer go again; the others go to the top or the bottom.
+	// New colours which no symbol uses any longer go again. The others stay where OOM's import put them, at
+	// their place in the file's order among the colours shared with the map; under "All symbols" they are a
+	// block in the file's order at the top or the bottom.
 	for (int i = map.getNumColors() - 1; i >= 0; --i)
 	{
 		auto const* color = map.getColor(i);
@@ -371,11 +388,21 @@ MapImportResult importMapWithPolicy(Map& map, Map& imported, const MapImportPoli
 		auto* color = map.getMapColor(i);
 		(old_colors.contains(color) ? old_order : new_order).push_back(color);
 	}
+	if (all_symbols)
+	{
+		auto const place = [block_mark](const MapColor* color) { return color->getName().section(block_mark, -1).toInt(); };
+		std::stable_sort(new_order.begin(), new_order.end(), [&place](const MapColor* a, const MapColor* b) { return place(a) < place(b); });
+		for (auto* color : new_order)
+		{
+			if (color->getName().contains(block_mark))
+				color->setName(color->getName().section(block_mark, 0, -2));
+		}
+	}
 	auto order = policy.colours_above ? new_order : old_order;
 	auto const& rest = policy.colours_above ? old_order : new_order;
 	order.insert(order.end(), rest.begin(), rest.end());
 	auto changed = false;
-	for (int i = 0; i < int(order.size()); ++i)
+	for (int i = 0; all_symbols && i < int(order.size()); ++i)
 		changed = changed || map.getMapColor(i) != order[std::size_t(i)];
 	if (changed)
 	{

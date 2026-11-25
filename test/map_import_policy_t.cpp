@@ -35,6 +35,7 @@
 #include <QRectF>
 #include <QSettings>
 #include <QString>
+#include <QStringList>
 
 #include "global.h"
 #include "core/georeferencing.h"
@@ -151,14 +152,12 @@ std::vector<const Object*> objectsOf(const Map& map, const Symbol* symbol)
 	return result;
 }
 
-int colorIndex(const Map& map, const char* name)
+QStringList colorNames(const Map& map)
 {
+	QStringList names;
 	for (int i = 0; i < map.getNumColors(); ++i)
-	{
-		if (map.getColor(i)->getName() == QLatin1String(name))
-			return i;
-	}
-	return -1;
+		names.append(map.getColor(i)->getName());
+	return names;
 }
 
 template <class T>
@@ -270,40 +269,76 @@ private slots:
 	{
 		Map target, imported;
 		setupTarget(target);
+		auto const* old_101 = numbered(target, "101");
 		auto const* old_102 = numbered(target, "102");
-		auto const position = target.findSymbolIndex(old_102);
 		setupImported(imported);
 		addLine(imported, 199, imported.getColor(1), 1);  // not used by any object
 		MapImportPolicy policy;
 		policy.symbols = MapImportPolicy::AllSymbols;
 		auto const result = importMapWithPolicy(target, imported, policy);
 		QVERIFY2(result.ok, qPrintable(result.error));
-		QCOMPARE(countNumbered(target, "102"), 1);
-		auto const* new_102 = numbered(target, "102");
+		// The map's symbols stay as they are, with their objects.
+		QCOMPARE(numbered(target, "101"), old_101);
+		QCOMPARE(numbered(target, "102"), old_102);
+		QCOMPARE(static_cast<const LineSymbol*>(old_102)->getLineWidth(), 1000);
+		QCOMPARE(int(objectsOf(target, old_102).size()), 1);
+		// Every symbol of the file comes; a taken number comes under the next free one, the equal 101 too.
+		QCOMPARE(target.getNumSymbols(), 7);
+		QCOMPARE(result.symbols_renumbered, 2);
+		auto const* new_101 = numbered(target, "101.1");
+		auto const* new_102 = numbered(target, "102.1");
+		QVERIFY(new_101);
+		QVERIFY(new_102);
 		QCOMPARE(static_cast<const LineSymbol*>(new_102)->getLineWidth(), 2000);
-		QCOMPARE(target.findSymbolIndex(new_102), position);
-		QCOMPARE(int(objectsOf(target, new_102).size()), 2);  // the target's object too
+		QCOMPARE(int(objectsOf(target, new_101).size()), 1);
+		QCOMPARE(int(objectsOf(target, new_102).size()), 1);
+		QVERIFY(numbered(target, "103"));
+		QVERIFY(numbered(target, "104"));
 		QVERIFY(numbered(target, "199"));
-		QCOMPARE(target.getNumSymbols(), 5);
-		QCOMPARE(result.symbols_replaced, 1);
+		// The file's colours are a block of their own below the map's, none shared, named as in the file.
+		QCOMPARE(colorNames(target), (QStringList{ QStringLiteral("Black"), QStringLiteral("Black"), QStringLiteral("Blue") }));
+		QCOMPARE(static_cast<const LineSymbol*>(old_101)->getColor(), target.getColor(0));
+		QCOMPARE(static_cast<const LineSymbol*>(new_101)->getColor(), target.getColor(1));
+		QCOMPARE(static_cast<const LineSymbol*>(numbered(target, "103"))->getColor(), target.getColor(2));
 	}
 
 	/// Accept (5)
 	void colorsTest()
 	{
+		auto const black = QStringLiteral("Black"), blue = QStringLiteral("Blue"), green = QStringLiteral("Green"), red = QStringLiteral("Red");
 		for (auto above : { true, false })
 		{
+			// All symbols and colours: the file's colours as a block, above or below the map's.
 			Map target, imported;
 			setupTarget(target);
 			addColor(target, "Green", 0.5f, 0.0f);
 			setupImported(imported);
 			MapImportPolicy policy;
+			policy.symbols = MapImportPolicy::AllSymbols;
 			policy.colours_above = above;
 			QVERIFY(importMapWithPolicy(target, imported, policy).ok);
-			QCOMPARE(target.getNumColors(), 3);
-			QCOMPARE(colorIndex(target, "Blue"), above ? 0 : 2);
-			QCOMPARE(colorIndex(target, "Black"), above ? 1 : 0);
-			QCOMPARE(colorIndex(target, "Green"), above ? 2 : 1);
+			QCOMPARE(colorNames(target), above ? (QStringList{ black, blue, black, green }) : (QStringList{ black, green, black, blue }));
+			for (int i = 0; i < target.getNumColors(); ++i)
+				QCOMPARE(target.getColor(i)->getPriority(), i);
+		}
+		for (auto above : { true, false })
+		{
+			// The other choices: a colour equal to one of the map's is shared, and the others come at
+			// their place in the file's order, whatever is said about above or below.
+			Map target, imported;
+			setupTarget(target);
+			addColor(target, "Green", 0.5f, 0.0f);
+			imported.setScaleDenominator(10000);
+			auto* file_red = addColor(imported, "Red", 0.0f, 0.3f);
+			auto* file_black = addColor(imported, "Black", 0.0f, 1.0f);
+			auto* file_blue = addColor(imported, "Blue", 1.0f, 0.0f);
+			addPath(imported, addLine(imported, 201, file_red, 1), { MapCoord(10, 10), MapCoord(20, 10) });
+			addPath(imported, addLine(imported, 202, file_black, 1), { MapCoord(10, 20), MapCoord(20, 20) });
+			addPath(imported, addLine(imported, 203, file_blue, 1), { MapCoord(10, 30), MapCoord(20, 30) });
+			MapImportPolicy policy;
+			policy.colours_above = above;
+			QVERIFY(importMapWithPolicy(target, imported, policy).ok);
+			QCOMPARE(colorNames(target), (QStringList{ red, black, green, blue }));
 			for (int i = 0; i < target.getNumColors(); ++i)
 				QCOMPARE(target.getColor(i)->getPriority(), i);
 		}
@@ -398,14 +433,19 @@ private slots:
 			QCOMPARE(policy.placement, MapImportPolicy::ByGeoreferencing);
 			QVERIFY(dialog.findChild<QLabel*>(QStringLiteral("summary_label"))->text().contains(QLatin1String("102")));
 
+			// Above or below is a choice for all symbols and colours alone.
+			QVERIFY(!child<QComboBox>(dialog, "colours_combo")->isEnabled());
 			child<QRadioButton>(dialog, "renumber_radio")->setChecked(true);
+			QVERIFY(!child<QComboBox>(dialog, "colours_combo")->isEnabled());
+			child<QRadioButton>(dialog, "all_radio")->setChecked(true);
+			QVERIFY(child<QComboBox>(dialog, "colours_combo")->isEnabled());
 			child<QComboBox>(dialog, "colours_combo")->setCurrentIndex(0);  // above
 			child<QCheckBox>(dialog, "protect_check")->setChecked(true);
 			child<QRadioButton>(dialog, "offset_radio")->setChecked(true);
 			child<QDoubleSpinBox>(dialog, "offset_x_spin")->setValue(5.0);
 			child<QDoubleSpinBox>(dialog, "offset_y_spin")->setValue(-3.0);
 			auto const chosen = dialog.policy();
-			QCOMPARE(chosen.symbols, MapImportPolicy::RenumberClashes);
+			QCOMPARE(chosen.symbols, MapImportPolicy::AllSymbols);
 			QCOMPARE(chosen.colours_above, true);
 			QCOMPARE(chosen.protect_symbols, true);
 			QCOMPARE(chosen.placement, MapImportPolicy::ByOffset);
@@ -416,7 +456,7 @@ private slots:
 			// The choices of the last accepted import come back, except the placement
 			MapImportDialog dialog(imported, target);
 			auto const policy = dialog.policy();
-			QCOMPARE(policy.symbols, MapImportPolicy::RenumberClashes);
+			QCOMPARE(policy.symbols, MapImportPolicy::AllSymbols);
 			QCOMPARE(policy.colours_above, true);
 			QCOMPARE(policy.protect_symbols, true);
 			QCOMPARE(policy.placement, MapImportPolicy::ByGeoreferencing);
@@ -509,6 +549,33 @@ private slots:
 		QCOMPARE(static_cast<const LineSymbol*>(numbered(target, "103"))->getLineWidth(), 500);
 		auto const* path = static_cast<const PathObject*>(objectsOf(target, numbered(target, "103")).front());
 		QCOMPARE(path->getCoordinate(0), MapCoord(5, 15));
+	}
+
+	/// Accept (11): under all symbols and colours, objects which were given the map's symbols before keep them.
+	void replacedSymbolsAllTest()
+	{
+		Map target, imported;
+		setupTarget(target);
+		auto const* old_101 = numbered(target, "101");
+		auto const* old_102 = numbered(target, "102");
+		setupImported(imported);
+		auto const file_symbols = mapSymbols(imported);
+		auto rules = SymbolRuleSet::forUsedSymbols(imported);
+		rules.matchQuerySymbolNumber(target);
+		rules.apply(imported, target);
+		MapImportPolicy policy;
+		policy.symbols = MapImportPolicy::AllSymbols;
+		auto const result = importMapWithPolicy(target, imported, policy, mapSymbolsAddedSince(imported, file_symbols));
+		QVERIFY2(result.ok, qPrintable(result.error));
+		QCOMPARE(numbered(target, "101"), old_101);
+		QCOMPARE(numbered(target, "102"), old_102);
+		QCOMPARE(int(objectsOf(target, old_101).size()), 1);
+		QCOMPARE(int(objectsOf(target, old_102).size()), 2);
+		// The file's own 101 and 102, which no object uses any longer, come under new numbers as its other symbols do.
+		QCOMPARE(target.getNumSymbols(), 6);
+		QCOMPARE(result.symbols_renumbered, 2);
+		QCOMPARE(int(objectsOf(target, numbered(target, "102.1")).size()), 0);
+		QCOMPARE(colorNames(target), (QStringList{ QStringLiteral("Black"), QStringLiteral("Black"), QStringLiteral("Blue") }));
 	}
 
 	/// Seen on 2026-11-22: the summary named clashing numbers twice.

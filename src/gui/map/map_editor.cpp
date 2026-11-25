@@ -8665,10 +8665,18 @@ bool MapEditorController::importMapFile(const QString& filename, bool show_error
 	    MainWindow::showMessageBox(window, tr("Warning"), tr("The map import generated warnings."), importer->warnings());
 	
 	// foom: the import policies, the design notes, "Map import policies"
-	// The dialog's summary is of the file as read, before the symbol replacement changes it.
+	// The dialog comes first, with a summary of the file as read (2026-11-24: OOM's symbol replacement, which gives
+	// the file's objects symbols of this map, came before it). With all symbols and colours the file comes as it
+	// is, and the replacement is not offered.
 	MapImportDialog dialog(imported_map, *map, window);
-	auto const file_symbols = mapSymbols(imported_map);  // foom: what the replacement adds are copies of this map's symbols
-	if (!SymbolReplacement(imported_map, *map).withAutoCrtFile(window, filename))
+	auto const center = main_view->center();
+	dialog.setViewCenter(QPointF(center.x(), center.y()));
+	if (dialog.exec() != QDialog::Accepted)
+		return false;
+	auto const policy = dialog.policy();
+	auto const file_symbols = mapSymbols(imported_map);  // what the replacement adds are copies of this map's symbols
+	if (policy.symbols != MapImportPolicy::AllSymbols
+	    && !SymbolReplacement(imported_map, *map).withAutoCrtFile(window, filename))
 	{
 		if (QMessageBox::question(window, ::OpenOrienteering::Map::tr("Import..."),
 		                          ::OpenOrienteering::Map::tr("Symbol replacement was canceled.\n"
@@ -8676,11 +8684,7 @@ bool MapEditorController::importMapFile(const QString& filename, bool show_error
 		                          QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::No)
 			return false;
 	}
-	auto const center = main_view->center();
-	dialog.setViewCenter(QPointF(center.x(), center.y()));
-	if (dialog.exec() != QDialog::Accepted)
-		return false;
-	auto const result = importMapWithPolicy(*map, imported_map, dialog.policy(), mapSymbolsAddedSince(imported_map, file_symbols));
+	auto const result = importMapWithPolicy(*map, imported_map, policy, mapSymbolsAddedSince(imported_map, file_symbols));
 	if (!result.ok)
 	{
 		QMessageBox::warning(window, tr("Error"), result.error);

@@ -84,7 +84,7 @@ An attribute which the new file does not have is not chosen.
 
 **File > Import...** of a map file (FOOM, OpenOrienteering Mapper or OCD) asks how the symbols and colours
 of the file are taken. A symbol of the file *clashes* when the map has a symbol of the same number.
-A clashing symbol which is the same in every respect is simply shared.
+A clashing symbol which is the same in every respect is simply shared, except with the last choice.
 
 - **No symbols or colours**: objects take the map's symbol of their number; objects whose number the map
   lacks are left out.
@@ -92,10 +92,16 @@ A clashing symbol which is the same in every respect is simply shared.
   symbol take the map's symbol.
 - **Absent symbols, renumbering on a clash**: a clashing symbol which differs is added under a new number
   below its own, such as 102.1 for 102.
-- **All symbols and colours, replacing on a clash**: every symbol and colour of the file; a clashing symbol
-  which differs replaces the map's, also for the map's own objects.
+- **All symbols and colours, renumbering on a clash**: every symbol of the file comes with the file's own
+  colours, so that the imported map looks as it does by itself. A symbol whose number the map has comes
+  under a new number, such as 102.1; the map's own symbols and colours are not touched.
 
-**New colours** go above the map's colours (drawn on top) or below them.
+With the choices before the last, FOOM then offers to give the file's objects symbols of the map
+(**Assign new symbols**). A colour which the map has already is shared, and a new colour takes its place
+among the shared ones in the order of the file. With **All symbols and colours**, the file comes as it is:
+its colours are kept together, and **The file's colours** says whether they go above the map's colours
+(drawn on top) or below them.
+
 **Protect the imported symbols** marks them protected.
 When the file has another scale, **Scale** brings its data to the map's scale.
 

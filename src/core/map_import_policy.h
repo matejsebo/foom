@@ -44,7 +44,7 @@ struct MapImportPolicy
 		NoSymbols,        ///< No symbols or colours: objects take the map's symbol of their number, others are dropped.
 		AbsentSymbols,    ///< Only symbols whose number is absent; objects of the others take the map's symbol.
 		RenumberClashes,  ///< Absent symbols, and a different symbol of a taken number under a new number.
-		AllSymbols,       ///< Every symbol and colour; a different symbol of a taken number replaces the map's.
+		AllSymbols,       ///< Every symbol and colour, the colours as a block of their own; a taken number under a new one.
 	};
 
 	enum Placement
@@ -55,7 +55,7 @@ struct MapImportPolicy
 	};
 
 	Symbols symbols = AbsentSymbols;
-	bool colours_above = false;      ///< New colours at the top of the colour table, else at the bottom.
+	bool colours_above = false;      ///< AllSymbols: the file's colours at the top of the colour table, else at the bottom.
 	bool protect_symbols = false;    ///< Imported symbols are marked protected.
 	Placement placement = ByGeoreferencing;
 	QPointF offset_mm;               ///< The offset (ByOffset) or the point (AtPoint), map millimetres.
@@ -70,7 +70,6 @@ struct MapImportResult
 	int objects_dropped = 0;      ///< Objects left out because their symbol was not taken.
 	int symbols_added = 0;        ///< New symbols, renumbered ones included.
 	int symbols_renumbered = 0;
-	int symbols_replaced = 0;
 	QStringList warnings;
 	QString error;                ///< Set when ok is false.
 };
