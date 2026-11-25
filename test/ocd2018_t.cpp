@@ -35,6 +35,8 @@
 #include <QString>
 #include <QStringList>
 
+#include "test_config.h"
+
 #include "global.h"
 #include "core/foreign_data.h"
 #include "core/map.h"
@@ -66,6 +68,7 @@ private slots:
 	void initTestCase();
 	void headerTest();
 	void objectFieldsTest();
+	void examplesTest();
 	
 private:
 	static void setupMap(Map& map, PointObject** point = nullptr);
@@ -318,6 +321,40 @@ void Ocd2018Test::objectFieldsTest()
 	QCOMPARE(with_short, 1);
 	QCOMPARE(with_long, 1);
 	QCOMPARE(without, 1);
+}
+
+void Ocd2018Test::examplesTest()
+{
+	// The example maps which come with the program: written as OCD 2018, read, written and read again.
+	QDir const examples(QString::fromUtf8(MAPPER_TEST_SOURCE_DIR) + QStringLiteral("/../examples"));
+	for (auto const* name : { "complete map.omap", "forest sample.omap", "overprinting.omap" })
+	{
+		Map map;
+		QVERIFY2(map.loadFrom(examples.absoluteFilePath(QString::fromLatin1(name))), name);
+		QVERIFY2(map.getNumObjects() > 0, name);
+		auto const first = exportTo(map, "OCD2018");
+		QVERIFY2(!first.isEmpty(), name);
+		QCOMPARE(quint8(first[4]), quint8(0xe2));
+		Map loaded;
+		QVERIFY2(import(first, loaded), name);
+		QCOMPARE(loaded.property(OcdFileFormat::versionProperty()).toInt(), 2018);
+		QCOMPARE(loaded.getNumObjects(), map.getNumObjects());
+		// What was read is written and read again without a change of the counts.
+		auto const second = exportTo(loaded, "OCD2018");
+		QVERIFY2(!second.isEmpty(), name);
+		Map again;
+		QVERIFY2(import(second, again), name);
+		QCOMPARE(again.getNumObjects(), loaded.getNumObjects());
+		QCOMPARE(again.getNumSymbols(), loaded.getNumSymbols());
+		QCOMPARE(again.getNumColors(), loaded.getNumColors());
+		auto const before = summarize(loaded);
+		auto const after = summarize(again);
+		QVERIFY2(after.object_types == before.object_types, name);
+		QVERIFY2(after.foreign_types == before.foreign_types, name);
+		QCOMPARE(after.elevations, before.elevations);
+		QCOMPARE(after.strings, before.strings);
+		qInfo("%s: %d objects, %d symbols, %d colours", name, again.getNumObjects(), again.getNumSymbols(), again.getNumColors());
+	}
 }
 
 
