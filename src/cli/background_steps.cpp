@@ -470,6 +470,11 @@ StepResult pointCloud(Map& map, const QString& map_path, const Job& job, const A
 		file = job.resolvePath(file);
 	auto gridding = cloud.gridding;
 	gridding.dsm = gridding.dsm || cloud.vegetation_height;
+	ElevationModel::AssumedCrs assumed_crs(map.getGeoreferencing().getProjectedCRSSpec());  // foom: for files which name no system
+	// foom: the box is in the map's projected coordinates, which may count in feet; the cloud is read in metres
+	auto const map_unit = ElevationModel::linearUnits(map.getGeoreferencing().getProjectedCRSSpec()).horizontal;
+	if (!gridding.box.isEmpty() && map_unit != 1.0)
+		gridding.box = QRectF(gridding.box.left() * map_unit, gridding.box.top() * map_unit, gridding.box.width() * map_unit, gridding.box.height() * map_unit);
 	if (!gridding.box.isEmpty())
 	{
 		auto const info = PointCloud::analyse(cloud.files);

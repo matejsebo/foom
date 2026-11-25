@@ -41,6 +41,7 @@
 #include "core/symbols/area_symbol.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/symbol.h"
+#include "elevation/elevation_georef.h"
 #include "elevation/elevation_model.h"
 
 
@@ -622,7 +623,7 @@ const LineSymbol* cliffLineSymbol(Map& map)
 std::vector<std::unique_ptr<Object>> makeCliffObjects(const Map& map, const std::vector<CliffArea>& areas, const AreaSymbol* symbol, const LineSymbol* line_symbol)
 {
 	std::vector<std::unique_ptr<Object>> objects;
-	auto const& georef = map.getGeoreferencing();
+	auto const georef = elevationGeoreferencing(map);  // in metres also for a map which counts in feet
 	for (auto const& area : areas)
 	{
 		if (area.isLine())

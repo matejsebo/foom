@@ -152,7 +152,9 @@ bool readFile(const QString& path, bool xy_only, const std::function<void (const
 	// laszip_get_point_count() counts the points read so far.
 	auto const count = header->number_of_point_records ? laszip_I64(header->number_of_point_records) : laszip_I64(header->extended_number_of_point_records);
 	// foom: a cloud in feet is read as the same projection in metres, its heights in metres
-	auto const file_crs = crsOf(*header);
+	auto file_crs = crsOf(*header);
+	if (file_crs.isEmpty())
+		file_crs = ElevationModel::AssumedCrs::forFileWithout();  // foom: in the system of a map which counts in feet
 	auto const units = ElevationModel::linearUnits(file_crs);
 	auto const convert = !units.isMetric();
 	if (crs)
@@ -577,7 +579,10 @@ PointCloudInfo PointCloud::analyse(const QStringList& paths)
 			info.crs_spec = crs;
 			if (!crs.isEmpty())
 			{
-				auto const units = ElevationModel::linearUnits(fileCrs(path));
+				auto named = fileCrs(path);
+				if (named.isEmpty())
+					named = ElevationModel::AssumedCrs::forFileWithout();
+				auto const units = ElevationModel::linearUnits(named);
 				info.file_horizontal_unit = units.horizontal;
 				info.file_vertical_unit = units.vertical;
 			}

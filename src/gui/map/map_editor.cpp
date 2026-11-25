@@ -125,6 +125,7 @@
 #include "core/objects/object_operations.h"
 #include "core/objects/text_object.h"  // foom
 #include "elevation/contours.h"  // foom
+#include "elevation/elevation_georef.h"  // foom
 #include "elevation/elevation_model.h"  // foom
 #include "elevation/elevation_set.h"  // foom
 #include "elevation/grid_frame.h"  // foom
@@ -5022,7 +5023,7 @@ void MapEditorController::smoothPaths(const ops::SmoothParams& params)
 	if (params.contour && !params.height_at)
 	{
 		// The contour option: heights from the terrain grid, see the design notes, "Smooth".
-		auto const& georef = map->getGeoreferencing();
+		auto const georef = elevationGeoreferencing(*map);  // in metres also for a map which counts in feet
 		auto const* terrain = map->elevationSet().model(ElevationSet::Terrain, georef.getProjectedCRSSpec());
 		if (!terrain)
 		{
@@ -9431,7 +9432,7 @@ namespace {
 /** The terrain grid, loaded on demand; warns when there is none. */
 const ElevationModel* terrainModel(Map& map, QWidget* parent)
 {
-	auto const* model = map.elevationSet().model(ElevationSet::Terrain, map.getGeoreferencing().getProjectedCRSSpec());
+	auto const* model = map.elevationSet().model(ElevationSet::Terrain, elevationCrs(map));
 	if (!model)
 	{
 		auto const href = map.elevationSet().href(ElevationSet::Terrain);
@@ -9820,7 +9821,8 @@ bool MapEditorController::storeElevationGrid(int kind, std::unique_ptr<Elevation
 
 bool MapEditorController::mergeElevationFiles(const QStringList& paths, QString* error)
 {
-	auto const crs = map->getGeoreferencing().getProjectedCRSSpec();
+	ElevationModel::AssumedCrs assumed_crs(map->getGeoreferencing().getProjectedCRSSpec());  // foom: for files which name no system
+	auto const crs = elevationCrs(*map);
 	std::vector<std::unique_ptr<ElevationModel>> opened;
 	std::vector<const ElevationModel*> grids;
 	if (auto const* terrain = map->elevationSet().model(ElevationSet::Terrain, crs))
@@ -9851,7 +9853,7 @@ bool MapEditorController::mergeElevationFiles(const QStringList& paths, QString*
 
 bool MapEditorController::elevationDifference(QString* error)
 {
-	auto const crs = map->getGeoreferencing().getProjectedCRSSpec();
+	auto const crs = elevationCrs(*map);
 	auto const* surface = map->elevationSet().model(ElevationSet::Surface, crs);
 	auto const* terrain = map->elevationSet().model(ElevationSet::Terrain, crs);
 	if (!surface || !terrain)
@@ -9872,7 +9874,7 @@ bool MapEditorController::elevationDifference(QString* error)
 
 bool MapEditorController::cropElevation(const QRectF& box, QString* error)
 {
-	auto const* terrain = map->elevationSet().model(ElevationSet::Terrain, map->getGeoreferencing().getProjectedCRSSpec());
+	auto const* terrain = map->elevationSet().model(ElevationSet::Terrain, elevationCrs(*map));
 	if (!terrain || !terrain->extent().intersects(box))
 	{
 		if (error)
@@ -9884,7 +9886,7 @@ bool MapEditorController::cropElevation(const QRectF& box, QString* error)
 
 bool MapEditorController::smoothElevation(int radius, QString* error)
 {
-	auto const* terrain = map->elevationSet().model(ElevationSet::Terrain, map->getGeoreferencing().getProjectedCRSSpec());
+	auto const* terrain = map->elevationSet().model(ElevationSet::Terrain, elevationCrs(*map));
 	if (!terrain)
 	{
 		if (error)
@@ -9903,7 +9905,7 @@ void MapEditorController::closeElevation()
 // foom: the design notes, "The embedded grid for course setting".
 bool MapEditorController::embedCourseElevation(double cell_size, QString* error)
 {
-	auto const target_crs = map->getGeoreferencing().getProjectedCRSSpec();
+	auto const target_crs = elevationCrs(*map);
 	auto const* model = map->elevationSet().model(ElevationSet::Terrain, target_crs);
 	if (!model)
 	{
@@ -10027,7 +10029,7 @@ namespace {
 /// What the frames depend on: the map's system, the grids' paths and the extents of the loaded grids.
 QString elevationFramesKey(Map& map)
 {
-	QString key = map.getGeoreferencing().getProjectedCRSSpec();
+	QString key = elevationCrs(map);
 	auto const& set = map.elevationSet();
 	for (int k = 0; k < ElevationSet::kind_count; ++k)
 	{
@@ -10156,14 +10158,15 @@ void MapEditorController::elevationVegetationHeightClicked()
 // foom: the design notes, "Vegetation statistics".
 VegetationStatistics MapEditorController::vegetationStatisticsOfSelection(const QStringList& paths, const VegetationParams& params, QString* error)
 {
-	auto const* model = map->elevationSet().model(ElevationSet::Terrain, map->getGeoreferencing().getProjectedCRSSpec());
+	ElevationModel::AssumedCrs assumed_crs(map->getGeoreferencing().getProjectedCRSSpec());  // foom: for files which name no system
+	auto const* model = map->elevationSet().model(ElevationSet::Terrain, elevationCrs(*map));
 	if (!model)
 	{
 		if (error)
 			*error = tr("The map has no terrain grid.");
 		return {};
 	}
-	auto const& georef = map->getGeoreferencing();
+	auto const georef = elevationGeoreferencing(*map);
 	std::vector<VegetationSample> samples;
 	for (auto* object : map->selectedObjects())
 	{
@@ -10289,7 +10292,7 @@ void MapEditorController::elevationMergeContoursClicked()
 // foom: the design notes, "Profile".
 Profile MapEditorController::elevationProfileOfSelection(QString* error)
 {
-	auto const* model = map->elevationSet().model(ElevationSet::Terrain, map->getGeoreferencing().getProjectedCRSSpec());
+	auto const* model = map->elevationSet().model(ElevationSet::Terrain, elevationCrs(*map));
 	if (!model)
 	{
 		if (error)
@@ -10311,7 +10314,7 @@ Profile MapEditorController::elevationProfileOfSelection(QString* error)
 			*error = tr("Select one line or area.");
 		return {};
 	}
-	auto const& georef = map->getGeoreferencing();
+	auto const georef = elevationGeoreferencing(*map);
 	std::vector<QPointF> line;
 	for (auto const& coord : path->parts().front().path_coords)
 		line.push_back(georef.toProjectedCoords(coord.pos));

@@ -67,6 +67,7 @@
 #include "core/symbols/area_symbol.h"
 #include "elevation/cliffs.h"
 #include "elevation/contours.h"
+#include "elevation/elevation_georef.h"
 #include "elevation/elevation_model.h"
 #include "elevation/embedded_grid.h"
 #include "elevation/ocd_course_dem.h"
@@ -1938,6 +1939,151 @@ private slots:
 	}
 	
 	/// the design notes, "The grid's frame", Accept (1) to (4).
+	/// the design notes, "State Plane and feet", Accept (6) and (7):
+	/// elevation data in a map whose own system counts in feet.
+	void feetMapTest()
+	{
+		constexpr double us_foot = 1200.0 / 3937.0;
+		// One place in two maps, a State Plane zone in metres and in US survey feet, each turned by a declination.
+		auto const georeferencing = [](const char* epsg) {
+			Georeferencing georef;
+			georef.setScaleDenominator(10000);
+			georef.setProjectedCRS(QStringLiteral("EPSG"), QString::fromLatin1(epsg));
+			georef.setGeographicRefPoint(LatLon(40.75, -73.95));
+			georef.setMapRefPoint(MapCoord(0, 0));
+			georef.setDeclination(13.0);
+			return georef;
+		};
+		auto const metres = georeferencing("EPSG:32118");
+		auto const feet = georeferencing("EPSG:2263");
+		QCOMPARE(metres.getState(), Georeferencing::Geospatial);
+		QCOMPARE(feet.getState(), Georeferencing::Geospatial);
+
+		// (6) The georeferencing of the elevation data: the map's own for metres, the same projection in metres for feet.
+		QCOMPARE(elevationCrs(metres), metres.getProjectedCRSSpec());
+		QVERIFY(ElevationModel::sameCrs(elevationCrs(feet), QStringLiteral("EPSG:32118")));
+		auto const twin = elevationGeoreferencing(feet);
+		QCOMPARE(twin.getState(), Georeferencing::Geospatial);
+		for (auto const& place : { MapCoordF(0, 0), MapCoordF(50, -30), MapCoordF(-120.5, 80.25) })
+		{
+			auto const in_feet = feet.toProjectedCoords(place);
+			auto const in_twin = twin.toProjectedCoords(place);
+			auto const in_metres = metres.toProjectedCoords(place);
+			// To 5 mm on the ground: OOM keeps scale factors to six decimals.
+			QVERIFY(std::hypot(in_twin.x() - in_feet.x() * us_foot, in_twin.y() - in_feet.y() * us_foot) < 0.005);
+			QVERIFY(std::hypot(in_twin.x() - in_metres.x(), in_twin.y() - in_metres.y()) < 0.02);
+			auto const back = twin.toMapCoordF(in_twin);
+			QVERIFY(std::hypot(back.x() - place.x(), back.y() - place.y()) < 1e-6);
+		}
+
+		// (7) A grid in feet with cells of 10 ft, rising to the east by a tenth; its heights are metres.
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		auto const origin = feet.toProjectedCoords(MapCoordF(0, 0));
+		constexpr int columns = 80, rows = 60;
+		std::vector<float> values(std::size_t(columns * rows));
+		for (int row = 0; row < rows; ++row)
+		{
+			for (int col = 0; col < columns; ++col)
+				values[std::size_t(row * columns + col)] = float(100.0 + col * 10.0 * us_foot * 0.1);
+		}
+		ElevationModel source(columns, rows, QPointF(origin.x() - 400.0, origin.y() + 300.0), 10.0, values, QStringLiteral("EPSG:2263"));
+		auto const path = dir.filePath(QStringLiteral("feet.tif"));
+		QVERIFY(source.save(path));
+
+		struct Outcome
+		{
+			double cell = 0.0;
+			double slope = 0.0;
+			int contours = 0;
+			QRectF bounds;
+		};
+		auto const run = [&path](const Georeferencing& georef, Outcome& outcome) {
+			Map map;
+			map.setGeoreferencing(georef);
+			ElevationModel::OpenOptions options;
+			options.target_crs = elevationCrs(map);
+			auto grid = ElevationModel::open(path, options);
+			QVERIFY2(grid, qPrintable(ElevationModel::lastError()));
+			outcome.cell = grid->cellSize();
+			auto const gradient = grid->gradientAt(grid->width() / 2, grid->height() / 2);
+			outcome.slope = std::hypot(gradient.x(), gradient.y());
+			auto const symbols = contourSymbols(map, false);
+			auto result = makeContourObjects(map, *grid, standardParams(), symbols);
+			QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+			outcome.contours = int(result.objects.size());
+			for (auto const& object : result.objects)
+			{
+				object->update();
+				outcome.bounds = outcome.bounds.isNull() ? object->getExtent() : outcome.bounds.united(object->getExtent());
+			}
+		};
+		Outcome in_metres, in_feet;
+		run(metres, in_metres);
+		run(feet, in_feet);
+		// The cells are metres, and so is the slope: a tenth, not a tenth of a foot per metre.
+		QVERIFY2(std::abs(in_feet.cell - 10.0 * us_foot) < 0.02, qPrintable(QString::number(in_feet.cell)));
+		QVERIFY2(std::abs(in_feet.slope - 0.1) < 0.003, qPrintable(QString::number(in_feet.slope)));
+		QVERIFY2(std::abs(in_metres.slope - 0.1) < 0.003, qPrintable(QString::number(in_metres.slope)));
+		// The contours lie on the same paper in both maps.
+		QVERIFY(in_feet.contours >= 20);
+		QCOMPARE(in_feet.contours, in_metres.contours);
+		for (auto const difference : { in_feet.bounds.left() - in_metres.bounds.left(), in_feet.bounds.right() - in_metres.bounds.right(),
+		                               in_feet.bounds.top() - in_metres.bounds.top(), in_feet.bounds.bottom() - in_metres.bounds.bottom() })
+			QVERIFY2(std::abs(difference) < 0.05, qPrintable(QString::number(difference)));
+		// The grid covers 800 by 600 ft, which is 24.4 by 18.3 mm at 1:10,000.
+		QVERIFY2(in_feet.bounds.width() > 20.0 && in_feet.bounds.width() < 32.0, qPrintable(QString::number(in_feet.bounds.width())));
+
+		// (8) Opened for nothing in particular, the grid in feet is read in metres all the same.
+		{
+			auto grid = ElevationModel::open(path);
+			QVERIFY(grid);
+			QVERIFY2(std::abs(grid->cellSize() - 10.0 * us_foot) < 0.02, qPrintable(QString::number(grid->cellSize())));
+			QVERIFY(ElevationModel::sameCrs(grid->crsSpec(), QStringLiteral("EPSG:32118")));
+			QVERIFY(!grid->crsAssumed());
+		}
+
+		// (9) The same grid as a file which names no system. For a map in feet its numbers are feet, and it comes
+		// out as the grid above; for a map in metres, and for nobody, it is read as it is.
+		auto const bare = dir.filePath(QStringLiteral("bare.asc"));
+		{
+			ElevationModel copy(columns, rows, QPointF(origin.x() - 400.0, origin.y() + 300.0), 10.0, values);
+			QVERIFY(copy.save(bare));
+		}
+		{
+			auto grid = ElevationModel::open(bare);
+			QVERIFY(grid);
+			QCOMPARE(grid->cellSize(), 10.0);
+			QVERIFY(!grid->crsAssumed());
+			ElevationModel::AssumedCrs for_metres(metres.getProjectedCRSSpec());
+			QVERIFY(ElevationModel::AssumedCrs::forFileWithout().isEmpty());
+			grid = ElevationModel::open(bare);
+			QVERIFY(grid);
+			QCOMPARE(grid->cellSize(), 10.0);
+		}
+		{
+			ElevationModel::AssumedCrs for_feet(feet.getProjectedCRSSpec());
+			QCOMPARE(ElevationModel::AssumedCrs::forFileWithout(), feet.getProjectedCRSSpec());
+			ElevationModel::OpenOptions options;
+			options.target_crs = elevationCrs(feet);
+			auto grid = ElevationModel::open(bare, options);
+			QVERIFY2(grid, qPrintable(ElevationModel::lastError()));
+			QVERIFY(grid->crsAssumed());
+			QVERIFY2(std::abs(grid->cellSize() - 10.0 * us_foot) < 0.02, qPrintable(QString::number(grid->cellSize())));
+			auto const gradient = grid->gradientAt(grid->width() / 2, grid->height() / 2);
+			QVERIFY(std::abs(std::hypot(gradient.x(), gradient.y()) - 0.1) < 0.003);
+			// It lies where the grid with a system lies.
+			ElevationModel::OpenOptions same;
+			same.target_crs = elevationCrs(feet);
+			auto with_system = ElevationModel::open(path, same);
+			QVERIFY(with_system);
+			QVERIFY(std::abs(grid->extent().left() - with_system->extent().left()) < 0.05);
+			QVERIFY(std::abs(grid->extent().top() - with_system->extent().top()) < 0.05);
+			QVERIFY(std::abs(grid->extent().width() - with_system->extent().width()) < 0.2);
+		}
+		QVERIFY(ElevationModel::AssumedCrs::forFileWithout().isEmpty());
+	}
+
 	void gridFootprintTest()
 	{
 		QTemporaryDir dir;

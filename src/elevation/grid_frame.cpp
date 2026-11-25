@@ -34,6 +34,7 @@
 #include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_coord.h"
+#include "elevation/elevation_georef.h"
 #include "elevation/elevation_model.h"
 
 
@@ -148,7 +149,7 @@ QPolygonF gridFootprint(const QString& path, const QString& target_crs, int piec
 std::vector<ElevationFrame> elevationFrames(Map& map, int pieces)
 {
 	std::vector<ElevationFrame> frames;
-	auto const& georef = map.getGeoreferencing();
+	auto const georef = elevationGeoreferencing(map);  // in metres also for a map which counts in feet
 	auto const crs = georef.getProjectedCRSSpec();
 	auto& set = map.elevationSet();
 	for (int k = 0; k < ElevationSet::kind_count; ++k)

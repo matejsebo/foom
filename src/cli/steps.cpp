@@ -72,6 +72,7 @@
 #include "course/route_course.h"  // foom
 #include "course/route_print.h"  // foom
 #include "course/route_store.h"  // foom
+#include "elevation/elevation_georef.h"  // foom
 #include "elevation/elevation_model.h"  // foom
 #include "elevation/elevation_set.h"  // foom
 #include "elevation/raster_products.h"  // foom
@@ -2363,7 +2364,7 @@ StepResult StepRunner::hillShadeStep(const Step& step)
 	auto const href = set.href(ElevationSet::Terrain);
 	if (href.isEmpty())
 		return failure(QLatin1String("the map has no terrain grid"));
-	auto const* model = set.model(ElevationSet::Terrain, map->getGeoreferencing().getProjectedCRSSpec());
+	auto const* model = set.model(ElevationSet::Terrain, elevationCrs(*map));
 	if (!model)
 		return failure(QString::fromLatin1("cannot open the terrain grid \"%1\": %2").arg(href, ElevationModel::lastError()));
 	auto const path = p.has("out") ? job.resolvePath(p.requireString("out")) : productPath(map_path, href, QStringLiteral("hillshade"));

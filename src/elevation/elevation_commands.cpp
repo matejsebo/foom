@@ -31,6 +31,7 @@
 #include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/objects/object.h"
+#include "elevation/elevation_georef.h"
 #include "elevation/cliffs.h"
 #include "elevation/grid_tiles.h"
 #include "elevation/landforms.h"
@@ -59,7 +60,7 @@ void setError(QString* error, const QString& message)
 
 QString mapCrs(const Map& map)
 {
-	return map.getGeoreferencing().getProjectedCRSSpec();
+	return elevationCrs(map);  // the map's system, in metres also when the map counts in feet
 }
 
 /// Writes the product and attaches it when asked; the message on failure.
@@ -78,6 +79,7 @@ QString writeProduct(Map& map, const RasterProduct& product, const QString& path
 
 bool importGrid(Map& map, const QString& map_path, const QString& path, ElevationSet::Kind kind, ElevationModel::OpenOptions options, QString* href, QString* error)
 {
+	ElevationModel::AssumedCrs assumed_crs(map.getGeoreferencing().getProjectedCRSSpec());  // foom: for files which name no system
 	options.target_crs = mapCrs(map);
 	auto grid = ElevationModel::open(path, options);
 	if (!grid)
@@ -86,9 +88,10 @@ bool importGrid(Map& map, const QString& map_path, const QString& path, Elevatio
 		return false;
 	}
 	auto grid_href = path;
-	if (options.feet_to_metres || options.millimetres_to_metres || options.shift_below_sea_level)
+	if (options.feet_to_metres || options.millimetres_to_metres || options.shift_below_sea_level || grid->crsAssumed())
 	{
-		// The converted grid is kept beside the map, so that it reloads as imported.
+		// The converted grid is kept beside the map, so that it reloads as imported. So is a grid which names
+		// no system in a map which counts in feet: the saved one says where it lies.
 		grid_href = productPath(map_path, path, ElevationSet::kindName(kind));
 		if (!grid->save(grid_href))
 		{
@@ -111,6 +114,7 @@ bool importMergedGrids(Map& map, const QString& map_path, const QStringList& pat
 		setError(error, tr("No elevation grid was chosen."));
 		return false;
 	}
+	ElevationModel::AssumedCrs assumed_crs(map.getGeoreferencing().getProjectedCRSSpec());  // foom: for files which name no system
 	options.target_crs = mapCrs(map);
 	std::vector<std::unique_ptr<ElevationModel>> opened;
 	std::vector<const ElevationModel*> grids;
@@ -164,6 +168,7 @@ bool storeGrid(Map& map, const QString& map_path, ElevationSet::Kind kind, std::
 // the design notes, "Reading point clouds and gridding them".
 bool importPointClouds(Map& map, const QString& map_path, const QStringList& paths, const GriddingParams& params, const PointCloudProducts& products, bool attach, QStringList* grids, QStringList* rasters, QString* error)
 {
+	ElevationModel::AssumedCrs assumed_crs(map.getGeoreferencing().getProjectedCRSSpec());  // foom: for files which name no system
 	if (paths.isEmpty())
 	{
 		setError(error, tr("No point cloud was chosen."));

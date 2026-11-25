@@ -733,6 +733,34 @@ private slots:
 				         qPrintable(QStringLiteral("%1 %2: %3 / %4").arg(col).arg(row).arg(grid_feet.dtm->value(col, row)).arg(grid_metres.dtm->value(col, row))));
 		}
 
+		// (3b) The cloud in feet as a file which names no system: read for a map in that zone in feet it is the
+		// cloud above; read for nobody, or for a map in metres, its numbers stay as they are.
+		{
+			auto const bare = writeCloud(QStringLiteral("plane-ft-bare.las"), feet);
+			QVERIFY(PointCloud::fileCrs(bare).isEmpty());
+			auto info_bare = PointCloud::analyse({ bare });
+			QVERIFY(info_bare.crs_spec.isEmpty());
+			QVERIFY(std::abs(info_bare.extent.width() - 29.5 / us_foot) < 0.05);
+			{
+				ElevationModel::AssumedCrs for_metres(QStringLiteral("EPSG:32118"));
+				info_bare = PointCloud::analyse({ bare });
+				QVERIFY(info_bare.crs_spec.isEmpty());
+				QVERIFY(std::abs(info_bare.extent.width() - 29.5 / us_foot) < 0.05);
+			}
+			ElevationModel::AssumedCrs for_feet(QStringLiteral("EPSG:2263"));
+			info_bare = PointCloud::analyse({ bare });
+			QVERIFY2(info_bare.error.isEmpty(), qPrintable(info_bare.error));
+			QVERIFY(ElevationModel::sameCrs(info_bare.crs_spec, QStringLiteral("EPSG:32118")));
+			QVERIFY(std::abs(info_bare.extent.left() - info_metres.extent.left()) < 0.01);
+			QVERIFY(std::abs(info_bare.extent.width() - 29.5) < 0.01 && std::abs(info_bare.extent.height() - 19.5) < 0.01);
+			QVERIFY(std::abs(info_bare.z_min - 100.0) < 0.01 && std::abs(info_bare.z_max - 107.85) < 0.01);
+			QVERIFY(std::abs(info_bare.file_horizontal_unit - us_foot) < 1e-12);
+			auto const grid_bare = PointCloud::grid({ bare }, gridding);
+			QVERIFY2(grid_bare.dtm, qPrintable(grid_bare.error));
+			QCOMPARE(grid_bare.dtm->cellSize(), 1.0);
+			QCOMPARE(grid_bare.dtm->extent(), grid_metres.dtm->extent());
+		}
+
 		// (4) Feet in the plane and metres in the height, by a vertical system in the file's WKT.
 		QString compound_wkt;
 		{

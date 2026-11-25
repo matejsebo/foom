@@ -110,6 +110,29 @@ public:
 	};
 	static LinearUnits linearUnits(const QString& crs_spec);
 
+	/**
+	 * foom: While an object of this class lives, a file which names no coordinate system is taken to be in the
+	 * given one when that system counts in another unit than the metre. The commands which read files for a
+	 * map give the map's own system: in a map in State Plane feet a file without a system holds feet. For a
+	 * system in metres nothing changes: such a file is read as it is.
+	 * See the design notes, "State Plane and feet".
+	 */
+	class AssumedCrs
+	{
+	public:
+		explicit AssumedCrs(const QString& crs_spec);
+		~AssumedCrs();
+		AssumedCrs(const AssumedCrs&) = delete;
+		AssumedCrs& operator=(const AssumedCrs&) = delete;
+		/// The system for a file which names none: the one given when it does not count in metres, else empty.
+		static QString forFileWithout();
+	private:
+		QString previous;
+	};
+
+	/// foom: Whether the file named no system and was read in the system of AssumedCrs.
+	bool crsAssumed() const { return crs_assumed; }
+
 	/// foom: Metres in a unit of heights which GDAL names (a band's unit type: "ft", "US survey foot", ...); 1 for metres and for names not known.
 	static double metresPerHeightUnit(const QString& unit_name);
 
@@ -199,6 +222,7 @@ private:
 
 	static std::unique_ptr<ElevationModel> openGdal(const QString& path, const QString& target_crs);
 	bool heights_converted = false;  ///< foom: openGdal() turned the heights into metres by the band's unit
+	bool crs_assumed = false;        ///< foom: openGdal() took the system from AssumedCrs
 	static std::unique_ptr<ElevationModel> openOcdDem(const QString& path);
 	bool saveGeoTiff(const QString& path) const;
 	bool saveAsciiGrid(const QString& path) const;

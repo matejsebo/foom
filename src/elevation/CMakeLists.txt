@@ -29,6 +29,7 @@ set(MAPPER_ELEVATION_SOURCES
   cliffs.cpp
   contours.cpp
   elevation_commands.cpp
+  elevation_georef.cpp
   elevation_model.cpp
   elevation_set.cpp
   elevation_wizard.cpp

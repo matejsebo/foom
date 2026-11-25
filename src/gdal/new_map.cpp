@@ -54,6 +54,7 @@
 #include "core/map_coord.h"
 #include "core/map_view.h"
 #include "core/symbols/symbol.h"
+#include "elevation/elevation_georef.h"
 #include "elevation/elevation_model.h"
 #include "elevation/elevation_set.h"
 #include "elevation/point_cloud.h"
@@ -510,8 +511,10 @@ bool addElevation(Map& map, const NewMapParams& params, NewMapResult& result)
 		result.error = tr("Choose where to save the map before adding elevation data.");
 		return false;
 	}
-	auto const area = newMapProjectedArea(map, params.box);
-	auto const target_crs = map.getGeoreferencing().getProjectedCRSSpec();
+	// The grids are in metres also when the map counts in feet.
+	ElevationModel::AssumedCrs assumed_crs(map.getGeoreferencing().getProjectedCRSSpec());  // foom: for files which name no system
+	auto const area = projectedArea(elevationGeoreferencing(map), params.box);
+	auto const target_crs = elevationCrs(map);
 	
 	// The grids to save, made completely before any file is written.
 	std::vector<std::pair<ElevationSet::Kind, std::unique_ptr<ElevationModel>>> grids;

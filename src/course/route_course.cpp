@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <memory>
 #include <utility>
 
 #include <QChar>
@@ -45,6 +46,7 @@
 #include "course/course_relay.h"
 #include "course/course_render.h"
 #include "course/route_terrain.h"
+#include "elevation/elevation_georef.h"
 #include "elevation/elevation_model.h"
 #include "elevation/elevation_set.h"
 
@@ -577,7 +579,7 @@ namespace {
 /// (the design notes, "The embedded grid for course setting").
 const ElevationModel* routeTerrainOf(Map& map)
 {
-	auto const* model = map.elevationSet().model(ElevationSet::Terrain, map.getGeoreferencing().getProjectedCRSSpec());
+	auto const* model = map.elevationSet().model(ElevationSet::Terrain, elevationCrs(map));
 	return model ? model : map.elevationSet().embeddedGrid();
 }
 
@@ -586,7 +588,8 @@ const ElevationModel* routeTerrainOf(Map& map)
 
 RouteHeights routeHeightsOf(Map& map)
 {
-	auto const* georeferencing = &map.getGeoreferencing();
+	// The grids are in metres also when the map counts in feet; the function keeps its own georeferencing.
+	auto const georeferencing = std::make_shared<const Georeferencing>(elevationGeoreferencing(map));
 	auto const* model = routeTerrainOf(map);
 	if (!model)
 		return {};

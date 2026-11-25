@@ -35,6 +35,8 @@
 #include <QFileInfo>
 #include <QIODevice>
 #include <QLatin1String>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QTextStream>
 
 #include <cpl_conv.h>
@@ -196,16 +198,25 @@ std::unique_ptr<ElevationModel> ElevationModel::openGdal(const QString& path, co
 	QString crs_spec;
 	if (auto const* projection = GDALGetProjectionRef(dataset))
 		crs_spec = QString::fromUtf8(projection);
-	if (!target_crs.isEmpty() && !crs_spec.isEmpty() && !sameCrs(crs_spec, target_crs))
+	// foom: a file which names no system, read for a map which counts in feet, is in that map's system
+	auto const assumed = crs_spec.isEmpty() ? AssumedCrs::forFileWithout() : QString();
+	if (!assumed.isEmpty())
+		crs_spec = assumed;
+	auto const file_crs = crs_spec;
+	// foom: a grid in a system which counts in feet is read in the same projection in metres, whatever it is
+	// opened for, so that its cells are metres for everything which is made of it
+	auto const target = target_crs.isEmpty() ? linearUnits(crs_spec).metric_crs : target_crs;
+	if (!target.isEmpty() && !crs_spec.isEmpty() && !sameCrs(crs_spec, target))
 	{
-		auto const target_wkt = wktFromSpec(target_crs);
+		auto const target_wkt = wktFromSpec(target);
 		if (!target_wkt.isEmpty())
 		{
-			warped = GDALAutoCreateWarpedVRT(dataset, nullptr, target_wkt.constData(), GRA_Bilinear, 0.0, nullptr);
+			auto const source_wkt = assumed.isEmpty() ? QByteArray() : wktFromSpec(assumed);
+			warped = GDALAutoCreateWarpedVRT(dataset, source_wkt.isEmpty() ? nullptr : source_wkt.constData(), target_wkt.constData(), GRA_Bilinear, 0.0, nullptr);
 			if (warped)
 			{
 				source = warped;
-				crs_spec = target_crs;
+				crs_spec = target;
 			}
 		}
 	}
@@ -245,7 +256,7 @@ std::unique_ptr<ElevationModel> ElevationModel::openGdal(const QString& path, co
 			auto to_metres = metresPerHeightUnit(QString::fromUtf8(GDALGetRasterUnitType(band)));
 			if (to_metres == 1.0)
 			{
-				auto const units = linearUnits(crs_spec);
+				auto const units = linearUnits(file_crs);
 				if (units.has_vertical)
 					to_metres = units.vertical;
 			}
@@ -266,6 +277,7 @@ std::unique_ptr<ElevationModel> ElevationModel::openGdal(const QString& path, co
 			}
 			grid = std::make_unique<ElevationModel>(width, height, QPointF(gt[0], top), gt[1], std::move(values), crs_spec);
 			grid->heights_converted = to_metres != 1.0;
+			grid->crs_assumed = !assumed.isEmpty();
 		}
 	}
 
@@ -342,6 +354,48 @@ QString ElevationModel::geoTiffMetadata(const QString& path)
 
 
 // static
+namespace {
+
+QMutex& assumedCrsMutex()
+{
+	static QMutex mutex;
+	return mutex;
+}
+
+QString& assumedCrsSpec()
+{
+	static QString spec;
+	return spec;
+}
+
+}  // namespace
+
+ElevationModel::AssumedCrs::AssumedCrs(const QString& crs_spec)
+{
+	QMutexLocker lock(&assumedCrsMutex());
+	previous = assumedCrsSpec();
+	assumedCrsSpec() = crs_spec;
+}
+
+ElevationModel::AssumedCrs::~AssumedCrs()
+{
+	QMutexLocker lock(&assumedCrsMutex());
+	assumedCrsSpec() = previous;
+}
+
+// static
+QString ElevationModel::AssumedCrs::forFileWithout()
+{
+	QString spec;
+	{
+		QMutexLocker lock(&assumedCrsMutex());
+		spec = assumedCrsSpec();
+	}
+	if (spec.isEmpty() || linearUnits(spec).metric_crs.isEmpty())
+		return {};
+	return spec;
+}
+
 ElevationModel::LinearUnits ElevationModel::linearUnits(const QString& crs_spec)
 {
 	LinearUnits units;

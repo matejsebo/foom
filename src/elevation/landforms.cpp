@@ -37,6 +37,7 @@
 #include "core/symbols/symbol.h"
 #include "elevation/cliffs.h"
 #include "elevation/contours.h"
+#include "elevation/elevation_georef.h"
 #include "elevation/elevation_model.h"
 
 
@@ -200,7 +201,7 @@ LandformSymbols landformSymbols(Map& map)
 std::vector<std::unique_ptr<Object>> makeLandformObjects(const Map& map, const std::vector<Landform>& landforms, const LandformSymbols& symbols)
 {
 	std::vector<std::unique_ptr<Object>> objects;
-	auto const& georef = map.getGeoreferencing();
+	auto const georef = elevationGeoreferencing(map);  // in metres also for a map which counts in feet
 	for (auto const& landform : landforms)
 	{
 		auto const* symbol = landform.kind == Landform::Knoll ? symbols.knoll : symbols.depression;

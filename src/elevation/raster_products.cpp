@@ -47,6 +47,7 @@
 #include "core/georeferencing.h"
 #include "core/map.h"
 #include "core/map_coord.h"
+#include "elevation/elevation_georef.h"
 #include "elevation/elevation_model.h"
 #include "gdal/gdal_template.h"
 #include "templates/template.h"
@@ -157,7 +158,7 @@ public:
 	/// Places a non-georeferenced product by its extent.
 	void placeByExtent(const QRectF& extent)
 	{
-		auto const& georef = map->getGeoreferencing();
+		auto const georef = elevationGeoreferencing(*map);  // in metres also for a map which counts in feet
 		auto const top_left = georef.toMapCoordF(QPointF(extent.left(), extent.bottom()));
 		auto const bottom_right = georef.toMapCoordF(QPointF(extent.right(), extent.top()));
 		auto const center = 0.5 * (top_left + bottom_right);

@@ -42,6 +42,7 @@
 #include "core/ops/smooth.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/symbol.h"
+#include "elevation/elevation_georef.h"
 #include "elevation/elevation_model.h"
 #include "undo/object_undo.h"
 #include "undo/undo_manager.h"
@@ -809,7 +810,7 @@ ContourResult makeContourObjects(const Map& map, const ElevationModel& grid, con
 	if (params.smoothed)
 		working = grid.smoothed(1);
 	auto const lines = traceContours(params.smoothed ? *working : grid, params);
-	auto const& georef = map.getGeoreferencing();
+	auto const georef = elevationGeoreferencing(map);  // in metres also for a map which counts in feet
 
 	for (auto const& line : lines)
 	{

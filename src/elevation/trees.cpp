@@ -38,6 +38,7 @@
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
 #include "elevation/cliffs.h"
+#include "elevation/elevation_georef.h"
 #include "elevation/elevation_model.h"
 
 
@@ -228,7 +229,7 @@ std::vector<std::unique_ptr<Object>> makeTreeObjects(const Map& map, const std::
 	std::vector<std::unique_ptr<Object>> objects;
 	if (!symbol)
 		return objects;
-	auto const& georef = map.getGeoreferencing();
+	auto const georef = elevationGeoreferencing(map);  // in metres also for a map which counts in feet
 	for (auto const& tree : trees)
 	{
 		auto object = std::make_unique<PointObject>(symbol);

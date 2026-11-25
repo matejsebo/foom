@@ -36,6 +36,7 @@
 #include "core/map.h"
 #include "core/objects/object.h"
 #include "elevation/elevation_commands.h"
+#include "elevation/elevation_georef.h"
 #include "elevation/elevation_set.h"
 
 namespace OpenOrienteering {
@@ -155,7 +156,7 @@ ElevationWizardResult runElevationWizard(Map& map, const QString& map_path, cons
 		}
 	}
 
-	auto const* model = map.elevationSet().model(ElevationSet::Terrain, map.getGeoreferencing().getProjectedCRSSpec());
+	auto const* model = map.elevationSet().model(ElevationSet::Terrain, elevationCrs(map));
 	if (!model)
 		return fail(tr("The map has no terrain grid."));
 
