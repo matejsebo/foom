@@ -434,6 +434,10 @@ private slots:
 		image->setCorners(MapCoordF(0, 0), QSizeF(10, 10), M_PI / 4);
 		image->update();
 		QVERIFY(image->getExtent().contains(QPointF(6.5, 6.5)));
+		// All four corners are in the extent (seen on 2026-11-24: the first was left out,
+		// so a turned image was not redrawn there).
+		for (auto const& corner : image->corners())
+			QVERIFY(image->getExtent().adjusted(-0.001, -0.001, 0.001, 0.001).contains(QPointF(corner)));
 		QVERIFY(image->isPointOnObject(MapCoordF(0, 0), 0.1, false, false) != Symbol::NoSymbol);
 		QVERIFY(image->isPointOnObject(MapCoordF(3, 3), 0.1, false, false) != Symbol::NoSymbol);
 		QCOMPARE(image->isPointOnObject(MapCoordF(6.5, 6.5), 0.1, false, false), int(Symbol::NoSymbol));

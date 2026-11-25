@@ -86,8 +86,10 @@ void ImageSymbol::createRenderables(
 {
 	if (coords.size() == 0)
 		return;
-	QRectF box(coords[0], coords[0]);
-	for (VirtualCoordVector::size_type i = 1; i < coords.size(); ++i)
+	// An empty box to begin with: rectIncludeSafe() replaces a box without an area,
+	// so a box of the first corner alone would lose that corner.
+	QRectF box;
+	for (VirtualCoordVector::size_type i = 0; i < coords.size(); ++i)
 		rectIncludeSafe(box, QPointF(coords[i]));
 	output.insertRenderable(new ImageRenderable(box));
 }
