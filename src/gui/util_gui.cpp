@@ -146,6 +146,9 @@ namespace Util {
 	#endif
 			if (assistant_path.isEmpty())
 				assistant_path = QStandardPaths::findExecutable(assistant);
+			// foom: MSYS2 and some Linux distributions name it after its Qt version
+			if (assistant_path.isEmpty())
+				assistant_path = QStandardPaths::findExecutable(assistant + QLatin1String("-qt5"));
 			if (assistant_path.isEmpty())
 			{
 				QMessageBox::warning(dialog_parent, QApplication::translate("OpenOrienteering::Util", "Error"), QApplication::translate("OpenOrienteering::Util", "Failed to locate the help browser (\"Qt Assistant\")."));
