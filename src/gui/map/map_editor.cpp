@@ -8667,6 +8667,7 @@ bool MapEditorController::importMapFile(const QString& filename, bool show_error
 	// foom: the import policies, the design notes, "Map import policies"
 	// The dialog's summary is of the file as read, before the symbol replacement changes it.
 	MapImportDialog dialog(imported_map, *map, window);
+	auto const file_symbols = mapSymbols(imported_map);  // foom: what the replacement adds are copies of this map's symbols
 	if (!SymbolReplacement(imported_map, *map).withAutoCrtFile(window, filename))
 	{
 		if (QMessageBox::question(window, ::OpenOrienteering::Map::tr("Import..."),
@@ -8679,7 +8680,7 @@ bool MapEditorController::importMapFile(const QString& filename, bool show_error
 	dialog.setViewCenter(QPointF(center.x(), center.y()));
 	if (dialog.exec() != QDialog::Accepted)
 		return false;
-	auto const result = importMapWithPolicy(*map, imported_map, dialog.policy());
+	auto const result = importMapWithPolicy(*map, imported_map, dialog.policy(), mapSymbolsAddedSince(imported_map, file_symbols));
 	if (!result.ok)
 	{
 		QMessageBox::warning(window, tr("Error"), result.error);

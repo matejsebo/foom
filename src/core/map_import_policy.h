@@ -20,6 +20,8 @@
 #ifndef OPENORIENTEERING_MAP_IMPORT_POLICY_H
 #define OPENORIENTEERING_MAP_IMPORT_POLICY_H
 
+#include <vector>
+
 #include <QPointF>
 #include <QString>
 #include <QStringList>
@@ -27,6 +29,7 @@
 namespace OpenOrienteering {
 
 class Map;
+class Symbol;
 
 
 /**
@@ -81,6 +84,20 @@ struct MapImportResult
  * are not undoable, as in OOM's import.
  */
 MapImportResult importMapWithPolicy(Map& map, Map& imported, const MapImportPolicy& policy);
+
+/**
+ * The same for a file whose objects were given symbols of the map before, as OOM's
+ * symbol replacement ("Assign new symbols") does: it puts copies of the map's
+ * symbols into the imported map. Those copies, map_symbols, are at the map's
+ * scale already and are not scaled with the file's own symbols.
+ */
+MapImportResult importMapWithPolicy(Map& map, Map& imported, const MapImportPolicy& policy, const std::vector<const Symbol*>& map_symbols);
+
+/** The symbols which a map holds now. */
+std::vector<const Symbol*> mapSymbols(const Map& map);
+
+/** The symbols of a map which are not among those it held before: what a symbol replacement added. */
+std::vector<const Symbol*> mapSymbolsAddedSince(const Map& map, const std::vector<const Symbol*>& before);
 
 
 }  // namespace OpenOrienteering

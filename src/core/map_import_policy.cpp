@@ -192,7 +192,32 @@ QRectF placedBounds(const Map& map, const Map& imported, const MapImportPolicy& 
 
 
 
+std::vector<const Symbol*> mapSymbols(const Map& map)
+{
+	std::vector<const Symbol*> symbols;
+	symbols.reserve(std::size_t(map.getNumSymbols()));
+	for (int i = 0; i < map.getNumSymbols(); ++i)
+		symbols.push_back(map.getSymbol(i));
+	return symbols;
+}
+
+std::vector<const Symbol*> mapSymbolsAddedSince(const Map& map, const std::vector<const Symbol*>& before)
+{
+	std::vector<const Symbol*> added;
+	for (int i = 0; i < map.getNumSymbols(); ++i)
+	{
+		if (std::find(before.begin(), before.end(), map.getSymbol(i)) == before.end())
+			added.push_back(map.getSymbol(i));
+	}
+	return added;
+}
+
 MapImportResult importMapWithPolicy(Map& map, Map& imported, const MapImportPolicy& policy)
+{
+	return importMapWithPolicy(map, imported, policy, {});
+}
+
+MapImportResult importMapWithPolicy(Map& map, Map& imported, const MapImportPolicy& policy, const std::vector<const Symbol*>& map_symbols)
 {
 	MapImportResult result;
 	if (imported.getNumColors() == 0 && imported.getNumSymbols() == 0 && imported.getNumObjects() == 0)
@@ -202,7 +227,21 @@ MapImportResult importMapWithPolicy(Map& map, Map& imported, const MapImportPoli
 	}
 
 	if (policy.rescale && imported.getScaleDenominator() != map.getScaleDenominator())
-		imported.changeScale(map.getScaleDenominator(), 1.0, MapCoord(0, 0), true, true, true, true);
+	{
+		// foom: the copies of the map's symbols keep their size (seen on 2026-11-24: scaled with the others,
+		// they came back as smaller duplicates, and under "All symbols" replaced the map's own)
+		auto const factor = imported.getScaleDenominator() / double(map.getScaleDenominator());
+		imported.changeScale(map.getScaleDenominator(), 1.0, MapCoord(0, 0), map_symbols.empty(), true, true, true);
+		if (!map_symbols.empty())
+		{
+			for (int i = 0; i < imported.getNumSymbols(); ++i)
+			{
+				if (std::find(map_symbols.begin(), map_symbols.end(), imported.getSymbol(i)) == map_symbols.end())
+					imported.getSymbol(i)->scale(factor);
+			}
+			imported.updateAllObjects();
+		}
+	}
 
 	// foom: nothing which the saved map would lose
 	if (imported.getNumObjects() > 0 && !withinRegularBounds(placedBounds(map, imported, policy)))

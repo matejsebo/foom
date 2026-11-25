@@ -44,6 +44,7 @@
 #include "core/map_import_policy.h"
 #include "core/map_part.h"
 #include "core/objects/object.h"
+#include "core/objects/symbol_rule_set.h"
 #include "core/symbols/area_symbol.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/symbol.h"
@@ -476,6 +477,38 @@ private slots:
 			policy.offset_mm = QPointF(0.0, -90000.0);
 			QVERIFY(importMapWithPolicy(target, imported, policy).ok);
 		}
+	}
+
+	/// Seen on 2026-11-24: the map's own symbols, which the symbol replacement had copied into the file's data,
+	/// were scaled with the file's symbols and came back as smaller duplicates. Accept (10)
+	void replacedSymbolsScaleTest()
+	{
+		Map target, imported;
+		setupTarget(target);
+		setupImported(imported, 5000);
+		auto const file_symbols = mapSymbols(imported);
+		QCOMPARE(int(file_symbols.size()), 4);
+		// What OOM's "Assign new symbols" does: the file's objects of 101 and 102 take copies of the map's symbols.
+		auto rules = SymbolRuleSet::forUsedSymbols(imported);
+		rules.matchQuerySymbolNumber(target);
+		rules.apply(imported, target);
+		auto const copies = mapSymbolsAddedSince(imported, file_symbols);
+		QCOMPARE(int(copies.size()), 2);
+		MapImportPolicy policy;
+		policy.symbols = MapImportPolicy::RenumberClashes;
+		auto const result = importMapWithPolicy(target, imported, policy, copies);
+		QVERIFY2(result.ok, qPrintable(result.error));
+		QCOMPARE(result.symbols_renumbered, 0);
+		QCOMPARE(target.getNumSymbols(), 4);
+		QCOMPARE(countNumbered(target, "101"), 1);
+		QCOMPARE(countNumbered(target, "102"), 1);
+		QCOMPARE(static_cast<const LineSymbol*>(numbered(target, "101"))->getLineWidth(), 1000);
+		QCOMPARE(static_cast<const LineSymbol*>(numbered(target, "102"))->getLineWidth(), 1000);
+		QCOMPARE(int(objectsOf(target, numbered(target, "102")).size()), 2);
+		// The file's own symbols are scaled with its objects, from 1:5,000 to 1:10,000.
+		QCOMPARE(static_cast<const LineSymbol*>(numbered(target, "103"))->getLineWidth(), 500);
+		auto const* path = static_cast<const PathObject*>(objectsOf(target, numbered(target, "103")).front());
+		QCOMPARE(path->getCoordinate(0), MapCoord(5, 15));
 	}
 
 	/// Seen on 2026-11-22: the summary named clashing numbers twice.
