@@ -262,6 +262,9 @@ protected:
 	template< class F >
 	void importLayoutImages(const OcdFile< F >& file);
 	
+	/** foom: The sketch strokes, see the design notes, "Sketch strokes in OCD files". */
+	void importSketch(const QByteArray& file_bytes);
+	
 	void importLayoutImage(const QString& param_string);
 	
 	

@@ -383,6 +383,7 @@ add_system_test(area_pattern_t)
 add_system_test(foreign_data_t)
 add_system_test(ocd_layout_image_t)  # foom: the design notes, OCD embedded images
 add_system_test(ocd_graphic_object_t)  # foom: the design notes, Graphic and layout objects in OCD files
+add_system_test(ocd_sketch_t)  # foom: the design notes, Sketch strokes in OCD files
 add_system_test(ocd_guide_t)  # foom: the design notes, OCD string type 26
 add_system_test(ocd2018_t)
 add_system_test(template_t)

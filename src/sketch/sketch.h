@@ -71,6 +71,29 @@ qreal sketchWidth(int width);
 const Symbol* sketchSymbol(Map& map, int color, int width);
 
 /**
+ * The symbol of a pen of any colour and width (mm), as a sketch read from
+ * another program's file has them. A colour and a width of the pens above
+ * give that pen's symbol; another width gives a symbol of its own in the
+ * pen's colour; another colour a colour of its own, named after its values.
+ */
+const Symbol* sketchSymbol(Map& map, const QColor& color, qreal width);
+
+/** A stroke read from a file: its pen and its path. */
+struct ImportedSketchStroke
+{
+	QColor color;
+	qreal width = 0;
+	MapCoordVector coords;
+};
+
+/**
+ * Adds strokes read from a file to the sketch part, which is created when
+ * the map has none. No undo steps. Strokes of fewer than two points are
+ * left out. Returns the number of strokes added.
+ */
+int addImportedSketchStrokes(Map& map, const std::vector<ImportedSketchStroke>& strokes);
+
+/**
  * Adds a stroke through the points to the sketch part, which is created
  * when the map has none. One undo step. Returns the stroke, or null for
  * fewer than two points.

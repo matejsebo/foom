@@ -293,6 +293,84 @@ const Symbol* sketchSymbol(Map& map, int color, int width)
 	return symbol;
 }
 
+const Symbol* sketchSymbol(Map& map, const QColor& color, qreal width)
+{
+	auto pen_color = -1;
+	for (int i = 0; i < sketch_color_count && pen_color < 0; ++i)
+	{
+		if (sketchColorRgb(i).rgb() == color.rgb())
+			pen_color = i;
+	}
+	if (pen_color >= 0)
+	{
+		for (int i = 0; i < sketch_width_count; ++i)
+		{
+			if (qAbs(sketchWidth(i) - width) < 0.0005)
+				return sketchSymbol(map, pen_color, i);
+		}
+	}
+	
+	const MapColor* map_color = nullptr;
+	QString color_name;
+	if (pen_color >= 0)
+	{
+		map_color = sketchColor(map, pen_color);
+		color_name = sketchColorName(pen_color);
+	}
+	else
+	{
+		color_name = tr("Sketch R%1 G%2 B%3").arg(color.red()).arg(color.green()).arg(color.blue());
+		for (int i = 0; i < map.getNumColors() && !map_color; ++i)
+		{
+			if (map.getColor(i)->getName() == color_name)
+				map_color = map.getColor(i);
+		}
+		if (!map_color)
+		{
+			auto* new_color = new MapColor(color_name, 0);
+			new_color->setRgb(MapColorRgb(color));
+			new_color->setCmykFromRgb();
+			map.addColor(new_color, sketchDrawnBehind(map) ? map.getNumColors() : 0);
+			map.updateAllObjects();
+			map_color = new_color;
+		}
+	}
+	QString name = color_name;
+	name += QLatin1Char(' ');
+	name += QString::number(width);
+	if (auto const* symbol = findSketchSymbol(map, Symbol::Line, name))
+		return symbol;
+	auto* symbol = new LineSymbol();
+	symbol->setLineWidth(width);
+	symbol->setColor(map_color);
+	symbol->setCapStyle(LineSymbol::RoundCap);
+	symbol->setJoinStyle(LineSymbol::RoundJoin);
+	addSketchSymbol(map, symbol, name);
+	return symbol;
+}
+
+int addImportedSketchStrokes(Map& map, const std::vector<ImportedSketchStroke>& strokes)
+{
+	auto added = 0;
+	auto part_index = sketchPartIndex(map);
+	for (auto const& stroke : strokes)
+	{
+		if (stroke.coords.size() < 2)
+			continue;
+		if (part_index < 0)
+		{
+			auto* part = new MapPart(sketchPartName(), &map);
+			part->setRole(MapPart::Role::Sketch);
+			map.addPart(part, std::size_t(map.getNumParts()));
+			part_index = map.findPartIndex(part);
+		}
+		auto const* symbol = sketchSymbol(map, stroke.color, stroke.width);
+		map.addObject(new PathObject(symbol, stroke.coords), part_index);
+		++added;
+	}
+	return added;
+}
+
 Object* addSketchStroke(Map& map, const std::vector<MapCoordF>& points, int color, int width)
 {
 	if (points.size() < 2)

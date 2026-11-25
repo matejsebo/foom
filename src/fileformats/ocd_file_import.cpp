@@ -69,6 +69,8 @@
 #include "core/ops/rectangle_box.h"
 #include "core/symbols/area_symbol.h"
 #include "core/symbols/combined_symbol.h"
+#include "fileformats/ocd_sketch.h"
+#include "sketch/sketch.h"
 #include "core/symbols/line_symbol.h"
 #include "core/symbols/point_symbol.h"
 #include "core/symbols/symbol.h"
@@ -348,6 +350,8 @@ void OcdFileImport::importImplementation()
 		importBookmarks(file);  // foom
 		importGuides(file);  // foom
 		importLayoutImages(file);  // foom
+		if (file.header()->version >= 12)
+			importSketch(file.byteArray());  // foom
 		importForeignData(file);  // foom
 		importCourseData(file.header()->file_type == Ocd::TypeCourseSetting);  // foom: reads what importForeignData() kept
 	}
@@ -1240,6 +1244,35 @@ void OcdFileImport::importGuide(const QString& param_string)
 	auto guides = map->guides();
 	guides.list.push_back(guide);
 	map->setGuides(std::move(guides));
+}
+
+// foom
+void OcdFileImport::importSketch(const QByteArray& file_bytes)
+{
+	auto damaged = false;
+	auto const ocd_strokes = readOcdSketch(file_bytes, &damaged);
+	if (damaged)
+		addWarning(tr("The sketch of the file could not be read whole."));
+	if (ocd_strokes.empty())
+		return;
+	std::vector<ImportedSketchStroke> strokes;
+	strokes.reserve(ocd_strokes.size());
+	for (auto const& ocd_stroke : ocd_strokes)
+	{
+		ImportedSketchStroke stroke;
+		stroke.color = ocd_stroke.color;
+		stroke.width = 0.01 * ocd_stroke.width;
+		stroke.coords.reserve(ocd_stroke.points.size());
+		for (auto const& point : ocd_stroke.points)
+		{
+			Ocd::OcdPoint32 ocd_point;
+			ocd_point.x = point.x() & ~0xff;
+			ocd_point.y = point.y() & ~0xff;
+			stroke.coords.push_back(convertOcdPoint(ocd_point));
+		}
+		strokes.push_back(std::move(stroke));
+	}
+	addImportedSketchStrokes(*map, strokes);
 }
 
 // foom
