@@ -302,6 +302,14 @@ public:
 	inline void setInGroupBreakLength(int value) {in_group_break_length = value;}
 	inline bool getHalfOuterDashes() const {return half_outer_dashes;}
 	inline void setHalfOuterDashes(bool value) {half_outer_dashes = value;}
+	/** foom: Returns whether the dashes are set the legacy way, as for symbols read from OCD files (the design notes). */
+	bool hasLegacyDashes() const { return legacy_dashes; }
+	void setLegacyDashes(bool value) { legacy_dashes = value; }
+	/** foom: With legacy dashes, the length (1/1000 mm) of the dash at an end of the line and at a corner vertex; 0: a gap stands there. */
+	int getEndDashLength() const { return end_dash_length; }
+	void setEndDashLength(int value) { end_dash_length = value; }
+	/** foom: Returns true when this symbol's dashes are laid out by processDashedLineLegacy(). */
+	bool usesLegacyDashLayout() const;
 	
 	inline bool hasBorder() const {return have_border_lines;}
 	inline void setHasBorder(bool value) {have_border_lines = value;}
@@ -392,6 +400,16 @@ protected:
 	        const SplitPathCoord& start,
 	        const SplitPathCoord& end,
 	        bool path_closed,
+	        MapCoordVector& out_flags,
+	        MapCoordVectorF& out_coords,
+	        ObjectRenderables& output
+	) const;
+	
+	/** foom: The dashes of a line in the legacy layout; in line_symbol_legacy.cpp. */
+	void processDashedLineLegacy(
+	        const VirtualPath& path,
+	        const SplitPathCoord& start,
+	        const SplitPathCoord& end,
 	        MapCoordVector& out_flags,
 	        MapCoordVectorF& out_coords,
 	        ObjectRenderables& output
@@ -505,6 +523,8 @@ protected:
 	int break_length;
 	int dashes_in_group;
 	int in_group_break_length;
+	int end_dash_length = 0;   // foom: in the legacy dash layout
+	bool legacy_dashes = false;  // foom: the dashes are set the legacy way
 	
 	CapStyle cap_style;
 	JoinStyle join_style;

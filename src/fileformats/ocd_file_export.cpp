@@ -1714,6 +1714,8 @@ quint32 OcdFileExport::exportLineSymbolCommon(const LineSymbol* line_symbol, Ocd
 			{
 				ocd_line_common.main_length = convertSize(line_symbol->getDashLength());
 				ocd_line_common.end_length = ocd_line_common.main_length / (line_symbol->getHalfOuterDashes() ? 2 : 1);
+				if (line_symbol->hasLegacyDashes())  // foom: the end length as the symbol has it, 0 for a gap at the ends
+					ocd_line_common.end_length = convertSize(line_symbol->getEndDashLength());
 				ocd_line_common.main_gap = convertSize(line_symbol->getBreakLength());
 			}
 		}
@@ -1722,6 +1724,13 @@ quint32 OcdFileExport::exportLineSymbolCommon(const LineSymbol* line_symbol, Ocd
 	{
 		ocd_line_common.main_length = convertSize(line_symbol->getSegmentLength());
 		ocd_line_common.end_length = convertSize(line_symbol->getEndLength());
+		if (line_symbol->getMidSymbolsPerSpot() > 1 && line_symbol->getMidSymbol() && !line_symbol->getMidSymbol()->isEmpty())
+		{
+			// foom: the file's lengths hold the symbols of a spot (see the import)
+			auto const spot = (line_symbol->getMidSymbolsPerSpot() - 1) * line_symbol->getMidSymbolDistance();
+			ocd_line_common.main_length = convertSize(line_symbol->getSegmentLength() + spot);
+			ocd_line_common.end_length = convertSize(line_symbol->getEndLength() + spot / 2);
+		}
 	}
 	
 	// Double line

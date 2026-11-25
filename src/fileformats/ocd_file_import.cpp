@@ -1585,6 +1585,10 @@ void OcdFileImport::importLineSymbolBase(OcdImportedLineSymbol* symbol, const Oc
 			symbol->dashed = true;
 			symbol->dash_length = convertLength(attributes.main_length);
 			symbol->break_length = convertLength(attributes.main_gap);
+			// foom: single dashes are set in legacy mode, with the end length of the file, where 0 means that
+			// the line begins with a gap. Groups of dashes and dashes with symbols keep OOM's way.
+			symbol->legacy_dashes = true;
+			symbol->end_dash_length = qMax(0, convertLength(attributes.end_length));
 			
 			if (attributes.end_length && attributes.end_length != attributes.main_length)
 			{
@@ -1594,7 +1598,8 @@ void OcdFileImport::importLineSymbolBase(OcdImportedLineSymbol* symbol, const Oc
 					symbol->half_outer_dashes = true;
 				}
 				
-				if (qAbs(qint32(attributes.main_length) - 2*attributes.end_length) > 1)
+				if (qAbs(qint32(attributes.main_length) - 2*attributes.end_length) > 1
+				    && (attributes.sec_gap || attributes.primary_data_size))  // foom: else the legacy layout has the length itself
 				{
 					// End length not equal to 0.5 * main length
 					addSymbolWarning( symbol,
@@ -1719,6 +1724,14 @@ void OcdFileImport::setupLineSymbolPointSymbols(OcdFileImport::OcdImportedLineSy
 		line_symbol->mid_symbol_placement = gaps_swapped ? LineSymbol::CenterOfDashGroup : LineSymbol::CenterOfGap;
 		line_symbol->mid_symbols_per_spot = attributes.num_prim_sym;
 		line_symbol->mid_symbol_distance = convertLength(attributes.prim_sym_dist);
+		if (!line_symbol->dashed && attributes.num_prim_sym > 1)
+		{
+			// foom: the file's main length runs from spot to spot and holds the symbols of a spot, and its end length
+			// runs to the middle of the first spot; OOM's lengths are the clear way.
+			auto const spot = (attributes.num_prim_sym - 1) * line_symbol->mid_symbol_distance;
+			line_symbol->segment_length = qMax(0, line_symbol->segment_length - spot);
+			line_symbol->end_length = qMax(0, line_symbol->end_length - spot / 2);
+		}
 		line_symbol->show_at_least_one_symbol = true;
 		line_symbol->mid_symbol = new OcdImportedPointSymbol();
 		setupPointSymbolPattern(line_symbol->mid_symbol, attributes.primary_data_size, elements);
@@ -2423,9 +2436,20 @@ void OcdFileImport::setPointFlags(OcdImportedPathObject* object, quint32 pos, bo
 	{
 		// foom: the design notes, "Corner and virtual gap vertices":
 		// only where the export writes a dash point alone with the dash flag of the format
-		auto const* line = object->getSymbol() && object->getSymbol()->getType() == Symbol::Line
-		                   ? object->getSymbol()->asLine() : nullptr;
-		if (line && line->isDashed() && (!line->getDashSymbol() || line->getDashSymbol()->isEmpty()))
+		auto const distinguishes_corner = [](const Symbol* symbol) {
+			auto const* line = symbol && symbol->getType() == Symbol::Line ? symbol->asLine() : nullptr;
+			return line && line->isDashed() && (!line->getDashSymbol() || line->getDashSymbol()->isEmpty());
+		};
+		auto const* symbol = object->getSymbol();
+		auto corner = distinguishes_corner(symbol);
+		if (!corner && symbol && symbol->getType() == Symbol::Combined)
+		{
+			// a dashed line as a part of a combined symbol, as the dashes of a railway symbol
+			auto const* combined = symbol->asCombined();
+			for (int i = 0; i < combined->getNumParts() && !corner; ++i)
+				corner = distinguishes_corner(combined->getPart(i));
+		}
+		if (corner)
 			object->coords[pos].setCornerPoint(true);
 	}
 	if (ocd_point.y & Ocd::OcdPoint32::FlagHole && pos > 1 && is_area)

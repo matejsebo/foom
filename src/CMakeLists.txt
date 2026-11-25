@@ -245,6 +245,7 @@ set(Mapper_Common_SRCS
   core/symbols/combined_symbol.cpp
   core/symbols/html_symbol_report.cpp
   core/symbols/line_symbol.cpp
+  core/symbols/line_symbol_legacy.cpp
   core/symbols/point_symbol.cpp
   core/symbols/symbol.cpp
   core/symbols/symbol_icon_decorator.cpp

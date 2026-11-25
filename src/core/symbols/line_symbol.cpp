@@ -213,6 +213,8 @@ LineSymbol::LineSymbol(const LineSymbol& proto)
 , break_length ( proto.break_length )
 , dashes_in_group ( proto.dashes_in_group )
 , in_group_break_length ( proto.in_group_break_length )
+, end_dash_length ( proto.end_dash_length )
+, legacy_dashes ( proto.legacy_dashes )
 , cap_style ( proto.cap_style )
 , join_style ( proto.join_style )
 , mid_symbol_placement ( proto.mid_symbol_placement )
@@ -414,7 +416,9 @@ void LineSymbol::createSinglePathRenderables(const VirtualPath& path, bool path_
 	if (dashed)
 	{
 		// Dashed lines
-		if (dash_length > 0)
+		if (usesLegacyDashLayout())  // foom
+			processDashedLineLegacy(path, start, end, processed_flags, processed_coords, output);
+		else if (dash_length > 0)
 			processDashedLine(path, start, end, path_closed, processed_flags, processed_coords, output);
 	}
 	else
@@ -436,7 +440,8 @@ void LineSymbol::createSinglePathRenderables(const VirtualPath& path, bool path_
 		processed_path.path_coords.update(processed_path.first_index);
 		if (create_line)
 		{
-			output.insertRenderable(new LineRenderable(this, processed_path, path_closed));
+			// foom: a line which begins with a gap does not join its last dash to its first
+			output.insertRenderable(new LineRenderable(this, processed_path, path_closed && !processed_flags.front().isGapPoint()));
 		}
 		if (create_border)
 		{
@@ -1897,6 +1902,11 @@ void LineSymbol::saveImpl(QXmlStreamWriter& xml, const Map& map) const
 	xml.writeAttribute(QString::fromLatin1("in_group_break_length"), QString::number(in_group_break_length));
 	if (half_outer_dashes)
 		xml.writeAttribute(QString::fromLatin1("half_outer_dashes"), QString::fromLatin1("true"));
+	if (legacy_dashes)  // foom
+	{
+		xml.writeAttribute(QString::fromLatin1("dash_layout"), QString::fromLatin1("legacy"));
+		xml.writeAttribute(QString::fromLatin1("end_dash_length"), QString::number(end_dash_length));
+	}
 	xml.writeAttribute(QString::fromLatin1("mid_symbols_per_spot"), QString::number(mid_symbols_per_spot));
 	xml.writeAttribute(QString::fromLatin1("mid_symbol_distance"), QString::number(mid_symbol_distance));
 	if (mid_symbol_placement != 0)
@@ -2001,6 +2011,8 @@ bool LineSymbol::loadImpl(QXmlStreamReader& xml, const Map& map, SymbolDictionar
 	dashes_in_group = attributes.value(QLatin1String("dashes_in_group")).toInt();
 	in_group_break_length = attributes.value(QLatin1String("in_group_break_length")).toInt();
 	half_outer_dashes = (attributes.value(QLatin1String("half_outer_dashes")) == QLatin1String("true"));
+	legacy_dashes = attributes.value(QLatin1String("dash_layout")) == QLatin1String("legacy");  // foom
+	end_dash_length = attributes.value(QLatin1String("end_dash_length")).toInt();  // foom
 	mid_symbols_per_spot = attributes.value(QLatin1String("mid_symbols_per_spot")).toInt();
 	mid_symbol_distance = attributes.value(QLatin1String("mid_symbol_distance")).toInt();
 	mid_symbol_placement = static_cast<LineSymbol::MidSymbolPlacement>(attributes.value(QLatin1String("mid_symbol_placement")).toInt());
@@ -2108,6 +2120,8 @@ bool LineSymbol::equalsImpl(const Symbol* other, Qt::CaseSensitivity case_sensit
 				break_length != line->break_length ||
 				dashes_in_group != line->dashes_in_group ||
 				half_outer_dashes != line->half_outer_dashes ||
+				legacy_dashes != line->legacy_dashes ||  // foom
+				(legacy_dashes && end_dash_length != line->end_dash_length) ||  // foom
 				(dashes_in_group > 1 && (in_group_break_length != line->in_group_break_length)))
 				return false;
 		}
