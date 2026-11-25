@@ -725,6 +725,7 @@ private slots:
 		         QString::number(qRound(usgs_area.width() / 2.0)) + QLatin1Char(',') + QString::number(qRound(usgs_area.height() / 2.0)));
 		QCOMPARE(query.queryItemValue(QStringLiteral("format")), QStringLiteral("tiff"));
 		QCOMPARE(query.queryItemValue(QStringLiteral("pixelType")), QStringLiteral("F32"));
+		QCOMPARE(query.queryItemValue(QStringLiteral("noData")), QStringLiteral("-9999"));
 		QCOMPARE(query.queryItemValue(QStringLiteral("f")), QStringLiteral("image"));
 
 		// The cell size which fits a request of 8000 cells a side.

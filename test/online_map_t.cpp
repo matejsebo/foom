@@ -202,6 +202,38 @@ private slots:
 			QVERIFY(shipped[shipped.size() - 3 + i] == presets[2 + i]);
 	}
 
+	/// The United States first, Accept (4): a list saved before the USGS services were shipped gets them once.
+	void savedListTest()
+	{
+		auto const osm = MapService::presets().front();
+		MapService mine;
+		mine.kind = MapService::Wms;
+		mine.name = QStringLiteral("My WMS");
+		mine.url = QStringLiteral("https://example.org/wms");
+		MapService::toSettings({ osm, mine });
+		QSettings().remove(QStringLiteral("MapServicePresets"));  // as a list of before 2026-11-24
+		auto list = MapService::fromSettings();
+		QCOMPARE(int(list.size()), 5);
+		QCOMPARE(list[1].name, QStringLiteral("My WMS"));
+		QCOMPARE(list[2].name, QStringLiteral("USGS NAIP imagery"));
+		QCOMPARE(list[4].name, QStringLiteral("USGS 3DEP slope"));
+		// The user takes one out: it stays out.
+		list.erase(list.begin() + 3);
+		MapService::toSettings(list);
+		QCOMPARE(int(MapService::fromSettings().size()), 4);
+		QCOMPARE(int(MapService::fromSettings().size()), 4);
+		// A list which has one of them already keeps its own.
+		auto renamed = MapService::presets().back();
+		renamed.attribution = QStringLiteral("mine");
+		MapService::toSettings({ osm, renamed });
+		QSettings().remove(QStringLiteral("MapServicePresets"));
+		list = MapService::fromSettings();
+		QCOMPARE(int(list.size()), 4);
+		QCOMPARE(list[1].attribution, QStringLiteral("mine"));
+		QSettings().remove(QStringLiteral("MapServices"));
+		QSettings().remove(QStringLiteral("MapServicePresets"));
+	}
+
 	/// Accept (2)
 	void userServicesTest()
 	{

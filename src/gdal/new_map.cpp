@@ -347,6 +347,8 @@ QUrl newMapUsgsElevationRequest(const QString& endpoint, const QRectF& area, int
 	query.addQueryItem(QStringLiteral("size"), QString::number(qRound64(area.width() / cell)) + QLatin1Char(',') + QString::number(qRound64(area.height() / cell)));
 	query.addQueryItem(QStringLiteral("format"), QStringLiteral("tiff"));
 	query.addQueryItem(QStringLiteral("pixelType"), QStringLiteral("F32"));
+	// Without a value for it the service fills what it has no model for with zeros (seen 2026-11-24).
+	query.addQueryItem(QStringLiteral("noData"), QStringLiteral("-9999"));
 	query.addQueryItem(QStringLiteral("noDataInterpretation"), QStringLiteral("esriNoDataMatchAny"));
 	query.addQueryItem(QStringLiteral("interpolation"), QStringLiteral("RSP_BilinearInterpolation"));
 	query.addQueryItem(QStringLiteral("f"), QStringLiteral("image"));

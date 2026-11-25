@@ -325,6 +325,9 @@ QByteArray MapService::gdalSource(const QString& cache_dir) const
 
 namespace {
 
+/// foom: Counts the changes of the shipped presets which a saved list takes over: 2 since the USGS services of 2026-11-24.
+constexpr int map_service_presets_generation = 2;
+
 /**
  * foom: The WMS services of the U.S. Geological Survey's National Map, checked against the servers on
  * 2026-11-24: the aerial photographs of the National Agriculture Imagery Program, and the hillshade and
@@ -462,6 +465,18 @@ std::vector<MapService> MapService::fromSettings()
 		result.push_back(service);
 	}
 	settings.endArray();
+	// foom: a list which was saved before the services of the U.S. Geological Survey were shipped gets them once,
+	// behind its own; a user who takes them out again keeps the list as it is.
+	if (settings.value(QStringLiteral("MapServicePresets"), 1).toInt() < map_service_presets_generation)
+	{
+		for (auto const& preset : usgsWmsPresets())
+		{
+			auto const known = std::any_of(result.begin(), result.end(), [&preset](const MapService& s) { return s.name == preset.name; });
+			if (!known)
+				result.push_back(preset);
+		}
+		toSettings(result);
+	}
 	return result;
 }
 
@@ -469,6 +484,7 @@ std::vector<MapService> MapService::fromSettings()
 void MapService::toSettings(const std::vector<MapService>& services)
 {
 	QSettings settings;
+	settings.setValue(QStringLiteral("MapServicePresets"), map_service_presets_generation);  // foom
 	settings.remove(QStringLiteral("MapServices"));
 	settings.beginWriteArray(QStringLiteral("MapServices"), int(services.size()));
 	for (std::size_t i = 0; i < services.size(); ++i)
