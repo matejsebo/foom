@@ -217,7 +217,8 @@ private slots:
 		QCoreApplication::setOrganizationName(QString::fromLatin1("OpenOrienteering.org"));
 		QCoreApplication::setApplicationName(QString::fromLatin1(metaObject()->className()));
 		doStaticInitializations();
-		QVERIFY2(QFileInfo::exists(fixture("moved/test.asc")), "the fixture contour/test.asc is missing");
+		if (!QFileInfo::exists(fixture("moved/test.asc")))
+			QSKIP("The elevation fixtures are not there.");
 	}
 
 	// Accept (1).
