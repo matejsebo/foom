@@ -159,9 +159,47 @@ private slots:
 			QVERIFY(!service.attribution.isEmpty());
 		}
 		QCOMPARE(names, QStringList({ QStringLiteral("USGS Imagery"), QStringLiteral("USGS Topo"),
+		                              QStringLiteral("USGS NAIP imagery"), QStringLiteral("USGS 3DEP hillshade"), QStringLiteral("USGS 3DEP slope"),
 		                              QStringLiteral("OpenStreetMap"), QStringLiteral("OpenTopoMap") }));
-		QVERIFY(!presets[2].bulk_download);
+		QVERIFY(!presets[5].bulk_download);
 		QCOMPARE(presets[0].kind, MapService::Xyz);
+	}
+
+	/// The United States first, Accept (1) and (2): the National Map's WMS services.
+	void usgsPresetsTest()
+	{
+		auto const presets = MapService::onlinePresets();
+		auto const& naip = presets[2];
+		QCOMPARE(naip.kind, MapService::Wms);
+		QCOMPARE(naip.version, QStringLiteral("1.3.0"));
+		QCOMPARE(naip.layers, QStringLiteral("USGSNAIPImagery:NaturalColor"));
+		QCOMPARE(naip.format, QStringLiteral("image/jpeg"));
+		QCOMPARE(naip.resolution, 0.3);
+		QVERIFY(naip.bulk_download);
+		auto const source = QString::fromUtf8(naip.gdalSource({}));
+		QVERIFY(source.contains(QLatin1String("<Service name=\"WMS\">")));
+		QVERIFY(source.contains(QLatin1String("<ServerUrl>https://imagery.nationalmap.gov/arcgis/services/USGSNAIPImagery/ImageServer/WMSServer?</ServerUrl>")));
+		QVERIFY(source.contains(QLatin1String("<CRS>EPSG:3857</CRS>")));
+		QVERIFY(source.contains(QLatin1String("<Layers>USGSNAIPImagery:NaturalColor</Layers>")));
+		// A WMS gets a minute for a picture, a tile cache ten seconds.
+		QVERIFY(source.contains(QLatin1String("<Timeout>60</Timeout>")));
+		QVERIFY(QString::fromUtf8(presets[0].gdalSource({})).contains(QLatin1String("<Timeout>10</Timeout>")));
+		auto const& hillshade = presets[3];
+		auto const& slope = presets[4];
+		QCOMPARE(hillshade.kind, MapService::Wms);
+		QCOMPARE(hillshade.url, slope.url);
+		QCOMPARE(hillshade.resolution, 1.0);
+		QCOMPARE(hillshade.format, QStringLiteral("image/png"));
+		QVERIFY(QString::fromUtf8(hillshade.gdalSource({})).contains(QLatin1String("<Layers>3DEPElevation:Hillshade Multidirectional</Layers>")));
+		QVERIFY(QString::fromUtf8(slope.gdalSource({})).contains(QLatin1String("<Layers>3DEPElevation:Slope Map</Layers>")));
+
+		// A new user's list of map services ends with the three, so that they can be templates;
+		// OpenStreetMap stays the first.
+		auto const shipped = MapService::presets();
+		QVERIFY(shipped.size() >= 5);
+		QCOMPARE(shipped.front().name, QStringLiteral("OpenStreetMap"));
+		for (std::size_t i = 0; i < 3; ++i)
+			QVERIFY(shipped[shipped.size() - 3 + i] == presets[2 + i]);
 	}
 
 	/// Accept (2)

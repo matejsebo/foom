@@ -304,7 +304,9 @@ QByteArray MapService::gdalSource(const QString& cache_dir) const
 	}
 
 	writeElement(xml, "BandsCount", QStringLiteral("4"));
-	writeElement(xml, "Timeout", QStringLiteral("10"));
+	// foom: a WMS draws every picture when it is asked for, and the image services of The National Map took up to
+	// 24 s for one of 1024 pixels on 2026-11-24; a tile cache answers at once or not at all.
+	writeElement(xml, "Timeout", kind == Xyz ? QStringLiteral("10") : QStringLiteral("60"));
 	writeElement(xml, "UserAgent", QStringLiteral("FOOM/" APP_VERSION));
 	writeElement(xml, "ZeroBlockHttpCodes", QStringLiteral("204,404"));
 	writeElement(xml, "ZeroBlockOnServerException", QStringLiteral("true"));
@@ -319,6 +321,39 @@ QByteArray MapService::gdalSource(const QString& cache_dir) const
 	xml.writeEndElement();  // GDAL_WMS
 	return result.toUtf8();
 }
+
+
+namespace {
+
+/**
+ * foom: The WMS services of the U.S. Geological Survey's National Map, checked against the servers on
+ * 2026-11-24: the aerial photographs of the National Agriculture Imagery Program, and the hillshade and
+ * the slope map which the 3D Elevation Program's service makes from its elevation models.
+ * See the design notes, "USGS NAIP imagery and 3DEP relief as map services".
+ */
+std::vector<MapService> usgsWmsPresets()
+{
+	std::vector<MapService> result;
+	auto wms = [&result](const char* name, const char* url, const char* layer, const char* format, double resolution, const char* attribution) {
+		MapService service;
+		service.kind = MapService::Wms;
+		service.name = QString::fromUtf8(name);
+		service.url = QString::fromUtf8(url);
+		service.layers = QString::fromUtf8(layer);
+		service.format = QString::fromUtf8(format);
+		service.resolution = resolution;
+		service.attribution = QString::fromUtf8(attribution);
+		result.push_back(service);
+	};
+	wms("USGS NAIP imagery", "https://imagery.nationalmap.gov/arcgis/services/USGSNAIPImagery/ImageServer/WMSServer?",
+	    "USGSNAIPImagery:NaturalColor", "image/jpeg", 0.3, "USGS, USDA, The National Map: Orthoimagery");
+	auto const elevation = "https://elevation.nationalmap.gov/arcgis/services/3DEPElevation/ImageServer/WMSServer?";
+	wms("USGS 3DEP hillshade", elevation, "3DEPElevation:Hillshade Multidirectional", "image/png", 1.0, "USGS 3D Elevation Program (3DEP)");
+	wms("USGS 3DEP slope", elevation, "3DEPElevation:Slope Map", "image/png", 1.0, "USGS 3D Elevation Program (3DEP)");
+	return result;
+}
+
+}  // namespace
 
 
 // static
@@ -344,6 +379,9 @@ std::vector<MapService> MapService::presets()
 	topo.bulk_download = false;
 	result.push_back(topo);
 
+	for (auto const& service : usgsWmsPresets())
+		result.push_back(service);  // foom
+
 	return result;
 }
 
@@ -367,6 +405,8 @@ std::vector<MapService> MapService::onlinePresets()
 	    16, "USGS The National Map", true);
 	xyz("USGS Topo", "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/${z}/${y}/${x}",
 	    16, "USGS The National Map", true);
+	for (auto const& service : usgsWmsPresets())
+		result.push_back(service);
 	for (auto const& preset : presets())
 	{
 		if (preset.kind == Xyz)
