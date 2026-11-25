@@ -1932,6 +1932,26 @@ void OcdFileImport::setupAreaSymbolCommon(OcdImportedAreaSymbol* symbol, bool ro
 		pattern.point = new OcdImportedPointSymbol();
 		setupPointSymbolPattern(pattern.point, data_size, elements);
 		
+		// foom: before the first pattern of shifted rows is copied, so that both are cut alike
+		// (the first had none of this, and its elements were cut at the border).
+		if (ocd_version >= 12)
+		{
+			switch (ocd_symbol.structure_draw_V12)
+			{
+			case 1:
+				pattern.setClipping(AreaSymbol::FillPattern::NoClippingIfCompletelyInside);
+				break;
+			case 2:
+				pattern.setClipping(AreaSymbol::FillPattern::NoClippingIfCenterInside);
+				break;
+			case 3:
+				pattern.setClipping(AreaSymbol::FillPattern::NoClippingIfPartiallyInside);
+				break;
+			default:
+				break;
+			}
+		}
+	
 		// OC*D 8 has a "staggered" pattern mode, where successive rows are shifted width/2 relative
 		// to each other. We need to simulate this in Mapper with two overlapping patterns, each with
 		// twice the height. The second is then offset by width/2, height/2.
@@ -1992,6 +2012,8 @@ TextSymbol* OcdFileImport::importLineTextSymbol(const S& ocd_symbol)
 	// foom: text on a path, see the design notes.
 	symbol->setFollowsPath(true);
 	symbol->setPathAlignment(ocd_symbol.basic.alignment & 0x0f);
+	// A length along the path is the longer side plus half the shorter.
+	symbol->setLegacyPathSpacing(true);
 	return symbol;
 }
 
@@ -2520,7 +2542,7 @@ void OcdFileImport::setBasicAttributes(OcdFileImport::OcdImportedTextSymbol* sym
 	symbol->bold = (attributes.font_weight>= 550);
 	symbol->italic = attributes.font_italic;
 	symbol->underline = false;
-	symbol->kerning = false;
+	symbol->kerning = true;  // foom: texts of OCD files are kerned, in text and in line text
 	symbol->line_below = false;
 	symbol->custom_tabs.resize(0);
 
@@ -2556,13 +2578,14 @@ void OcdFileImport::setBasicAttributes(OcdFileImport::OcdImportedTextSymbol* sym
 		text_valign_map[symbol] = TextObject::AlignBaseline;
 	}
 	
-	if (attributes.char_spacing != 0)
-	{
-		symbol->character_spacing = attributes.char_spacing / 100.0f;
-		addSymbolWarning(symbol, tr("Custom character spacing may be incorrect."));
-	}
+	// foom: the file's character spacing is between letters only, FOOM's after a space too, so the word
+	// spacing loses what the space gains (with kerning: the letters then stand
+	// where the file means them, and the warning which stood here is gone).
+	auto const char_spacing = qint16(attributes.char_spacing);
+	if (char_spacing != 0)
+		symbol->character_spacing = char_spacing / 100.0f;
 	
-	symbol->word_spacing = attributes.word_spacing / 100.0f;  // foom
+	symbol->word_spacing = (attributes.word_spacing - char_spacing) / 100.0f;  // foom
 	
 	symbol->updateQFont();
 }
@@ -2570,7 +2593,8 @@ void OcdFileImport::setBasicAttributes(OcdFileImport::OcdImportedTextSymbol* sym
 void OcdFileImport::setSpecialAttributes(OcdFileImport::OcdImportedTextSymbol* symbol, const Ocd::SpecialTextAttributesV8& attributes)
 {
 	// Convert line spacing
-	double absolute_line_spacing = 0.00001 * symbol->font_size * attributes.line_spacing;
+	// foom: in whole hundredths of a millimetre, as the lines of an OCD text are set
+	double absolute_line_spacing = 0.01 * qRound(0.001 * symbol->font_size * attributes.line_spacing);
 	symbol->line_spacing = absolute_line_spacing / (symbol->getFontMetrics().lineSpacing() / symbol->calculateInternalScaling());
 	symbol->paragraph_spacing = convertLength(attributes.para_spacing);
 	
@@ -2579,6 +2603,8 @@ void OcdFileImport::setSpecialAttributes(OcdFileImport::OcdImportedTextSymbol* s
 	symbol->line_below_color = symbol->line_below_width ? convertColor(attributes.line_below_color) : nullptr;
 	symbol->line_below_distance = convertLength(attributes.line_below_offset);
 	
+	// foom: without tab stops a tab has no width in an OCD text
+	symbol->default_tabs = false;
 	symbol->custom_tabs.resize(attributes.num_tabs);
 	for (auto i = 0u; i < attributes.num_tabs; ++i)
 		symbol->custom_tabs[i] = convertLength<quint32, int>(attributes.tab_pos[i]);

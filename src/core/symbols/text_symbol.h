@@ -146,11 +146,20 @@ public:
 	inline int getCustomTab(int index) const {return custom_tabs[index];}
 	/** foom: Sets the tab stops, in 1/1000 mm from the start of the line. */
 	void setCustomTabs(const std::vector<int>& tabs) { custom_tabs = tabs; }
+	/** foom: Returns whether a tab moves to the next multiple of eight characters when the symbol has no
+	 *  tab stops of its own. Without, such a tab has no width. */
+	bool usesDefaultTabs() const { return default_tabs; }
+	/** foom: Sets whether a tab has a width when the symbol has no tab stops of its own. */
+	void setDefaultTabs(bool value) { default_tabs = value; }
 	inline const QFont& getQFont() const {return qfont;}
 	inline const QFontMetricsF& getFontMetrics() const { return metrics; }
 	
 	double getNextTab(double pos) const;
 	
+	/** foom: The space added after every character, as a factor of the width of a space. */
+	double characterSpacingFactor() const { return double(character_spacing); }
+	/** foom: Sets the space added after every character, as a factor of the width of a space. */
+	void setCharacterSpacing(double factor) { character_spacing = float(factor); updateQFont(); }
 	/** foom: Returns whether objects of this symbol follow their anchor path. */
 	bool followsPath() const { return follows_path; }
 	/** foom: Sets whether objects follow their anchor path. */
@@ -159,6 +168,10 @@ public:
 	int getPathAlignment() const { return path_alignment; }
 	/** foom: Sets the alignment of text on a path. */
 	void setPathAlignment(int value) { path_alignment = value; }
+	/** foom: Returns whether text on a path is spaced the legacy way, which symbols read from OCD files use. */
+	bool hasLegacyPathSpacing() const { return legacy_path_spacing; }
+	/** foom: Sets whether text on a path is spaced the legacy way. */
+	void setLegacyPathSpacing(bool value) { legacy_path_spacing = value; }
 	/** foom: Lays the text object out along its anchor path. */
 	PathTextLayout layoutPathText(const TextObject* text_object) const;
 	/** foom: Sets the font family and updates the font. */
@@ -255,6 +268,8 @@ protected:
 	bool line_below;
 	bool follows_path;     // foom: text on a path, see the design notes
 	int path_alignment;    // foom: the alignment bits for text on a path, as in OCD files
+	bool legacy_path_spacing;  // foom: text on a path measured the legacy way
+	bool default_tabs = true;  // foom: a tab has a width without tab stops of the symbol's own
 	float word_spacing;    // foom: as a factor of the space advance
 	int font_weight;       // foom: 100 to 900, or 0 for the bold flag
 	int indent_first;      // foom: in 1/1000 mm

@@ -70,6 +70,7 @@ Q_OBJECT
 private slots:
 	void initTestCase();
 	void wordSpacingTest();
+	void defaultTabsTest();
 	void fontWeightTest();
 	void indentTest();
 	void justifyTest();
@@ -189,6 +190,56 @@ void TextSymbolTest::wordSpacingTest()
 	auto const a_b = QStringLiteral("a b");
 	QVERIFY(std::abs(width(wide, a_b) - width(normal, a_b) - space) < tolerance);
 	QVERIFY(std::abs(width(wide, QStringLiteral("ab")) - width(normal, QStringLiteral("ab"))) < tolerance);
+}
+
+void TextSymbolTest::defaultTabsTest()
+{
+	// the design notes: tabs
+	Map map;
+	auto* black = addColor(map, QStringLiteral("Black"), MapColorCmyk(0.0f, 0.0f, 0.0f, 1.0f));
+	auto* symbol = makeSymbol(map, black);
+	QVERIFY(symbol->usesDefaultTabs());
+	QVERIFY(symbol->getNextTab(0.0) > 0.0);
+	auto* other = makeSymbol(map, black);
+	other->setDefaultTabs(false);
+	QVERIFY(!other->usesDefaultTabs());
+	QCOMPARE(other->getNextTab(0.0), 0.0);
+	QCOMPARE(other->getNextTab(123.0), 123.0);
+	QVERIFY(!symbol->equals(other));
+	// Tab stops of the symbol's own count as before.
+	other->setCustomTabs({ 5000 });
+	QVERIFY(other->getNextTab(0.0) > 0.0);
+	other->setCustomTabs({});
+	
+	// A line which begins with a tab begins where a line without one begins.
+	auto const left_of = [&map](TextSymbol* s, const QString& text) {
+		auto* object = new TextObject(s);
+		object->setText(text);
+		object->setAnchorPosition(MapCoord(10.0, 10.0));
+		object->setHorizontalAlignment(TextObject::AlignLeft);
+		map.addObject(object);
+		object->update();
+		auto const left = object->getExtent().left();
+		map.deleteObject(object);
+		return left;
+	};
+	QVERIFY(std::abs(left_of(other, QStringLiteral("\tH")) - left_of(other, QStringLiteral("H"))) < 0.01);
+	QVERIFY(left_of(symbol, QStringLiteral("\tH")) - left_of(symbol, QStringLiteral("H")) > 2.0);
+	
+	XMLFileFormat format;
+	QBuffer buffer;
+	QVERIFY(buffer.open(QIODevice::ReadWrite));
+	auto exporter = format.makeExporter({}, &map, nullptr);
+	exporter->setDevice(&buffer);
+	QVERIFY(exporter->doExport());
+	QCOMPARE(QString::fromUtf8(buffer.data()).count(QLatin1String("default_tabs=\"false\"")), 1);
+	QVERIFY(buffer.seek(0));
+	Map reloaded;
+	auto importer = format.makeImporter({}, &reloaded, nullptr);
+	importer->setDevice(&buffer);
+	QVERIFY(importer->doImport());
+	QVERIFY(reloaded.getSymbol(0)->asText()->usesDefaultTabs());
+	QVERIFY(!reloaded.getSymbol(1)->asText()->usesDefaultTabs());
 }
 
 void TextSymbolTest::fontWeightTest()
@@ -414,6 +465,7 @@ void TextSymbolTest::ocdRoundTripTest()
 	symbol->setFramingBox(2000, 1000, 1500, 500);
 	symbol->setFrameSymbol(dot);
 	makeBoxText(map, symbol, QStringLiteral("Justified text"), 30.0, TextObject::AlignJustify);
+	symbol->setCharacterSpacing(0.3);
 	auto* top = new TextObject(symbol);
 	top->setText(QStringLiteral("Top"));
 	top->setAnchorPosition(MapCoord(10.0, 10.0));
@@ -460,6 +512,31 @@ void TextSymbolTest::ocdRoundTripTest()
 	QVERIFY(loaded_dot);
 	QCOMPARE(loaded->getFontWeight(), 300);
 	QVERIFY(std::abs(loaded->getWordSpacing() - 1.5) < 0.001);
+	// The character spacing is written in percent of a space. The file has it between letters only and FOOM
+	// after a space too, so the file's word spacing is the sum of the two: 30 and 180.
+	QVERIFY(std::abs(loaded->characterSpacingFactor() - 0.3) < 0.001);
+	QVERIFY(loaded->usesKerning());
+	{
+		auto const& bytes = buffer.data();
+		auto const u16 = [&bytes](int at) { return quint16(quint8(bytes[at])) | quint16(quint8(bytes[at + 1])) << 8; };
+		auto const u32 = [&u16](int at) { return quint32(u16(at)) | quint32(u16(at + 2)) << 16; };
+		auto found = 0;
+		for (auto block = int(u32(8)); block != 0; block = int(u32(block)))
+		{
+			for (int k = 0; k < 256; ++k)
+			{
+				auto const pos = int(u32(block + 4 + 4 * k));
+				if (pos == 0 || quint8(bytes[pos + 8]) != 4)
+					continue;
+				// behind the 796 bytes of the symbol's head and the 32 of the font's name: colour, size,
+				// weight, italic, character set, character spacing, word spacing
+				QCOMPARE(int(u16(pos + 836)), 30);
+				QCOMPARE(int(u16(pos + 838)), 180);
+				++found;
+			}
+		}
+		QVERIFY(found >= 1);
+	}
 	QCOMPARE(loaded->getIndentFirst(), 5000);
 	QCOMPARE(loaded->getIndentOther(), 2000);
 	QVERIFY(loaded->usesFraming());

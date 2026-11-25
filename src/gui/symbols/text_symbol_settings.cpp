@@ -186,6 +186,12 @@ TextSymbolSettings::TextSymbolSettings(TextSymbol* symbol, SymbolSettingDialog* 
 	}
 	layout->addRow(tr("Alignment along the line:"), path_alignment_combo);
 	
+	legacy_path_spacing_check = new QCheckBox(tr("Space the letters closer on slanted lines (legacy mode)"));
+	legacy_path_spacing_check->setObjectName(QStringLiteral("legacy_path_spacing_check"));
+	legacy_path_spacing_check->setToolTip(tr("Legacy mode sets text closer together on a slanted or curved line, by up to a tenth. "
+	                                       "Symbols read from OCD files have this switched on, so that their texts fit their lines."));
+	layout->addRow(legacy_path_spacing_check);
+	
 	layout->addItem(Util::SpacerItem::create(this));
 	
 	icon_text_edit = new QLineEdit();
@@ -311,6 +317,7 @@ TextSymbolSettings::TextSymbolSettings(TextSymbol* symbol, SymbolSettingDialog* 
 	connect(frame_symbol_edit, QOverload<int>::of(&SymbolDropDown::currentIndexChanged), this, &TextSymbolSettings::frameSymbolChanged);
 	connect(follows_path_check, &QAbstractButton::clicked, this, &TextSymbolSettings::followsPathClicked);
 	connect(path_alignment_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &TextSymbolSettings::pathAlignmentChanged);
+	connect(legacy_path_spacing_check, &QAbstractButton::clicked, this, &TextSymbolSettings::legacyPathSpacingClicked);
 	connect(icon_text_edit, &QLineEdit::textEdited, this, &TextSymbolSettings::iconTextEdited);
 	connect(framing_check, &QAbstractButton::clicked, this, &TextSymbolSettings::framingCheckClicked);
 	connect(ocad_compat_check, &QAbstractButton::clicked, this, &TextSymbolSettings::ocadCompatibilityButtonClicked);
@@ -483,6 +490,7 @@ void TextSymbolSettings::followsPathClicked(bool checked)
 	
 	symbol->follows_path = checked;
 	path_alignment_combo->setEnabled(checked);
+	legacy_path_spacing_check->setEnabled(checked);
 	dialog->recreatePreview();
 	emit propertiesModified();
 }
@@ -494,6 +502,16 @@ void TextSymbolSettings::pathAlignmentChanged()
 		return;
 	
 	symbol->path_alignment = path_alignment_combo->currentData().toInt();
+	emit propertiesModified();
+}
+
+// foom
+void TextSymbolSettings::legacyPathSpacingClicked(bool checked)
+{
+	if (!react_to_changes)
+		return;
+	
+	symbol->legacy_path_spacing = checked;
 	emit propertiesModified();
 }
 
@@ -676,6 +694,8 @@ void TextSymbolSettings::updateGeneralContents()
 	follows_path_check->setChecked(symbol->follows_path);
 	path_alignment_combo->setCurrentIndex(qMax(0, path_alignment_combo->findData(symbol->path_alignment)));
 	path_alignment_combo->setEnabled(symbol->follows_path);
+	legacy_path_spacing_check->setChecked(symbol->legacy_path_spacing);
+	legacy_path_spacing_check->setEnabled(symbol->follows_path);
 	icon_text_edit->setText(symbol->getIconText());
 	framing_check->setChecked(symbol->framing);
 	setTabEnabled(indexOf(framing_widget), symbol->framing);

@@ -131,10 +131,14 @@ public:
 		int variation_x;
 		/** Random displacement across the rows in percent of the row spacing (point patterns). */
 		int variation_y;
-		/** Elements closer than this (1/1000 mm) to a neighbour already placed are skipped; 0 for none. */
+		/** The clear space (1/1000 mm) which the displacement leaves between two elements; 0 for none. */
 		int minimum_distance;
-		/** The cells placed while one object is rendered, keyed by row and column. */
-		mutable std::unordered_map<qint64, MapCoordF> placed_cells;
+		/** Transient: the distance (mm) to the next element along the row and to the next row, the
+		 *  symbol's other patterns counted; set by the symbol before the pattern is drawn, 0 for its own. */
+		mutable double neighbour_along = 0.0;
+		mutable double neighbour_across = 0.0;
+		/** Transient: the size (mm) of the element, while the pattern is drawn. */
+		mutable double element_size = 0.0;
 		
 		/** foom: Returns true when the pattern is irregular. */
 		bool isIrregular() const { return variation_x > 0 || variation_y > 0 || minimum_distance > 0; }

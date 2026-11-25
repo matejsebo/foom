@@ -83,6 +83,7 @@ TextSymbol::TextSymbol()
 , line_below { false }
 , follows_path { false }
 , path_alignment { 0 }
+, legacy_path_spacing { false }
 , word_spacing { 1 }
 , font_weight { 0 }
 , indent_first { 0 }
@@ -126,6 +127,8 @@ TextSymbol::TextSymbol(const TextSymbol& proto)
 , kerning { proto.kerning }
 , follows_path { proto.follows_path }
 , path_alignment { proto.path_alignment }
+, legacy_path_spacing { proto.legacy_path_spacing }
+, default_tabs { proto.default_tabs }
 , framing { proto.framing }
 , line_below { proto.line_below }
 , word_spacing { proto.word_spacing }
@@ -388,6 +391,8 @@ void TextSymbol::saveImpl(QXmlStreamWriter& xml, const Map& map) const
 	{
 		xml.writeAttribute(QStringLiteral("follows_path"), QStringLiteral("true"));
 		xml.writeAttribute(QStringLiteral("path_alignment"), QString::number(path_alignment));
+		if (legacy_path_spacing)
+			xml.writeAttribute(QStringLiteral("path_spacing"), QStringLiteral("legacy"));
 	}
 	if (frame_symbol)  // foom
 		xml.writeAttribute(QStringLiteral("frame_symbol"), QString::number(map.findSymbolIndex(frame_symbol)));
@@ -412,6 +417,8 @@ void TextSymbol::saveImpl(QXmlStreamWriter& xml, const Map& map) const
 	xml.writeAttribute(QStringLiteral("character_spacing"), QString::number(character_spacing));
 	if (kerning)
 		xml.writeAttribute(QStringLiteral("kerning"), QStringLiteral("true"));
+	if (!default_tabs)  // foom
+		xml.writeAttribute(QStringLiteral("default_tabs"), QStringLiteral("false"));
 	if (word_spacing != 1)  // foom
 		xml.writeAttribute(QStringLiteral("word_spacing"), QString::number(word_spacing));
 	if (indent_first != 0)  // foom
@@ -472,6 +479,7 @@ bool TextSymbol::loadImpl(QXmlStreamReader& xml, const Map& map, SymbolDictionar
 		setRotatable(version < 9); // always rotatable before version 9
 	follows_path = xml.attributes().value(QLatin1String("follows_path")) == QLatin1String("true");  // foom
 	path_alignment = xml.attributes().value(QLatin1String("path_alignment")).toInt();  // foom
+	legacy_path_spacing = xml.attributes().value(QLatin1String("path_spacing")) == QLatin1String("legacy");  // foom
 	frame_symbol = nullptr;  // foom: resolved in loadingFinishedEvent()
 	temp_frame_symbol_index = xml.attributes().hasAttribute(QLatin1String("frame_symbol")) ? xml.attributes().value(QLatin1String("frame_symbol")).toInt() : -1;
 	word_spacing = 1;
@@ -506,6 +514,7 @@ bool TextSymbol::loadImpl(QXmlStreamReader& xml, const Map& map, SymbolDictionar
 			line_spacing = attributes.value(QLatin1String("line_spacing")).toFloat();
 			paragraph_spacing = attributes.value(QLatin1String("paragraph_spacing")).toInt();
 			character_spacing = attributes.value(QLatin1String("character_spacing")).toFloat();
+			default_tabs = attributes.value(QLatin1String("default_tabs")) != QLatin1String("false");  // foom
 			kerning = (attributes.value(QLatin1String("kerning")) == QLatin1String("true"));
 			if (attributes.hasAttribute(QLatin1String("word_spacing")))  // foom
 				word_spacing = attributes.value(QLatin1String("word_spacing")).toFloat();
@@ -567,7 +576,8 @@ bool TextSymbol::equalsImpl(const Symbol* other, Qt::CaseSensitivity case_sensit
 		return false;
 	if (font_family.compare(text->font_family, Qt::CaseInsensitive) != 0)
 		return false;
-	if (follows_path != text->follows_path || (follows_path && path_alignment != text->path_alignment))  // foom
+	if (follows_path != text->follows_path
+	    || (follows_path && (path_alignment != text->path_alignment || legacy_path_spacing != text->legacy_path_spacing)))  // foom
 		return false;
 	if (font_weight != text->font_weight ||  // foom
 		qAbs(word_spacing - text->word_spacing) > 0.0005f ||
@@ -607,6 +617,8 @@ bool TextSymbol::equalsImpl(const Symbol* other, Qt::CaseSensitivity case_sensit
 			line_below_distance != text->line_below_distance)
 			return false;
 	}
+	if (default_tabs != text->default_tabs)  // foom
+		return false;
 	return (custom_tabs == text->custom_tabs);
 }
 
@@ -636,6 +648,9 @@ double TextSymbol::getNextTab(double pos) const
 		custom_tab_interval *= 0.001;
 		return scaling * (0.001 * custom_tabs[custom_tabs.size() - 1] + (floor((map_pos - 0.001 * custom_tabs[custom_tabs.size() - 1]) / custom_tab_interval) + 1.0) * custom_tab_interval);
 	}
+	
+	if (!default_tabs)  // foom: no tab stops and none by default
+		return pos;
 	
 	double next_tab = (floor(pos / tab_interval) + 1.0) * tab_interval;
 	Q_ASSERT(next_tab > pos);

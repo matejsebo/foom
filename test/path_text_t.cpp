@@ -75,6 +75,7 @@ Q_OBJECT
 private slots:
 	void initTestCase();
 	void layoutTest();
+	void heightTest();
 	void renderTest();
 	void xmlRoundTripTest();
 	void ocdRoundTripTest();
@@ -183,6 +184,33 @@ void PathTextTest::layoutTest()
 	}
 }
 
+void PathTextTest::heightTest()
+{
+	// the design notes
+	Map map;
+	auto* black = new MapColor(QStringLiteral("Black"), 0);
+	map.addColor(black, 0);
+	auto const text = QStringLiteral("H");
+	auto const bounds_of = [&](int alignment, double y) {
+		auto* symbol = makeSymbol(map, black, true, alignment);
+		auto* object = makePathText(map, symbol, text, { MapCoord(0.0, y), MapCoord(60.0, y) });
+		return symbol->layoutPathText(object).outline.boundingRect().translated(0.0, -y);
+	};
+	// The letter H has no overshoot: its outline is as high as the font's capitals.
+	auto const bottom = bounds_of(0, 10.0);
+	auto const cap = bottom.height();
+	QVERIFY(cap > 2.9 && cap < 3.2);  // Arial, 12 pt: 0.716 em
+	QVERIFY(std::abs(bottom.bottom()) < 0.01);
+	// Middle: the path runs through half the height of the capitals.
+	auto const middle = bounds_of(4, 20.0);
+	QVERIFY2(std::abs(middle.bottom() - cap / 2) < 0.02, qPrintable(QString::number(middle.bottom())));
+	QVERIFY(std::abs(middle.top() + cap / 2) < 0.02);
+	// Top: the capitals hang from the path.
+	auto const top = bounds_of(8, 30.0);
+	QVERIFY2(std::abs(top.top()) < 0.02, qPrintable(QString::number(top.top())));
+	QVERIFY(std::abs(top.bottom() - cap) < 0.02);
+}
+
 void PathTextTest::renderTest()
 {
 	auto const text = QStringLiteral("Hello path");
@@ -243,10 +271,13 @@ void PathTextTest::xmlRoundTripTest()
 	auto* black = new MapColor(QStringLiteral("Black"), 0);
 	map.addColor(black, 0);
 	auto* symbol = makeSymbol(map, black, true, 6);
+	symbol->setLegacyPathSpacing(true);
+	auto* plain_symbol = makeSymbol(map, black, true, 0);
 	auto curve_start = MapCoord(0.0, 0.0);
 	curve_start.setCurveStart(true);
 	MapCoordVector const curve = { curve_start, MapCoord(20.0, -20.0), MapCoord(40.0, -20.0), MapCoord(60.0, 0.0) };
 	makePathText(map, symbol, QStringLiteral("Along"), curve);
+	Q_UNUSED(plain_symbol)
 	
 	XMLFileFormat format;
 	QBuffer buffer;
@@ -255,6 +286,7 @@ void PathTextTest::xmlRoundTripTest()
 	exporter->setDevice(&buffer);
 	QVERIFY(exporter->doExport());
 	QVERIFY(QString::fromUtf8(buffer.data()).contains(QLatin1String("follows_path=\"true\"")));
+	QCOMPARE(QString::fromUtf8(buffer.data()).count(QLatin1String("path_spacing=\"legacy\"")), 1);
 	QVERIFY(buffer.seek(0));
 	Map reloaded;
 	auto importer = format.makeImporter({}, &reloaded, nullptr);
@@ -263,6 +295,8 @@ void PathTextTest::xmlRoundTripTest()
 	auto const* loaded_symbol = reloaded.getSymbol(0)->asText();
 	QVERIFY(loaded_symbol->followsPath());
 	QCOMPARE(loaded_symbol->getPathAlignment(), 6);
+	QVERIFY(loaded_symbol->hasLegacyPathSpacing());
+	QVERIFY(!reloaded.getSymbol(1)->asText()->hasLegacyPathSpacing());
 	auto const* loaded = reloaded.getPart(0)->getObject(0)->asText();
 	QVERIFY(loaded->followsPath());
 	QCOMPARE(loaded->getText(), QStringLiteral("Along"));
@@ -309,6 +343,8 @@ void PathTextTest::ocdRoundTripTest()
 	QVERIFY(loaded_symbol->followsPath());
 	QVERIFY(!loaded_symbol->isHidden());
 	QCOMPARE(loaded_symbol->getPathAlignment(), 9);
+	QVERIFY(!symbol->hasLegacyPathSpacing());
+	QVERIFY(loaded_symbol->hasLegacyPathSpacing());
 	QCOMPARE(reloaded.getNumObjects(), 1);
 	auto const* loaded = reloaded.getPart(0)->getObject(0)->asText();
 	QVERIFY(loaded && loaded->followsPath());

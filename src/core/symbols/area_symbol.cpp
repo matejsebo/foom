@@ -436,7 +436,6 @@ void AreaSymbol::FillPattern::createRenderables(const AreaRenderable& outline, q
 {
 	if (line_spacing <= 0)
 		return;
-	placed_cells.clear();  // foom: one object at a time
 	
 	if (!rotatable())
 		delta_rotation = 0;
@@ -477,6 +476,7 @@ void AreaSymbol::FillPattern::createRenderables(const AreaRenderable& outline, q
 			point_object.setRotation(delta_rotation);
 			point_object.update();
 			auto point_extent = point_object.getExtent();
+			element_size = qMax(point_extent.width(), point_extent.height());  // foom
 			createRenderables<PointPattern>(outline, delta_rotation, pattern_origin, point_extent, nullptr, rotation, output);
 		}
 		break;
@@ -668,6 +668,34 @@ void AreaSymbol::createRenderablesNormal(
 	auto origin = object->getPatternOrigin();
 	for (const auto& pattern : patterns)
 	{
+		// foom: an irregular pattern keeps its distance from the elements of the patterns which lie
+		// between its own rows and elements, as the second pattern of shifted rows does.
+		pattern.neighbour_along = 0.0;
+		pattern.neighbour_across = 0.0;
+		if (pattern.type == FillPattern::PointPattern && pattern.isIrregular())
+		{
+			auto along = 0.001 * pattern.point_distance;
+			auto across = 0.001 * pattern.line_spacing;
+			for (const auto& other : patterns)
+			{
+				if (&other == &pattern || other.type != FillPattern::PointPattern
+				    || other.point_distance != pattern.point_distance || other.line_spacing != pattern.line_spacing
+				    || !qFuzzyCompare(1.0 + other.angle, 1.0 + pattern.angle))
+					continue;
+				auto const nearest = [](int difference, int period) {
+					auto const d = ((difference % period) + period) % period;
+					return 0.001 * qMin(d, period - d);
+				};
+				auto const d_across = nearest(other.line_offset - pattern.line_offset, pattern.line_spacing);
+				auto const d_along = nearest(other.offset_along_line - pattern.offset_along_line, pattern.point_distance);
+				if (d_across > 0.0)
+					across = qMin(across, d_across);
+				else if (d_along > 0.0)
+					along = qMin(along, d_along);
+			}
+			pattern.neighbour_along = along;
+			pattern.neighbour_across = across;
+		}
 		pattern.createRenderables(*color_fill, rotation, origin, output);
 	}
 }

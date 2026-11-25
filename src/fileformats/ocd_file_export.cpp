@@ -2049,12 +2049,12 @@ void OcdFileExport::setupTextSymbolBasic(const TextSymbol* text_symbol, int alig
 	ocd_text_basic.font_size = decltype(ocd_text_basic.font_size)(qRound(10 * text_symbol->getFontSize() / 25.4 * 72.0));
 	ocd_text_basic.font_weight = decltype(ocd_text_basic.font_weight)(text_symbol->getFontWeight());  // foom
 	ocd_text_basic.font_italic = text_symbol->isItalic() ? 1 : 0;
-	ocd_text_basic.char_spacing = decltype(ocd_text_basic.char_spacing)(convertSize(qRound(1000 * text_symbol->getCharacterSpacing())));
-	if (ocd_text_basic.char_spacing != 0)
-		addWarning(::OpenOrienteering::OcdFileExport::tr("In text symbol %1: custom character spacing is set,"
-		                                                 "its implementation does not match OCAD's behavior yet")
-		           .arg(text_symbol->getPlainTextName()));
-	ocd_text_basic.word_spacing = decltype(ocd_text_basic.word_spacing)(qRound(100 * text_symbol->getWordSpacing()));  // foom
+	// foom: percent of the width of a space. getCharacterSpacing() is a thousandth of the symbol's factor,
+	// and the size conversion which stood here made every spacing 0 in the file.
+	ocd_text_basic.char_spacing = decltype(ocd_text_basic.char_spacing)(qRound(100.0 * 1000.0 * text_symbol->getCharacterSpacing()));
+	// foom: the file's character spacing is between letters only, FOOM's after a space too: the file's word
+	// spacing has the character spacing in it.
+	ocd_text_basic.word_spacing = decltype(ocd_text_basic.word_spacing)(qMax(0, qRound(100 * (text_symbol->getWordSpacing() + 1000.0 * text_symbol->getCharacterSpacing()))));
 	ocd_text_basic.alignment = alignment;	// Default value, we might have to change this or even create copies of this symbol with other alignments later
 }
 
@@ -2071,8 +2071,8 @@ void OcdFileExport::setupTextSymbolSpecial(const TextSymbol* text_symbol, OcdTex
 	if (text_symbol->isUnderlined())
 		addWarning(::OpenOrienteering::OcdFileExport::tr("In text symbol %1: ignoring underlining")
 		           .arg(text_symbol->getPlainTextName()));
-	if (text_symbol->usesKerning())
-		addWarning(::OpenOrienteering::OcdFileExport::tr("In text symbol %1: ignoring kerning")
+	if (!text_symbol->usesKerning())  // foom: texts of OCD files are always kerned
+		addWarning(::OpenOrienteering::OcdFileExport::tr("In text symbol %1: texts of OCD files are always kerned")
 		           .arg(text_symbol->getPlainTextName()));
 	
 	ocd_text_special.line_below_on = text_symbol->hasLineBelow() ? 1 : 0;

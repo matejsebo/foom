@@ -87,6 +87,7 @@ protected slots:
 	void indentChanged();
 	void followsPathClicked(bool checked);
 	void pathAlignmentChanged();
+	void legacyPathSpacingClicked(bool checked);
 	
 	void ocadCompatibilityButtonClicked(bool checked);
 	void lineBelowCheckClicked(bool checked);
@@ -122,6 +123,7 @@ private:
 	SymbolDropDown* frame_symbol_edit;  // foom
 	QCheckBox*      follows_path_check;    // foom
 	QComboBox*      path_alignment_combo;  // foom
+	QCheckBox*      legacy_path_spacing_check;  // foom
 	QLineEdit*      icon_text_edit;
 	QCheckBox*      framing_check;
 	QCheckBox*      ocad_compat_check;

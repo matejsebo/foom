@@ -66,6 +66,7 @@ private slots:
 	void regularTest();
 	void variationTest();
 	void minimumDistanceTest();
+	void shiftedRowsTest();
 	void xmlRoundTripTest();
 	void ocdRoundTripTest();
 	
@@ -194,21 +195,89 @@ void AreaPatternTest::minimumDistanceTest()
 	Fixture f;
 	setup(f);
 	auto& pattern = f.area->getFillPattern(0);
+	// the design notes
+	auto const regular = dots(*f.object);
+	auto const closest = [](const std::vector<QPointF>& placed) {
+		auto result = 1e9;
+		for (std::size_t i = 0; i < placed.size(); ++i)
+		{
+			for (std::size_t j = i + 1; j < placed.size(); ++j)
+				result = qMin(result, std::hypot(placed[i].x() - placed[j].x(), placed[i].y() - placed[j].y()));
+		}
+		return result;
+	};
+	auto const farthest = [](const std::vector<QPointF>& placed) {
+		auto result = 0.0;
+		for (auto const& centre : placed)
+			result = qMax(result, qMax(offNode(centre.x()), offNode(centre.y())));
+		return result;
+	};
+	
+	// The full variation: the dots of 0.6 mm in cells of 5 mm never touch, and none is left out.
 	pattern.variation_x = 100;
 	pattern.variation_y = 100;
 	auto const unrestricted = dots(*f.object);
+	QCOMPARE(unrestricted.size(), regular.size());
+	QVERIFY(farthest(unrestricted) <= 2.2 + 1e-6);
+	QVERIFY(farthest(unrestricted) > 2.0);
+	QVERIFY(closest(unrestricted) >= 0.6 - 1e-6);
+	
+	// A minimum distance is the clear space between two elements: 4 mm between dots of 0.6 mm leave each
+	// dot 0.2 mm of play about its node, and still none is left out.
 	pattern.minimum_distance = 4000;
 	auto const placed = dots(*f.object);
-	QVERIFY(placed.size() < unrestricted.size());
-	QVERIFY(placed.size() > unrestricted.size() / 2);
+	QCOMPARE(placed.size(), regular.size());
+	QVERIFY(farthest(placed) <= 0.2 + 1e-6);
+	QVERIFY(farthest(placed) > 0.18);
+	QVERIFY(closest(placed) >= 4.6 - 1e-6);
+	auto displaced = 0;
+	for (auto const& centre : placed)
+		displaced += offNode(centre.x()) > 0.02;
+	QVERIFY(3 * displaced >= int(placed.size()));
+	
+	// A distance which leaves no play gives the regular pattern.
+	pattern.minimum_distance = 4400;
+	QVERIFY(farthest(dots(*f.object)) < 1e-6);
+	pattern.minimum_distance = 9000;
+	QVERIFY(farthest(dots(*f.object)) < 1e-6);
+	
+	// One direction alone.
+	pattern.minimum_distance = 0;
+	pattern.variation_y = 0;
+	for (auto const& centre : dots(*f.object))
+		QVERIFY(offNode(centre.y()) < 1e-6);
+}
+
+void AreaPatternTest::shiftedRowsTest()
+{
+	// Shifted rows are two patterns of twice the row spacing: an element keeps its distance from those of
+	// the other pattern too.
+	Fixture f;
+	setup(f);
+	f.area->setNumFillPatterns(2);
+	auto& first = f.area->getFillPattern(0);
+	first.line_spacing = 10000;
+	first.variation_x = 100;
+	first.variation_y = 100;
+	first.minimum_distance = 1000;
+	auto& second = f.area->getFillPattern(1);
+	second = first;
+	second.point = duplicate(*first.point).release();
+	second.line_offset = 5000;
+	second.offset_along_line = 2500;
+	auto const placed = dots(*f.object);
+	QVERIFY(placed.size() >= 100);
+	auto closest = 1e9;
+	auto off_row = 0.0;
 	for (std::size_t i = 0; i < placed.size(); ++i)
 	{
+		off_row = qMax(off_row, offNode(placed[i].y()));
 		for (std::size_t j = i + 1; j < placed.size(); ++j)
-		{
-			auto const d = placed[i] - placed[j];
-			QVERIFY2(std::sqrt(d.x() * d.x() + d.y() * d.y()) >= 4.0 - 1e-6, qPrintable(QStringLiteral("%1 %2 near %3 %4").arg(placed[i].x()).arg(placed[i].y()).arg(placed[j].x()).arg(placed[j].y())));
-		}
+			closest = qMin(closest, std::hypot(placed[i].x() - placed[j].x(), placed[i].y() - placed[j].y()));
 	}
+	// The rows are 5 mm apart: 1.6 mm are taken by a dot and the distance, half the rest is the play.
+	QVERIFY2(closest >= 1.6 - 1e-6, qPrintable(QString::number(closest)));
+	QVERIFY2(off_row <= 1.7 + 1e-6 && off_row > 1.5, qPrintable(QString::number(off_row)));
 }
 
 void AreaPatternTest::xmlRoundTripTest()
