@@ -485,3 +485,10 @@ if(IOF_3_XSD_FILE)
 		COMMAND "${XMLLINT}" --schema "${IOF_3_XSD_FILE}" "${CMAKE_CURRENT_SOURCE_DIR}/data/export/iof-3.0-course.xml"
 	)
 endif()
+
+
+# foom: further tests from a folder outside the repository
+set(FOOM_EXTRA_TESTS_DIR "" CACHE PATH "A folder with further tests, built with these")
+if(FOOM_EXTRA_TESTS_DIR AND EXISTS "${FOOM_EXTRA_TESTS_DIR}/CMakeLists.txt")
+	add_subdirectory("${FOOM_EXTRA_TESTS_DIR}" extra-tests)
+endif()
