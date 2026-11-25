@@ -93,7 +93,9 @@
 #include "fileformats/ocd_georef_fields.h"
 #include "fileformats/ocd_icon.h"
 #include "fileformats/ocd_guide.h"  // foom
+#include "fileformats/ocd_graphic_object.h"  // foom
 #include "fileformats/ocd_layout_image.h"  // foom
+#include "fileformats/ocd_sketch.h"  // foom
 #include "fileformats/ocd_types.h"
 #include "fileformats/ocd_types_v8.h"
 #include "fileformats/ocd_types_v9.h"
@@ -747,6 +749,14 @@ bool OcdFileExport::exportImplementation()
 	exportTemplates(file);
 	exportExtras(file);
 	
+	if (!sketch_strokes.empty())
+	{
+		// foom: the sketch block stands behind everything else
+		auto with_sketch = file.constByteArray();
+		appendOcdSketch(with_sketch, sketch_strokes);
+		return device()->write(with_sketch) == with_sketch.size();
+	}
+	
 	auto& data = file.constByteArray();
 	return device()->write(data) == data.size();
 }
@@ -1072,6 +1082,7 @@ void OcdFileExport::exportSymbols(OcdFile<Format>& file)
 	symbol_numbers.clear();
 	text_format_mapping.clear();
 	breakdown_list.clear();
+	prepareGraphicObjects();  // foom
 	const auto num_symbols = map->getNumSymbols();
 	
 	// First pass: Collect unique symbol numbers (i.e. skip duplicates)
@@ -1101,6 +1112,8 @@ void OcdFileExport::exportSymbols(OcdFile<Format>& file)
 		QByteArray ocd_symbol;
 		
 		const auto* symbol = map->getSymbol(i);
+		if (graphic_object_symbols.contains(symbol))
+			continue;  // foom: its objects are written without a symbol
 		switch(symbol->getType())
 		{
 		case Symbol::Point:
@@ -1694,6 +1707,8 @@ quint32 OcdFileExport::exportLineSymbolCommon(const LineSymbol* line_symbol, Ocd
 			
 			ocd_line_common.main_length = convertSize(line_symbol->getDashLength() + line_symbol->getBreakLength());
 			ocd_line_common.end_length = ocd_line_common.main_length / 2;
+			if (line_symbol->hasLegacyDashes() && line_symbol->getEndDashLength() > 0)  // foom: the end length an OCD file had
+				ocd_line_common.end_length = convertSize(line_symbol->getEndDashLength());
 			ocd_line_common.sec_gap = convertSize(line_symbol->getBreakLength());
 		}
 		else
@@ -2608,6 +2623,11 @@ void OcdFileExport::exportObjects(OcdFile<Format>& file)
 				object = duplicate.get();
 			}
 			object->update();
+			if (graphic_object_symbols.value(object->getSymbol(), 0) == ocd_sketch_stroke_kind)
+			{
+				collectSketchStroke(object);  // foom: no object of the file
+				continue;
+			}
 			
 			QByteArray ocd_object;
 			auto entry = typename Format::Object::IndexEntryType {};
@@ -2629,6 +2649,24 @@ void OcdFileExport::exportObjects(OcdFile<Format>& file)
 				FILEFORMAT_ASSERT(!ocd_object.isEmpty());
 				file.objects().insert(ocd_object, entry);
 				break;
+			}
+			// foom: a layout object is in the file's list of layout objects by a string
+			// which names its place in the object index.
+			if (graphic_object_symbols.value(object->getSymbol(), 0) == ocd_layout_object_symbol)
+			{
+				auto place = 0;
+				for (auto it = file.objects().begin(); it != file.objects().end(); ++it)
+					++place;
+				// A line of several parts is written as an object for each.
+				auto const parts = (object->getType() == Object::Path && object->getSymbol()->getType() == Symbol::Line)
+				                   ? int(static_cast<const PathObject*>(object)->parts().size()) : 1;
+				for (auto k = qMax(1, place - parts + 1); k <= place; ++k)
+				{
+					auto const type = object->getType() == Object::Text ? 4
+					                  : (object->getSymbol()->getType() == Symbol::Area ? 3 : 2);
+					auto const text = object->getType() == Object::Text ? static_cast<const TextObject*>(object)->getText() : QString();
+					file.strings().insert(ocd_layout_image_string_type, ocdLayoutListEntry(type, text, k).toUtf8()).obj_index = quint32(k);
+				}
 			}
 			
 		}
@@ -2701,6 +2739,22 @@ int appendObjectString(const QString& /*object_string*/, const O& /*ocd_object*/
 	return 0;
 }
 
+// foom: the header of an object without a symbol,
+// see the design notes, "Graphic and layout objects written to OCD files".
+template< class O, class E >
+void exportGraphicObjectFields(O& /*ocd_object*/, E& /*entry*/, int /*symbol*/, quint32 /*color_field*/, int /*entry_color*/, int /*line_width*/)
+{
+	// nothing before version 12
+}
+
+void exportGraphicObjectFields(Ocd::ObjectV12& ocd_object, Ocd::ObjectV12::IndexEntryType& entry, int symbol, quint32 color_field, int entry_color, int line_width)
+{
+	ocd_object.symbol = entry.symbol = symbol;
+	ocd_object.color = qint32(color_field);
+	entry.color = decltype(entry.color)(entry_color);
+	ocd_object.line_width = quint16(ocd_object.type == 2 ? line_width : 0);
+}
+
 int appendObjectString(const QString& object_string, const Ocd::ObjectV12& ocd_object, QByteArray& data)
 {
 	if (!ocd_object.object_string_length)
@@ -2724,6 +2778,20 @@ void OcdFileExport::handleObjectExtras(const Object* object, OcdObject& ocd_obje
 	entry.status = Ocd::ObjectNormal;
 	entry.color = convertColor(object->getSymbol()->guessDominantColor());
 	exportObjectDates(object, ocd_object);  // foom
+	// foom: the objects without a symbol.
+	auto const graphic_kind = graphic_object_symbols.value(object->getSymbol(), 0);
+	if (graphic_kind != 0)
+	{
+		OcdGraphicStyle style;
+		if (object->getType() == Object::Text)
+			style.color = static_cast<const TextSymbol*>(object->getSymbol())->getColor();
+		else
+			isOcdGraphicSymbol(object->getSymbol(), &style);
+		if (graphic_kind == ocd_layout_object_symbol)
+			exportGraphicObjectFields(ocd_object, entry, graphic_kind, style.color ? ocdLayoutColorField(style.color->getCmyk()) : 0u, 65535, style.line_width);
+		else
+			exportGraphicObjectFields(ocd_object, entry, graphic_kind, convertColor(style.color), convertColor(style.color), style.line_width);
+	}
 	// foom: course objects and the objects of a course's own graphics,
 	// the design notes, "OCD files from the course data".
 	prepareCourseRecords();
@@ -2901,6 +2969,8 @@ QByteArray OcdFileExport::exportTextObject(const TextObject* text, typename OcdO
 	decltype(entry.symbol) symbol_number = -1;
 	if (text_format != end(text_format_mapping))
 		symbol_number = text_format->symbol_number;
+	else if (graphic_object_symbols.contains(symbol))
+		symbol_number = decltype(entry.symbol)(ocd_layout_object_symbol);  // foom: a layout text has no symbol
 	else
 		FILEFORMAT_ASSERT(map->findSymbolIndex(symbol) < -1); // -2 and below indicate objects with undefined symbols
 	
@@ -3598,8 +3668,127 @@ void OcdFileExport::prepareCourseRecords()
 }
 
 // foom
+void OcdFileExport::collectSketchStroke(const Object* object)
+{
+	OcdGraphicStyle style;
+	if (object->getType() != Object::Path || !isOcdGraphicSymbol(object->getSymbol(), &style))
+		return;
+	auto const* path = static_cast<const PathObject*>(object);
+	for (auto const& part : path->parts())
+	{
+		// A stroke is a row of points: a curve is written as the points FOOM draws it with.
+		OcdSketchStroke stroke;
+		stroke.color = QColor(QRgb(*style.color));
+		stroke.width = style.line_width;
+		stroke.created = Ocd::toDelphiDateTime(object->createdTime());
+		stroke.modified = Ocd::toDelphiDateTime(object->modifiedTime());
+		stroke.points.reserve(part.path_coords.size());
+		for (auto const& path_coord : part.path_coords)
+		{
+			auto const point = convertPoint(MapCoord(path_coord.pos));
+			auto const next = QPoint(int(point.x & ~0xff), int(point.y & ~0xff));
+			if (stroke.points.empty() || stroke.points.back() != next)
+				stroke.points.push_back(next);
+		}
+		if (stroke.points.size() >= 2)
+			sketch_strokes.push_back(std::move(stroke));
+	}
+}
+
+// foom
+void OcdFileExport::prepareGraphicObjects()
+{
+	sketch_strokes.clear();
+	graphic_object_symbols.clear();
+	if (ocd_version < 12)
+		return;
+	// A symbol is left out when all its objects can be written without it.
+	QHash<const Symbol*, int> kinds;
+	for (int p = 0; p < map->getNumParts(); ++p)
+	{
+		auto const* part = map->getPart(std::size_t(p));
+		for (int i = 0; i < part->getNumObjects(); ++i)
+		{
+			auto const* object = part->getObject(i);
+			auto const* symbol = object->getSymbol();
+			if (!symbol || !symbol->isPrivate())
+				continue;
+			auto kind = 0;
+			if (part->role() == MapPart::Role::Layout)
+			{
+				if (object->getType() == Object::Path && isOcdGraphicSymbol(symbol))
+					kind = ocd_layout_object_symbol;
+				else if (object->getType() == Object::Text && symbol->getType() == Symbol::Text
+				         && static_cast<const TextSymbol*>(symbol)->getColor()
+				         && !static_cast<const TextObject*>(object)->followsPath()
+				         && static_cast<const TextObject*>(object)->hasSingleAnchor())
+					kind = ocd_layout_object_symbol;
+			}
+			else if (part->role() == MapPart::Role::Map)
+			{
+				if (object->getType() == Object::Path && isOcdGraphicSymbol(symbol))
+					kind = ocd_graphic_object_symbol;
+			}
+			else if (part->role() == MapPart::Role::Sketch)
+			{
+				if (object->getType() == Object::Path && symbol->getType() == Symbol::Line && isOcdGraphicSymbol(symbol))
+					kind = ocd_sketch_stroke_kind;
+			}
+			auto const known = kinds.find(symbol);
+			if (known == kinds.end())
+				kinds.insert(symbol, kind);
+			else if (*known != kind)
+				*known = 0;
+		}
+	}
+	for (auto it = kinds.constBegin(); it != kinds.constEnd(); ++it)
+	{
+		if (it.value() != 0)
+			graphic_object_symbols.insert(it.key(), it.value());
+	}
+}
+
+// foom
 QString OcdFileExport::objectString(const Object* object, int* type) const
 {
+	if (graphic_object_symbols.value(object->getSymbol(), 0) == ocd_layout_object_symbol)
+	{
+		// The style of a layout object is in its object string.
+		OcdLayoutStyle style;
+		auto const* color = static_cast<const MapColor*>(nullptr);
+		auto const is_text = object->getType() == Object::Text;
+		if (is_text)
+		{
+			auto const* text_symbol = static_cast<const TextSymbol*>(object->getSymbol());
+			color = text_symbol->getColor();
+			style.font = text_symbol->getFontFamily();
+			style.size_pt = text_symbol->getFontSize() / 25.4 * 72.0;
+			style.bold = text_symbol->isBold();
+			style.italic = text_symbol->isItalic();
+			switch (static_cast<const TextObject*>(object)->getHorizontalAlignment())
+			{
+			case TextObject::AlignHCenter:
+				style.alignment = 1;
+				break;
+			case TextObject::AlignRight:
+				style.alignment = 2;
+				break;
+			default:
+				style.alignment = 0;
+			}
+		}
+		else
+		{
+			OcdGraphicStyle graphic;
+			if (isOcdGraphicSymbol(object->getSymbol(), &graphic))
+				color = graphic.color;
+		}
+		if (color)
+			style.opacity = double(color->getOpacity());
+		if (type)
+			*type = ocd_layout_object_string_type;
+		return ocdLayoutObjectString(style, is_text);
+	}
 	auto const record = course_records.constFind(object->uuid());
 	if (record != course_records.constEnd())
 	{
@@ -3746,6 +3935,7 @@ quint16 OcdFileExport::exportCoordinates(const MapCoordVector& coords, const Sym
 	bool curve_start = false;
 	bool hole_point = false;
 	bool curve_continue = false;
+	int gap_points = 0;  // foom: the points which still carry the flags of a virtual gap
 	for (const auto& point : coords)
 	{
 		if (point.nativeX() < bottom_left.nativeX())
@@ -3774,6 +3964,15 @@ quint16 OcdFileExport::exportCoordinates(const MapCoordVector& coords, const Sym
 				else
 					p.y |= Ocd::OcdPoint32::FlagCorner;
 			}
+		}
+		// foom: a virtual gap as the format has it, on the vertex and on the handles of its curve
+		if (point.isVirtualGap() && ocd_version >= 12)
+			gap_points = point.isCurveStart() ? 3 : 1;
+		if (gap_points > 0)
+		{
+			p.x |= Ocd::OcdPoint32::FlagLeft | Ocd::OcdPoint32::FlagBorder;
+			p.y |= Ocd::OcdPoint32::FlagRight;
+			--gap_points;
 		}
 		if (curve_start)
 			p.x |= Ocd::OcdPoint32::FlagCtl1;

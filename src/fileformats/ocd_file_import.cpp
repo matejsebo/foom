@@ -1592,6 +1592,13 @@ void OcdFileImport::importLineSymbolBase(OcdImportedLineSymbol* symbol, const Oc
 			symbol->dashed = true;
 			symbol->dash_length = convertLength(attributes.main_length) - convertLength(attributes.sec_gap);
 			symbol->break_length = convertLength(attributes.sec_gap);
+			// foom: the end length of the file is kept for the export. The layout stays OOM's
+			// while the dashes carry a symbol (the design notes, "Dashes along a line in OCD symbols").
+			if (attributes.primary_data_size)
+			{
+				symbol->legacy_dashes = true;
+				symbol->end_dash_length = qMax(0, convertLength(attributes.end_length));
+			}
 			
 			if (attributes.end_length)
 			{
@@ -1808,6 +1815,22 @@ void OcdFileImport::setupLineSymbolPointSymbols(OcdFileImport::OcdImportedLineSy
 		line_symbol->end_symbol = new OcdImportedPointSymbol();
 		setupPointSymbolPattern(line_symbol->end_symbol, attributes.end_data_size, reinterpret_cast<const Ocd::PointSymbolElementV8*>(coords));
 		line_symbol->end_symbol->setName(QCoreApplication::translate("OpenOrienteering::LineSymbolSettings", "End symbol"));
+	}
+	// foom: since version 11 a byte says which of these symbols are switched on, and none which is
+	// off is drawn.
+	if (ocd_version >= 11)
+	{
+		auto const drop = [this, line_symbol](PointSymbol*& part, bool active, const QString& warning) {
+			if (part && !active)
+			{
+				delete part;
+				part = nullptr;
+				addSymbolWarning(line_symbol, warning);
+			}
+		};
+		drop(line_symbol->dash_symbol, attributes.active_symbols_V11 & 0x04, tr("The corner symbol is switched off in the file and is not imported."));
+		drop(line_symbol->start_symbol, attributes.active_symbols_V11 & 0x02, tr("The start symbol is switched off in the file and is not imported."));
+		drop(line_symbol->end_symbol, attributes.active_symbols_V11 & 0x01, tr("The end symbol is switched off in the file and is not imported."));
 	}
 	
 	// Suppress dash symbol at line ends if both start symbol and end symbol exist,
@@ -2485,6 +2508,11 @@ void OcdFileImport::setPointFlags(OcdImportedPathObject* object, quint32 pos, bo
 		if (corner)
 			object->coords[pos].setCornerPoint(true);
 	}
+	// foom: a virtual gap, no line from this vertex to the next (the design notes,
+	// "The virtual gap in OCD files"). The points of a
+	// curve's handles carry the flag too.
+	if ((ocd_point.x & Ocd::OcdPoint32::FlagBorder) && !(ocd_point.x & (Ocd::OcdPoint32::FlagCtl1 | Ocd::OcdPoint32::FlagCtl2)))
+		object->coords[pos].setVirtualGap(true);
 	if (ocd_point.y & Ocd::OcdPoint32::FlagHole && pos > 1 && is_area)
 		setPathHolePoint(object, pos - 1);
 }

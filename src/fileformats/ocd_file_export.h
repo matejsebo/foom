@@ -41,6 +41,7 @@
 
 #include "core/map_coord.h"
 #include "fileformats/file_import_export.h"
+#include "fileformats/ocd_sketch.h"  // foom
 
 
 template< class Format > class OcdFile;
@@ -382,6 +383,20 @@ private:
 	std::function<StringAppender> addParameterString;
 	
 	std::unordered_map<const Symbol*, quint32> symbol_numbers;
+	
+	/**
+	 * foom: The private symbols whose objects are written as OCD objects
+	 * without a symbol, with the symbol number of these objects (-2 graphic,
+	 * -4 layout). See the design notes, "Graphic and layout
+	 * objects written to OCD files".
+	 */
+	QHash<const Symbol*, int> graphic_object_symbols;
+	void prepareGraphicObjects();
+	/** foom: In graphic_object_symbols, a symbol of strokes which go into the OCD sketch block. */
+	static constexpr int ocd_sketch_stroke_kind = 1;
+	/** foom: The strokes of the sketch part, which go into the OCD sketch block. */
+	std::vector<OcdSketchStroke> sketch_strokes;
+	void collectSketchStroke(const Object* object);
 	
 	struct TextFormatMapping
 	{

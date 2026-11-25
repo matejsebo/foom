@@ -231,7 +231,8 @@ namespace Ocd
 		{
 			FlagCtl1 = 0x01,
 			FlagCtl2 = 0x02,
-			FlagLeft = 0x04
+			FlagLeft = 0x04,
+			FlagBorder = 0x08  // foom: no line to the next point: an area's border, and a virtual gap
 		};
 		
 		// Flags in Y coordinate

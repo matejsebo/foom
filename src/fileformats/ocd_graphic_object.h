@@ -87,6 +87,34 @@ const MapColor* ocdLayoutColor(Map& map, const MapColorCmyk& cmyk, double opacit
 std::unique_ptr<Symbol> makeOcdGraphicSymbol(int object_type, const MapColor* color, int line_width, const OcdLayoutStyle* style, const QString& name);
 
 
+/** The colour and the width of an object without a symbol. */
+struct OcdGraphicStyle
+{
+	const MapColor* color = nullptr;
+	int line_width = 0;  ///< In 0.01 mm; 0 for an area.
+};
+
+/**
+ * Says whether the objects of a symbol can be written as objects without a
+ * symbol: a private line symbol which is one plain line, or a private area
+ * symbol which is one plain fill, each with a colour.
+ */
+bool isOcdGraphicSymbol(const Symbol* symbol, OcdGraphicStyle* style = nullptr);
+
+/** The colour field of a layout object, C, M, Y and K as bytes: the reverse of ocdLayoutCmyk(). */
+quint32 ocdLayoutColorField(const MapColorCmyk& cmyk);
+
+/** The object string of a layout object: all fields for a text, else the opacity alone. */
+QString ocdLayoutObjectString(const OcdLayoutStyle& style, bool text);
+
+/**
+ * The entry of a layout object in the file's list of layout objects, which is a
+ * string of the type of the layout images: the name, `r0`, `s1` and the
+ * object's place in the object index, counted from 1.
+ */
+QString ocdLayoutListEntry(int object_type, const QString& text, int place);
+
+
 }  // namespace OpenOrienteering
 
 #endif

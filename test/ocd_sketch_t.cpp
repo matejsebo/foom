@@ -66,6 +66,8 @@ private slots:
 	void damagedTest();
 	void importTest();
 	void penTest();
+	void writeTest();
+	void exportTest();
 
 private:
 	struct Stroke
@@ -254,6 +256,152 @@ void OcdSketchTest::importTest()
 	
 	// The list of the sketch has the four strokes.
 	QCOMPARE(int(sketchItems(map).size()), 4);
+}
+
+void OcdSketchTest::writeTest()
+{
+	// The block: a header of 22 bytes, the layer of 550 bytes behind
+	// it, an index of 256 places, the strokes. The first stroke of the probe began at (-312.03, -212.62) mm
+	// with a pen of 2.13 mm, and its box began at -8015232 and ended at -5415808: half the width around the points.
+	auto file = plainFile();
+	auto const plain_size = file.size();
+	appendOcdSketch(file, {});
+	QCOMPARE(file.size(), plain_size);
+	std::vector<OcdSketchStroke> strokes(2);
+	strokes[0].color = QColor(0, 0, 0);
+	strokes[0].width = 213;
+	strokes[0].points = { { -31203 * 256, -21262 * 256 }, { -27501 * 256, -22751 * 256 }, { -24736 * 256, -23857 * 256 } };
+	strokes[0].created = 46349.5;
+	strokes[0].modified = 46349.75;
+	strokes[1].color = QColor(255, 0, 0);
+	strokes[1].width = 596;
+	strokes[1].points = { { -31203 * 256, -28707 * 256 }, { -27076 * 256, -28707 * 256 } };
+	strokes[1].created = 46350.0;
+	strokes[1].modified = 46350.0;
+	appendOcdSketch(file, strokes);
+	auto const* d = reinterpret_cast<const uchar*>(file.constData());
+	auto const header = int(qFromLittleEndian<quint32>(d + ocd_sketch_header_field));
+	QCOMPARE(header, plain_size);
+	QCOMPARE(file.mid(header, 10), QByteArray::fromHex("01 01 78 05 00 00 ff 00 00 00"));
+	auto const layer = int(qFromLittleEndian<quint32>(d + header + 18));
+	QCOMPARE(layer, header + 22);
+	QCOMPARE(qFromLittleEndian<quint32>(d + layer), 0u);
+	QCOMPARE(qFromLittleEndian<quint32>(d + layer + 4), 1u);
+	QCOMPARE(qFromLittleEndian<quint32>(d + layer + 536), 1u);
+	auto const index = int(qFromLittleEndian<quint32>(d + layer + 546));
+	QCOMPARE(index, layer + 550);
+	QCOMPARE(qFromLittleEndian<quint32>(d + index + 8), 2u);
+	auto const first = int(qFromLittleEndian<quint32>(d + index + 12));
+	QCOMPARE(first, index + 12 + 8 * 256);
+	QCOMPARE(qFromLittleEndian<quint32>(d + index + 16), 56u + 8u * 3u);
+	QCOMPARE(qFromLittleEndian<qint32>(d + first + 24), -8015232);
+	QCOMPARE(qFromLittleEndian<qint32>(d + first + 36), -5415808);
+	QCOMPARE(qFromLittleEndian<quint32>(d + first + 44), 1u);
+	QCOMPARE(file.size(), first + 56 + 8 * 3 + 56 + 8 * 2);
+	
+	auto damaged = true;
+	auto read = readOcdSketch(file, &damaged);
+	QVERIFY(!damaged);
+	QCOMPARE(int(read.size()), 2);
+	for (std::size_t i = 0; i < 2; ++i)
+	{
+		QCOMPARE(read[i].layer, QStringLiteral("Sketch-1"));
+		QCOMPARE(read[i].color, strokes[i].color);
+		QCOMPARE(read[i].width, strokes[i].width);
+		QCOMPARE(read[i].points, strokes[i].points);
+		QCOMPARE(read[i].created, strokes[i].created);
+		QCOMPARE(read[i].modified, strokes[i].modified);
+	}
+	
+	// More strokes than an index holds: a second index behind the first.
+	file = plainFile();
+	std::vector<OcdSketchStroke> many(300, strokes[1]);
+	for (std::size_t i = 0; i < many.size(); ++i)
+		many[i].width = 10 + int(i);
+	many[0].layer = QStringLiteral("Field notes");
+	appendOcdSketch(file, many);
+	read = readOcdSketch(file, &damaged);
+	QVERIFY(!damaged);
+	QCOMPARE(int(read.size()), 300);
+	QCOMPARE(read[299].width, 309);
+	QCOMPARE(read[299].layer, QStringLiteral("Field notes"));
+}
+
+void OcdSketchTest::exportTest()
+{
+	// A map with a sketch, written as OCD 2018: the strokes are in the sketch block and nowhere else.
+	Map map;
+	auto* black = new MapColor(QStringLiteral("Black"), 0);
+	black->setCmyk(MapColorCmyk(0.0f, 0.0f, 0.0f, 1.0f));
+	map.addColor(black, 0);
+	auto* line = new LineSymbol();
+	line->setColor(black);
+	line->setLineWidth(0.2);
+	line->setNumberComponent(0, 101);
+	map.addSymbol(line, 0);
+	map.addObject(new PathObject(line, { MapCoord(0.0, 0.0), MapCoord(10.0, 0.0) }));
+	QVERIFY(addSketchStroke(map, { MapCoordF(10.0, 10.0), MapCoordF(20.0, 25.0), MapCoordF(30.0, 10.0) }, 0, 1));
+	QVERIFY(addSketchStroke(map, { MapCoordF(10.0, 40.0), MapCoordF(30.0, 40.0) }, 0, 1));
+	QCOMPARE(addImportedSketchStrokes(map, { { QColor(18, 52, 86), 0.5, { MapCoord(40.0, 10.0), MapCoord(50.0, 10.0) } } }), 1);
+	auto const symbols_in_map = map.getNumSymbols();
+	QCOMPARE(symbols_in_map, 3);
+	
+	auto const* format = FileFormats.findFormat(OcdFileFormat::idForVersion(2018));
+	QVERIFY(format);
+	QBuffer buffer;
+	QVERIFY(buffer.open(QIODevice::ReadWrite));
+	{
+		auto exporter = format->makeExporter({}, &map, nullptr);
+		exporter->setDevice(&buffer);
+		QVERIFY(exporter->doExport());
+	}
+	auto file = buffer.data();
+	auto const* d = reinterpret_cast<const uchar*>(file.constData());
+	auto symbols = 0;
+	for (auto block = qFromLittleEndian<quint32>(d + 8); block; block = qFromLittleEndian<quint32>(d + block))
+	{
+		for (int i = 0; i < 256; ++i)
+			symbols += qFromLittleEndian<quint32>(d + block + 4 + 4 * quint32(i)) ? 1 : 0;
+	}
+	QCOMPARE(symbols, 1);
+	auto objects = 0;
+	for (auto block = qFromLittleEndian<quint32>(d + 12); block; block = qFromLittleEndian<quint32>(d + block))
+	{
+		for (int i = 0; i < 256; ++i)
+			objects += qFromLittleEndian<quint32>(d + block + 4 + 40 * quint32(i) + 16) ? 1 : 0;
+	}
+	QCOMPARE(objects, 1);
+	
+	auto damaged = true;
+	auto const strokes = readOcdSketch(file, &damaged);
+	QVERIFY(!damaged);
+	QCOMPARE(int(strokes.size()), 3);
+	QCOMPARE(strokes[0].color.rgb(), sketchColorRgb(0).rgb());
+	QCOMPARE(strokes[0].width, qRound(100 * sketchWidth(1)));
+	QCOMPARE(int(strokes[0].points.size()), 3);
+	QCOMPARE(strokes[0].points[1], QPoint(2000 * 256, -2500 * 256));
+	QVERIFY(strokes[0].created > 40000.0);
+	QCOMPARE(strokes[2].color.rgb(), QColor(18, 52, 86).rgb());
+	QCOMPARE(strokes[2].width, 50);
+	
+	// Read again: the sketch part with its three strokes and the pens they had.
+	Map loaded;
+	QBuffer written(&file);
+	QVERIFY(written.open(QIODevice::ReadOnly));
+	auto importer = format->makeImporter({}, &loaded, nullptr);
+	importer->setDevice(&written);
+	QVERIFY(importer->doImport());
+	auto const sketch_index = sketchPartIndex(loaded);
+	QVERIFY(sketch_index > 0);
+	QCOMPARE(loaded.getPart(0)->getNumObjects(), 1);
+	auto const* part = loaded.getPart(std::size_t(sketch_index));
+	QCOMPARE(part->getNumObjects(), 3);
+	QCOMPARE(part->getObject(0)->getSymbol(), sketchSymbol(loaded, 0, 1));
+	QCOMPARE(part->getObject(1)->getSymbol(), sketchSymbol(loaded, 0, 1));
+	QVERIFY(part->getObject(0)->getRawCoordinateVector()[1].isPositionEqualTo(MapCoord(20.0, 25.0)));
+	QCOMPARE(part->getObject(2)->getSymbol()->asLine()->getLineWidth(), 500);
+	QVERIFY(part->getObject(2)->getSymbol()->asLine()->getColor()->getName().contains(QLatin1String("R18 G52 B86")));
+	QCOMPARE(int(sketchItems(loaded).size()), 3);
 }
 
 void OcdSketchTest::penTest()

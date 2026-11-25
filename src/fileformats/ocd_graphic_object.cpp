@@ -160,4 +160,80 @@ std::unique_ptr<Symbol> makeOcdGraphicSymbol(int object_type, const MapColor* co
 }
 
 
+bool isOcdGraphicSymbol(const Symbol* symbol, OcdGraphicStyle* style)
+{
+	if (!symbol || !symbol->isPrivate())
+		return false;
+	OcdGraphicStyle found;
+	switch (symbol->getType())
+	{
+	case Symbol::Line:
+		{
+			auto const* line = symbol->asLine();
+			if (line->isDashed() || line->hasBorder() || line->getCapStyle() == LineSymbol::PointedCap
+			    || line->getStartSymbol() || line->getMidSymbol() || line->getMidSymbol2()
+			    || line->getEndSymbol() || line->getDashSymbol() || line->getTaperMode() != 0)
+				return false;
+			found.color = line->getColor();
+			found.line_width = qRound(line->getLineWidth() / 10.0);
+			if (found.line_width <= 0 || found.line_width > 65535)
+				return false;
+		}
+		break;
+	case Symbol::Area:
+		{
+			auto const* area = symbol->asArea();
+			if (area->getNumFillPatterns() > 0)
+				return false;
+			found.color = area->getColor();
+		}
+		break;
+	default:
+		return false;
+	}
+	if (!found.color)
+		return false;
+	if (style)
+		*style = found;
+	return true;
+}
+
+
+quint32 ocdLayoutColorField(const MapColorCmyk& cmyk)
+{
+	auto const byte = [](float value) { return quint32(qBound(0, qRound(255 * value), 255)); };
+	return byte(cmyk.c) | (byte(cmyk.m) << 8) | (byte(cmyk.y) << 16) | (byte(cmyk.k) << 24);
+}
+
+
+QString ocdLayoutObjectString(const OcdLayoutStyle& style, bool text)
+{
+	auto string = text ? style.font : QString();
+	string += QStringLiteral("\to%1").arg(qBound(0, qRound(100 * style.opacity), 100));
+	if (text)
+	{
+		string += QStringLiteral("\ts%1\tb%2\ti%3\ta%4")
+		          .arg(style.size_pt, 0, 'f', 1).arg(style.bold ? 1 : 0).arg(style.italic ? 1 : 0).arg(style.alignment);
+	}
+	return string;
+}
+
+
+QString ocdLayoutListEntry(int object_type, const QString& text, int place)
+{
+	auto name = object_type == 2 ? QStringLiteral("Line object")
+	          : object_type == 3 ? QStringLiteral("Area object")
+	          : QStringLiteral("Text object");
+	if (object_type == 4)
+	{
+		// The first line of the text, without what would end the field.
+		auto line = text.section(QLatin1Char('\n'), 0, 0).simplified();
+		line.truncate(40);
+		if (!line.isEmpty())
+			name += QStringLiteral(" (%1)").arg(line);
+	}
+	return name + QStringLiteral("\tr0\ts1\tn%1").arg(place);
+}
+
+
 }  // namespace OpenOrienteering

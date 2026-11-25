@@ -25,6 +25,7 @@
 #include <vector>
 
 #include <QtGlobal>
+#include <QtEndian>
 #include <QtTest>
 #include <QAction>
 #include <QColor>
@@ -34,6 +35,7 @@
 #include <QFont>
 #include <QFontMetrics>
 #include <QImage>
+#include <QIODevice>
 #include <QLabel>
 #include <QMouseEvent>
 #include <QObject>
@@ -46,6 +48,7 @@
 #include <QTemporaryDir>
 #include <QToolBar>
 #include <QToolButton>
+#include <QVector>
 
 #include "global.h"
 #include "settings.h"
@@ -417,13 +420,49 @@ private slots:
 			QCOMPARE(loaded.getNumObjects(), 1);
 			check(loaded.getPart(0)->getObject(0), true);
 		}
+		// A virtual gap on a curve, for the OCD file: its flags are on the vertex and on the two handles.
+		auto curve_gap = MapCoord(0.0, 10.0);
+		curve_gap.setVirtualGap(true);
+		curve_gap.setCurveStart(true);
+		m.map->addObject(new PathObject(m.line, { curve_gap, MapCoord(5.0, 15.0), MapCoord(15.0, 15.0), MapCoord(20.0, 10.0), MapCoord(30.0, 10.0) }));
 		QVERIFY(saveMap(*m.map, file("types.ocd"), "OCD2018"));
+		{
+			// The flags as the format has them: 4 and 8 in x, 4 in y, from the vertex of the gap
+			// to the point before the next vertex.
+			QFile ocd(file("types.ocd"));
+			QVERIFY(ocd.open(QIODevice::ReadOnly));
+			auto const bytes = ocd.readAll();
+			auto const* d = reinterpret_cast<const uchar*>(bytes.constData());
+			QVector<QVector<int>> flags;
+			for (auto block = qFromLittleEndian<quint32>(d + 12); block; block = qFromLittleEndian<quint32>(d + block))
+			{
+				for (int i = 0; i < 256; ++i)
+				{
+					auto const pos = qFromLittleEndian<quint32>(d + block + 4 + 40 * quint32(i) + 16);
+					if (!pos)
+						continue;
+					QVector<int> object_flags;
+					auto const items = qFromLittleEndian<quint32>(d + pos + 44);
+					for (quint32 k = 0; k < items; ++k)
+						object_flags.push_back(int(d[pos + 56 + 8 * k]) | int(d[pos + 60 + 8 * k]) << 8);
+					flags.push_back(object_flags);
+				}
+			}
+			QCOMPARE(flags.size(), 2);
+			QCOMPARE(flags[0], QVector<int>({ 0, 0x0100, 0x0800, 0x040c, 0 }));
+			QCOMPARE(flags[1], QVector<int>({ 0x040c, 0x040d, 0x040e, 0, 0 }));
+		}
 		{
 			Map loaded;
 			QVERIFY(loadMap(loaded, nullptr, file("types.ocd")));
 
-			QCOMPARE(loaded.getNumObjects(), 1);
-			check(loaded.getPart(0)->getObject(0), false);
+			QCOMPARE(loaded.getNumObjects(), 2);
+			check(loaded.getPart(0)->getObject(0), true);
+			auto const& curve = loaded.getPart(0)->getObject(1)->asPath()->getRawCoordinateVector();
+			QCOMPARE(int(curve.size()), 5);
+			QVERIFY(curve[0].isVirtualGap() && curve[0].isCurveStart());
+			for (int i = 1; i < 5; ++i)
+				QVERIFY(!curve[std::size_t(i)].isVirtualGap());
 		}
 	}
 

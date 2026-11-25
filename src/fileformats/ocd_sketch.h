@@ -55,6 +55,9 @@ struct OcdSketchStroke
 	int width = 0;
 	/** The points as the file has them: 1/100 mm shifted left by eight bits, y up. */
 	std::vector<QPoint> points;
+	/** When the stroke was drawn and changed, in Delphi's days as an object's dates; 0 when not known. */
+	double created = 0;
+	double modified = 0;
 };
 
 /** The place of the sketch header in the file header. */
@@ -66,6 +69,14 @@ constexpr int ocd_sketch_header_field = 52;
  * is set when a place lay outside the file or the lists did not end.
  */
 std::vector<OcdSketchStroke> readOcdSketch(const QByteArray& file, bool* damaged = nullptr);
+
+/**
+ * Appends a sketch block of one layer with the strokes to the bytes of an
+ * OCD file, as the format has it, and names its place in the file header. The
+ * layer has the name of the first stroke's layer, `Sketch-1` without one.
+ * Does nothing without strokes.
+ */
+void appendOcdSketch(QByteArray& file, const std::vector<OcdSketchStroke>& strokes);
 
 
 }  // namespace OpenOrienteering

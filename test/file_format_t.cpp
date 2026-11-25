@@ -1500,7 +1500,7 @@ void FileFormatTest::ocdPathImportTest_data()
 		};
 		static int expected_flags[] = {
 		    0,
-		    0,
+		    MapCoord::VirtualGap,  // foom: read since 2026-11-24 (the design notes, "The virtual gap in OCD files")
 		    0,
 		    0,
 		    MapCoord::ClosePoint  // injected by Mapper
