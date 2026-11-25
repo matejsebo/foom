@@ -625,6 +625,182 @@ private slots:
 	}
 
 
+	/// State Plane and feet, Accept (1) to (4): a cloud in feet is read as the same projection in metres.
+	void feetTest()
+	{
+		constexpr double us_foot = 1200.0 / 3937.0;
+		// (1) The units of systems.
+		auto units = ElevationModel::linearUnits(QStringLiteral("EPSG:2263"));  // a State Plane zone in US survey feet
+		QVERIFY2(std::abs(units.horizontal - us_foot) < 1e-12, qPrintable(QString::number(units.horizontal, 'g', 15)));
+		QCOMPARE(units.vertical, units.horizontal);
+		QVERIFY(!units.has_vertical && !units.isMetric() && !units.metric_crs.isEmpty());
+		auto const metric_crs = units.metric_crs;
+		QVERIFY(ElevationModel::linearUnits(metric_crs).isMetric());
+		units = ElevationModel::linearUnits(QStringLiteral("EPSG:32118"));  // the same zone in metres
+		QVERIFY(units.isMetric() && units.metric_crs.isEmpty());
+		units = ElevationModel::linearUnits(QStringLiteral("EPSG:2263+5703"));  // with NAVD88 heights in metres
+		QVERIFY(std::abs(units.horizontal - us_foot) < 1e-12);
+		QCOMPARE(units.vertical, 1.0);
+		QVERIFY(units.has_vertical);
+		units = ElevationModel::linearUnits(QStringLiteral("EPSG:2263+6360"));  // with NAVD88 heights in US feet
+		QVERIFY(std::abs(units.vertical - us_foot) < 1e-12);
+		QVERIFY(ElevationModel::linearUnits({}).isMetric());
+		QVERIFY(ElevationModel::linearUnits(QStringLiteral("EPSG:4326")).isMetric());
+		QVERIFY(ElevationModel::linearUnits(QStringLiteral("EPSG:32613")).isMetric());
+		QCOMPARE(ElevationModel::metresPerHeightUnit(QStringLiteral("US survey foot")), us_foot);
+		QCOMPARE(ElevationModel::metresPerHeightUnit(QStringLiteral("ft")), 0.3048);
+		QCOMPARE(ElevationModel::metresPerHeightUnit(QStringLiteral("metre")), 1.0);
+		QCOMPARE(ElevationModel::metresPerHeightUnit({}), 1.0);
+
+		// (2) The metric system is the zone in metres: a place has the same latitude and longitude in both.
+		{
+			auto const to_wgs = [](const QString& spec, double x, double y) {
+				auto source = OSRNewSpatialReference(nullptr);
+				auto target = OSRNewSpatialReference(nullptr);
+				OSRSetFromUserInput(source, spec.toUtf8().constData());
+				OSRSetFromUserInput(target, "EPSG:4326");
+				OSRSetAxisMappingStrategy(source, OAMS_TRADITIONAL_GIS_ORDER);
+				OSRSetAxisMappingStrategy(target, OAMS_TRADITIONAL_GIS_ORDER);
+				auto transform = OCTNewCoordinateTransformation(source, target);
+				auto ok = transform && OCTTransform(transform, 1, &x, &y, nullptr);
+				if (transform)
+					OCTDestroyCoordinateTransformation(transform);
+				OSRDestroySpatialReference(source);
+				OSRDestroySpatialReference(target);
+				return ok ? QPointF(x, y) : QPointF();
+			};
+			auto const in_zone = to_wgs(QStringLiteral("EPSG:32118"), 305000.0, 62000.0);
+			auto const in_metric = to_wgs(metric_crs, 305000.0, 62000.0);
+			auto const in_feet = to_wgs(QStringLiteral("EPSG:2263"), 305000.0 / us_foot, 62000.0 / us_foot);
+			QVERIFY(!in_zone.isNull());
+			QVERIFY2(std::abs(in_zone.x() - in_metric.x()) < 1e-8 && std::abs(in_zone.y() - in_metric.y()) < 1e-8,
+			         qPrintable(QStringLiteral("%1 %2 / %3 %4").arg(in_zone.x(), 0, 'f', 9).arg(in_zone.y(), 0, 'f', 9).arg(in_metric.x(), 0, 'f', 9).arg(in_metric.y(), 0, 'f', 9)));
+			QVERIFY(std::abs(in_zone.x() - in_feet.x()) < 1e-8 && std::abs(in_zone.y() - in_feet.y()) < 1e-8);
+		}
+
+		// (3) The same ground as a cloud in metres and as a cloud in feet.
+		std::vector<CloudPoint> metres, feet, feet_metre_heights;
+		for (int j = 0; j < 40; ++j)
+		{
+			for (int i = 0; i < 60; ++i)
+			{
+				CloudPoint p;
+				p.x = 305000.25 + 0.5 * i;
+				p.y = 62000.25 + 0.5 * j;
+				p.z = 100.0 + 0.1 * i + 0.05 * j;
+				p.classification = 2;
+				metres.push_back(p);
+				auto q = p;
+				q.x /= us_foot;
+				q.y /= us_foot;
+				feet_metre_heights.push_back(q);
+				q.z /= us_foot;
+				feet.push_back(q);
+			}
+		}
+		auto const cloud_metres = writeCloud(QStringLiteral("plane-m.las"), metres, {}, 32118);
+		auto const cloud_feet = writeCloud(QStringLiteral("plane-ft.las"), feet, {}, 2263);
+		QCOMPARE(PointCloud::fileCrs(cloud_feet), QStringLiteral("EPSG:2263"));
+		auto const info_metres = PointCloud::analyse({ cloud_metres });
+		auto const info_feet = PointCloud::analyse({ cloud_feet });
+		QVERIFY2(info_feet.error.isEmpty(), qPrintable(info_feet.error));
+		QCOMPARE(info_feet.count, info_metres.count);
+		QVERIFY(std::abs(info_feet.extent.left() - info_metres.extent.left()) < 0.01);
+		QVERIFY(std::abs(info_feet.extent.bottom() - info_metres.extent.bottom()) < 0.01);
+		QVERIFY(std::abs(info_feet.extent.width() - 29.5) < 0.01 && std::abs(info_feet.extent.height() - 19.5) < 0.01);
+		QVERIFY(std::abs(info_feet.z_min - 100.0) < 0.01 && std::abs(info_feet.z_max - 107.85) < 0.01);
+		QVERIFY(std::abs(info_feet.density - info_metres.density) < 0.01 * info_metres.density);
+		QVERIFY(std::abs(info_feet.file_horizontal_unit - us_foot) < 1e-12 && std::abs(info_feet.file_vertical_unit - us_foot) < 1e-12);
+		QCOMPARE(info_metres.file_horizontal_unit, 1.0);
+		QVERIFY(ElevationModel::sameCrs(info_feet.crs_spec, QStringLiteral("EPSG:32118")));
+
+		GriddingParams gridding;
+		gridding.cell = 1.0;
+		gridding.dsm = false;
+		auto const grid_metres = PointCloud::grid({ cloud_metres }, gridding);
+		auto const grid_feet = PointCloud::grid({ cloud_feet }, gridding);
+		QVERIFY2(grid_metres.dtm && grid_feet.dtm, qPrintable(grid_feet.error));
+		QCOMPARE(grid_feet.dtm->cellSize(), 1.0);
+		QCOMPARE(grid_feet.dtm->width(), grid_metres.dtm->width());
+		QCOMPARE(grid_feet.dtm->height(), grid_metres.dtm->height());
+		QCOMPARE(grid_feet.dtm->width(), 30);
+		QCOMPARE(grid_feet.dtm->extent(), grid_metres.dtm->extent());
+		QVERIFY(ElevationModel::sameCrs(grid_feet.dtm->crsSpec(), QStringLiteral("EPSG:32118")));
+		for (int row = 0; row < grid_feet.dtm->height(); ++row)
+		{
+			for (int col = 0; col < grid_feet.dtm->width(); ++col)
+				QVERIFY2(std::abs(grid_feet.dtm->value(col, row) - grid_metres.dtm->value(col, row)) < 0.01f,
+				         qPrintable(QStringLiteral("%1 %2: %3 / %4").arg(col).arg(row).arg(grid_feet.dtm->value(col, row)).arg(grid_metres.dtm->value(col, row))));
+		}
+
+		// (4) Feet in the plane and metres in the height, by a vertical system in the file's WKT.
+		QString compound_wkt;
+		{
+			auto srs = OSRNewSpatialReference(nullptr);
+			QCOMPARE(OSRSetFromUserInput(srs, "EPSG:2263+5703"), OGRERR_NONE);
+			char* wkt = nullptr;
+			QCOMPARE(OSRExportToWkt(srs, &wkt), OGRERR_NONE);
+			compound_wkt = QString::fromUtf8(wkt);
+			CPLFree(wkt);
+			OSRDestroySpatialReference(srs);
+		}
+		auto const cloud_mixed = writeCloud(QStringLiteral("plane-ft-m.las"), feet_metre_heights, compound_wkt);
+		auto const info_mixed = PointCloud::analyse({ cloud_mixed });
+		QVERIFY(std::abs(info_mixed.extent.left() - info_metres.extent.left()) < 0.01);
+		QVERIFY(std::abs(info_mixed.z_min - 100.0) < 0.01 && std::abs(info_mixed.z_max - 107.85) < 0.01);
+		QCOMPARE(info_mixed.file_vertical_unit, 1.0);
+	}
+
+	/// State Plane and feet, Accept (5): a grid whose band says that its heights are feet.
+	void feetGridTest()
+	{
+		constexpr double us_foot = 1200.0 / 3937.0;
+		auto const write = [this](const QString& name, const char* unit) {
+			auto const path = dir.filePath(name);
+			GDALAllRegister();
+			auto driver = GDALGetDriverByName("GTiff");
+			auto dataset = GDALCreate(driver, path.toUtf8().constData(), 4, 3, 1, GDT_Float32, nullptr);
+			double transform[6] = { 532000.0, 2.0, 0.0, 4205000.0, 0.0, -2.0 };
+			GDALSetGeoTransform(dataset, transform);
+			auto srs = OSRNewSpatialReference(nullptr);
+			OSRSetFromUserInput(srs, "EPSG:32613");
+			char* wkt = nullptr;
+			OSRExportToWkt(srs, &wkt);
+			GDALSetProjection(dataset, wkt);
+			CPLFree(wkt);
+			OSRDestroySpatialReference(srs);
+			auto band = GDALGetRasterBand(dataset, 1);
+			if (unit)
+				GDALSetRasterUnitType(band, unit);
+			float values[12];
+			for (int i = 0; i < 12; ++i)
+				values[i] = 1000.0f + 10.0f * i;
+			auto const done = GDALRasterIO(band, GF_Write, 0, 0, 4, 3, values, 4, 3, GDT_Float32, 0, 0) == CE_None;
+			GDALClose(dataset);
+			return done ? path : QString();
+		};
+		auto const in_feet = write(QStringLiteral("feet.tif"), "US survey foot");
+		auto const plain = write(QStringLiteral("plain.tif"), nullptr);
+		QVERIFY(!in_feet.isEmpty() && !plain.isEmpty());
+		auto grid = ElevationModel::open(in_feet);
+		QVERIFY(grid);
+		QVERIFY(std::abs(grid->value(0, 0) - 1000.0 * us_foot) < 0.001);
+		QVERIFY(std::abs(grid->value(3, 2) - 1110.0 * us_foot) < 0.001);
+		// The option for feet on top of it changes nothing: the heights are metres already.
+		ElevationModel::OpenOptions options;
+		options.feet_to_metres = true;
+		grid = ElevationModel::open(in_feet, options);
+		QVERIFY(grid);
+		QVERIFY(std::abs(grid->value(0, 0) - 1000.0 * us_foot) < 0.001);
+		// A file which says nothing is taken as metres, and the option converts it by the international foot.
+		grid = ElevationModel::open(plain);
+		QVERIFY(grid);
+		QCOMPARE(grid->value(0, 0), 1000.0f);
+		grid = ElevationModel::open(plain, options);
+		QVERIFY(grid);
+		QVERIFY(std::abs(grid->value(0, 0) - 304.8) < 0.001);
+	}
+
 	void crsTest()
 	{
 		// Accept (7).

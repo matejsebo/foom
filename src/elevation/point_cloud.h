@@ -66,6 +66,11 @@ struct PointCloudInfo
 	double density = 0.0;   ///< points per square metre of the extent
 	std::array<qint64, 256> per_class = {};
 	QString crs_spec;       ///< of the first file which has one
+	/// foom: Metres in a unit of the files' plane coordinates and of their heights, when they are not in metres.
+	/// The points, the extent, the heights and crs_spec are in metres then: a cloud in feet is read as the same
+	/// projection in metres (the design notes, "State Plane and feet").
+	double file_horizontal_unit = 1.0;
+	double file_vertical_unit = 1.0;
 	QString error;
 };
 
@@ -229,6 +234,9 @@ public:
 	 * crs receives the file's system, or an empty string.
 	 */
 	static bool read(const QString& path, const std::function<void (const CloudPoint&)>& receiver, QString* crs, QString* error);
+
+	/// foom: The system of a file as its records name it, before the conversion to metres; empty without one.
+	static QString fileCrs(const QString& path);
 	
 	/**
 	 * Writes the points in point format 1 with a scale of 0.01, compressed when the extension is .laz.

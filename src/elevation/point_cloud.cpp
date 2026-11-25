@@ -151,8 +151,12 @@ bool readFile(const QString& path, bool xy_only, const std::function<void (const
 	laszip_get_point_pointer(reader, &point);
 	// laszip_get_point_count() counts the points read so far.
 	auto const count = header->number_of_point_records ? laszip_I64(header->number_of_point_records) : laszip_I64(header->extended_number_of_point_records);
+	// foom: a cloud in feet is read as the same projection in metres, its heights in metres
+	auto const file_crs = crsOf(*header);
+	auto const units = ElevationModel::linearUnits(file_crs);
+	auto const convert = !units.isMetric();
 	if (crs)
-		*crs = crsOf(*header);
+		*crs = units.metric_crs.isEmpty() ? file_crs : units.metric_crs;
 	auto const extended = header->point_data_format >= 6;
 	auto ok = true;
 	CloudPoint p;
@@ -167,6 +171,12 @@ bool readFile(const QString& path, bool xy_only, const std::function<void (const
 		p.x = point->X * header->x_scale_factor + header->x_offset;
 		p.y = point->Y * header->y_scale_factor + header->y_offset;
 		p.z = point->Z * header->z_scale_factor + header->z_offset;
+		if (convert)
+		{
+			p.x *= units.horizontal;
+			p.y *= units.horizontal;
+			p.z *= units.vertical;
+		}
 		p.intensity = point->intensity;
 		if (extended)
 		{
@@ -563,7 +573,15 @@ PointCloudInfo PointCloud::analyse(const QStringList& paths)
 		if (!read(path, add, &crs, &info.error))
 			return info;
 		if (info.crs_spec.isEmpty())
+		{
 			info.crs_spec = crs;
+			if (!crs.isEmpty())
+			{
+				auto const units = ElevationModel::linearUnits(fileCrs(path));
+				info.file_horizontal_unit = units.horizontal;
+				info.file_vertical_unit = units.vertical;
+			}
+		}
 	}
 	if (info.count == 0)
 	{
@@ -576,6 +594,31 @@ PointCloudInfo PointCloud::analyse(const QStringList& paths)
 	return info;
 }
 
+
+// static
+QString PointCloud::fileCrs(const QString& path)
+{
+#ifdef FOOM_WITH_LASZIP
+	laszip_POINTER reader = nullptr;
+	if (laszip_create(&reader) != 0)
+		return {};
+	QString crs;
+	laszip_BOOL compressed = 0;
+	auto const name = QDir::toNativeSeparators(path).toLocal8Bit();
+	if (laszip_open_reader(reader, name.constData(), &compressed) == 0)
+	{
+		laszip_header_struct* header = nullptr;
+		if (laszip_get_header_pointer(reader, &header) == 0 && header)
+			crs = crsOf(*header);
+		laszip_close_reader(reader);
+	}
+	laszip_destroy(reader);
+	return crs;
+#else
+	Q_UNUSED(path)
+	return {};
+#endif
+}
 
 // static
 qint64 PointCloud::maxCells()

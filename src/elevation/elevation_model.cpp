@@ -158,9 +158,11 @@ std::unique_ptr<ElevationModel> ElevationModel::open(const QString& path, const 
 	if (!grid)
 		return nullptr;
 
-	if (options.feet_to_metres || options.millimetres_to_metres)
+	// foom: a file which says that its heights are feet is in metres already
+	auto const feet_to_metres = options.feet_to_metres && !grid->heights_converted;
+	if (feet_to_metres || options.millimetres_to_metres)
 	{
-		auto const factor = float((options.feet_to_metres ? 0.3048 : 1.0) * (options.millimetres_to_metres ? 0.001 : 1.0));
+		auto const factor = float((feet_to_metres ? 0.3048 : 1.0) * (options.millimetres_to_metres ? 0.001 : 1.0));
 		for (auto& v : grid->data)
 			v *= factor;
 	}
@@ -239,6 +241,20 @@ std::unique_ptr<ElevationModel> ElevationModel::openGdal(const QString& path, co
 					if (v == nodata_f || std::isnan(v))
 						v = nan;
 			}
+			// foom: heights in feet, by the band's unit or by the vertical system of the file
+			auto to_metres = metresPerHeightUnit(QString::fromUtf8(GDALGetRasterUnitType(band)));
+			if (to_metres == 1.0)
+			{
+				auto const units = linearUnits(crs_spec);
+				if (units.has_vertical)
+					to_metres = units.vertical;
+			}
+			if (to_metres != 1.0)
+			{
+				auto const factor = float(to_metres);
+				for (auto& v : values)
+					v *= factor;
+			}
 			// A south-up file (positive gt[5]) is flipped to the northern row first.
 			auto top = gt[3];
 			if (gt[5] > 0.0)
@@ -249,6 +265,7 @@ std::unique_ptr<ElevationModel> ElevationModel::openGdal(const QString& path, co
 					                 values.begin() + std::ptrdiff_t(height - 1 - r) * width);
 			}
 			grid = std::make_unique<ElevationModel>(width, height, QPointF(gt[0], top), gt[1], std::move(values), crs_spec);
+			grid->heights_converted = to_metres != 1.0;
 		}
 	}
 
@@ -323,6 +340,71 @@ QString ElevationModel::geoTiffMetadata(const QString& path)
 	return result;
 }
 
+
+// static
+ElevationModel::LinearUnits ElevationModel::linearUnits(const QString& crs_spec)
+{
+	LinearUnits units;
+	if (crs_spec.isEmpty())
+		return units;
+	ensureGdal();
+	auto srs = OSRNewSpatialReference(nullptr);
+	if (OSRSetFromUserInput(srs, crs_spec.toUtf8().constData()) == OGRERR_NONE && OSRIsProjected(srs))
+	{
+		auto const horizontal = OSRGetTargetLinearUnits(srs, "PROJCS", nullptr);
+		if (horizontal > 0)
+			units.horizontal = horizontal;
+		units.vertical = units.horizontal;
+		if (OSRIsCompound(srs))
+		{
+			auto const vertical = OSRGetTargetLinearUnits(srs, "VERT_CS", nullptr);
+			if (vertical > 0)
+			{
+				units.vertical = vertical;
+				units.has_vertical = true;
+			}
+		}
+		// Units which differ from the metre by less than a part in a million are the metre.
+		if (qAbs(units.horizontal - 1.0) < 1e-6)
+			units.horizontal = 1.0;
+		if (qAbs(units.vertical - 1.0) < 1e-6)
+			units.vertical = 1.0;
+		if (units.horizontal != 1.0)
+		{
+			auto metric = OSRClone(srs);
+			OSRStripVertical(metric);
+			if (OSRSetLinearUnitsAndUpdateParameters(metric, SRS_UL_METER, 1.0) == OGRERR_NONE)
+			{
+				char* wkt = nullptr;
+				if (OSRExportToWkt(metric, &wkt) == OGRERR_NONE && wkt)
+					units.metric_crs = QString::fromUtf8(wkt);
+				CPLFree(wkt);
+			}
+			OSRDestroySpatialReference(metric);
+			if (units.metric_crs.isEmpty())
+			{
+				// Without the metric system the coordinates stay as they are, and so do the heights.
+				units.horizontal = 1.0;
+				units.vertical = 1.0;
+			}
+		}
+	}
+	OSRDestroySpatialReference(srs);
+	return units;
+}
+
+// static
+double ElevationModel::metresPerHeightUnit(const QString& unit_name)
+{
+	auto const name = unit_name.trimmed().toLower();
+	if (name == QLatin1String("us survey foot") || name == QLatin1String("us survey feet") || name == QLatin1String("ftus")
+	    || name == QLatin1String("us-ft") || name == QLatin1String("foot_us") || name == QLatin1String("sft"))
+		return 1200.0 / 3937.0;
+	if (name == QLatin1String("ft") || name == QLatin1String("foot") || name == QLatin1String("feet")
+	    || name == QLatin1String("international foot") || name == QLatin1String("ift"))
+		return 0.3048;
+	return 1.0;
+}
 
 // static
 bool ElevationModel::sameCrs(const QString& a, const QString& b)

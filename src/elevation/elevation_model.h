@@ -95,6 +95,24 @@ public:
 	/// Returns true when the two coordinate reference system specifications name the same system.
 	static bool sameCrs(const QString& a, const QString& b);
 
+	/**
+	 * foom: The units of a coordinate reference system, for data which are not in metres
+	 * (the State Plane systems of the United States in feet).
+	 * See the design notes, "State Plane and feet".
+	 */
+	struct LinearUnits
+	{
+		double horizontal = 1.0;      ///< Metres in a unit of the plane coordinates.
+		double vertical = 1.0;        ///< Metres in a unit of the heights: the vertical system's when the system names one, else the horizontal unit.
+		bool has_vertical = false;    ///< The system names a vertical system.
+		QString metric_crs;           ///< The same projection with the metre as the unit of its plane coordinates, as WKT; empty when the unit is the metre or the system is not projected.
+		bool isMetric() const { return horizontal == 1.0 && vertical == 1.0; }
+	};
+	static LinearUnits linearUnits(const QString& crs_spec);
+
+	/// foom: Metres in a unit of heights which GDAL names (a band's unit type: "ft", "US survey foot", ...); 1 for metres and for names not known.
+	static double metresPerHeightUnit(const QString& unit_name);
+
 
 	int width() const { return grid_width; }
 	int height() const { return grid_height; }
@@ -180,6 +198,7 @@ private:
 	std::size_t index(int col, int row) const { return std::size_t(row) * std::size_t(grid_width) + std::size_t(col); }
 
 	static std::unique_ptr<ElevationModel> openGdal(const QString& path, const QString& target_crs);
+	bool heights_converted = false;  ///< foom: openGdal() turned the heights into metres by the band's unit
 	static std::unique_ptr<ElevationModel> openOcdDem(const QString& path);
 	bool saveGeoTiff(const QString& path) const;
 	bool saveAsciiGrid(const QString& path) const;

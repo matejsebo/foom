@@ -560,6 +560,9 @@ void PointCloudDialog::analyse()
 	                      .arg(info.z_min, 0, 'f', 2).arg(info.z_max, 0, 'f', 2)
 	                      .arg(classes.join(QLatin1String(", ")),
 	                           info.crs_spec.isEmpty() ? tr("none, taken as the map's") : info.crs_spec.left(60)));
+	// foom: the design notes, "State Plane and feet"
+	if (info.file_horizontal_unit != 1.0 || info.file_vertical_unit != 1.0)
+		report_label->setText(report_label->text() + QLatin1Char('\n') + tr("The files are in feet; their coordinates and heights are read in metres."));
 }
 
 GriddingParams PointCloudDialog::params() const
