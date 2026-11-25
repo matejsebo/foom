@@ -587,13 +587,25 @@ public:
 		elevation_layout->addWidget(elevation_edit, 1);
 		elevation_layout->addWidget(elevation_browse);
 		layout->addRow(trWizard("Elevation (optional):"), elevation_layout);
+		// foom: "Elevation from USGS 3DEP in the new map wizard"
+		usgs_check = new QCheckBox(trWizard("Download the terrain from USGS 3DEP (United States)"));
+		layout->addRow(QString{}, usgs_check);
+		connect(usgs_check, &QCheckBox::toggled, this, [this, elevation_browse](bool checked) {
+			elevation_edit->setEnabled(!checked);
+			elevation_browse->setEnabled(!checked);
+			updateUsgsNote();
+		});
+		usgs_note = new QLabel();
+		usgs_note->setWordWrap(true);
+		layout->addRow(QString{}, usgs_note);
 		cell_spin = new QDoubleSpinBox();
 		cell_spin->setRange(0.25, 100.0);
 		cell_spin->setDecimals(2);
 		cell_spin->setSingleStep(0.5);
 		cell_spin->setValue(1.0);
 		cell_spin->setSuffix(QLatin1String(" m"));
-		layout->addRow(trWizard("Cell size for a point cloud:"), cell_spin);
+		layout->addRow(trWizard("Cell size for a point cloud or a download:"), cell_spin);
+		connect(cell_spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this]() { updateUsgsNote(); });
 		connect(elevation_browse, &QPushButton::clicked, this, [this]() {
 			QString const filter = trWizard("Elevation grids and point clouds") + QLatin1String(" (*.tif *.tiff *.asc *.xyz *.hgt *.ocdDem *.img *.vrt *.dem *.las *.laz);;")
 			                       + trWizard("All files") + QLatin1String(" (*.*)");
@@ -629,6 +641,38 @@ public:
 		template_check->setEnabled(service);
 		template_check->setChecked(service);
 		template_check->setText(service ? trWizard("Add %1 as a template").arg(service->name) : trWizard("Add the background map as a template"));
+		// foom: the download of the terrain is offered where the 3D Elevation Program has data
+		auto const covered = newMapUsgsCovers(area_page->spinBox().centre());
+		usgs_check->setEnabled(covered);
+		if (!covered)
+			usgs_check->setChecked(false);
+		usgs_check->setToolTip(covered ? trWizard("The bare earth elevation model of the U.S. Geological Survey for the box, saved beside the map as its terrain grid.")
+		                               : trWizard("The box does not lie in the United States."));
+		updateUsgsNote();
+	}
+
+	/// foom: Says what the download would fetch, or why it would be refused.
+	void updateUsgsNote()
+	{
+		if (!usgs_check->isChecked())
+		{
+			usgs_note->setText({});
+			return;
+		}
+		auto const cell = cell_spin->value();
+		auto const area = newMapUsgsElevationArea(area_page->spinBox(), cell);
+		auto const columns = qRound64(area.width() / cell);
+		auto const rows = qRound64(area.height() / cell);
+		if (columns > new_map_usgs_max_cells || rows > new_map_usgs_max_cells)
+		{
+			auto const fitting = newMapUsgsCellFor(area);
+			usgs_note->setText(fitting > 0 ? trWizard("The box is too large for one request at this cell size: choose %1 m or more.").arg(fitting)
+			                               : trWizard("The box is too large for a download of the terrain."));
+		}
+		else
+		{
+			usgs_note->setText(trWizard("%1 by %2 cells from %3").arg(columns).arg(rows).arg(newMapDefaultUsgsElevationUrl()));
+		}
 	}
 	
 	bool isComplete() const override
@@ -643,7 +687,12 @@ public:
 	
 	QString elevationPath() const
 	{
-		return QDir::fromNativeSeparators(elevation_edit->text().trimmed());
+		return usgs_check->isChecked() ? QString{} : QDir::fromNativeSeparators(elevation_edit->text().trimmed());
+	}
+
+	bool usgsElevation() const
+	{
+		return usgs_check->isChecked();
 	}
 	
 	double elevationCell() const
@@ -666,6 +715,8 @@ private:
 	QCheckBox* template_check;
 	QLineEdit* elevation_edit;
 	QDoubleSpinBox* cell_spin;
+	QCheckBox* usgs_check;
+	QLabel* usgs_note;
 };
 
 
@@ -773,6 +824,7 @@ NewMapParams NewMapWizard::params() const
 	params.tile_service = data_page->tileService();
 	params.elevation_path = data_page->elevationPath();
 	params.elevation_cell = data_page->elevationCell();
+	params.usgs_elevation = data_page->usgsElevation();
 	params.map_path = run_page->mapPath();
 	return params;
 }

@@ -1282,7 +1282,7 @@ void StepRunner::validate(const Step& step, bool& map_open)
 	}
 	else if (name == QLatin1String("new-map"))  // foom
 	{
-		p.checkKnown({ "box", "symbol_set", "scale", "crs", "declination", "rotate_to_magnetic", "osm", "osm_config", "endpoint", "crt", "tile_service", "elevation", "elevation_cell", "path" });
+		p.checkKnown({ "box", "symbol_set", "scale", "crs", "declination", "rotate_to_magnetic", "osm", "osm_config", "endpoint", "crt", "tile_service", "elevation", "elevation_cell", "elevation_url", "path" });
 		if (!p.has("box"))
 			p.fail(QLatin1String("needs \"box\": [south, west, north, east] in degrees"));
 		p.numberArray(p.value("box"), 4, QLatin1String("\"box\""));
@@ -1297,6 +1297,7 @@ void StepRunner::validate(const Step& step, bool& map_open)
 		for (auto parameter : { "osm", "osm_config", "endpoint", "crt", "tile_service" })
 			p.optionalString(parameter);
 		p.optionalString("elevation");  // foom
+		p.optionalString("elevation_url");  // foom: with "elevation": "usgs"
 		if (p.has("elevation_cell"))
 			p.requireNumber("elevation_cell");
 #ifndef MAPPER_USE_GDAL
@@ -1808,8 +1809,11 @@ StepResult StepRunner::newMap(const Step& step)
 		params.crt_file = job.resolvePath(crt);
 	params.tile_service = p.optionalString("tile_service");
 	auto const elevation = p.optionalString("elevation");
-	if (!elevation.isEmpty())
+	if (elevation == QLatin1String("usgs"))  // foom: the terrain from the USGS 3D Elevation Program
+		params.usgs_elevation = true;
+	else if (!elevation.isEmpty())
 		params.elevation_path = job.resolvePath(elevation);
+	params.usgs_elevation_url = p.optionalString("elevation_url");
 	if (p.has("elevation_cell"))
 		params.elevation_cell = p.requireNumber("elevation_cell");
 	
@@ -1821,6 +1825,8 @@ StepResult StepRunner::newMap(const Step& step)
 	StepResult result;
 	result.details.insert(QLatin1String("path"), params.map_path);
 	result.details.insert(QLatin1String("osm"), outcome.osm_path);
+	if (!outcome.elevation_path.isEmpty())
+		result.details.insert(QLatin1String("elevation"), outcome.elevation_path);  // foom
 	result.details.insert(QLatin1String("objects"), outcome.objects);
 	addWarnings(result, std::vector<QString>(outcome.warnings.begin(), outcome.warnings.end()));
 	return result;

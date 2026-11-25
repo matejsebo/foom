@@ -44,6 +44,7 @@
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QUrl>
+#include <QUrlQuery>
 #include <QVariant>
 
 #include <cpl_conv.h>
@@ -224,9 +225,23 @@ QPolygonF newMapBoxPolygon(const Map& map, const GeoBox& box)
 }
 
 
+namespace {
+
+QRectF projectedArea(const Georeferencing& georef, const GeoBox& box);
+
+}  // namespace
+
+
 QRectF newMapProjectedArea(const Map& map, const GeoBox& box)
 {
-	auto const& georef = map.getGeoreferencing();
+	return projectedArea(map.getGeoreferencing(), box);
+}
+
+
+namespace {
+
+QRectF projectedArea(const Georeferencing& georef, const GeoBox& box)
+{
 	constexpr int samples = 16;
 	auto min_x = std::numeric_limits<double>::max(), min_y = min_x;
 	auto max_x = std::numeric_limits<double>::lowest(), max_y = max_x;
@@ -248,6 +263,154 @@ QRectF newMapProjectedArea(const Map& map, const GeoBox& box)
 		add(lat, box.east);
 	}
 	return QRectF(QPointF(min_x, min_y), QPointF(max_x, max_y));
+}
+
+}  // namespace
+
+
+QString newMapDefaultUsgsElevationUrl()
+{
+	QSettings settings;
+	return settings.value(QStringLiteral("NewMap/usgsElevationUrl"),
+	                      QStringLiteral("https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer")).toString();
+}
+
+
+bool newMapUsgsCovers(const LatLon& lat_lon)
+{
+	// The states, Alaska, Hawaii, Puerto Rico with the Virgin Islands, Guam with the Northern Marianas, American Samoa.
+	static constexpr double boxes[][4] = {  // south, west, north, east
+	    { 24.0, -125.5, 50.0, -66.0 },
+	    { 50.0, -180.0, 72.0, -129.0 },
+	    { 50.0, 172.0, 54.0, 180.0 },
+	    { 18.0, -161.0, 23.0, -154.0 },
+	    { 17.0, -68.5, 19.0, -64.0 },
+	    { 13.0, 144.0, 21.0, 146.5 },
+	    { -15.0, -171.5, -10.5, -168.0 },
+	};
+	for (auto const& b : boxes)
+	{
+		if (lat_lon.latitude() >= b[0] && lat_lon.latitude() <= b[2] && lat_lon.longitude() >= b[1] && lat_lon.longitude() <= b[3])
+			return true;
+	}
+	return false;
+}
+
+
+QRectF newMapUsgsElevationArea(const GeoBox& box, double cell, int* epsg)
+{
+	auto const code = newMapUtmEpsg(box.centre());
+	if (epsg)
+		*epsg = code;
+	Georeferencing georef;
+	if (cell <= 0 || !georef.setProjectedCRS(QStringLiteral("EPSG"), QStringLiteral("+init=epsg:%1").arg(code), { QString::number(code) }))
+		return {};
+	auto const area = projectedArea(georef, box);
+	auto const left = std::floor(area.left() / cell) * cell;
+	auto const bottom = std::floor(area.top() / cell) * cell;
+	auto const right = std::ceil(area.right() / cell) * cell;
+	auto const top = std::ceil(area.bottom() / cell) * cell;
+	return QRectF(QPointF(left, bottom), QPointF(right, top));
+}
+
+
+double newMapUsgsCellFor(const QRectF& area)
+{
+	for (auto cell : { 1.0, 2.0, 5.0, 10.0 })
+	{
+		if (std::max(area.width(), area.height()) / cell <= new_map_usgs_max_cells)
+			return cell;
+	}
+	return 0;
+}
+
+
+QUrl newMapUsgsElevationRequest(const QString& endpoint, const QRectF& area, int epsg, double cell)
+{
+	auto const coordinate = [](double value) {
+		auto text = QString::number(value, 'f', 3);
+		while (text.endsWith(QLatin1Char('0')))
+			text.chop(1);
+		if (text.endsWith(QLatin1Char('.')))
+			text.chop(1);
+		return text;
+	};
+	auto base = endpoint;
+	while (base.endsWith(QLatin1Char('/')))
+		base.chop(1);
+	QUrl url(base + QLatin1String("/exportImage"));
+	QUrlQuery query;
+	query.addQueryItem(QStringLiteral("bbox"), coordinate(area.left()) + QLatin1Char(',') + coordinate(area.top()) + QLatin1Char(',')
+	                                           + coordinate(area.right()) + QLatin1Char(',') + coordinate(area.bottom()));
+	query.addQueryItem(QStringLiteral("bboxSR"), QString::number(epsg));
+	query.addQueryItem(QStringLiteral("imageSR"), QString::number(epsg));
+	query.addQueryItem(QStringLiteral("size"), QString::number(qRound64(area.width() / cell)) + QLatin1Char(',') + QString::number(qRound64(area.height() / cell)));
+	query.addQueryItem(QStringLiteral("format"), QStringLiteral("tiff"));
+	query.addQueryItem(QStringLiteral("pixelType"), QStringLiteral("F32"));
+	query.addQueryItem(QStringLiteral("noDataInterpretation"), QStringLiteral("esriNoDataMatchAny"));
+	query.addQueryItem(QStringLiteral("interpolation"), QStringLiteral("RSP_BilinearInterpolation"));
+	query.addQueryItem(QStringLiteral("f"), QStringLiteral("image"));
+	url.setQuery(query);
+	return url;
+}
+
+
+bool downloadUsgsElevation(const QString& endpoint, const QRectF& area, int epsg, double cell, const QString& out_path, QString* error, int retry_delay_ms)
+{
+	QNetworkAccessManager network;
+	QNetworkRequest request{ newMapUsgsElevationRequest(endpoint, area, epsg, cell) };
+	request.setHeader(QNetworkRequest::UserAgentHeader, QByteArray("FOOM"));
+	std::unique_ptr<QNetworkReply> reply;
+	auto status = 0;
+	// The service answered one request of 2026-11-24 with 502 and the same request with a grid a minute later:
+	// a 5xx is tried once more.
+	for (int attempt = 0; attempt < 2; ++attempt)
+	{
+		if (attempt > 0)
+		{
+			QEventLoop wait;
+			QTimer::singleShot(retry_delay_ms, &wait, &QEventLoop::quit);
+			wait.exec();
+		}
+		reply.reset(network.get(request));
+		QEventLoop loop;
+		QObject::connect(reply.get(), &QNetworkReply::finished, &loop, &QEventLoop::quit);
+		QTimer timeout;
+		timeout.setSingleShot(true);
+		QObject::connect(&timeout, &QTimer::timeout, reply.get(), &QNetworkReply::abort);
+		timeout.start(180000);
+		loop.exec();
+		status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+		if (status < 500 || status > 599)
+			break;
+	}
+	if (reply->error() != QNetworkReply::NoError || status != 200)
+	{
+		// The text of Qt's error for a status holds the whole request.
+		if (error)
+		{
+			*error = status >= 400
+			         ? tr("Cannot download the elevation data of the USGS: the service answered HTTP %1. Try again later.").arg(status)
+			         : tr("Cannot download the elevation data of the USGS: %1").arg(reply->errorString());
+		}
+		return false;
+	}
+	auto const data = reply->readAll();
+	if (!data.startsWith("II*") && !data.startsWith("MM"))
+	{
+		// The service answers a request it cannot fulfil with a page of text.
+		if (error)
+			*error = tr("The elevation service of the USGS did not answer with a grid.");
+		return false;
+	}
+	QSaveFile file(out_path);
+	if (!file.open(QIODevice::WriteOnly) || file.write(data) < 0 || !file.commit())
+	{
+		if (error)
+			*error = tr("Cannot save the elevation data:\n%1\n\n%2").arg(out_path, file.errorString());
+		return false;
+	}
+	return true;
 }
 
 
@@ -288,7 +451,8 @@ bool downloadOverpass(const QString& endpoint, const GeoBox& box, const QString&
 			}
 			return true;
 		}
-		auto const busy = status == 429 || status == 504;
+		// foom: 502 and 503 too; the public server answered 502 twice running on 2026-11-24
+		auto const busy = status == 429 || (status >= 502 && status <= 504);
 		if (busy && attempt == 0)
 			continue;
 		if (error)
@@ -432,6 +596,77 @@ bool addElevation(Map& map, const NewMapParams& params, NewMapResult& result)
 	return true;
 }
 
+/**
+ * Downloads the terrain of the box from the USGS and adds it as a file of the user's is added.
+ *
+ * Returns false, with the error set, only for what is refused before any
+ * request; a download which fails leaves a warning and a map without elevation.
+ * See the design notes, "Elevation from USGS 3DEP in the new map wizard".
+ */
+bool addUsgsElevation(Map& map, const NewMapParams& params, NewMapResult& result)
+{
+	if (params.map_path.isEmpty())
+	{
+		result.error = tr("Choose where to save the map before adding elevation data.");
+		return false;
+	}
+	auto const cell = params.elevation_cell > 0 ? params.elevation_cell : 1.0;
+	auto epsg = 0;
+	auto const area = newMapUsgsElevationArea(params.box, cell, &epsg);
+	auto const columns = qRound64(area.width() / cell);
+	auto const rows = qRound64(area.height() / cell);
+	if (columns < 1 || rows < 1)
+	{
+		result.error = tr("The area is empty: the north must be above the south and the east right of the west.");
+		return false;
+	}
+	if (columns > new_map_usgs_max_cells || rows > new_map_usgs_max_cells)
+	{
+		auto const fitting = newMapUsgsCellFor(area);
+		result.error = tr("The area is %1 by %2 cells at a cell size of %3 m. The elevation service of the USGS gives at most %4 cells a side in one request.")
+		               .arg(columns).arg(rows).arg(cell).arg(new_map_usgs_max_cells);
+		result.error += QLatin1Char(' ');
+		result.error += fitting > 0 ? tr("Choose a cell size of %1 m or more.").arg(fitting) : tr("Choose a smaller area.");
+		return false;
+	}
+
+	auto const no_elevation = tr("The map has no elevation data; add a file with Elevation > Import elevation data.");
+	QTemporaryDir temp;
+	auto const path = temp.filePath(QStringLiteral("usgs-3dep.tif"));
+	auto const endpoint = params.usgs_elevation_url.isEmpty() ? newMapDefaultUsgsElevationUrl() : params.usgs_elevation_url;
+	QString error;
+	if (!temp.isValid() || !downloadUsgsElevation(endpoint, area, epsg, cell, path, &error, qMin(params.retry_delay_ms, 5000)))
+	{
+		result.warnings.push_back((error.isEmpty() ? tr("Cannot download the elevation data of the USGS.") : error) + QLatin1Char(' ') + no_elevation);
+		return true;
+	}
+	auto const grid = ElevationModel::open(path);
+	if (!grid)
+	{
+		result.warnings.push_back(tr("The elevation service of the USGS did not answer with a grid.") + QLatin1Char(' ') + no_elevation);
+		return true;
+	}
+	// Where it has no model the service answers with a grid of zeros (seen 2026-11-24 for a box outside the United States).
+	auto const& values = grid->values();
+	if (std::none_of(values.begin(), values.end(), [](float value) { return std::isfinite(value) && value != 0.0f; }))
+	{
+		result.warnings.push_back(tr("The USGS has no elevation data for this area.") + QLatin1Char(' ') + no_elevation);
+		return true;
+	}
+
+	auto with_file = params;
+	with_file.elevation_path = path;
+	NewMapResult added;
+	if (!addElevation(map, with_file, added))
+	{
+		result.warnings.push_back(added.error + QLatin1Char(' ') + no_elevation);
+		return true;
+	}
+	for (auto const& warning : added.warnings)
+		result.warnings.push_back(warning);
+	return true;
+}
+
 }  // namespace
 
 
@@ -451,6 +686,9 @@ NewMapResult createNewMap(const NewMapParams& params)
 	// Before the download, so that a bad file fails before any request.
 	if (!params.elevation_path.isEmpty() && !addElevation(*map, params, result))
 		return result;
+	if (params.elevation_path.isEmpty() && params.usgs_elevation && !addUsgsElevation(*map, params, result))
+		return result;  // foom
+	result.elevation_path = map->elevationSet().href(ElevationSet::Terrain);
 	
 	result.osm_path = params.osm_path;
 	if (result.osm_path.isEmpty())

@@ -30,6 +30,8 @@
 
 #include "core/latlon.h"
 
+class QUrl;
+
 namespace OpenOrienteering {
 
 class Map;
@@ -79,6 +81,41 @@ QPolygonF newMapBoxPolygon(const Map& map, const GeoBox& box);
 QRectF newMapProjectedArea(const Map& map, const GeoBox& box);
 
 
+/** foom: The most cells a side which the elevation service of the USGS gives in one request. */
+constexpr int new_map_usgs_max_cells = 8000;
+
+/**
+ * foom: Returns the image service of the 3D Elevation Program of the U.S. Geological Survey from the settings.
+ *
+ * See the design notes, "Elevation from USGS 3DEP in the new map wizard".
+ */
+QString newMapDefaultUsgsElevationUrl();
+
+/** foom: Says whether the point lies where the 3D Elevation Program has data, by rough boxes around the United States. */
+bool newMapUsgsCovers(const LatLon& lat_lon);
+
+/**
+ * foom: Returns the rectangle (left, bottom, width, height) in the UTM zone of
+ * the box's centre which holds the box, its edges on whole multiples of the
+ * cell size; `epsg` gets the code of the zone.
+ */
+QRectF newMapUsgsElevationArea(const GeoBox& box, double cell, int* epsg = nullptr);
+
+/** foom: Returns the smallest of the cell sizes 1, 2, 5 and 10 m at which the area fits one request, 0 when none does. */
+double newMapUsgsCellFor(const QRectF& area);
+
+/** foom: Returns the request for the elevation grid of the area, which is in the system of the EPSG code. */
+QUrl newMapUsgsElevationRequest(const QString& endpoint, const QRectF& area, int epsg, double cell);
+
+/**
+ * foom: Downloads the elevation grid of the area as a GeoTIFF.
+ *
+ * Runs a local event loop until done. After an HTTP status of 500 to 599 it
+ * waits retry_delay_ms and tries once more. An answer which is no TIFF fails.
+ */
+bool downloadUsgsElevation(const QString& endpoint, const QRectF& area, int epsg, double cell, const QString& out_path, QString* error, int retry_delay_ms = 3000);
+
+
 /**
  * foom: The parameters of createNewMap().
  *
@@ -100,7 +137,9 @@ struct NewMapParams
 	QString crt_file;                 ///< Empty: OSM-<symbol set id>.crt from the symbol sets.
 	QString tile_service;             ///< The name of a map service to add as template; empty: none.
 	QString elevation_path;           ///< A grid or a point cloud (.las, .laz); empty: none. Needs map_path.
-	double elevation_cell = 1.0;      ///< The cell size for gridding a point cloud, in metres.
+	double elevation_cell = 1.0;      ///< The cell size for gridding a point cloud and for the download, in metres.
+	bool usgs_elevation = false;      ///< Download the terrain from the USGS 3D Elevation Program when elevation_path is empty. Needs map_path.
+	QString usgs_elevation_url;       ///< Empty: newMapDefaultUsgsElevationUrl().
 	QString map_path;                 ///< Where the map is saved; the download goes beside it. Empty: not saved.
 };
 
@@ -115,6 +154,7 @@ struct NewMapResult
 	QStringList warnings;
 	std::unique_ptr<Map> map;
 	QString osm_path;
+	QString elevation_path;           ///< The terrain grid saved beside the map; empty without one.
 	int objects = 0;
 };
 

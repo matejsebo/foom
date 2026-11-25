@@ -39,6 +39,7 @@
 #include <QJsonObject>
 #include <QLatin1String>
 #include <QLineF>
+#include <QList>
 #include <QObject>
 #include <QPointF>
 #include <QPolygonF>
@@ -237,6 +238,52 @@ private:
 	QHash<QTcpSocket*, QByteArray> buffers;
 };
 
+/// foom: Answers GET requests with one scripted body, as the image service of the USGS answers exportImage.
+class ElevationStub : public QObject
+{
+Q_OBJECT
+public:
+	ElevationStub()
+	{
+		connect(&server, &QTcpServer::newConnection, this, [this]() {
+			while (auto* socket = server.nextPendingConnection())
+			{
+				connect(socket, &QTcpSocket::readyRead, this, [this, socket]() { readRequest(socket); });
+				connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+			}
+		});
+	}
+
+	bool listen() { return server.listen(QHostAddress::LocalHost); }
+
+	QString url() const { return QStringLiteral("http://127.0.0.1:") + QString::number(server.serverPort()) + QStringLiteral("/arcgis/rest/services/3DEPElevation/ImageServer"); }
+
+	QByteArray body;
+	QByteArray content_type = "image/tiff";
+	QList<QUrl> requests;   ///< The path and the query of each request.
+
+private:
+	void readRequest(QTcpSocket* socket)
+	{
+		auto& buffer = buffers[socket];
+		buffer.append(socket->readAll());
+		auto const end = buffer.indexOf("\r\n\r\n");
+		if (end < 0)
+			return;
+		auto const line = buffer.left(buffer.indexOf("\r\n")).split(' ');
+		buffers.remove(socket);
+		requests.push_back(QUrl::fromEncoded(line.size() > 1 ? line[1] : QByteArray()));
+		QByteArray response = "HTTP/1.1 200 OK\r\nContent-Type: " + content_type + "\r\n"
+		                      "Content-Length: " + QByteArray::number(body.size()) + "\r\n"
+		                      "Connection: close\r\n\r\n" + body;
+		socket->write(response);
+		socket->disconnectFromHost();
+	}
+
+	QTcpServer server;
+	QHash<QTcpSocket*, QByteArray> buffers;
+};
+
 }  // namespace
 
 
@@ -376,6 +423,14 @@ private slots:
 			trees += object->getSymbol()->getNumberAsString() == QLatin1String("417");
 		});
 		QCOMPARE(trees, 1);
+
+		// foom: a bad gateway is a busy server too (the public server on 2026-11-24)
+		stub.statuses = { 502, 200 };
+		stub.queries.clear();
+		params.map_path = dir.filePath(QStringLiteral("gateway.foom"));
+		auto const gateway = createNewMap(params);
+		QVERIFY2(gateway.ok, qPrintable(gateway.error));
+		QCOMPARE(stub.queries.size(), 2);
 
 		stub.statuses = { 504, 504 };
 		stub.queries.clear();
@@ -629,9 +684,238 @@ private slots:
 		QCOMPARE(map.elevationSet().href(ElevationSet::Terrain), dir.filePath(QStringLiteral("runner-elevation_terrain.tif")));
 	}
 
+	/// foom: The box of the tests of the download from the USGS: 1 km by 0.8 km in UTM zone 13.
+	static GeoBox usgsBox() { return { 37.9900, -104.6300, 37.9972, -104.6186 }; }
+
+	static QByteArray fileBytes(const QString& path)
+	{
+		QFile file(path);
+		return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+	}
+
+	/// Elevation from USGS 3DEP, Accept (1): the area and the request.
+	void usgsRequestTest()
+	{
+		auto epsg = 0;
+		auto const usgs_area = newMapUsgsElevationArea(usgsBox(), 2.0, &epsg);
+		QCOMPARE(epsg, 32613);
+		for (auto value : { usgs_area.left(), usgs_area.top(), usgs_area.right(), usgs_area.bottom() })
+			QVERIFY2(std::abs(value / 2.0 - std::round(value / 2.0)) < 1e-9, qPrintable(QString::number(value, 'f', 4)));
+		QVERIFY2(usgs_area.width() > 990 && usgs_area.width() < 1030 && usgs_area.height() > 790 && usgs_area.height() < 830, qPrintable(rectText(usgs_area)));
+		// It holds the box of a map in that zone, with less than a cell and the rounding to spare.
+		auto params = fixtureParams({});
+		params.box = usgsBox();
+		auto const plain = createNewMap(params);
+		QVERIFY2(plain.ok, qPrintable(plain.error));
+		QCOMPARE(plain.objects, 0);
+		QVERIFY(tightlyContains(usgs_area, newMapProjectedArea(*plain.map, usgsBox()), 2.0 + 1e-6));
+
+		auto const url = newMapUsgsElevationRequest(QStringLiteral("http://example.org/ImageServer/"), usgs_area, epsg, 2.0);
+		QCOMPARE(url.path(), QStringLiteral("/ImageServer/exportImage"));
+		QUrlQuery const query(url);
+		auto const bbox = query.queryItemValue(QStringLiteral("bbox")).split(QLatin1Char(','));
+		QCOMPARE(bbox.size(), 4);
+		QCOMPARE(bbox[0].toDouble(), usgs_area.left());
+		QCOMPARE(bbox[1].toDouble(), usgs_area.top());
+		QCOMPARE(bbox[2].toDouble(), usgs_area.right());
+		QCOMPARE(bbox[3].toDouble(), usgs_area.bottom());
+		QCOMPARE(query.queryItemValue(QStringLiteral("bboxSR")), QStringLiteral("32613"));
+		QCOMPARE(query.queryItemValue(QStringLiteral("imageSR")), QStringLiteral("32613"));
+		QCOMPARE(query.queryItemValue(QStringLiteral("size")),
+		         QString::number(qRound(usgs_area.width() / 2.0)) + QLatin1Char(',') + QString::number(qRound(usgs_area.height() / 2.0)));
+		QCOMPARE(query.queryItemValue(QStringLiteral("format")), QStringLiteral("tiff"));
+		QCOMPARE(query.queryItemValue(QStringLiteral("pixelType")), QStringLiteral("F32"));
+		QCOMPARE(query.queryItemValue(QStringLiteral("f")), QStringLiteral("image"));
+
+		// The cell size which fits a request of 8000 cells a side.
+		QCOMPARE(newMapUsgsCellFor(QRectF(0, 0, 8000, 3000)), 1.0);
+		QCOMPARE(newMapUsgsCellFor(QRectF(0, 0, 9000, 3000)), 2.0);
+		QCOMPARE(newMapUsgsCellFor(QRectF(0, 0, 30000, 50000)), 10.0);
+		QCOMPARE(newMapUsgsCellFor(QRectF(0, 0, 90000, 1000)), 0.0);
+		QVERIFY(newMapUsgsCovers(usgsBox().centre()));
+		QVERIFY(newMapUsgsCovers(LatLon(61.2, -149.9)));
+		QVERIFY(!newMapUsgsCovers(fixture_box.centre()));
+	}
+
+	/// Elevation from USGS 3DEP, Accept (1): the grid of the service becomes the map's terrain.
+	void usgsDownloadTest()
+	{
+		QVERIFY(usgs_stub.listen());
+		auto epsg = 0;
+		auto const usgs_area = newMapUsgsElevationArea(usgsBox(), 2.0, &epsg);
+		Plane plane;
+		auto const served = writePlaneGrid(dir.filePath(QStringLiteral("served.tif")), usgs_area, 2.0, QStringLiteral("EPSG:32613"), plane);
+		QVERIFY(!served.isEmpty());
+		usgs_stub.body = fileBytes(served);
+		QVERIFY(usgs_stub.body.startsWith("II*"));
+		usgs_stub.requests.clear();
+
+		auto params = fixtureParams(dir.filePath(QStringLiteral("usgs.foom")));
+		params.box = usgsBox();
+		params.usgs_elevation = true;
+		params.usgs_elevation_url = usgs_stub.url();
+		params.elevation_cell = 2.0;
+		auto result = createNewMap(params);
+		QVERIFY2(result.ok, qPrintable(result.error));
+		QVERIFY2(result.warnings.filter(QStringLiteral("elevation")).isEmpty(), qPrintable(result.warnings.join(QLatin1Char('|'))));
+		QCOMPARE(usgs_stub.requests.size(), 1);
+		QCOMPARE(usgs_stub.requests.front().path(), QStringLiteral("/arcgis/rest/services/3DEPElevation/ImageServer/exportImage"));
+		QCOMPARE(QUrlQuery(usgs_stub.requests.front()).queryItemValue(QStringLiteral("bbox")),
+		         QUrlQuery(newMapUsgsElevationRequest(usgs_stub.url(), usgs_area, epsg, 2.0)).queryItemValue(QStringLiteral("bbox")));
+		QCOMPARE(QUrlQuery(usgs_stub.requests.front()).queryItemValue(QStringLiteral("imageSR")), QStringLiteral("32613"));
+
+		auto& set = result.map->elevationSet();
+		QCOMPARE(set.href(ElevationSet::Terrain), dir.filePath(QStringLiteral("usgs_terrain.tif")));
+		QCOMPARE(result.elevation_path, dir.filePath(QStringLiteral("usgs_terrain.tif")));
+		QVERIFY(QFileInfo::exists(result.elevation_path));
+		auto const* terrain = set.model(ElevationSet::Terrain, result.map->getGeoreferencing().getProjectedCRSSpec());
+		QVERIFY(terrain);
+		QCOMPARE(terrain->cellSize(), 2.0);
+		auto const map_area = newMapProjectedArea(*result.map, usgsBox());
+		QVERIFY2(tightlyContains(terrain->extent(), map_area, 2.0 + 1e-6), qPrintable(rectText(terrain->extent()) + QLatin1String(" / ") + rectText(map_area)));
+		auto const middle = map_area.center();
+		QVERIFY2(std::abs(terrain->at(middle) - plane.at(middle)) < 0.01, qPrintable(QString::number(terrain->at(middle) - plane.at(middle))));
+	}
+
+	/// Elevation from USGS 3DEP, Accept (2): an area too large for one request is refused before any request.
+	void usgsLimitTest()
+	{
+		usgs_stub.requests.clear();
+		auto params = fixtureParams(dir.filePath(QStringLiteral("usgs-large.foom")));
+		params.box = { 37.9900, -104.6300, 38.0170, -104.5274 };  // about 9 km by 3 km
+		params.usgs_elevation = true;
+		params.usgs_elevation_url = usgs_stub.url();
+		params.elevation_cell = 1.0;
+		auto const result = createNewMap(params);
+		QVERIFY(!result.ok);
+		QVERIFY2(result.error.contains(QStringLiteral("8000")) && result.error.contains(QStringLiteral("2 m")), qPrintable(result.error));
+		QCOMPARE(usgs_stub.requests.size(), 0);
+		QVERIFY(!QFileInfo::exists(params.map_path));
+
+		params.elevation_cell = 2.0;
+		usgs_stub.body = "<html>busy</html>";
+		auto const coarser = createNewMap(params);
+		QVERIFY2(coarser.ok, qPrintable(coarser.error));
+		QCOMPARE(usgs_stub.requests.size(), 1);
+	}
+
+	/// Elevation from USGS 3DEP, Accept (3): an answer which is no grid, and a grid without data.
+	void usgsFailureTest()
+	{
+		auto params = fixtureParams(dir.filePath(QStringLiteral("usgs-html.foom")));
+		params.usgs_elevation = true;
+		params.usgs_elevation_url = usgs_stub.url();
+		params.elevation_cell = 2.0;
+		usgs_stub.requests.clear();
+		usgs_stub.content_type = "text/html";
+		usgs_stub.body = "<html><body>Error: unable to complete operation.</body></html>";
+		auto const html = createNewMap(params);
+		QVERIFY2(html.ok, qPrintable(html.error));
+		QCOMPARE(usgs_stub.requests.size(), 1);
+		QCOMPARE(html.map->getNumObjects(), 10);
+		QVERIFY(html.map->elevationSet().isEmpty());
+		QVERIFY(html.elevation_path.isEmpty());
+		QCOMPARE(html.warnings.filter(QStringLiteral("did not answer with a grid")).size(), 1);
+		QVERIFY(QFileInfo::exists(params.map_path));
+		QVERIFY(!QFileInfo::exists(dir.filePath(QStringLiteral("usgs-html_terrain.tif"))));
+
+		// A grid of zeros, which is what the service answers where it has no model (seen 2026-11-24).
+		{
+			auto zero_epsg = 0;
+			auto const zero_area = newMapUsgsElevationArea(fixture_box, 2.0, &zero_epsg);
+			auto const zero_columns = qRound(zero_area.width() / 2.0);
+			auto const zero_rows = qRound(zero_area.height() / 2.0);
+			ElevationModel zeros(zero_columns, zero_rows, QPointF(zero_area.left(), zero_area.bottom()), 2.0,
+			                     std::vector<float>(std::size_t(zero_columns) * std::size_t(zero_rows), 0.0f), QStringLiteral("EPSG:32613"));
+			QVERIFY(zeros.save(dir.filePath(QStringLiteral("zeros.tif"))));
+			usgs_stub.content_type = "image/tiff";
+			usgs_stub.body = fileBytes(dir.filePath(QStringLiteral("zeros.tif")));
+			params.map_path = dir.filePath(QStringLiteral("usgs-zeros.foom"));
+			auto const flat = createNewMap(params);
+			QVERIFY2(flat.ok, qPrintable(flat.error));
+			QVERIFY(flat.map->elevationSet().isEmpty());
+			QCOMPARE(flat.warnings.filter(QStringLiteral("no elevation data for this area")).size(), 1);
+			QVERIFY(!QFileInfo::exists(dir.filePath(QStringLiteral("usgs-zeros_terrain.tif"))));
+		}
+
+		// A grid of no data only.
+		auto epsg = 0;
+		auto const usgs_area = newMapUsgsElevationArea(fixture_box, 2.0, &epsg);
+		QCOMPARE(epsg, 32613);
+		auto const columns = qRound(usgs_area.width() / 2.0);
+		auto const rows = qRound(usgs_area.height() / 2.0);
+		ElevationModel empty(columns, rows, QPointF(usgs_area.left(), usgs_area.bottom()), 2.0, {}, QStringLiteral("EPSG:32613"));
+		QVERIFY(empty.save(dir.filePath(QStringLiteral("void.tif"))));
+		usgs_stub.content_type = "image/tiff";
+		usgs_stub.body = fileBytes(dir.filePath(QStringLiteral("void.tif")));
+		params.map_path = dir.filePath(QStringLiteral("usgs-void.foom"));
+		auto const nothing = createNewMap(params);
+		QVERIFY2(nothing.ok, qPrintable(nothing.error));
+		QCOMPARE(nothing.map->getNumObjects(), 10);
+		QVERIFY(nothing.map->elevationSet().isEmpty());
+		QCOMPARE(nothing.warnings.filter(QStringLiteral("no elevation data for this area")).size(), 1);
+
+		// No answer at all: the service is not there.
+		params.usgs_elevation_url = QStringLiteral("http://127.0.0.1:9/ImageServer");
+		params.map_path = dir.filePath(QStringLiteral("usgs-down.foom"));
+		auto const down = createNewMap(params);
+		QVERIFY2(down.ok, qPrintable(down.error));
+		QVERIFY(down.map->elevationSet().isEmpty());
+		QCOMPARE(down.warnings.filter(QStringLiteral("Cannot download the elevation data")).size(), 1);
+	}
+
+	/// Elevation from USGS 3DEP, Accept (4): the runner's step.
+	void usgsRunnerTest()
+	{
+		auto epsg = 0;
+		auto const usgs_area = newMapUsgsElevationArea(usgsBox(), 2.0, &epsg);
+		Plane plane;
+		auto const served = writePlaneGrid(dir.filePath(QStringLiteral("served-runner.tif")), usgs_area, 2.0, QStringLiteral("EPSG:32613"), plane);
+		usgs_stub.content_type = "image/tiff";
+		usgs_stub.body = fileBytes(served);
+		usgs_stub.requests.clear();
+		auto const out = dir.filePath(QStringLiteral("runner-usgs.foom"));
+		auto const box = usgsBox();
+		auto const job = QJsonObject{ { QStringLiteral("steps"), QJsonArray{
+		    QJsonObject{
+		        { QStringLiteral("step"), QStringLiteral("new-map") },
+		        { QStringLiteral("box"), QJsonArray{ box.south, box.west, box.north, box.east } },
+		        { QStringLiteral("symbol_set"), symbolSet() },
+		        { QStringLiteral("osm"), fixtureOsm() },
+		        { QStringLiteral("crt"), osmCrt() },
+		        { QStringLiteral("osm_config"), osmConfig() },
+		        { QStringLiteral("elevation"), QStringLiteral("usgs") },
+		        { QStringLiteral("elevation_url"), usgs_stub.url() },
+		        { QStringLiteral("elevation_cell"), 2.0 },
+		        { QStringLiteral("path"), out },
+		    },
+		} } };
+		auto const job_path = dir.filePath(QStringLiteral("new-map-usgs.json"));
+		{
+			QFile file(job_path);
+			QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+			file.write(QJsonDocument(job).toJson());
+		}
+		QProcess process;
+		auto env = QProcessEnvironment::systemEnvironment();
+		env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
+		process.setProcessEnvironment(env);
+		process.start(QString::fromUtf8(FOOM_CLI_EXECUTABLE), { QStringLiteral("--run"), job_path });
+		// The stub answers from this process, so its events must run while the runner works.
+		QTRY_VERIFY_WITH_TIMEOUT(process.state() == QProcess::NotRunning, 120000);
+		auto const output = process.readAllStandardOutput();
+		QVERIFY2(process.exitCode() == 0, QByteArray(output + process.readAllStandardError()).constData());
+		QCOMPARE(usgs_stub.requests.size(), 1);
+		QVERIFY2(output.contains("runner-usgs_terrain.tif"), output.constData());
+		Map map;
+		QVERIFY(map.loadFrom(out));
+		QCOMPARE(map.elevationSet().href(ElevationSet::Terrain), dir.filePath(QStringLiteral("runner-usgs_terrain.tif")));
+	}
+
 private:
 	QTemporaryDir dir;
 	OverpassStub stub;
+	ElevationStub usgs_stub;  // foom
 	QRectF area;      ///< foom: the box's projected area in the map's system
 	QPointF centre;   ///< foom: the box centre, projected
 };
