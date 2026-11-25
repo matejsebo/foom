@@ -1,0 +1,190 @@
+#
+#    Copyright 2026 Matej Šebo
+#
+#    This file is part of FOOM.
+#
+#    FOOM is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    FOOM is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with FOOM.  If not, see <http://www.gnu.org/licenses/>.
+#
+# FOOM import rules: U.S. Geological Survey, The National Map (hydrography, transportation, structures, contours) to ISSprOM 2019.
+# Written by test/data/import-rules/make_tables.py from datasets/TNM.py; edit that file.
+#
+# Catalogue: the layers, fields, subtypes and coded values which the services of The National Map
+# publish, read on 2026-11-24:
+# https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer (National Hydrography Dataset),
+# https://carto.nationalmap.gov/arcgis/rest/services/transportation/MapServer (National
+# Transportation Dataset), .../structures/MapServer (National Structures Dataset) and
+# .../contours/MapServer (contours of the 3D Elevation Program).
+# Data licence: the data are works of the U.S. Government and in the public domain.
+#
+# The classes are numbers and words in the fields FType and FCode (hydrography, railways, runways,
+# structures, contours), TNMFRC (roads) and TrailType (trails). One hydrography class is a line in
+# one layer and an area or a point in another, so its rules test the layer name too: import with
+# Layer name tag: Layer name. The layer names are those of the downloads of The National Map
+# (NHDFlowline, NHDWaterbody, NHDArea, NHDPoint, NHDLine, Trans_RoadSegment, Trans_TrailSegment,
+# Trans_RailFeature, Trans_AirportRunway, Struct_Point, Elev_Contour), in that spelling or in
+# lower case; every field is accepted as the services spell it (lower case), in upper case and
+# in mixed case. The names in a downloaded file were not checked; a Shapefile cuts field names
+# to ten letters, which the rule of the wide trails (OHVOver50Inches) does not follow.
+#
+# Scale: hydrography and roads are compiled at 1:24,000 or smaller; trails come from the land
+# managers. The contours are in feet at intervals of 10 to 80 feet. Use the data as a base for
+# field work, not as a map; OpenStreetMap often has more of the trails, and contours in metres
+# come from an elevation model (the new map wizard fetches one from the USGS).
+#
+# The classes of the catalogue without a symbol in ISSprOM 2019:
+#
+# (lines of the network, not features on the ground)
+# not mapped: (layer_name ~= NHDFlowline OR layer_name ~= nhdflowline) AND (FType = 558 OR ftype = 558 OR FTYPE = 558)
+# not mapped: (layer_name ~= NHDFlowline OR layer_name ~= nhdflowline) AND (FType = 334 OR ftype = 334 OR FTYPE = 334)
+# not mapped: (layer_name ~= NHDFlowline OR layer_name ~= nhdflowline) AND (FType = 566 OR ftype = 566 OR FTYPE = 566)
+# (under ground or under water)
+# not mapped: (layer_name ~= NHDFlowline OR layer_name ~= nhdflowline) AND (FType = 420 OR ftype = 420 OR FTYPE = 420)
+# (pipelines; above or under ground is not said)
+# not mapped: (layer_name ~= NHDFlowline OR layer_name ~= nhdflowline) AND (FType = 428 OR ftype = 428 OR FTYPE = 428)
+# (dry lake beds)
+# not mapped: (layer_name ~= NHDWaterbody OR layer_name ~= nhdwaterbody) AND (FType = 361 OR ftype = 361 OR FTYPE = 361)
+# (no orienteering symbol)
+# not mapped: (layer_name ~= NHDWaterbody OR layer_name ~= nhdwaterbody) AND (FType = 378 OR ftype = 378 OR FTYPE = 378)
+# (dams and weirs; of earth or of concrete is not said)
+# not mapped: (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 343 OR ftype = 343 OR FTYPE = 343)
+# not mapped: (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 568 OR ftype = 568 OR FTYPE = 568)
+# (no orienteering symbol)
+# not mapped: (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 362 OR ftype = 362 OR FTYPE = 362)
+# not mapped: (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 455 OR ftype = 455 OR FTYPE = 455)
+# not mapped: (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 485 OR ftype = 485 OR FTYPE = 485)
+# (bridges; the roads and paths which cross are in their own layers)
+# not mapped: (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 318 OR ftype = 318 OR FTYPE = 318)
+# (zones and plans, not features on the ground)
+# not mapped: (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 307 OR ftype = 307 OR FTYPE = 307)
+# not mapped: (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 373 OR ftype = 373 OR FTYPE = 373)
+# not mapped: (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 454 OR ftype = 454 OR FTYPE = 454)
+# (under ground or under water)
+# not mapped: (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 461 OR ftype = 461 OR FTYPE = 461)
+# (no orienteering symbol)
+# not mapped: (layer_name ~= NHDPoint OR layer_name ~= nhdpoint) AND (FType = 450 OR ftype = 450 OR FTYPE = 450)
+# not mapped: (layer_name ~= NHDPoint OR layer_name ~= nhdpoint) AND (FType = 431 OR ftype = 431 OR FTYPE = 431)
+# not mapped: (layer_name ~= NHDPoint OR layer_name ~= nhdpoint) AND (FType = 367 OR ftype = 367 OR FTYPE = 367)
+# (dams and weirs; of earth or of concrete is not said)
+# not mapped: (layer_name ~= NHDPoint OR layer_name ~= nhdpoint) AND (FType = 343 OR ftype = 343 OR FTYPE = 343)
+# (no orienteering symbol)
+# not mapped: (layer_name ~= NHDPoint OR layer_name ~= nhdpoint) AND (FType = 398 OR ftype = 398 OR FTYPE = 398)
+# not mapped: (layer_name ~= NHDPoint OR layer_name ~= nhdpoint) AND (FType = 485 OR ftype = 485 OR FTYPE = 485)
+# not mapped: (layer_name ~= NHDPoint OR layer_name ~= nhdpoint) AND (FType = 369 OR ftype = 369 OR FTYPE = 369)
+# (dams and weirs; of earth or of concrete is not said)
+# not mapped: (layer_name ~= NHDLine OR layer_name ~= nhdline) AND (FType = 343 OR ftype = 343 OR FTYPE = 343)
+# (no orienteering symbol)
+# not mapped: (layer_name ~= NHDLine OR layer_name ~= nhdline) AND (FType = 487 OR ftype = 487 OR FTYPE = 487)
+# not mapped: (layer_name ~= NHDLine OR layer_name ~= nhdline) AND (FType = 431 OR ftype = 431 OR FTYPE = 431)
+# not mapped: (layer_name ~= NHDLine OR layer_name ~= nhdline) AND (FType = 450 OR ftype = 450 OR FTYPE = 450)
+# (under ground or under water)
+# not mapped: (layer_name ~= NHDLine OR layer_name ~= nhdline) AND (FType = 434 OR ftype = 434 OR FTYPE = 434)
+# (zones and plans, not features on the ground)
+# not mapped: (layer_name ~= NHDLine OR layer_name ~= nhdline) AND (FType = 503 OR ftype = 503 OR FTYPE = 503)
+# (no orienteering symbol)
+# not mapped: (layer_name ~= NHDLine OR layer_name ~= nhdline) AND (FType = 369 OR ftype = 369 OR FTYPE = 369)
+# not mapped: (layer_name ~= NHDLine OR layer_name ~= nhdline) AND (FType = 398 OR ftype = 398 OR FTYPE = 398)
+# (under ground or under water)
+# not mapped: (layer_name ~= NHDLine OR layer_name ~= nhdline) AND (FType = 478 OR ftype = 478 OR FTYPE = 478)
+# (bridges; the roads and paths which cross are in their own layers)
+# not mapped: (layer_name ~= NHDLine OR layer_name ~= nhdline) AND (FType = 318 OR ftype = 318 OR FTYPE = 318)
+# (no orienteering symbol)
+# not mapped: (layer_name ~= NHDLine OR layer_name ~= nhdline) AND (FType = 411 OR ftype = 411 OR FTYPE = 411)
+# not mapped: (layer_name ~= NHDLine OR layer_name ~= nhdline) AND (FType = 362 OR ftype = 362 OR FTYPE = 362)
+# (ferry routes)
+# not mapped: (TNMFRC = 7 OR tnmfrc = 7)
+# (roads in tunnels are not drawn)
+# not mapped: (TNMFRC = 8 OR tnmfrc = 8)
+# (routes on snow)
+# not mapped: (TrailType = "Snow Trail" OR trailtype = "Snow Trail" OR TRAILTYPE = "Snow Trail")
+# (routes on water)
+# not mapped: (TrailType = "Water Trail" OR trailtype = "Water Trail" OR TRAILTYPE = "Water Trail")
+# (under ground or under water)
+# not mapped: (FCode = 20202 OR fcode = 20202 OR FCODE = 20202)
+# not mapped: (FCode = 20206 OR fcode = 20206 OR FCODE = 20206)
+# (points of institutions and facilities; their buildings are not in the data)
+# not mapped: (FType = 730 OR ftype = 730 OR FTYPE = 730)
+# not mapped: (FType = 740 OR ftype = 740 OR FTYPE = 740)
+# not mapped: (FType = 780 OR ftype = 780 OR FTYPE = 780)
+# not mapped: (FType = 800 OR ftype = 800 OR FTYPE = 800)
+# not mapped: (FType = 810 OR ftype = 810 OR FTYPE = 810)
+# not mapped: (FType = 820 OR ftype = 820 OR FTYPE = 820)
+# not mapped: (FType = 830 OR ftype = 830 OR FTYPE = 830)
+# (under ground or under water)
+# not mapped: (FCode = 10110 OR fcode = 10110 OR FCODE = 10110)
+# not mapped: (FCode = 10111 OR fcode = 10111 OR FCODE = 10111)
+# not mapped: (FCode = 10112 OR fcode = 10112 OR FCODE = 10112)
+# not mapped: (FCode = 10119 OR fcode = 10119 OR FCODE = 10119)
+
+501.19  (TNMFRC = 1 OR tnmfrc = 1)
+501.19  (TNMFRC = 2 OR tnmfrc = 2)
+501.8   (TNMFRC = 3 OR tnmfrc = 3)
+501.8   (TNMFRC = 4 OR tnmfrc = 4)
+501.19  (TNMFRC = 5 OR tnmfrc = 5)
+505.2   (TNMFRC = 6 OR tnmfrc = 6)
+505.2   (TNMFRC = 9 OR tnmfrc = 9)
+501.8   (TNMFRC = 99 OR tnmfrc = 99)
+505.1   (TrailType = "Terra Trail" OR trailtype = "Terra Trail" OR TRAILTYPE = "Terra Trail")
+509.1   (FCode = 20200 OR fcode = 20200 OR FCODE = 20200)
+509.1   (FCode = 20201 OR fcode = 20201 OR FCODE = 20201)
+509.1   (FCode = 20205 OR fcode = 20205 OR FCODE = 20205)
+509.2   (FCode = 20203 OR fcode = 20203 OR FCODE = 20203)
+509.2   (FCode = 20204 OR fcode = 20204 OR FCODE = 20204)
+501.5   (FCode = 20100 OR fcode = 20100 OR FCODE = 20100)
+501.5   (FCode = 20101 OR fcode = 20101 OR FCODE = 20101)
+501.5   (FCode = 20102 OR fcode = 20102 OR FCODE = 20102)
+501.5   (FCode = 20103 OR fcode = 20103 OR FCODE = 20103)
+101     (FCode = 10101 OR fcode = 10101 OR FCODE = 10101)
+102     (FCode = 10102 OR fcode = 10102 OR FCODE = 10102)
+103     (FCode = 10103 OR fcode = 10103 OR FCODE = 10103)
+101     (FCode = 10104 OR fcode = 10104 OR FCODE = 10104)
+102     (FCode = 10105 OR fcode = 10105 OR FCODE = 10105)
+103     (FCode = 10106 OR fcode = 10106 OR FCODE = 10106)
+101     (FCode = 10107 OR fcode = 10107 OR FCODE = 10107)
+102     (FCode = 10108 OR fcode = 10108 OR FCODE = 10108)
+103     (FCode = 10109 OR fcode = 10109 OR FCODE = 10109)
+101     (FCode = 10113 OR fcode = 10113 OR FCODE = 10113)
+102     (FCode = 10114 OR fcode = 10114 OR FCODE = 10114)
+103     (FCode = 10115 OR fcode = 10115 OR FCODE = 10115)
+101     (FCode = 10116 OR fcode = 10116 OR FCODE = 10116)
+101     (FCode = 10117 OR fcode = 10117 OR FCODE = 10117)
+101     (FCode = 10118 OR fcode = 10118 OR FCODE = 10118)
+101     (FCode = 10120 OR fcode = 10120 OR FCODE = 10120)
+101     (FCode = 10199 OR fcode = 10199 OR FCODE = 10199)
+305     (layer_name ~= NHDFlowline OR layer_name ~= nhdflowline) AND (FType = 460 OR ftype = 460 OR FTYPE = 460)
+305     (layer_name ~= NHDFlowline OR layer_name ~= nhdflowline) AND (FType = 336 OR ftype = 336 OR FTYPE = 336)
+306     (layer_name ~= NHDFlowline OR layer_name ~= nhdflowline) AND (FType = 468 OR ftype = 468 OR FTYPE = 468)
+301.1   (layer_name ~= NHDWaterbody OR layer_name ~= nhdwaterbody) AND (FType = 390 OR ftype = 390 OR FTYPE = 390)
+301.1   (layer_name ~= NHDWaterbody OR layer_name ~= nhdwaterbody) AND (FType = 436 OR ftype = 436 OR FTYPE = 436)
+301.1   (layer_name ~= NHDWaterbody OR layer_name ~= nhdwaterbody) AND (FType = 493 OR ftype = 493 OR FTYPE = 493)
+308     (layer_name ~= NHDWaterbody OR layer_name ~= nhdwaterbody) AND (FType = 466 OR ftype = 466 OR FTYPE = 466)
+301.1   (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 460 OR ftype = 460 OR FTYPE = 460)
+301.1   (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 336 OR ftype = 336 OR FTYPE = 336)
+301.1   (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 445 OR ftype = 445 OR FTYPE = 445)
+301.1   (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 312 OR ftype = 312 OR FTYPE = 312)
+301.1   (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 431 OR ftype = 431 OR FTYPE = 431)
+301.1   (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 398 OR ftype = 398 OR FTYPE = 398)
+310     (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 403 OR ftype = 403 OR FTYPE = 403)
+310     (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 537 OR ftype = 537 OR FTYPE = 537)
+213     (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 484 OR ftype = 484 OR FTYPE = 484)
+213     (layer_name ~= NHDArea OR layer_name ~= nhdarea) AND (FType = 364 OR ftype = 364 OR FTYPE = 364)
+312     (layer_name ~= NHDPoint OR layer_name ~= nhdpoint) AND (FType = 458 OR ftype = 458 OR FTYPE = 458)
+311     (layer_name ~= NHDPoint OR layer_name ~= nhdpoint) AND (FType = 488 OR ftype = 488 OR FTYPE = 488)
+311     (layer_name ~= NHDPoint OR layer_name ~= nhdpoint) AND (FType = 436 OR ftype = 436 OR FTYPE = 436)
+313     (layer_name ~= NHDPoint OR layer_name ~= nhdpoint) AND (FType = 487 OR ftype = 487 OR FTYPE = 487)
+204     (layer_name ~= NHDPoint OR layer_name ~= nhdpoint) AND (FType = 441 OR ftype = 441 OR FTYPE = 441)
+105     (layer_name ~= NHDLine OR layer_name ~= nhdline) AND (FType = 568 OR ftype = 568 OR FTYPE = 568)
+513.1   (layer_name ~= NHDLine OR layer_name ~= nhdline) AND (FType = 483 OR ftype = 483 OR FTYPE = 483)
+505.2   (TrailType = "Terra Trail" OR trailtype = "Terra Trail" OR TRAILTYPE = "Terra Trail") AND (OHVOver50Inches = Y OR ohvover50inches = Y OR OHVOVER50INCHES = Y)
+306     (layer_name ~= NHDFlowline OR layer_name ~= nhdflowline) AND (FType = 460 OR ftype = 460 OR FTYPE = 460) AND (FCode = 46003 OR fcode = 46003 OR FCODE = 46003)
+306     (layer_name ~= NHDFlowline OR layer_name ~= nhdflowline) AND (FType = 460 OR ftype = 460 OR FTYPE = 460) AND (FCode = 46007 OR fcode = 46007 OR FCODE = 46007)

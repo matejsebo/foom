@@ -40,6 +40,7 @@
 #include <QLabel>
 #include <QLatin1String>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QLineF>
 #include <QObject>
 #include <QPointF>
@@ -731,6 +732,21 @@ private slots:
 		QCOMPARE(recogniseGeodataDataset({ osm }), QStringLiteral("OSM"));
 		QCOMPARE(recogniseGeodataDataset({ osm, osm }), QStringLiteral("OSM"));
 		QCOMPARE(geodataDatasetTitle(QStringLiteral("OSM")), QStringLiteral("OpenStreetMap"));
+		// The National Map of the USGS: every layer of its hydrography, transportation, structures and contours.
+		auto const flowline = geoJson(QStringLiteral("tnm_flowline"), QStringLiteral("NHDFlowline"), "{\"FType\": 460, \"FCode\": 46006}");
+		auto const roads = geoJson(QStringLiteral("tnm_roads"), QStringLiteral("Trans_RoadSegment"), "{\"TNMFRC\": 4}");
+		auto const trails = geoJson(QStringLiteral("tnm_trails"), QStringLiteral("Trans_TrailSegment"), "{\"trailtype\": \"Terra Trail\"}");
+		auto const rail = geoJson(QStringLiteral("tnm_rail"), QStringLiteral("Trans_RailFeature"), "{\"fcode\": 20200}");
+		auto const contours = geoJson(QStringLiteral("tnm_contours"), QStringLiteral("Elev_Contour"), "{\"FCode\": 10101, \"ContourElevation\": 480.0}");
+		auto const structures = geoJson(QStringLiteral("tnm_structures"), QStringLiteral("Struct_Point"), "{\"FTYPE\": 730, \"FCODE\": 73002}");
+		for (auto const& file : { flowline, roads, trails, rail, contours, structures })
+			QCOMPARE(recogniseGeodataDataset({ file }), QStringLiteral("TNM"));
+		QCOMPARE(recogniseGeodataDataset({ flowline, roads, trails }), QStringLiteral("TNM"));
+		QCOMPARE(recogniseGeodataDataset({ flowline, osm }), QString());
+		// A number named fcode alone, in a layer of another name, is nobody's, and so is a road class which is no number.
+		QCOMPARE(recogniseGeodataDataset({ geoJson(QStringLiteral("not_tnm"), QStringLiteral("parcels"), "{\"fcode\": 20200}") }), QString());
+		QCOMPARE(recogniseGeodataDataset({ geoJson(QStringLiteral("tnm_text"), QStringLiteral("Trans_RoadSegment"), "{\"TNMFRC\": \"four\"}") }), QString());
+		QCOMPARE(geodataDatasetTitle(QStringLiteral("TNM")), QStringLiteral("USGS The National Map"));
 
 		// None
 		QCOMPARE(recogniseGeodataDataset({ gpkg() }), QString());
@@ -746,6 +762,7 @@ private slots:
 	{
 		addSourceDataPath();
 		auto const osm = QDir(QString::fromUtf8(MAPPER_TEST_SOURCE_DIR)).absoluteFilePath(QStringLiteral("data/osm/new-map.osm"));
+		auto const roads = geoJson(QStringLiteral("tnm_roads"), QStringLiteral("Trans_RoadSegment"), "{\"TNMFRC\": 4}");
 
 		Map map;
 		map.setSymbolSetId(QStringLiteral("ISOM 2017-2"));
@@ -756,15 +773,25 @@ private slots:
 		QVERIFY(QFileInfo::exists(choice.crt_file));
 		QCOMPARE(choice.layer_tag, GeodataImportOptions::NoLayerTag);
 
+		// The tables of The National Map tell its layers apart by their names.
+		choice = chooseImportRules({ roads }, map);
+		QCOMPARE(choice.dataset, QStringLiteral("TNM"));
+		QVERIFY2(choice.crt_file.endsWith(QLatin1String("/symbol sets/TNM-ISOM 2017-2.crt")), qPrintable(choice.crt_file));
+		QVERIFY(QFileInfo::exists(choice.crt_file));
+		QCOMPARE(choice.layer_tag, GeodataImportOptions::LayerNameTag);
+
 		map.setSymbolSetId(QStringLiteral("ISSprOM 2019"));
 		choice = chooseImportRules({ osm }, map);
 		QVERIFY(choice.crt_file.endsWith(QLatin1String("/symbol sets/OSM-ISSprOM 2019.crt")));
 		QVERIFY(QFileInfo::exists(choice.crt_file));
+		choice = chooseImportRules({ roads }, map);
+		QVERIFY(choice.crt_file.endsWith(QLatin1String("/symbol sets/TNM-ISSprOM 2019.crt")));
+		QVERIFY(QFileInfo::exists(choice.crt_file));
 
 		// No table, the dataset still named
-		map.setSymbolSetId(QStringLiteral("A set without a table"));
-		choice = chooseImportRules({ osm }, map);
-		QCOMPARE(choice.dataset, QStringLiteral("OSM"));
+		map.setSymbolSetId(QStringLiteral("ISSkiOM 2019"));
+		choice = chooseImportRules({ roads }, map);
+		QCOMPARE(choice.dataset, QStringLiteral("TNM"));
 		QVERIFY(choice.crt_file.isEmpty());
 		map.setSymbolSetId(QString());
 		choice = chooseImportRules({ osm }, map);
@@ -794,16 +821,16 @@ private slots:
 		setupMap(map);
 		map.setSymbolSetId(QStringLiteral("ISOM 2017-2"));
 		QRectF const view(-10.0, -10.0, 20.0, 20.0);
-		auto const osm = QDir(QString::fromUtf8(MAPPER_TEST_SOURCE_DIR)).absoluteFilePath(QStringLiteral("data/osm/new-map.osm"));
+		auto const roads = geoJson(QStringLiteral("tnm_roads"), QStringLiteral("Trans_RoadSegment"), "{\"TNMFRC\": 4}");
 		{
-			GeodataImportDialog dialog({ osm }, map, view);
+			GeodataImportDialog dialog({ roads }, map, view);
 			auto const options = dialog.options();
-			QCOMPARE(options.crt_file, chooseImportRules({ osm }, map).crt_file);
-			QVERIFY(options.crt_file.endsWith(QLatin1String("OSM-ISOM 2017-2.crt")));
-			QCOMPARE(options.layer_tag, GeodataImportOptions::NoLayerTag);
+			QCOMPARE(options.crt_file, chooseImportRules({ roads }, map).crt_file);
+			QVERIFY(options.crt_file.endsWith(QLatin1String("TNM-ISOM 2017-2.crt")));
+			QCOMPARE(options.layer_tag, GeodataImportOptions::LayerNameTag);
 			auto* label = child<QLabel>(dialog, "rule_choice_label");
 			QVERIFY(!label->isHidden());
-			QVERIFY2(label->text().contains(QLatin1String("OpenStreetMap")), qPrintable(label->text()));
+			QVERIFY2(label->text().contains(QLatin1String("USGS The National Map")), qPrintable(label->text()));
 
 			// Editing the field removes the line
 			child<QLineEdit>(dialog, "crt_edit")->setText(dir.filePath(QStringLiteral("other.crt")));
@@ -816,7 +843,143 @@ private slots:
 			QCOMPARE(options.layer_tag, GeodataImportOptions::NoLayerTag);
 			QVERIFY(child<QLabel>(dialog, "rule_choice_label")->isHidden());
 		}
+		// An OpenStreetMap file is read as detected whatever coordinate choice was remembered, and its
+		// layers, whose numbers of features GDAL does not count, are listed without a placeholder.
+		settings.setValue(QStringLiteral("GeodataImport/crs_mode"), QStringLiteral("unreferenced"));
+		{
+			GeodataImportDialog remembered({ gpkg() }, map, view);
+			QCOMPARE(remembered.options().crs_mode, GeodataImportOptions::CrsUnreferenced);
+			auto const osm = QDir(QString::fromUtf8(MAPPER_TEST_SOURCE_DIR)).absoluteFilePath(QStringLiteral("data/osm/new-map.osm"));
+			GeodataImportDialog dialog({ osm }, map, view);
+			QCOMPARE(dialog.options().crs_mode, GeodataImportOptions::CrsDetected);
+			QVERIFY(dialog.options().crt_file.endsWith(QLatin1String("OSM-ISOM 2017-2.crt")));
+			QVERIFY2(child<QLabel>(dialog, "rule_choice_label")->text().contains(QLatin1String("OpenStreetMap")), qPrintable(child<QLabel>(dialog, "rule_choice_label")->text()));
+			auto* list = dialog.findChild<QListWidget*>();
+			QVERIFY(list && list->count() > 0);
+			for (int i = 0; i < list->count(); ++i)
+				QVERIFY2(!list->item(i)->text().contains(QLatin1Char('%')), qPrintable(list->item(i)->text()));
+		}
 		settings.remove(QStringLiteral("GeodataImport"));
+	}
+
+	/// Accept (5)
+	void runnerChoiceTest()
+	{
+		auto const executable = QString::fromUtf8(FOOM_CLI_EXECUTABLE);
+		QVERIFY2(QFileInfo::exists(executable), qPrintable(executable));
+
+		// foom-cli finds the tables in data:/symbol sets, beside itself in a build tree.
+		auto const table = QStringLiteral("TNM-ISOM 2017-2.crt");
+		QDir const cli_dir = QFileInfo(executable).dir();
+		auto const installed = cli_dir.filePath(QStringLiteral("symbol sets/") + table);
+		auto const copied = !QFileInfo::exists(installed);
+		if (copied)
+		{
+			QVERIFY(cli_dir.mkpath(QStringLiteral("symbol sets")));
+			QVERIFY(QFile::copy(QDir(QString::fromUtf8(MAPPER_TEST_SOURCE_DIR)).absoluteFilePath(QStringLiteral("../symbol sets/") + table), installed));
+		}
+		struct Cleanup
+		{
+			bool copied;
+			QString path;
+			~Cleanup() { if (copied) QFile::remove(path); }
+		} const cleanup { copied, installed };
+
+		// The road layer of The National Map with two of its road classes.
+		auto const data = dir.filePath(QStringLiteral("tnm.gpkg"));
+		{
+			auto* driver = GDALGetDriverByName("GPKG");
+			QVERIFY(driver);
+			auto* dataset = GDALCreate(driver, data.toUtf8().constData(), 0, 0, 0, GDT_Unknown, nullptr);
+			QVERIFY(dataset);
+			auto* srs = OSRNewSpatialReference(nullptr);
+			QCOMPARE(OSRImportFromEPSG(srs, 32613), OGRERR_NONE);
+			auto* layer = GDALDatasetCreateLayer(dataset, "Trans_RoadSegment", srs, wkbLineString, nullptr);
+			QVERIFY(layer);
+			auto* field = OGR_Fld_Create("TNMFRC", OFTInteger);
+			OGR_L_CreateField(layer, field, TRUE);
+			OGR_Fld_Destroy(field);
+			addFeature(layer, wkbLineString, { { 500000, 5000000 }, { 500050, 5000000 } }, { { "TNMFRC", "1" } });  // controlled-access highway
+			addFeature(layer, wkbLineString, { { 500000, 5000020 }, { 500050, 5000020 } }, { { "TNMFRC", "6" } });  // 4WD
+			OSRDestroySpatialReference(srs);
+			GDALClose(dataset);
+		}
+
+		Map map;
+		QVERIFY(map.loadFrom(QDir(QString::fromUtf8(MAPPER_TEST_SOURCE_DIR)).absoluteFilePath(QStringLiteral("../symbol sets/10000/ISOM 2017-2_10000.omap"))));
+		QCOMPARE(map.symbolSetId(), QStringLiteral("ISOM 2017-2"));
+		Georeferencing georef;
+		georef.setScaleDenominator(10000);
+		georef.setProjectedCRS(QStringLiteral("UTM 13"), QStringLiteral("+proj=utm +zone=13 +datum=WGS84"));
+		georef.setProjectedRefPoint(QPointF(ref_e, ref_n), false, false);
+		map.setGeoreferencing(georef);
+		auto const map_path = dir.filePath(QStringLiteral("isom.omap"));
+		QVERIFY(FileFormats.findFormat("XML")->makeExporter(map_path, &map, nullptr)->doExport());
+
+		auto run = [&](const QString& name, QJsonObject import_step, QStringList& symbols, QJsonObject& details) -> bool {
+			import_step.insert(QStringLiteral("step"), QStringLiteral("import"));
+			import_step.insert(QStringLiteral("path"), data);
+			auto const out = dir.filePath(name + QStringLiteral(".foom"));
+			auto const job = QJsonObject{ { QStringLiteral("steps"), QJsonArray{
+			    QJsonObject{ { QStringLiteral("step"), QStringLiteral("open") }, { QStringLiteral("path"), map_path } },
+			    import_step,
+			    QJsonObject{ { QStringLiteral("step"), QStringLiteral("save-as") }, { QStringLiteral("path"), out } },
+			} } };
+			auto const job_path = dir.filePath(name + QStringLiteral(".json"));
+			QFile file(job_path);
+			if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+				return false;
+			file.write(QJsonDocument(job).toJson());
+			file.close();
+
+			QProcess process;
+			auto env = QProcessEnvironment::systemEnvironment();
+			env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
+			process.setProcessEnvironment(env);
+			process.start(executable, { QStringLiteral("--run"), job_path });
+			if (!process.waitForFinished(120000) || process.exitCode() != 0)
+			{
+				qWarning("%s", process.readAllStandardError().constData());
+				return false;
+			}
+			for (auto const& line : process.readAllStandardOutput().split('\n'))
+			{
+				auto const object = QJsonDocument::fromJson(line).object();
+				if (object.value(QStringLiteral("step")).toString() == QLatin1String("import"))
+					details = object;
+			}
+			Map result;
+			if (!result.loadFrom(out))
+				return false;
+			result.applyOnAllObjects([&](const Object* object) {
+				symbols.push_back(object->getSymbol()->getNumberAsString());
+			});
+			// The symbol set file has objects of its own.
+			Map before;
+			if (!before.loadFrom(map_path))
+				return false;
+			before.applyOnAllObjects([&](const Object* object) {
+				symbols.removeOne(object->getSymbol()->getNumberAsString());
+			});
+			symbols.sort();
+			return true;
+		};
+
+		QStringList symbols;
+		QJsonObject details;
+		QVERIFY(run(QStringLiteral("chosen"), {}, symbols, details));
+		QCOMPARE(symbols, (QStringList{ QStringLiteral("502"), QStringLiteral("504") }));
+		QCOMPARE(details.value(QStringLiteral("dataset")).toString(), QStringLiteral("TNM"));
+		QVERIFY2(details.value(QStringLiteral("crt")).toString().endsWith(table), QJsonDocument(details).toJson().constData());
+
+		symbols.clear();
+		details = {};
+		QVERIFY(run(QStringLiteral("none"), { { QStringLiteral("crt"), false } }, symbols, details));
+		// The default symbols may share numbers with the symbol set's objects; the step reports the count.
+		// (OOM's plain import, taken here, adds one object for the two lines; that is not this test's matter.)
+		QVERIFY2(details.value(QStringLiteral("objects")).toInt() > 0, QJsonDocument(details).toJson().constData());
+		QVERIFY2(!symbols.contains(QStringLiteral("502")) && !symbols.contains(QStringLiteral("504")), qPrintable(symbols.join(QLatin1Char(' '))));
+		QVERIFY(!details.contains(QStringLiteral("dataset")));
 	}
 
 private:

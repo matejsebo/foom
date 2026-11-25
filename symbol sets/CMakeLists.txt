@@ -55,6 +55,9 @@ set(Mapper_CRT_FILES
   "./OSM-ISOM 2017-2.crt"
   "./OSM-ISSkiOM 2019.crt"
   "./OSM-ISSprOM 2019.crt"
+  # foom: import rule tables of national datasets
+  "./TNM-ISOM 2017-2.crt"
+  "./TNM-ISSprOM 2019.crt"
 )
 
 set(symbol_sets)

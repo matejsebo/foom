@@ -41,6 +41,7 @@ bool loadCrtRules(const QString& path, const Map& symbol_set, const Map& object_
 	}
 	
 	QTextStream stream(&file);
+	stream.setCodec("UTF-8");  // the shipped rule tables are written in UTF-8
 	rules = SymbolRuleSet::loadCrt(stream, symbol_set);
 	if (stream.status() != QTextStream::Ok)
 	{

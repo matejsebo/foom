@@ -80,11 +80,49 @@ bool readSignature(const QString& path, FileSignature& signature)
 	return true;
 }
 
+bool isInteger(OGRFieldType type)
+{
+	return type == OFTInteger || type == OFTInteger64;
+}
+
+/// The field's type in a layer whose name passes the test; false when there is none.
+template <class LayerTest>
+bool findField(const FileSignature& signature, const char* field, LayerTest layer_test, OGRFieldType* type = nullptr)
+{
+	auto const name = QString::fromLatin1(field);
+	for (auto const& layer : signature.layers)
+	{
+		if (!layer_test(layer.name))
+			continue;
+		auto const found = layer.fields.find(name);
+		if (found == layer.fields.end())
+			continue;
+		if (type)
+			*type = found->second;
+		return true;
+	}
+	return false;
+}
+
 /// The datasets, in the order in which they are tried.
 QString recogniseFile(const FileSignature& s)
 {
+	auto const any = [](const QString&) { return true; };
+
 	if (s.driver == QLatin1String("OSM"))
 		return QStringLiteral("OSM");
+	// foom: The National Map of the U.S. Geological Survey: the road class, the trail type, the contours'
+	// elevation, or the two class numbers of the hydrography and the structures; the railways and runways,
+	// which have the one number only, by their layers.
+	auto const transportation = [](const QString& name) { return name.contains(QLatin1String("trans_")); };
+	OGRFieldType type;
+	OGRFieldType second;
+	if ((findField(s, "tnmfrc", any, &type) && isInteger(type))
+	    || findField(s, "trailtype", any)
+	    || findField(s, "contourelevation", any)
+	    || (findField(s, "ftype", any, &type) && isInteger(type) && findField(s, "fcode", any, &second) && isInteger(second))
+	    || (findField(s, "fcode", transportation, &type) && isInteger(type)))
+		return QStringLiteral("TNM");
 	return {};
 }
 
@@ -113,6 +151,8 @@ QString geodataDatasetTitle(const QString& dataset)
 {
 	if (dataset == QLatin1String("OSM"))
 		return QStringLiteral("OpenStreetMap");
+	if (dataset == QLatin1String("TNM"))
+		return QStringLiteral("USGS The National Map");
 	return dataset;
 }
 
@@ -123,6 +163,9 @@ ImportRuleChoice chooseImportRules(const QStringList& paths, const Map& map)
 	choice.dataset = recogniseGeodataDataset(paths);
 	if (choice.dataset.isEmpty())
 		return choice;
+
+	if (choice.dataset == QLatin1String("TNM"))
+		choice.layer_tag = GeodataImportOptions::LayerNameTag;
 
 	auto const id = map.symbolSetId();
 	if (id.isEmpty())

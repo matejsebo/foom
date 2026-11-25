@@ -340,6 +340,10 @@ void GeodataImportDialog::restoreOptions()
 void GeodataImportDialog::applyRuleChoice()
 {
 	auto const choice = chooseImportRules(paths, map);
+	// foom: OpenStreetMap data are in WGS 84 by their nature; a remembered choice of another system, or of none
+	// (seen 2026-11-24: an .osm file opened on "Unreferenced" after an import of plain numbers), is not theirs.
+	if (choice.dataset == QLatin1String("OSM") && detected_radio->isEnabled())
+		detected_radio->setChecked(true);
 	if (choice.crt_file.isEmpty())
 		return;
 	symbols_combo->setCurrentIndex(symbols_combo->findData(int(CrtSymbols)));
@@ -394,7 +398,10 @@ void GeodataImportDialog::fillLayers()
 			geometry = tr("mixed");
 			break;
 		}
-		auto* item = new QListWidgetItem(tr("%1 (%2, %n feature(s))", nullptr, int(entry.features)).arg(name, geometry), layer_list);
+		// foom: a layer whose number of features is not known (OpenStreetMap files) showed the placeholder itself
+		auto const title = entry.features >= 0 ? tr("%1 (%2, %n feature(s))", nullptr, int(entry.features)).arg(name, geometry)
+		                                        : tr("%1 (%2)").arg(name, geometry);
+		auto* item = new QListWidgetItem(title, layer_list);
 		item->setData(Qt::UserRole, name);
 		item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
 		item->setCheckState(Qt::Checked);
