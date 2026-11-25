@@ -576,6 +576,10 @@ RasterProduct hypsometricRaster(const ElevationModel& grid, const HypsometricPar
 	case HypsometricParams::RedGreenBlue:
 		stops = { qRgb(0, 0, 255), qRgb(0, 255, 255), qRgb(0, 255, 0), qRgb(255, 255, 0), qRgb(255, 0, 0) };
 		break;
+	// The next two are ColorBrewer schemes: Copyright (c) 2002 Cynthia Brewer, Mark Harrower, and
+	// The Pennsylvania State University, under the Apache-Style Software License for ColorBrewer
+	// software and ColorBrewer Color Schemes (http://colorbrewer.org/). The licensing page has
+	// the acknowledgement which that licence asks for.
 	case HypsometricParams::RedYellowGreen:    // ColorBrewer's RdYlGn of five classes
 		stops = { qRgb(26, 150, 65), qRgb(166, 217, 106), qRgb(255, 255, 191), qRgb(253, 174, 97), qRgb(215, 25, 28) };
 		break;
