@@ -78,6 +78,7 @@
 #include "elevation/raster_products.h"  // foom
 #include "core/map.h"
 #include "core/open_backup.h"  // foom
+#include "core/map_color.h"
 #include "core/map_coord.h"
 #include "core/map_printer.h"
 #include "core/print_output.h"
@@ -275,6 +276,26 @@ std::vector<QString> hiddenWarnings(const Map& map)
 		warnings.push_back(warning);
 	}
 	return warnings;
+}
+
+/**
+ * The colours which lose their blend mode in vector output, as one warning.
+ * the design notes, third change of "Print and raster output".
+ */
+std::vector<QString> blendWarnings(const Map& map)
+{
+	QStringList names;
+	for (auto const* colour : blendColoursInUse(map))
+	{
+		QString name = colour->getName();
+		name += QLatin1String(colour->getBlendMode() == MapColor::BlendMultiply ? " (multiply)" : " (darken)");
+		names.append(name);
+	}
+	if (names.isEmpty())
+		return {};
+	QString warning = QStringLiteral("blend modes are not in vector output, drawn as normal: ");
+	warning += names.join(QLatin1String(", "));
+	return { warning };
 }
 
 QString cannotOpen(const QString& path)
@@ -2161,6 +2182,8 @@ StepResult StepRunner::exportPdf(const Step& step, const QString& path)
 	result.details.insert(QLatin1String("format"), QStringLiteral("pdf"));
 	result.details.insert(QLatin1String("pages"), int(printer.horizontalPagePositions().size() * printer.verticalPagePositions().size() + printer.backSides().size()));
 	addWarnings(result, hiddenWarnings(*map));
+	if (printer.getOptions().mode == MapPrinterOptions::Vector)  // foom
+		addWarnings(result, blendWarnings(*map));
 	return result;
 }
 

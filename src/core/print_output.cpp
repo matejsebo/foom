@@ -194,6 +194,39 @@ HiddenContent hiddenContent(const Map& map)
 }
 
 
+std::vector<const MapColor*> blendColoursInUse(const Map& map)
+{
+	std::vector<const MapColor*> colours;
+	for (int i = 0; i < map.getNumColors(); ++i)
+	{
+		auto const* colour = map.getColor(i);
+		if (colour && colour->getBlendMode() != MapColor::BlendNormal)
+			colours.push_back(colour);
+	}
+	if (colours.empty())
+		return colours;
+	
+	// The symbols which the output draws.
+	std::vector<const Symbol*> drawn;
+	for (int p = 0; p < map.getNumParts(); ++p)
+	{
+		auto const* part = map.getPart(std::size_t(p));
+		if (!part->isVisible())
+			continue;
+		for (int i = 0; i < part->getNumObjects(); ++i)
+		{
+			auto const* symbol = part->getObject(i)->getSymbol();
+			if (symbol && !symbol->isHidden() && std::find(drawn.begin(), drawn.end(), symbol) == drawn.end())
+				drawn.push_back(symbol);
+		}
+	}
+	colours.erase(std::remove_if(colours.begin(), colours.end(), [&drawn](const MapColor* colour) {
+		return std::none_of(drawn.begin(), drawn.end(), [colour](const Symbol* symbol) { return symbol->containsColor(colour); });
+	}), colours.end());
+	return colours;
+}
+
+
 void drawPlateTemplates(QPainter* painter, const Map& map, const MapColor* color, const QRectF& area, const MapView* view)
 {
 	if (!color)

@@ -70,6 +70,7 @@
 #include <QSizeF>
 #include <QSpacerItem>
 #include <QSpinBox>
+#include <QStringList>
 #include <QStringRef>
 #include <QStyle>
 #include <QStyleOption>
@@ -84,6 +85,7 @@
 
 #include "core/georeferencing.h"
 #include "core/map.h"
+#include "core/map_color.h"  // foom
 #include "core/map_coord.h"
 #include "core/extent_printing.h"  // foom
 #include "core/extents.h"  // foom
@@ -1320,6 +1322,35 @@ void PrintWidget::printClicked()
 		text += tr("Continue?");
 		if (QMessageBox::question(this, tr("Warning"), text, QMessageBox::Ok | QMessageBox::Cancel) == QMessageBox::Cancel)
 			return;
+	}
+	
+	// foom: the design notes, third change of "Print and raster output":
+	// vector output draws a colour with a blend mode as a normal colour.
+	if (map_printer->getOptions().mode == MapPrinterOptions::Vector
+	    && map_printer->getTarget() != MapPrinter::imageTarget()
+	    && map_printer->getTarget() != MapPrinter::kmzTarget())
+	{
+		QStringList lines;
+		for (auto const* colour : blendColoursInUse(*map))
+		{
+			QString line = colour->getName();
+			line += QLatin1String(" (");
+			line += colour->getBlendMode() == MapColor::BlendMultiply ? tr("Multiply") : tr("Darken");
+			line += QLatin1Char(')');
+			lines.append(line);
+		}
+		if (!lines.isEmpty())
+		{
+			QString text = tr("Vector graphics cannot show blend modes. These colours will be drawn as normal colours:");
+			text += QLatin1String("\n\n");
+			text += lines.join(QLatin1Char('\n'));
+			text += QLatin1String("\n\n");
+			text += tr("Choose raster graphics to have them blended.");
+			text += QLatin1String("\n\n");
+			text += tr("Continue?");
+			if (QMessageBox::question(this, tr("Warning"), text, QMessageBox::Ok | QMessageBox::Cancel) == QMessageBox::Cancel)
+				return;
+		}
 	}
 	
 #ifdef MAPPER_USE_GDAL

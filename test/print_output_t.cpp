@@ -717,6 +717,51 @@ private slots:
 		}
 	}
 
+	/// Accept (20): vector output says which colours lose their blend mode.
+	void blendWarningTest()
+	{
+		auto const names = [](const Map& map) {
+			QStringList list;
+			for (auto const* colour : blendColoursInUse(map))
+				list.append(colour->getName());
+			return list;
+		};
+		{
+			Map normal;
+			setupBlendMap(normal, MapColor::BlendNormal, MapColor::BlendNormal);
+			QVERIFY(blendColoursInUse(normal).empty());
+		}
+		Map map;
+		setupBlendMap(map, MapColor::BlendMultiply, MapColor::BlendDarken);
+		auto* unused = addColor(map, QStringLiteral("Unused"), { 0.0f, 1.0f, 0.0f, 0.0f });
+		unused->setBlendMode(MapColor::BlendMultiply);
+		addArea(map, QStringLiteral("Unused area"), 4, unused);
+		QCOMPARE(names(map), (QStringList{ QStringLiteral("Cyan"), QStringLiteral("Light cyan") }));
+		
+		auto const map_path = file("blend-warning.foom");
+		QVERIFY(saveMap(map, map_path));
+		for (auto const* variant : { "vector", "raster", "png" })
+		{
+			QJsonObject export_step {
+				{ QStringLiteral("path"), file(qstrcmp(variant, "png") == 0 ? "blend-warning.png" : "blend-warning.pdf") },
+				{ QStringLiteral("extent"), QJsonArray{ 0, 0, 20, 10 } },
+				{ QStringLiteral("dpi"), 254 },
+			};
+			if (qstrcmp(variant, "raster") == 0)
+				export_step.insert(QStringLiteral("mode"), QStringLiteral("raster"));
+			QByteArray output;
+			QVERIFY2(runJob(jobOf(map_path, export_step), file("blend-warning.json"), &output) == 0, output.constData());
+			auto const warned = output.contains("Cyan (multiply)") && output.contains("Light cyan (darken)");
+			QVERIFY2(warned == (qstrcmp(variant, "vector") == 0), output.constData());
+		}
+		
+		// What is hidden is not in the output and is not named.
+		map.getSymbol(1)->setHidden(true);
+		QCOMPARE(names(map), QStringList{ QStringLiteral("Light cyan") });
+		map.getPart(0)->setVisible(false);
+		QVERIFY(blendColoursInUse(map).empty());
+	}
+	
 	/// Accept (12)
 	void georeferencedTiffTest()
 	{

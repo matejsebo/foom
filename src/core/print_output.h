@@ -66,6 +66,16 @@ struct HiddenContent
 /** Lists what an output of the map will not show because it is hidden. */
 HiddenContent hiddenContent(const Map& map);
 
+/**
+ * The colours with a blend mode other than normal which the output draws:
+ * those of symbols which are not hidden and have objects in visible parts,
+ * in the order of the colour list.
+ *
+ * Vector output cannot show blend modes and draws these colours as normal
+ * ones, so print and export name them before they go on.
+ */
+std::vector<const MapColor*> blendColoursInUse(const Map& map);
+
 
 /** One plate of the print area: 8 bit per pixel, 0 for no ink, 255 for full ink. */
 struct RasterPlate
