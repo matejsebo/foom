@@ -40,13 +40,13 @@ which is available from https://www.qt.io/download-open-source/.
 
 Download a zip or tar.gz source code archive from
 
-https://github.com/OpenOrienteering/mapper/releases
+https://github.com/matejsebo/foom/releases
 
 and unpack it, or checkout the source code with git:
 
 
 ```
-git clone https://github.com/OpenOrienteering/mapper.git
+git clone https://github.com/matejsebo/foom.git
 ```
 
 
@@ -115,7 +115,7 @@ FOOM repository (or use a source archive), as
 written above.
 
 ```
-git clone https://github.com/OpenOrienteering/mapper.git
+git clone https://github.com/matejsebo/foom.git
 ```
 
 Run Qt Creator:

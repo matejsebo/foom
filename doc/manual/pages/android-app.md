@@ -27,7 +27,3 @@ the desktop version, so please read this first for important instructions.
 
 [Using the FOOM app in "Touch Mode"](touch-mode.md){: .subpage}
 
-{% if doxygen %}
-**Note:** The [online version](https://www.openorienteering.org/mapper-manual/android-app/) of this documentation may contain additions and corrections.
-{% endif %}
-

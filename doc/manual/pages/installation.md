@@ -5,17 +5,10 @@ nav_order: 0.02
 ---
 
 FOOM runs on Android, Windows, macOS and Linux.
-Visit <https://www.openorienteering.org/apps/mapper/> to find downloads.
-Apart from stable releases, the web site offers packages from other branches
-of development.
+Visit <https://github.com/matejsebo/foom/releases> to find downloads.
 
-When the website is able to recognize the visitor's operating system,
-the download button will point right to the recommended package, and
-another link will bring you to the main page of this release.
-
-The main page of a particular release is also the target of the download button
-when the operating system cannot be identified. Apart from important notes,
-it has an "Assets" section with the full list of alternative downloads
+The page of a particular release has, apart from important notes,
+an "Assets" section with the full list of downloads
 for Windows, macOS and Android.
 
 

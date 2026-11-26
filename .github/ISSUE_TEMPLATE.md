@@ -10,5 +10,5 @@ Tell us what happens
 Tell us what should happen instead
 
 ### Configuration
-Mapper Version:
+FOOM version:
 Operating System:

@@ -32,9 +32,8 @@
 
 \section links Web Links
 
-- <a href="https://github.com/OpenOrienteering/mapper">OpenOrienteering Mapper repository on GitHub</a>
-- <a href="https://github.com/OpenOrienteering/mapper/issues">OpenOrienteering Mapper issues</a>
-- <a href="https://github.com/OpenOrienteering/mapper/wiki">OpenOrienteering Mapper developer wiki</a>
+- <a href="https://github.com/matejsebo/foom">FOOM repository on GitHub</a>
+- <a href="https://github.com/matejsebo/foom/issues">FOOM issues</a>
 - <a href="http://doc.qt.io/qt-5">Qt 5 documentation</a>
 - <a href="https://cmake.org/documentation/">CMake documentation</a>
 - <a href="http://www.stack.nl/~dimitri/doxygen/manual/">Doxygen documentation</a>

@@ -7,10 +7,6 @@ redirect_from:
 nav_order: 0.01
 ---
 
-{% if doxygen %}
-**Note:** The [online version](https://www.openorienteering.org/mapper-manual/) of this documentation may contain additions and corrections.
-{% endif %}
-
 ## Contents
 
 [Installation](installation.md){: .subpage}
@@ -55,11 +51,8 @@ Frequently asked questions.
 
 ## Online resources
 
-[Blog](https://www.openorienteering.org/)
-The latest news from OpenOrienteering.
-
-[Issues list](https://github.com/OpenOrienteering/mapper/issues)
+[Issues list](https://github.com/matejsebo/foom/issues)
 Submit feedback, bug reports, feature requests, and contributions.
 
-[Releases](https://github.com/OpenOrienteering/mapper/releases)
+[Releases](https://github.com/matejsebo/foom/releases)
 Releases, with links to change information and known issues.
