@@ -68,6 +68,12 @@ struct MapService
 	QString password;
 
 
+	/**
+	 * What the program calls itself towards the servers: its name and version and where it comes from,
+	 * as the public tile servers ask for.
+	 */
+	static QByteArray userAgent();
+	
 	/** Equality of everything that is saved. */
 	bool operator==(const MapService& other) const;
 	bool operator!=(const MapService& other) const { return !(*this == other); }

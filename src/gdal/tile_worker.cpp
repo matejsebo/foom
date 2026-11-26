@@ -36,7 +36,7 @@
 #include <cpl_string.h>
 #include <ogr_srs_api.h>
 
-#include "mapper_config.h"
+#include "gdal/map_service.h"
 
 namespace OpenOrienteering {
 
@@ -153,7 +153,7 @@ bool TileWorker::open(const QByteArray& gdal_source, const QString& map_crs_spec
 		handler_installed = true;
 	}
 	CPLSetThreadLocalConfigOption("GDAL_HTTP_TIMEOUT", "10");
-	CPLSetThreadLocalConfigOption("GDAL_HTTP_USERAGENT", "FOOM/" APP_VERSION);
+	CPLSetThreadLocalConfigOption("GDAL_HTTP_USERAGENT", MapService::userAgent().constData());
 	CPLSetThreadLocalConfigOption("GDAL_HTTP_USERPWD", user.isEmpty() ? nullptr : (user + QLatin1Char(':') + password).toUtf8().constData());
 
 	auto const fail = [error](const QString& message) {

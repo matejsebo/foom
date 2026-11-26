@@ -467,7 +467,7 @@ void MapServiceDialog::connectClicked()
 	connect_button->setEnabled(false);
 	QNetworkRequest request(url);
 	request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-	request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("FOOM"));
+	request.setHeader(QNetworkRequest::UserAgentHeader, MapService::userAgent());
 	network->get(request);
 }
 

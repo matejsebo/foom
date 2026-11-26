@@ -165,6 +165,17 @@ private slots:
 		QCOMPARE(presets[0].kind, MapService::Xyz);
 	}
 
+	/// The program tells the servers its name, its version and where it comes from.
+	void userAgentTest()
+	{
+		auto const agent = MapService::userAgent();
+		QVERIFY2(agent.startsWith("FOOM/"), agent.constData());
+		QVERIFY2(agent.endsWith(" (+https://github.com/matejsebo/foom)"), agent.constData());
+		auto const presets = MapService::onlinePresets();
+		QVERIFY(!presets.empty());
+		QVERIFY(presets[0].gdalSource({}).contains("<UserAgent>" + agent + "</UserAgent>"));
+	}
+
 	/// The United States first, Accept (1) and (2): the National Map's WMS services.
 	void usgsPresetsTest()
 	{

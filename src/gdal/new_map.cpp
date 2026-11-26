@@ -362,7 +362,7 @@ bool downloadUsgsElevation(const QString& endpoint, const QRectF& area, int epsg
 {
 	QNetworkAccessManager network;
 	QNetworkRequest request{ newMapUsgsElevationRequest(endpoint, area, epsg, cell) };
-	request.setHeader(QNetworkRequest::UserAgentHeader, QByteArray("FOOM"));
+	request.setHeader(QNetworkRequest::UserAgentHeader, MapService::userAgent());
 	std::unique_ptr<QNetworkReply> reply;
 	auto status = 0;
 	// The service answered one request of 2026-11-24 with 502 and the same request with a grid a minute later:
@@ -432,7 +432,7 @@ bool downloadOverpass(const QString& endpoint, const GeoBox& box, const QString&
 		
 		QNetworkRequest request{ QUrl(endpoint) };
 		request.setHeader(QNetworkRequest::ContentTypeHeader, QByteArray("application/x-www-form-urlencoded"));
-		request.setHeader(QNetworkRequest::UserAgentHeader, QByteArray("FOOM"));
+		request.setHeader(QNetworkRequest::UserAgentHeader, MapService::userAgent());
 		std::unique_ptr<QNetworkReply> reply(network.post(request, body));
 		QEventLoop loop;
 		QObject::connect(reply.get(), &QNetworkReply::finished, &loop, &QEventLoop::quit);

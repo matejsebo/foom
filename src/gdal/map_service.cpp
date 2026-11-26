@@ -307,7 +307,7 @@ QByteArray MapService::gdalSource(const QString& cache_dir) const
 	// foom: a WMS draws every picture when it is asked for, and the image services of The National Map took up to
 	// 24 s for one of 1024 pixels on 2026-11-24; a tile cache answers at once or not at all.
 	writeElement(xml, "Timeout", kind == Xyz ? QStringLiteral("10") : QStringLiteral("60"));
-	writeElement(xml, "UserAgent", QStringLiteral("FOOM/" APP_VERSION));
+	writeElement(xml, "UserAgent", QString::fromLatin1(userAgent()));
 	writeElement(xml, "ZeroBlockHttpCodes", QStringLiteral("204,404"));
 	writeElement(xml, "ZeroBlockOnServerException", QStringLiteral("true"));
 	if (!user.isEmpty())
@@ -479,6 +479,13 @@ std::vector<MapService> MapService::fromSettings()
 	}
 	return result;
 }
+
+// static
+QByteArray MapService::userAgent()
+{
+	return QByteArrayLiteral("FOOM/" APP_VERSION " (+https://github.com/matejsebo/foom)");
+}
+
 
 // static
 void MapService::toSettings(const std::vector<MapService>& services)
