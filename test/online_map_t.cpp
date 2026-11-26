@@ -38,6 +38,7 @@
 #include <QTemporaryDir>
 #include <QUrl>
 
+#include <cpl_conv.h>
 #include <gdal.h>
 #include <ogr_srs_api.h>
 
@@ -48,6 +49,7 @@
 #include "core/map.h"
 #include "core/map_coord.h"
 #include "elevation/raster_products.h"
+#include "gdal/gdal_manager.h"
 #include "gdal/map_service.h"
 #include "gdal/online_map.h"
 #include "templates/template.h"
@@ -174,6 +176,48 @@ private slots:
 		auto const presets = MapService::onlinePresets();
 		QVERIFY(!presets.empty());
 		QVERIFY(presets[0].gdalSource({}).contains("<UserAgent>" + agent + "</UserAgent>"));
+	}
+
+	/// A package which brings certificates along names them to GDAL, since the
+	/// HTTPS library of such a package looks for them outside the package's folder.
+	void certificatesTest()
+	{
+		qunsetenv("CURL_CA_BUNDLE");
+		qunsetenv("SSL_CERT_FILE");
+		qunsetenv("GDAL_CURL_CA_BUNDLE");
+		auto const configure = [] {
+			// A change of a setting makes the manager read its configuration again.
+			GdalManager manager;
+			manager.setFormatEnabled(GdalManager::GPX, manager.isFormatEnabled(GdalManager::GPX));
+			manager.configure();
+		};
+		
+		CPLSetConfigOption("GDAL_CURL_CA_BUNDLE", nullptr);
+		configure();
+		QVERIFY(!CPLGetConfigOption("GDAL_CURL_CA_BUNDLE", nullptr));
+		
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		QVERIFY(QDir(dir.path()).mkpath(QStringLiteral("ssl")));
+		auto const bundle = QDir(dir.path()).absoluteFilePath(QStringLiteral("ssl/ca-bundle.crt"));
+		{
+			QFile file(bundle);
+			QVERIFY(file.open(QIODevice::WriteOnly));
+			file.write("# certificates\n");
+		}
+		auto const search_paths = QDir::searchPaths(QStringLiteral("data"));
+		QDir::addSearchPath(QStringLiteral("data"), dir.path());
+		configure();
+		QCOMPARE(QString::fromLocal8Bit(CPLGetConfigOption("GDAL_CURL_CA_BUNDLE", "")), QDir::toNativeSeparators(bundle));
+		
+		// A file which the user names in the environment is left alone.
+		CPLSetConfigOption("GDAL_CURL_CA_BUNDLE", nullptr);
+		qputenv("CURL_CA_BUNDLE", "elsewhere.crt");
+		configure();
+		QVERIFY(!CPLGetConfigOption("GDAL_CURL_CA_BUNDLE", nullptr));
+		
+		qunsetenv("CURL_CA_BUNDLE");
+		QDir::setSearchPaths(QStringLiteral("data"), search_paths);
 	}
 
 	/// The United States first, Accept (1) and (2): the National Map's WMS services.

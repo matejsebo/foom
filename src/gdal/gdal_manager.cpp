@@ -340,6 +340,12 @@ private:
 			CPLSetConfigOption("GDAL_DATA", QDir::toNativeSeparators(gdal_data).toLocal8Bit());
 		}
 		
+		// foom: The certificates for HTTPS, where a package brings them along.
+		// The user may name another file in the settings or in the environment.
+		auto ca_bundle = QFileInfo(QLatin1String("data:/ssl/ca-bundle.crt"));
+		if (ca_bundle.exists() && !CPLGetConfigOption("CURL_CA_BUNDLE", nullptr) && !CPLGetConfigOption("SSL_CERT_FILE", nullptr))
+			CPLSetConfigOption("GDAL_CURL_CA_BUNDLE", QDir::toNativeSeparators(ca_bundle.absoluteFilePath()).toLocal8Bit());
+		
 		const char* defaults[][2] = {
 		    { "CPL_DEBUG",               "OFF" },
 		    { "USE_PROJ_480_FEATURES",   "YES" },
