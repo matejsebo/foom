@@ -157,7 +157,7 @@ if(WIN32)
 		# A path to the executable that contains the uninstaller icon.
 		set(CPACK_NSIS_INSTALLED_ICON_NAME FOOM.exe)
 		# URL to a web site providing more information about your application.
-		set(CPACK_NSIS_URL_INFO_ABOUT "https://www.openorienteering.org/apps/mapper/")
+		set(CPACK_NSIS_URL_INFO_ABOUT "https://github.com/matejsebo/foom")
 		# Extra NSIS include
 		configure_file(windows/custom.nsi.in windows/custom.nsi @ONLY)
 		set(CPACK_NSIS_DEFINES "!include \\\"${CMAKE_CURRENT_BINARY_DIR}\\\\windows\\\\custom.nsi\\\"")
@@ -179,7 +179,7 @@ elseif(APPLE)
 	set_target_properties(Mapper PROPERTIES
 	  MACOSX_BUNDLE_INFO_STRING          "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}"
 	  MACOSX_BUNDLE_ICON_FILE            "Mapper.icns"
-	  MACOSX_BUNDLE_GUI_IDENTIFIER       "org.openorienteering.foom"
+	  MACOSX_BUNDLE_GUI_IDENTIFIER       "io.github.matejsebo.foom"
 	  MACOSX_BUNDLE_LONG_VERSION_STRING  "FOOM ${Mapper_VERSION_DISPLAY} for macOS"
 	  MACOSX_BUNDLE_BUNDLE_NAME          "FOOM" # less than 16 characters long
 	  MACOSX_BUNDLE_SHORT_VERSION_STRING "${Mapper_VERSION_MAJOR}.${Mapper_VERSION_MINOR}.${Mapper_VERSION_PATCH}"
@@ -211,7 +211,7 @@ elseif(UNIX AND EXISTS /usr/bin/dpkg AND EXISTS /usr/bin/lsb_release)
 	)
 	set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Matej Šebo <10730237+matejsebo@users.noreply.github.com>")
 	set(CPACK_DEBIAN_SECTION            "graphics")
-	set(CPACK_DEBIAN_PACKAGE_HOMEPAGE   "https://www.openorienteering.org/apps/mapper/")
+	set(CPACK_DEBIAN_PACKAGE_HOMEPAGE   "https://github.com/matejsebo/foom")
 	
 endif()
 

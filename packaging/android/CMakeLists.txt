@@ -34,12 +34,12 @@ set(MAPPER_APP_ID "default" CACHE STRING
   "Mapper Android App ID, either an explicit ID, or 'default'"
 )
 if(MAPPER_APP_ID STREQUAL "default" OR NOT MAPPER_APP_ID)
-	# 'default' means 'org.openorienteering.mapper' plus suffix on custom version.
+	# 'default' means 'io.github.matejsebo.foom' plus suffix on custom version.
 	# Hiding the cached setting by transient variable.
 	if("${Mapper_VERSION_DISPLAY}" STREQUAL "${Mapper_VERSION}")
-		set(MAPPER_APP_ID "org.openorienteering.mapper")
+		set(MAPPER_APP_ID "io.github.matejsebo.foom")
 	else()
-		set(MAPPER_APP_ID "org.openorienteering.mapper.developer")
+		set(MAPPER_APP_ID "io.github.matejsebo.foom.developer")
 	endif()
 endif()
 
