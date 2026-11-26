@@ -31,6 +31,38 @@ FunctionEnd
 !define SHCNE_ASSOCCHANGED 0x8000000
 !define SHCNF_IDLIST 0
 
+!include "LogicLib.nsh"
+
+; foom: A file type which another program has is taken, and that program is
+; remembered, so that uninstalling gives the type back to it.
+!macro TakeFileType EXT
+  ReadRegStr $R0 HKLM "Software\Classes\${EXT}" ""
+  ${If} $R0 != ""
+  ${AndIf} $R0 != "FOOM.Map"
+    WriteRegStr HKLM "Software\Classes\FOOM.Map\Previous" "${EXT}" "$R0"
+  ${EndIf}
+  WriteRegStr HKLM "Software\Classes\${EXT}" "" "FOOM.Map"
+  WriteRegStr HKLM "Software\Classes\${EXT}" "PerceivedType" "document"
+!macroend
+
+; foom: Gives a file type back to the program which had it, if that program is
+; still registered. Without one, the type is removed.
+!macro ReturnFileType EXT
+  ReadRegStr $R0 HKLM "Software\Classes\${EXT}" ""
+  ${If} $R0 == "FOOM.Map"
+    ReadRegStr $R1 HKLM "Software\Classes\FOOM.Map\Previous" "${EXT}"
+    StrCpy $R2 ""
+    ${If} $R1 != ""
+      ReadRegStr $R2 HKLM "Software\Classes\$R1\shell\open\command" ""
+    ${EndIf}
+    ${If} $R2 != ""
+      WriteRegStr HKLM "Software\Classes\${EXT}" "" "$R1"
+    ${Else}
+      DeleteRegKey HKLM "Software\Classes\${EXT}"
+    ${EndIf}
+  ${EndIf}
+!macroend
+
 Function installAssociations
   ; The application
   WriteRegStr HKLM "Software\Classes\FOOM.Map" "" "FOOM Map"
@@ -42,12 +74,9 @@ Function installAssociations
     WriteRegStr HKLM "Software\Classes\FOOM.Map\shell\open\command" "" '"$INSTDIR\FOOM.exe" "%1"'
   
   ; The file type associations
-  WriteRegStr HKLM "Software\Classes\.foom" "" "FOOM.Map"
-  WriteRegStr HKLM "Software\Classes\.foom" "PerceivedType" "document"
-  WriteRegStr HKLM "Software\Classes\.omap" "" "FOOM.Map"
-  WriteRegStr HKLM "Software\Classes\.omap" "PerceivedType" "document"
-  WriteRegStr HKLM "Software\Classes\.xmap" "" "FOOM.Map"
-  WriteRegStr HKLM "Software\Classes\.xmap" "PerceivedType" "document"
+  !insertmacro TakeFileType ".foom"
+  !insertmacro TakeFileType ".omap"
+  !insertmacro TakeFileType ".xmap"
   
   ReadRegStr $R0 HKLM "Software\Classes\.ocd" ""
   StrCmp $R0 "" 0 +3
@@ -60,17 +89,9 @@ FunctionEnd
 
 Function un.installAssociations
   ; The file type associations
-  ReadRegStr $R0 HKLM "Software\Classes\.foom" ""
-  StrCmp $R0 "FOOM.Map" 0 +2
-    DeleteRegKey HKLM "Software\Classes\.foom"
-
-  ReadRegStr $R0 HKLM "Software\Classes\.omap" ""
-  StrCmp $R0 "FOOM.Map" 0 +2
-    DeleteRegKey HKLM "Software\Classes\.omap"
-  
-  ReadRegStr $R0 HKLM "Software\Classes\.xmap" ""
-  StrCmp $R0 "FOOM.Map" 0 +2
-    DeleteRegKey HKLM "Software\Classes\.xmap"
+  !insertmacro ReturnFileType ".foom"
+  !insertmacro ReturnFileType ".omap"
+  !insertmacro ReturnFileType ".xmap"
   
   DeleteRegValue HKLM "Software\Classes\.ocd\OpenWithProgIDs" "FOOM.Map"
   ReadRegStr $R0 HKLM "Software\Classes\.ocd" ""
