@@ -52,7 +52,7 @@ Keep in mind that the map area that was cut away has been added to the undo hist
 
 ### What are the advantages of the .omap format?
 
-The .omap format is OpenOrienteering Mapper's native format. It is XML-based, which means for example that it is relatively easy for other developers to access the information in map files. Additionally, it is platform independent, error-resistant and makes it possible to keep a high compatibility between different versions of the format.
+The .omap format is the format of OpenOrienteering Mapper, and FOOM's own .foom format is the same with FOOM's additions. It is XML-based, which means for example that it is relatively easy for other developers to access the information in map files. Additionally, it is platform independent, error-resistant and makes it possible to keep a high compatibility between different versions of the format.
 
 ### What is the difference between .xmap and .omap format?
 

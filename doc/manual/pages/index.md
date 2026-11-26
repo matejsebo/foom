@@ -10,7 +10,7 @@ nav_order: 0.01
 ## Contents
 
 [Installation](installation.md){: .subpage}
-Instructions to download and install OpenOrienteering.
+Instructions to download and install FOOM.
 
 [Introduction to the User Interface](main_window.md){: .subpage}
 Explanation of the home screen and main drawing window.
