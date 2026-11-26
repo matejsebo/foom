@@ -53,7 +53,7 @@ function(deploy_qt_translations basename)
 	endif()
 	
 	install(CODE 
-	  "execute_process(COMMAND \"${CMAKE_COMMAND}\" --build \"${CMAKE_CURRENT_BINARY_DIR}\" --target \"${basename}-translations\")"
+	  "execute_process(COMMAND \"${CMAKE_COMMAND}\" --build \"${CMAKE_BINARY_DIR}\" --target \"${basename}-translations\")"  # foom: Ninja builds from the top folder only
 	)
 	
 	set(generated_translations )
@@ -303,6 +303,15 @@ if(Mapper_PACKAGE_GDAL)
 	install(
 	  DIRECTORY "${GDAL_DATA_DIR}/"
 	  DESTINATION "${MAPPER_DATA_DESTINATION}/gdal")
+	# foom: the certificates which GDAL needs for HTTPS. The libcurl of MSYS2 looks for them
+	# beside the parent of the program's folder, where a package has nothing, so they are
+	# brought along and the program names the file to GDAL.
+	get_filename_component(gdal_prefix "${GDAL_DATA_DIR}/../.." ABSOLUTE)
+	if(WIN32 AND EXISTS "${gdal_prefix}/etc/ssl/certs/ca-bundle.crt")
+		install(
+		  FILES "${gdal_prefix}/etc/ssl/certs/ca-bundle.crt"
+		  DESTINATION "${MAPPER_DATA_DESTINATION}/ssl")
+	endif()
 	foreach(item IN LISTS GDAL_LIBRARIES)
 		if(EXISTS "${item}")
 			get_filename_component(GDAL_LIBRARY_DIR "{item}" PATH)
@@ -340,6 +349,7 @@ if(Mapper_PACKAGE_QT)
 	  printsupport/cupsprintersupport
 	  printsupport/windowsprintersupport
 	  styles/qmacstyle
+	  styles/qwindowsvistastyle  # foom: without it the program has the look of Windows 95
 	)
 	set(MAPPER_QT_MODULES
 	  Gui
@@ -388,7 +398,7 @@ if(Mapper_PACKAGE_ASSISTANT)
 		set(assistant_find_options ONLY_CMAKE_FIND_ROOT_PATH)
 	endif()
 	find_program(Qt5Help_ASSISTANT_EXECUTABLE
-	  NAMES assistant Assistant assistant.exe
+	  NAMES assistant Assistant assistant.exe assistant-qt5  # foom: the last is the name in MSYS2
 #	  HINTS bin
 	  ${assistant_find_options}
 	)
@@ -398,7 +408,13 @@ if(Mapper_PACKAGE_ASSISTANT)
 		  ${Mapper_PACKAGE_ASSISTANT})
 	endif()
 	message(STATUS "Qt Assistant - found")
-	if(WIN32 OR APPLE)
+	if(WIN32)
+		# foom: under the name by which the program looks for it beside itself
+		install(
+		  PROGRAMS ${Qt5Help_ASSISTANT_EXECUTABLE}
+		  DESTINATION "${MAPPER_RUNTIME_DESTINATION}"
+		  RENAME assistant.exe)
+	elseif(APPLE)
 		install(
 		  PROGRAMS ${Qt5Help_ASSISTANT_EXECUTABLE}
 		  DESTINATION "${MAPPER_RUNTIME_DESTINATION}${MAPPER_MACOS_SUBDIR}")
