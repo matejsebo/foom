@@ -897,6 +897,81 @@ private slots:
 		}
 	}
 
+	/// the design notes, "The embedded DEM in OCD files", Accept (4): the block of a grid, written and read again.
+	void ocdCourseDemOwnGrids()
+	{
+		QString error;
+		// 2 m cells, a void cell.
+		auto grid = makeGrid(30, 20, 500000.0, 5000040.0, 2.0, [](double x, double y) { return 400.0 + 0.37 * (x - 500000.0) + 0.11 * (y - 5000000.0); });
+		grid->setValue(7, 3, std::numeric_limits<float>::quiet_NaN());
+		auto decoded = decodeOcdCourseDem(encodeOcdCourseDem(*grid), {}, &error);
+		QVERIFY2(decoded, qPrintable(error));
+		QCOMPARE(decoded->extent(), grid->extent());
+		QCOMPARE(decoded->cellSize(), 2.0);
+		QVERIFY(std::isnan(decoded->value(7, 3)));
+		for (int row = 0; row < 20; ++row)
+			for (int col = 0; col < 30; ++col)
+				if (!(row == 3 && col == 7))
+					QVERIFY(std::abs(decoded->value(col, row) - grid->value(col, row)) <= 0.0051f);
+		// The header of a grid of 2 m, as the format means it: the heights in centimetres (100 to the metre), the cell size 200 cm last.
+		{
+			QByteArray prefixed(4, '\0');
+			prefixed[0] = 0x10;
+			auto const header = qUncompress(prefixed + encodeOcdCourseDem(*grid)).left(56);
+			auto const field = [&header](int i) { return qFromLittleEndian<qint32>(reinterpret_cast<const uchar*>(header.constData()) + 8 + 4 * i); };
+			QCOMPARE(field(0), 30);
+			QCOMPARE(field(1), 20);
+			QCOMPARE(field(2), 50000100);   // the first cell centre, cm
+			QCOMPARE(field(8), 100);
+			QCOMPARE(field(9), field(6));
+			QCOMPARE(field(10), 1);
+			QCOMPARE(field(11), 200);
+			QVERIFY(qAbs(field(6) - qint32(std::lround(grid->info().minimum * 100))) <= 1);
+			QVERIFY(qAbs(field(7) - qint32(std::lround(grid->info().maximum * 100))) <= 1);
+		}
+		// Heights which span more than 655 m take fewer units in a metre: 57 for 1140 m.
+		auto const high = makeGrid(20, 20, 0.0, 20.0, 1.0, [](double x, double) { return 100.0 + 60.0 * x; });
+		decoded = decodeOcdCourseDem(encodeOcdCourseDem(*high), {}, &error);
+		QVERIFY2(decoded, qPrintable(error));
+		for (int col = 0; col < 20; ++col)
+			QVERIFY2(std::abs(decoded->value(col, 5) - high->value(col, 5)) <= 0.0101f, qPrintable(QString::number(decoded->value(col, 5))));
+
+		// Damage.
+		QVERIFY(!decodeOcdCourseDem(QByteArray("not a grid"), {}, &error));
+		QVERIFY(!error.isEmpty());
+		QVERIFY(!decodeOcdCourseDem(encodeOcdCourseDem(*grid).left(100), {}, &error));
+
+		// The file of that name is a grid file.
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		auto const path = QDir(dir.path()).absoluteFilePath(QStringLiteral("grid.ocdCsDem"));
+		QVERIFY2(grid->save(path), qPrintable(ElevationModel::lastError()));
+		auto const opened = ElevationModel::open(path);
+		QVERIFY2(opened, qPrintable(ElevationModel::lastError()));
+		QCOMPARE(opened->extent(), grid->extent());
+		QVERIFY(std::abs(opened->value(3, 3) - grid->value(3, 3)) <= 0.0051f);
+
+		// The DEM's string.
+		auto dem = parseOcdDemString(QByteArray("C:\\maps\\grid.ocdDem\tl1\tP123400\tS540\te1\0\0", 38));
+		QVERIFY(dem.hasBlock());
+		QCOMPARE(dem.offset, qint64(123400));
+		QCOMPARE(dem.size, qint64(540));
+		QCOMPARE(dem.rest, QByteArray("C:\\maps\\grid.ocdDem\tl1"));
+		QVERIFY(!dem.restIsEmpty());
+		dem = parseOcdDemString(QByteArray("\tP200008\tS70001\te1\tl1"));
+		QVERIFY(dem.hasBlock() && dem.restIsEmpty());
+		QCOMPARE(dem.rest, QByteArray("\tl1"));
+		dem = parseOcdDemString(QByteArray("C:\\maps\\Park.ocdDem\tl1"));
+		QVERIFY(!dem.hasBlock() && !dem.embedded);
+		QCOMPARE(dem.rest, QByteArray("C:\\maps\\Park.ocdDem\tl1"));
+		auto at = 0;
+		auto const text = formatOcdDemString(QByteArray(), 200008, 8, 70001, &at);
+		QCOMPARE(text, QByteArray("\tl1\tP00200008\tS70001\te1"));
+		QCOMPARE(text.mid(at, 8), QByteArray("00200008"));
+		QCOMPARE(parseOcdDemString(text).offset, qint64(200008));
+		QCOMPARE(formatOcdDemString(QByteArray("a.ocdDem\tl1"), 77, 1, 5), QByteArray("a.ocdDem\tl1\tP77\tS5\te1"));
+	}
+
 	/// "The embedded DEM in OCD files", Accept (5) to (7).
 	void ocdCourseDemInOcdFile()
 	{
