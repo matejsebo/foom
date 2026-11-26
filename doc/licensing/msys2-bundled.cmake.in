@@ -1,0 +1,221 @@
+#
+#    Copyright 2026 Matej Šebo
+#    
+#    This file is part of FOOM.
+# 
+#    FOOM is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+# 
+#    FOOM is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+# 
+#    You should have received a copy of the GNU General Public License
+#    along with FOOM.  If not, see <http://www.gnu.org/licenses/>.
+
+
+# Runs when the package is put together, after the libraries were bundled.
+# For every bundled library and program which is not FOOM's own: the MSYS2
+# package it comes from, that package's version, licence and licence files.
+# A bundled file of no package, or a package which names no licence, stops
+# the packaging: nothing is handed out without its notice.
+
+set(pacman  "@MSYS2_PACMAN@")
+set(prefix  "@msys2_prefix@")
+set(msys    "@msys2_root@")
+set(root    "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
+set(about   "${root}/@MAPPER_ABOUT_DESTINATION@")
+set(own     "FOOM.exe" "foom-cli.exe")
+
+# Packages of MSYS2 which bring no file under share/licenses, and where their notice is taken from:
+#   prefix:  a file of the package elsewhere below the MSYS2 prefix
+#   source:  a file of doc/licensing/msys2/ in FOOM's sources, taken from the library's own sources
+#   common:  the text of a licence which the package names, from another package of MSYS2
+set(supplement_arrow          "prefix:share/doc/arrow/LICENSE.txt" "prefix:share/doc/arrow/NOTICE.txt")
+set(supplement_icu            "prefix:share/icu/*/LICENSE")
+set(supplement_libgeotiff     "prefix:share/doc/GeoTIFF/LICENSE" "prefix:share/doc/GeoTIFF/COPYING")
+set(supplement_mpfr           "prefix:share/doc/mpfr/COPYING.LESSER" "prefix:share/doc/mpfr/COPYING")
+set(supplement_giflib         "source:giflib.txt")
+set(supplement_lz4            "source:lz4.txt")
+set(supplement_snappy         "source:snappy.txt")
+set(supplement_postgresql     "source:postgresql.txt")
+set(supplement_ca-certificates "common:MPL-2.0")
+set(supplement_laszip         "common:Apache-2.0")
+set(supplement_gmp            "common:LGPL-3.0" "common:GPL-2.0")
+set(supplement_libidn2        "common:LGPL-3.0" "common:GPL-2.0")
+set(supplement_libfreexl      "common:MPL-1.1" "common:LGPL-2.1" "common:GPL-2.0")
+set(supplement_libspatialite  "common:MPL-1.1" "common:LGPL-2.1" "common:GPL-2.0")
+set(supplement_libx264        "common:GPL-2.0")
+set(supplement_x265           "common:GPL-2.0")
+set(supplement_poppler        "common:GPL-2.0")
+set(supplement_podofo         "common:LGPL-2.1" "common:GPL-2.0")
+set(supplement_sfcgal         "common:LGPL-2.1")
+set(common_Apache-2.0  "share/licenses/abseil-cpp/LICENSE")
+set(common_GPL-2.0     "share/licenses/cgal/GPL-2.0-or-later.txt")
+set(common_LGPL-2.1    "share/licenses/cairo/COPYING-LGPL-2.1")
+set(common_LGPL-3.0    "share/licenses/cgal/LGPL-3.0-or-later.txt")
+set(common_MPL-1.1     "share/licenses/cairo/COPYING-MPL-1.1")
+set(common_MPL-2.0     "share/licenses/nss/COPYING")
+set(supplement_dir "@CMAKE_CURRENT_SOURCE_DIR@/msys2")
+
+file(GLOB_RECURSE bundled "${root}/*.dll" "${root}/*.exe")
+set(sources )
+set(unknown )
+foreach(item ${bundled})
+	get_filename_component(name "${item}" NAME)
+	if(name IN_LIST own)
+		continue()
+	endif()
+	if(name STREQUAL "assistant.exe" AND NOT "@msys2_assistant_name@" STREQUAL "")
+		set(name "@msys2_assistant_name@")
+	endif()
+	set(source "${prefix}/bin/${name}")
+	if(NOT EXISTS "${source}")
+		file(GLOB_RECURSE source "${prefix}/share/qt5/plugins/${name}")
+	endif()
+	if(source)
+		list(APPEND sources ${source})
+	else()
+		list(APPEND unknown "${name}")
+	endif()
+endforeach()
+if(unknown)
+	message(FATAL_ERROR "Bundled, but not found in ${prefix}: ${unknown}")
+endif()
+if(EXISTS "${root}/@MAPPER_DATA_DESTINATION@/ssl/ca-bundle.crt")
+	list(APPEND sources "${prefix}/etc/ssl/certs/ca-bundle.crt")
+endif()
+if(NOT sources)
+	message(FATAL_ERROR "No bundled library was found in ${root}")
+endif()
+list(REMOVE_DUPLICATES sources)
+
+execute_process(
+  COMMAND "${pacman}" -Qqo ${sources}
+  OUTPUT_VARIABLE owners
+  RESULT_VARIABLE result
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+if(result)
+	message(FATAL_ERROR "pacman could not name the packages of the bundled files (${result})")
+endif()
+string(REGEX REPLACE "[\r\n]+" ";" packages "${owners}")
+list(REMOVE_DUPLICATES packages)
+list(SORT packages)
+
+set(items )
+set(count 0)
+foreach(package ${packages})
+	execute_process(
+	  COMMAND "${CMAKE_COMMAND}" -E env LC_ALL=C "${pacman}" -Qi "${package}"
+	  OUTPUT_VARIABLE info
+	  RESULT_VARIABLE result
+	)
+	if(result)
+		message(FATAL_ERROR "pacman knows nothing of ${package}")
+	endif()
+	string(REGEX MATCH "Version +: ([^\r\n]+)" unused "${info}")
+	set(version "${CMAKE_MATCH_1}")
+	string(REGEX MATCH "Licenses +: ([^\r\n]+)" unused "${info}")
+	set(licence "${CMAKE_MATCH_1}")
+	string(REPLACE "spdx:" "" licence "${licence}")
+	string(REGEX REPLACE "  +" ", " licence "${licence}")
+	string(REGEX REPLACE "^mingw-w64-(ucrt-|clang-)?(x86_64|i686|aarch64)-" "" short "${package}")
+	if(licence STREQUAL "" OR licence STREQUAL "None")
+		message(FATAL_ERROR "The package ${package} names no licence")
+	endif()
+
+	execute_process(
+	  COMMAND "${pacman}" -Qlq "${package}"
+	  OUTPUT_VARIABLE files
+	)
+	string(REGEX REPLACE "[\r\n]+" ";" files "${files}")
+	set(links )
+	foreach(file ${files})
+		if(NOT file MATCHES "/share/licenses/[^/]+/(.*[^/])$")
+			continue()
+		endif()
+		set(relative "${CMAKE_MATCH_1}")
+		# A browser shows a text file by its ending.
+		if(NOT relative MATCHES "\\.(txt|html|md)$")
+			set(relative "${relative}.txt")
+		endif()
+		configure_file("${msys}${file}" "${about}/3rd-party/${short}/${relative}" COPYONLY)
+		get_filename_component(label "${file}" NAME)
+		list(APPEND links "<a href=\"3rd-party/${short}/${relative}\">${label}</a>")
+	endforeach()
+	if(NOT links)
+		foreach(entry ${supplement_${short}})
+			string(REGEX MATCH "^([a-z]+):(.*)$" unused "${entry}")
+			set(kind "${CMAKE_MATCH_1}")
+			set(what "${CMAKE_MATCH_2}")
+			if(kind STREQUAL "prefix")
+				file(GLOB file "${prefix}/${what}")
+				get_filename_component(label "${what}" NAME)
+				set(target "3rd-party/${short}/${label}")
+			elseif(kind STREQUAL "source")
+				set(file "${supplement_dir}/${what}")
+				set(label "licence")
+				set(target "3rd-party/${short}/LICENSE.txt")
+			else()
+				set(file "${prefix}/${common_${what}}")
+				set(label "${what}")
+				set(target "common-licenses/${what}.txt")
+			endif()
+			if(NOT file OR NOT EXISTS "${file}")
+				message(FATAL_ERROR "The notice of ${package} (${entry}) was not found")
+			endif()
+			if(NOT target MATCHES "\\.(txt|html|md)$")
+				set(target "${target}.txt")
+			endif()
+			configure_file("${file}" "${about}/${target}" COPYONLY)
+			list(APPEND links "<a href=\"${target}\">${label}</a>")
+		endforeach()
+	endif()
+	if(NOT links)
+		list(APPEND without "${package}")
+	endif()
+	string(REPLACE ";" ", " links "${links}")
+	string(REPLACE "&" "&amp;" licence "${licence}")
+	list(APPEND items "  <li>${short} ${version} (${licence}): ${links}</li>")
+	math(EXPR count "${count} + 1")
+endforeach()
+if(without)
+	message(FATAL_ERROR "These bundled packages bring no licence file, and none is named for them in msys2-bundled.cmake.in: ${without}")
+endif()
+string(REPLACE ";" "\n" items "${items}")
+
+file(WRITE "${about}/bundled-libraries.html" "\
+<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<!DOCTYPE html>
+<html lang=\"en_US\">
+<head>
+  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\" />
+  <title>Libraries in this package | FOOM</title>
+  <style>
+    body { font-family: Arial, Helvetica; }
+    h1   { font-size: 200%; }
+  </style>
+</head>
+<body>
+<h1>Libraries which this package brings along</h1>
+<p>
+  This package holds the libraries below as MSYS2 builds them, unchanged.
+  Each is under its own licence, which is named here as its MSYS2 package
+  names it, with the licence files of that package. The sources of every
+  package are available from
+  <a href=\"https://packages.msys2.org/\">https://packages.msys2.org/</a>.
+</p>
+<ul>
+${items}
+</ul>
+<p>
+  <a href=\"licensing.html\">Back to the licensing page</a>
+</p>
+</body>
+</html>
+")
+message(STATUS "Licences of ${count} bundled MSYS2 packages: ${about}/bundled-libraries.html")

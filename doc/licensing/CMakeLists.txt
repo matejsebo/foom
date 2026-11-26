@@ -33,7 +33,10 @@ foreach(file ${provider_files})
 endforeach()
 
 # Select default provider
-if(ANDROID OR APPLE OR WIN32)
+if(MINGW AND DEFINED ENV{MSYSTEM_PREFIX} AND (Mapper_PACKAGE_QT OR Mapper_PACKAGE_GDAL OR Mapper_PACKAGE_PROJ))
+	# foom: a package which bundles the libraries of MSYS2 lists them with their licences
+	set(default_provider msys2)
+elseif(ANDROID OR APPLE OR WIN32)
 	set(default_provider OFF)
 elseif(UNIX)
 	set(default_provider NOTFOUND)
